@@ -120,7 +120,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 | 내 매칭 조회 | 구현 |
 | 교환 수락(complete)·COMPLETED·티켓 EXCHANGED+새 티켓·교환 이력 기록 | 구현 (V9) |
 | 완료된 티켓의 다른 채팅 비활성 처리(버튼 비활성+안내) | 구현 |
-| 교환 이력 조회 API·마이페이지 '교환 이력' 화면 | 미구현 (다음 브랜치) |
+| 교환 이력 조회 API·마이페이지 '교환 이력' 화면 | 구현 (V9 테이블 조회, DB 변경 없음) |
 | 채팅(매칭별 텍스트: REST 전송·조회·읽음, STOMP 사용자 큐 수신, 채팅 화면, 종료 후 읽기 전용) | 구현 (V11) |
 | 알림 3종(새 제안·상대 예약·예약 취소, 벨 말풍선·알림 페이지·읽은 알림 삭제, STOMP 실시간 푸시) | 구현 (V10, 푸시는 DB 변경 없음) |
 | 7일 경과 알림 | 미구현 |
@@ -175,7 +175,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 
 - 매칭 응답: `id, status, mySide, role, myRequestId/TicketId, mySeat, counterpartRequestId/TicketId, counterpartSeat, counterpartNickname, myExtraType/Amount, counterpartExtraType/Amount, myRequestDeleted, counterpartRequestDeleted, reservedBy("ME"|"COUNTERPART"|null), reservedAt, myAccepted, counterpartAccepted(교환 수락 시각 기준 실제 값), myTicketExchanged, counterpartTicketExchanged, myTicketReservedElsewhere, counterpartTicketReservedElsewhere, unreadChatCount(보낸 사람 제외, 닫힌 매칭도 셈), canceledBy, canceledAt, createdAt, updatedAt`. COMPLETED 응답의 mySeat/counterpartSeat와 ticket id는 교환 전 자리·티켓이다.
 - 요청 응답의 열·번 범위는 정규화 값이라 사용자가 입력한 원문 표기는 복원할 수 없다(알려진 한계).
-- 예정 API: 교환 이력 조회, 차단·신고.
+- 교환 이력 `GET /api/exchange/history?page&size`(본인 행만 최신순, 응답: 공연 제목·공연장·기존/바꾼 회차 시각·좌석 스냅샷·matchId·completedAt). 예정 API: 차단·신고.
 
 ## 7. 프론트 화면 (react-conventions 스킬 참고)
 
@@ -184,7 +184,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 | `/` | 홈(공개): 비로그인 서비스 소개 / 로그인 공연 검색·목록·더 보기 |
 | `/login`, `/signup` | 인증 |
 | `/performances/new` | 공연 등록(3단계), `/performances/:id` 공연 상세(읽기 전용, 보호 라우트, '이 공연 티켓 등록' 버튼) |
-| `/me` | 마이페이지: 닉네임·이메일·신뢰도 점수 표시, 내 티켓·내 매칭 링크, 교환 이력과 회원탈퇴는 '준비 중' 비활성 |
+| `/me` | 마이페이지: 닉네임·이메일·신뢰도 점수 표시, 내 티켓·내 매칭·교환 이력 링크, 회원탈퇴는 '준비 중' 비활성 |
 | `/tickets/new`, `/tickets` | 티켓 등록 / 내 티켓(내리기·교환 조건 진입) |
 | `/tickets/:ticketId/exchange` | 희망 조건 폼: 범위 카드(구역·열·번 범위, 카드마다 추가금 라디오 4개, 카드 복제, 클라이언트 겹침 경고), 요청 단위 희망 회차 우선순위, 총 N석 합집합 미리보기와 5,000석·50범위 경고, 마감 회차 선택 불가 |
 | `/exchange/requests/:requestId/candidates` | 후보 목록·제안하기('내 조건/상대 조건', 참고용 금액 구간, 신뢰도 표시 없음) |
@@ -199,7 +199,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 ## 8. 알려진 한계·후속 과제
 
 - 브라우저 수동 점검·실서버 연동은 교환 화면 전반에서 아직 충분히 하지 않았다.
-- 교환 이력 조회 화면, 7일 경과 알림, 차단·신고, 회원탈퇴는 위 4절 미구현 항목이다.
+- 7일 경과 알림, 차단·신고, 회원탈퇴는 위 4절 미구현 항목이다.
 - 채팅 알려진 한계: 실제 브라우저와 @stomp/stompjs 연동 점검 미실시, 모바일 이중 스크롤 완전 해소 미보장(AppLayout 높이 규칙), 미인증 소켓은 최대 약 40초 유지(운영 프록시 연결 한도로 흡수), 토큰 만료·사용자 변경 후 최대 30초 푸시 유지(차단·제재 구현 시 해당 사용자 세션 강제 종료 훅 필요), 응답·푸시에 상대 `senderId`(users.id) 노출(차단·신고 브랜치에서 `mine`으로 대체 검토), 속도·연결 제한은 단일 인스턴스 메모리, 하트비트 미응답 종료·16KB 초과 프레임 거부 미확인.
 - 공연: 예매처별로 같은 공연이 갈라지는 문제(같은 공연장+비슷한 제목 안내), 회차 추가 상한·스팸 정리는 후속.
 - 필터에서 전파된 예외(DB 장애 등)는 Spring 기본 `/error` 포맷으로 나간다(`{message}` 통일 검토). `/me` 한 번에 사용자 조회 2회(필터+서비스). `index.html` viewport에 `viewport-fit=cover`가 없어 safe-area 여백 미적용.

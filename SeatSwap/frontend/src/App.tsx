@@ -16,6 +16,7 @@ import NotificationsPage from "./pages/NotificationsPage";
 import ChatPage from "./pages/ChatPage";
 import AdminRoute from "./components/AdminRoute";
 import SeatClaimNewPage from "./pages/SeatClaimNewPage";
+import ExchangeHistoryPage from "./pages/ExchangeHistoryPage";
 import MySeatClaimsPage from "./pages/MySeatClaimsPage";
 import AdminSeatClaimsPage from "./pages/AdminSeatClaimsPage";
 import AdminDashboardPage from "./pages/AdminDashboardPage";
@@ -43,6 +44,7 @@ export default function App() {
             <Route path="/tickets/:ticketId/exchange" element={<ExchangeRequestFormPage />} />
             <Route path="/exchange/requests/:requestId/candidates" element={<CandidatesPage />} />
             <Route path="/exchange/matches" element={<MatchesPage />} />
+            <Route path="/exchange/history" element={<ExchangeHistoryPage />} />
             <Route path="/exchange/matches/:matchId/chat" element={<ChatPage />} />
             <Route path="/notifications" element={<NotificationsPage />} />
             <Route path="/seat-claims/new" element={<SeatClaimNewPage />} />

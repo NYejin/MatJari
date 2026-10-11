@@ -316,6 +316,14 @@ class NotificationApiMysqlTest {
         Party r = party(1, "Z1");
         long ticketCreator = user("creator");
         AtomicInteger reserveCycles = new AtomicInteger();
+        AtomicInteger receiverReserveCycles = new AtomicInteger();
+        // 정확한 정산을 위해 이 테스트 동안만 INSERT 감사 트리거를 둔다(롤백되면 감사 행도 함께 사라진다). 끝나면 지운다.
+        jdbc.execute("DROP TRIGGER IF EXISTS trg_notification_audit_it");
+        jdbc.execute("DROP TABLE IF EXISTS notification_audit_it");
+        jdbc.execute("CREATE TABLE notification_audit_it (user_id BIGINT NOT NULL)");
+        jdbc.execute("CREATE TRIGGER trg_notification_audit_it AFTER INSERT ON notification FOR EACH ROW "
+                + "INSERT INTO notification_audit_it (user_id) VALUES (NEW.user_id)");
+        try {
         AtomicInteger deletedByReceiver = new AtomicInteger();
         int expectedProposals = 0;
         int nextN = 2;
@@ -360,14 +368,28 @@ class NotificationApiMysqlTest {
                     notificationService.list(r.userId, 0, 20, false);
                     notificationService.unreadCount(r.userId);
                     notificationService.markAllRead(r.userId, "MATCH_RESERVED");
+                    // r 이 직접 예약/예약 취소: MATCH_RESERVED·RESERVATION_CANCELED 수신자가 상대(제안자)가 되는 반대 방향 경로
+                    List<Long> mine = jdbc.queryForList("SELECT id FROM exchange_match WHERE user_b_id = ? AND status = 'CHATTING' "
+                            + "ORDER BY id DESC LIMIT 1", Long.class, r.userId);
+                    if (!mine.isEmpty()) {
+                        try {
+                            matchService.reserve(r.userId, mine.get(0));
+                            receiverReserveCycles.incrementAndGet();
+                        } catch (ConflictException | BusinessRuleException e) {
+                            // 다른 매칭이 먼저 잠갔다
+                        }
+                        matchService.unreserve(r.userId, mine.get(0));
+                    }
                 }
                 return null;
             });
             for (int t = 0; t < 4; t++) {
                 int tt = t + round * 10;
-                calls.add(() -> {   // 무관한 사용자의 티켓 등록이 같은 시간에 돈다
+                // 절반은 수신자 r 본인의 티켓 등록: users(r) 행 X 잠금이 propose/reserve 의 users(r) FK S 잠금과 부딪힌다
+                long owner = t % 2 == 0 ? r.userId : ticketCreator;
+                calls.add(() -> {
                     for (int k = 0; k < 5; k++) {
-                        ticketService.create(ticketCreator, new TicketCreateRequest(session1, "C" + tt, "1", String.valueOf(k + 1)));
+                        ticketService.create(owner, new TicketCreateRequest(session1, "C" + tt, "1", String.valueOf(k + 1)));
                     }
                     return null;
                 });
@@ -380,9 +402,15 @@ class NotificationApiMysqlTest {
             }
             expectedProposals += proposersPerRound;
         }
-        // 정산: (r 이 지운 것 + 남은 것) == propose 알림 + 예약/예약취소 알림(사이클당 2건)
+        // 정산: (r 이 지운 것 + 남은 것) == 감사 트리거가 센 r 앞 INSERT 수(성공한 트랜잭션의 알림만)
         long remaining = jdbc.queryForObject("SELECT COUNT(*) FROM notification WHERE user_id = ?", Long.class, r.userId);
-        assertThat(deletedByReceiver.get() + remaining).isEqualTo(expectedProposals + 2L * reserveCycles.get());
+        long audited = jdbc.queryForObject("SELECT COUNT(*) FROM notification_audit_it WHERE user_id = ?", Long.class, r.userId);
+        assertThat(deletedByReceiver.get() + remaining).isEqualTo(audited);
+        assertThat(audited).isGreaterThanOrEqualTo(expectedProposals);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM notification_audit_it WHERE user_id <> ?", Long.class, r.userId))
+                .as("r 이 예약/취소한 만큼 제안자 쪽 알림도 생긴다").isEqualTo(jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM notification WHERE user_id <> ?", Long.class, r.userId));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ticket WHERE user_id = ?", Long.class, r.userId)).isGreaterThan(1);
         assertThat(reserveCycles.get()).as("예약이 한 번도 성공하지 않으면 스트레스가 약하다").isGreaterThan(0);
         long unread = jdbc.queryForObject("SELECT COUNT(*) FROM notification WHERE user_id = ? AND read_at IS NULL", Long.class, r.userId);
         assertThat(notificationService.unreadCount(r.userId).total()).isEqualTo(unread);
@@ -390,11 +418,43 @@ class NotificationApiMysqlTest {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM exchange_match WHERE status = 'RESERVED'", Long.class)).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM exchange_ticket_lock", Long.class)).isZero();
         System.out.println("[스트레스] 제안 " + expectedProposals + "건, 예약 사이클 " + reserveCycles.get()
-                + "회, 수신자가 지운 알림 " + deletedByReceiver.get() + "건, 남은 알림 " + remaining + "건");
+                + "회, 수신자(r) 예약 사이클 " + receiverReserveCycles.get() + "회, 수신자가 지운 알림 " + deletedByReceiver.get() + "건, 남은 알림 " + remaining + "건");
         // 마지막 정리: read-all 후에는 안 읽은 알림이 0
         notificationService.markAllRead(r.userId, null);
         assertThat(notificationService.unreadCount(r.userId).total()).isZero();
         assertThat(NotificationType.values()).hasSize(3);
+        } finally {
+            jdbc.execute("DROP TRIGGER IF EXISTS trg_notification_audit_it");
+            jdbc.execute("DROP TABLE IF EXISTS notification_audit_it");
+        }
+    }
+
+    // ------------------------------------------------------------------ COMPLETED 매칭
+
+    @Test
+    void 교환_완료된_매칭의_알림도_교환_전_자리를_유지하고_matchClosed이다() {
+        Party p = party(1, "Z1");
+        Party q = party(2, "Z2");
+        mutual(p, q);
+        ExchangeMatchResponse m = matchService.propose(p.userId, p.requestId, q.requestId);
+        matchService.reserve(p.userId, m.id());
+        matchService.complete(p.userId, m.id());
+        assertThat(matchService.complete(q.userId, m.id()).status()).isEqualTo("COMPLETED");
+        assertThat(jdbc.queryForObject("SELECT status FROM ticket WHERE id = ?", String.class, p.ticketId)).isEqualTo("EXCHANGED");
+
+        // q 는 제안 + 예약 알림, 둘 다 매칭 행의 자리(교환 전)를 보여준다
+        List<NotificationResponse> forQ = notificationService.list(q.userId, 0, 20, false).content();
+        assertThat(forQ).hasSize(2);
+        assertThat(forQ).allSatisfy(n -> {
+            assertThat(n.matchStatus()).isEqualTo("COMPLETED");
+            assertThat(n.matchClosed()).isTrue();
+            assertThat(n.role()).isEqualTo("RECEIVED");
+            assertThat(n.counterpartNickname()).isEqualTo("user1");
+            assertThat(n.mySeat()).isEqualTo(new NotificationResponse.Seat("Z2", "1", "2"));
+            assertThat(n.counterpartSeat()).isEqualTo(new NotificationResponse.Seat("Z1", "1", "1"));
+        });
+        assertThat(notificationService.unreadCount(q.userId).total()).as("완료된 매칭의 알림도 개수에 남는다").isEqualTo(2);
+        assertThat(notificationService.list(q.userId, 0, 20, true).totalElements()).isEqualTo(2);
     }
 
     // ------------------------------------------------------------------ 도우미

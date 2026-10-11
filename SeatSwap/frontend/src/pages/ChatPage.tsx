@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Link, useParams } from "react-router-dom";
-import { CHAT_AFTER_SIZE, CHAT_MAX_LENGTH, CHAT_PAGE_SIZE, chatApi, findReadMarkerId, generateClientMessageId, mergeMessages, nextReadTarget, visiblePending } from "../api/chat";
+import { CHAT_AFTER_SIZE, CHAT_MAX_LENGTH, CHAT_PAGE_SIZE, chatApi, countCodePoints, findReadMarkerId, generateClientMessageId, mergeMessages, nextReadTarget, truncateCodePoints, visiblePending } from "../api/chat";
 import { formatKstDateTime } from "../api/dateTime";
 import { exchangeApi } from "../api/exchange";
 import { exchangeErrorMessage } from "../api/exchangeMessages";
@@ -111,6 +111,8 @@ export default function ChatPage() {
   const prevPendingRef = useRef(0);
   const olderBusyRef = useRef(false);
   const matchLoadedRef = useRef(false);
+  const focusedRef = useRef(false);
+  const announceTimerRef = useRef<number | undefined>(undefined);
 
   const commit = useCallback((next: ChatMessage[]) => {
     messagesRef.current = next;
@@ -138,6 +140,7 @@ export default function ChatPage() {
     setAnnounce("");
     setAtBottom(true);
     matchLoadedRef.current = false;
+    focusedRef.current = false;
     setMatch(null);
     setMatchError(null);
   }, [matchId]);
@@ -223,7 +226,13 @@ export default function ChatPage() {
           const page = await chatApi.list(matchId, last === undefined ? { size: CHAT_PAGE_SIZE } : { after: last, size: CHAT_AFTER_SIZE });
           commit(mergeMessages(messagesRef.current, page.messages));
           setCounterpartRead((p) => Math.max(p, page.counterpartLastReadMessageId));
-          more = page.hasMore && page.messages.length > 0;
+          if (last === undefined) {
+            // 메시지가 없던 상태의 최신 조회: 더 오래된 메시지가 있는지만 반영하고, 이후는 after 조회로 이어 간다
+            setHasMore(page.hasMore);
+            more = false;
+          } else {
+            more = page.hasMore && page.messages.length > 0;
+          }
         }
       } while (refillRef.current);
     } catch {
@@ -274,13 +283,19 @@ export default function ChatPage() {
       else setNewBelow((n) => n + fromOthers.length);
       if (fromOthers.length > 0) {
         const lastOther = fromOthers[fromOthers.length - 1];
-        setAnnounce(fromOthers.length > 1 ? `새 메시지 ${fromOthers.length}개가 도착했어요.` : `새 메시지: ${lastOther.content}`);
+        // 같은 내용이 연속돼도 낭독되도록 한 번 비웠다가 다시 채운다
+        const message = fromOthers.length > 1 ? `새 메시지 ${fromOthers.length}개가 도착했어요.` : `새 메시지: ${lastOther.content}`;
+        window.clearTimeout(announceTimerRef.current);
+        setAnnounce("");
+        announceTimerRef.current = window.setTimeout(() => setAnnounce(message), 50);
       }
       prevLastIdRef.current = last;
     }
     if (shownPending.length > prevPendingRef.current) el.scrollTop = el.scrollHeight;
     prevPendingRef.current = shownPending.length;
   }, [messages, shownPending.length, loaded, me]);
+
+  useEffect(() => () => window.clearTimeout(announceTimerRef.current), []);
 
   const onScroll = () => {
     const el = listRef.current;
@@ -338,7 +353,12 @@ export default function ChatPage() {
   }, [matchId, messages, loaded, visible, atBottom, me]);
 
   useEffect(() => {
-    if (loaded || match || matchError || loadError) headingRef.current?.focus();
+    // 첫 로드(또는 매칭이 바뀐 직후) 한 번만 제목으로 포커스를 옮긴다. 재조회마다 옮기면 입력 중 포커스를 빼앗는다.
+    if (focusedRef.current) return;
+    if (loaded || match || matchError || loadError) {
+      focusedRef.current = true;
+      headingRef.current?.focus();
+    }
   }, [loaded, match, matchError, loadError]);
 
   // ---- 보내기 ----
@@ -409,8 +429,8 @@ export default function ChatPage() {
   const fatal = matchError !== null && match === null;
 
   return (
-    <div className={ui.page}>
-      <div className={ui.container}>
+    <div className={`${ui.page} min-h-0`}>
+      <div className={`${ui.container} min-h-0 flex-1`}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h1 ref={headingRef} tabIndex={-1} className={`${ui.pageTitle} outline-none`}>
             {match ? `${match.counterpartNickname}님과 채팅` : "채팅"}
@@ -440,21 +460,21 @@ export default function ChatPage() {
         )}
 
         {!fatal && (
-          <section className={`${ui.card} flex flex-col gap-3`} aria-label="채팅">
+          <section className={`${ui.card} flex min-h-0 flex-1 flex-col gap-3`} aria-label="채팅">
             <p className={ui.hint}>예매내역을 확인할 때 이름·연락처·결제 정보는 가리고 보여주세요. 메시지는 텍스트만 보낼 수 있고, 보낸 뒤에는 삭제·수정할 수 없어요.</p>
 
             <p role="status" className={liveRegionClass(connectionText, connection === "failed" ? ui.errorBox : ui.status)}>
               {connectionText}
             </p>
 
-            <div className="relative">
+            <div className="relative flex min-h-0 flex-1 flex-col">
               <div
                 ref={listRef}
                 onScroll={onScroll}
                 tabIndex={0}
                 role="region"
                 aria-label="메시지 목록"
-                className={`max-h-[min(60vh,32rem)] min-h-48 overflow-y-auto overscroll-contain rounded-[10px] bg-surface p-3 ${FOCUS_RING}`}
+                className={`min-h-48 max-h-[min(60vh,32rem)] flex-1 overflow-y-auto overscroll-contain rounded-[10px] bg-surface p-3 ${FOCUS_RING}`}
               >
                 {!loaded && !loadError && <p className={ui.muted}>메시지를 불러오는 중...</p>}
                 {loadError && (
@@ -551,9 +571,8 @@ export default function ChatPage() {
                 id="chat-input"
                 ref={textareaRef}
                 rows={2}
-                maxLength={CHAT_MAX_LENGTH}
                 value={text}
-                onChange={(e) => setText(e.target.value)}
+                onChange={(e) => setText(truncateCodePoints(e.target.value, CHAT_MAX_LENGTH))}
                 onKeyDown={onKeyDown}
                 disabled={closedChat}
                 placeholder="메시지를 입력하세요 (Shift+Enter로 줄바꿈)"
@@ -562,7 +581,7 @@ export default function ChatPage() {
               />
               <div className="flex items-center justify-between gap-2">
                 <span id={countId} className={ui.hint}>
-                  {text.length}/{CHAT_MAX_LENGTH}자
+                  {countCodePoints(text)}/{CHAT_MAX_LENGTH}자
                 </span>
                 <button type="submit" className={button.solid} disabled={closedChat || text.trim().length === 0}>
                   보내기

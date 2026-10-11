@@ -1,4 +1,4 @@
-import { Client } from "@stomp/stompjs";
+import { Client, ReconnectionTimeMode } from "@stomp/stompjs";
 import { API_BASE_URL } from "./authClient";
 import { refreshSession } from "./session";
 import { isTokenExpired, tokenStorage } from "./tokenStorage";
@@ -26,12 +26,6 @@ export function computeWsUrl(wsUrlEnv: string | undefined, apiBase: string, orig
   url.search = "";
   url.hash = "";
   return url.toString();
-}
-
-/** 지수 백오프(1s, 2s, 4s ... 최대 30s). attempt는 0부터 */
-export function backoffDelay(attempt: number): number {
-  const safe = Math.max(0, Math.min(attempt, 10));
-  return Math.min(BACKOFF_MAX_MS, BACKOFF_MIN_MS * 2 ** safe);
 }
 
 /** 푸시 payload 검증. 알 수 없는 모양은 null (무시) */
@@ -70,7 +64,7 @@ export interface RealtimeConnection {
 
 export function openRealtime(handlers: RealtimeHandlers): RealtimeConnection {
   let closed = false;
-  let attempt = 0;
+  let manualReconnect = false; // reconnect() 도중의 close는 상태를 "재연결 중"으로 바꾸지 않는다
   let authFailed = false;
   let authRetried = false;
   let forceRefresh = false;
@@ -80,7 +74,10 @@ export function openRealtime(handlers: RealtimeHandlers): RealtimeConnection {
     heartbeatIncoming: HEARTBEAT_MS,
     heartbeatOutgoing: HEARTBEAT_MS,
     connectionTimeout: 10_000,
+    // 지수 백오프는 stompjs가 처리한다: 1s, 2s, 4s ... 최대 30s (연결 성공 시 처음 값으로 초기화)
     reconnectDelay: BACKOFF_MIN_MS,
+    reconnectTimeMode: ReconnectionTimeMode.EXPONENTIAL,
+    maxReconnectDelay: BACKOFF_MAX_MS,
     beforeConnect: async () => {
       let token = tokenStorage.getAccessToken();
       if (forceRefresh || !token || isTokenExpired(token)) {
@@ -92,7 +89,6 @@ export function openRealtime(handlers: RealtimeHandlers): RealtimeConnection {
     },
     onConnect: () => {
       if (closed) return;
-      attempt = 0;
       authFailed = false;
       authRetried = false;
       client.subscribe(CHAT_QUEUE, (frame) => {
@@ -107,7 +103,7 @@ export function openRealtime(handlers: RealtimeHandlers): RealtimeConnection {
       authFailed = true;
     },
     onWebSocketClose: () => {
-      if (closed) return;
+      if (closed || manualReconnect) return;
       if (authFailed) {
         authFailed = false;
         if (authRetried) {
@@ -117,12 +113,13 @@ export function openRealtime(handlers: RealtimeHandlers): RealtimeConnection {
         }
         authRetried = true;
         forceRefresh = true;
-        client.reconnectDelay = BACKOFF_MIN_MS;
         handlers.onStatus("reconnecting");
+        // 인증 재시도는 백오프 없이 즉시 1회: deactivate 후 activate (activate가 지연을 처음 값으로 되돌리고 바로 연결한다)
+        void client.deactivate().then(() => {
+          if (!closed) client.activate();
+        });
         return;
       }
-      client.reconnectDelay = backoffDelay(attempt);
-      attempt += 1;
       handlers.onStatus("reconnecting");
     },
   });
@@ -134,8 +131,9 @@ export function openRealtime(handlers: RealtimeHandlers): RealtimeConnection {
     reconnect: () => {
       if (closed) return;
       handlers.onStatus("connecting");
-      attempt = 0;
+      manualReconnect = true;
       void client.deactivate().then(() => {
+        manualReconnect = false;
         if (!closed) client.activate();
       });
     },

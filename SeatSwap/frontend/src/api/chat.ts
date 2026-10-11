@@ -2,6 +2,18 @@ import { apiClient } from "./client";
 import type { ChatMessage, ChatMessagePage, PendingChatMessage } from "../types/chat";
 
 export const CHAT_MAX_LENGTH = 1000;
+
+/** 글자 수는 UTF-16 길이가 아니라 코드 포인트 기준이다 (이모지 1개 = 1자) */
+export function countCodePoints(text: string): number {
+  return Array.from(text).length;
+}
+
+/** 코드 포인트 기준으로 max자까지만 남긴다 (서로게이트 쌍 중간에서 자르지 않는다) */
+export function truncateCodePoints(text: string, max: number): string {
+  const chars = Array.from(text);
+  return chars.length <= max ? text : chars.slice(0, max).join("");
+}
+
 export const CHAT_PAGE_SIZE = 30;
 export const CHAT_AFTER_SIZE = 100;
 

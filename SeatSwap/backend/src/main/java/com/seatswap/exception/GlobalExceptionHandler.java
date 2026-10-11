@@ -95,7 +95,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<Map<String, String>> handleMaxUploadSize(MaxUploadSizeExceededException e) {
         return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
-                .body(Map.of("code", "IMAGE_TOO_LARGE", "message", "이미지는 10MB 이하만 올릴 수 있습니다."));
+                .body(Map.of("code", "IMAGE_TOO_LARGE", "message", "이미지는 5MB 이하만 올릴 수 있습니다."));
+    }
+
+    // 410 - 처리 후 삭제된 좌석 인증 사진: {"code":"IMAGE_DELETED","message":..}
+    @ExceptionHandler(com.seatswap.service.SeatClaimService.ImageDeletedException.class)
+    public ResponseEntity<Map<String, String>> handleImageDeleted(com.seatswap.service.SeatClaimService.ImageDeletedException e) {
+        return ResponseEntity.status(HttpStatus.GONE).body(Map.of("code", e.getCode(), "message", e.getMessage()));
     }
 
     // 403 — {"message": ...} (Security의 AccessDeniedHandler는 문구를 바꿀 수 없어 업무 규칙 위반은 이 예외로 처리)

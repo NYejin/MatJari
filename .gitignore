@@ -2,3 +2,6 @@
 raw/
 
 .claude/worktrees/
+
+# 좌석 소유 인증 사진 업로드 디렉터리 (seatswap.upload.dir 기본값). 개인정보라 커밋하지 않는다
+SeatSwap/backend/data/

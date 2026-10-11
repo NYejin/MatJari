@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { exchangeApi } from "../api/exchange";
 import { exchangeErrorMessage, formatExtra } from "../api/exchangeMessages";
 import { formatKstDateTime } from "../api/dateTime";
@@ -39,6 +39,16 @@ const TABS: { role: MatchRole; label: string }[] = [
   { role: "RECEIVED", label: "받은 제안" },
 ];
 
+/** 알림에서 들어올 때의 URL 쿼리: ?role=RECEIVED&matchId=123 */
+function readRole(value: string | null): MatchRole {
+  return value === "SENT" || value === "RECEIVED" ? value : "ALL";
+}
+
+function readMatchId(value: string | null): number | null {
+  const n = value && /^\d+$/.test(value) ? Number(value) : null;
+  return n !== null && Number.isSafeInteger(n) ? n : null;
+}
+
 function readNotice(state: unknown): string | null {
   if (typeof state !== "object" || state === null || !("notice" in state)) return null;
   const notice: unknown = (state as { notice: unknown }).notice;
@@ -49,7 +59,16 @@ export default function MatchesPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const [notice] = useState(() => readNotice(location.state));
-  const [role, setRole] = useState<MatchRole>("ALL");
+  const [searchParams] = useSearchParams();
+  const [role, setRole] = useState<MatchRole>(() => readRole(searchParams.get("role")));
+  /** 알림에서 넘어온 카드 강조 대상 (같은 화면에서 다른 알림을 눌러 쿼리만 바뀌어도 따라간다) */
+  const focusMatchId = readMatchId(searchParams.get("matchId"));
+  const queryRole = searchParams.get("role");
+  const focusedRef = useRef(false);
+  useEffect(() => {
+    focusedRef.current = false;
+    setRole(readRole(queryRole));
+  }, [focusMatchId, queryRole]);
   const [announce, setAnnounce] = useState("");
   const headingRef = useRef<HTMLHeadingElement>(null);
 
@@ -63,6 +82,15 @@ export default function MatchesPage() {
     role,
     (m) => m.id
   );
+
+  // 알림에서 온 경우: 목록이 처음 뜨면 해당 카드로 스크롤한다 (목록에 없으면 그대로 둔다)
+  useEffect(() => {
+    if (focusMatchId === null || focusedRef.current || state.status !== "success") return;
+    const card = document.getElementById(`match-card-${focusMatchId}`);
+    if (!card) return;
+    focusedRef.current = true;
+    card.scrollIntoView({ block: "center" });
+  }, [state, focusMatchId]);
 
   /** 첫 페이지부터 다시 불러온다. message가 있으면 결과 안내로 보여주고, 없으면 이전 안내를 지운다 */
   const refresh = (message = "") => {
@@ -159,7 +187,11 @@ export default function MatchesPage() {
           <>
             <ul className="flex flex-col gap-3" aria-label={role === "SENT" ? "보낸 제안 목록" : role === "RECEIVED" ? "받은 제안 목록" : "전체 매칭 목록"}>
               {state.items.map((m) => (
-                <li key={m.id}>
+                <li
+                  key={m.id}
+                  id={`match-card-${m.id}`}
+                  className={`scroll-mt-20 rounded-2xl ${m.id === focusMatchId ? "outline-2 outline-offset-2 outline-primary-600" : ""}`}
+                >
                   <MatchCard match={m} onChanged={refresh} onStale={() => refresh()} />
                 </li>
               ))}

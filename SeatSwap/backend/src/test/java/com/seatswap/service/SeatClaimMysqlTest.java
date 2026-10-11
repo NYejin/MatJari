@@ -243,6 +243,35 @@ class SeatClaimMysqlTest {
     }
 
     @Test
+    void approveDoesNotTakeDownTheClaimantsOwnTicketRegisteredAfterTheRequest() throws Exception {
+        Seat owner = holder("A", 1);
+        long claimId = claim(claimant, "A", "1", "1").id();
+        // 소유자가 티켓을 내리고, 요청자가 그 좌석을 직접 등록한 뒤 관리자가 승인한다
+        jdbc.update("UPDATE ticket SET status = 'INACTIVE' WHERE id = ?", owner.ticketId);
+        jdbc.update("INSERT INTO ticket (performance_session_id, user_id, zone_label, zone_key, row_label, row_key, "
+                + "col_label, col_key, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,'ACTIVE',NOW(6),NOW(6))",
+                session, claimant, "A", "A", "1", "1", "1", "1");
+        long mine = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+
+        AdminSeatClaimResponse r = claimService.approve(admin, claimId);
+
+        assertThat(r.status()).isEqualTo("APPROVED");
+        assertThat(jdbc.queryForObject("SELECT status FROM ticket WHERE id = ?", String.class, mine)).isEqualTo("ACTIVE");
+        assertThat(jdbc.queryForObject("SELECT resolved_ticket_id FROM seat_claim WHERE id = ?", Long.class, claimId)).isNull();
+    }
+
+    @Test
+    void adminCannotApproveTheirOwnClaim() throws Exception {
+        holder("A", 1);
+        long claimId = claim(admin, "A", "1", "1").id();
+
+        assertThatThrownBy(() -> claimService.approve(admin, claimId))
+                .isInstanceOf(ConflictException.class)
+                .satisfies(e -> assertThat(((ConflictException) e).getDetails()).containsEntry("code", "SELF_REVIEW"));
+        assertThat(jdbc.queryForObject("SELECT status FROM seat_claim WHERE id = ?", String.class, claimId)).isEqualTo("PENDING");
+    }
+
+    @Test
     void imageDeleteFailureDoesNotUndoTheReview() throws Exception {
         holder("A", 1);
         long claimId = claim(claimant, "A", "1", "1").id();

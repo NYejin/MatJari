@@ -12,22 +12,23 @@
 
 ## 현재 상태
 - 2026-10-07 방향 전환으로 좌석표 트랙 코드와 교환·채팅·후기 등 빈 스켈레톤(컨트롤러·서비스·저장소)을 삭제했다. 좌석표 코드는 git 태그 `archive/seatmap-track-20261007`에 보관되어 있다.
-- 엔티티는 User·Performance·PerformanceSession·Ticket과 교환 도메인 ExchangeRequest·ExchangeWantRange·ExchangeWantSession·ExchangeMatch·ExchangeHistory(V9)·Notification(V10)·ChatMessage(V11) 11종이다(예약 잠금·펼친 희망 좌석·채팅 읽음 포인터는 JdbcTemplate 저장소). Ticket은 구역·열·번(표시용 label + 정규화 key)·상태(ACTIVE/INACTIVE/EXCHANGED; `EXCHANGED`는 교환 완료 때 기존 티켓에 붙는다, V9)를 가지며 티켓 등록·조회·내리기 API가 있다(FR-03).
+- 엔티티는 User·Performance·PerformanceSession·Ticket과 교환 도메인 ExchangeRequest·ExchangeWantRange·ExchangeWantSession·ExchangeMatch·ExchangeHistory(V9)·Notification(V10)·ChatMessage(V11)·PerformanceEditProposal(V12)·SeatClaim(V12) 13종이다(예약 잠금·펼친 희망 좌석·채팅 읽음 포인터는 JdbcTemplate 저장소). Ticket은 구역·열·번(표시용 label + 정규화 key)·상태(ACTIVE/INACTIVE/EXCHANGED; `EXCHANGED`는 교환 완료 때 기존 티켓에 붙는다, V9)를 가지며 티켓 등록·조회·내리기 API가 있다(FR-03).
 - **회원가입/로그인/JWT 인증(FR-01)은 구현 완료**:
   - `security/JwtTokenProvider` — access/refresh 토큰 발급·검증 (jjwt 0.12.5)
   - `security/JwtAuthenticationFilter` — Authorization 헤더 검증 후 SecurityContext 설정
   - `security/CustomUserDetailsService` — 이메일 기준 사용자 조회
-  - `config/SecurityConfig` — JWT 필터 등록, CORS(개발용 localhost:5173 허용), `/api/auth/**` permitAll, `/api/admin/**`는 ADMIN 권한 (해당 컨트롤러는 아직 없음)
+  - `config/SecurityConfig` — JWT 필터 등록, CORS(개발용 localhost:5173 허용), `/api/auth/**` permitAll, `/api/admin/**`는 ADMIN 권한 (관리자 컨트롤러 2종은 2026-10-12 구현, 아래 '관리자 API' 절)
   - `service/AuthService`, `controller/AuthController` — POST /api/auth/signup, /login, /refresh
   - 요청 DTO는 `jakarta.validation`으로 기본 검증(이메일 형식, 비밀번호 8자 이상) 적용
-- **공연·회차 등록/조회(FR-02)는 구현 완료** (`PerformanceController`, `PerformanceService`). 공연은 회차와 함께 등록하며, 등록 후에는 아무도 제목·공연장·회차를 수정하거나 공연·회차를 삭제할 수 없다(수정은 추후 관리자 수정 제안으로만, 후속). 공연장은 공연의 텍스트 속성 `venueName`(필수, 1~100자)이다.
+- **공연·회차 등록/조회(FR-02)는 구현 완료** (`PerformanceController`, `PerformanceService`). 공연은 회차와 함께 등록하며, 등록 후에는 아무도 제목·공연장·회차를 수정하거나 공연·회차를 삭제할 수 없다(수정은 관리자 수정 제안 승인으로만 바뀌며 2026-10-12 구현, 아래 '관리자 API' 절). 공연장은 공연의 텍스트 속성 `venueName`(필수, 1~100자)이다.
 - **링크 기반 공연 정보 미리보기(2026-10-12, `feature/link-autofill`)는 구현 완료**(`GET /api/performances/preview`, DB 변경 없음). 자세한 규칙은 아래 '링크 공연정보 미리보기' 절.
 - STOMP 스켈레톤(`config/WebSocketConfig`의 TODO)은 채팅 구현(V11, 2026-10-11)으로 대체됐다. 아래 '채팅 (V11)' 절 참고.
 - **티켓 등록(FR-03)은 구현 완료** (`TicketController`, `TicketService`, `SeatKeyNormalizer`). 좌석 1개를 텍스트(구역 필수, 열·번은 숫자 또는 문자)로 등록한다. 같은 회차·구역·열·번의 활성 티켓은 1개(DB `uk_ticket_active_seat`), 사용자당 활성 티켓 20개 상한(`users` 행 FOR UPDATE로 직렬화), 회차 당일 끝(다음날 0시 KST)까지만 등록할 수 있다. 교환 희망 범위·매칭·예약은 아래 교환 항목 참고. 내릴 때 예약 잠금이면 `TicketService.ensureCanDeactivate`가 409 `TICKET_RESERVED`로 막는다.
 - **교환 희망 조건 등록(FR-04 교환 요청)은 구현 완료** (`ExchangeRequestController`, `ExchangeRequestService`, `WantSeatExpander`, Flyway V4). 티켓 하나에 미삭제 요청 1개(범위별 추가금 유형·희망 회차 우선순위·희망 좌석 범위)를 등록·조회·수정·소프트 삭제한다. 범위는 (구역, 열 from~to, 번 from~to)로 입력하면 개별 좌석으로 펼쳐 `exchange_want_seat`에 저장한다. **매칭 후보 조회**(`GET /api/exchange/requests/{id}/candidates`, 읽기 전용)는 구현됐다. 티켓을 내리면(`DELETE /api/tickets/{id}`) 그 티켓의 교환 요청은 CLOSED로 바뀐다.
-- **매칭 생성·예약(FR-04 교환 흐름 일부)은 구현 완료** (`ExchangeMatchController`, `ExchangeMatchService`, Flyway V5). 후보를 골라 매칭(채팅 단계, CHATTING)을 만들고, 둘 중 한 명이 예약하면 RESERVED가 되어 두 티켓이 잠기고, 누구든 예약을 취소해 CHATTING으로 되돌릴 수 있다(`reserve`/`unreserve`, Flyway V8). 채팅 종료(취소)·거절은 CHATTING에서만 가능하다. **교환 완료는 구현 완료(2026-10-11, V9)**: 양쪽 '교환 수락'(`complete`)으로 COMPLETED, 기존 티켓 EXCHANGED + 새 티켓, `exchange_history` 기록(아래 '교환 완료' 절). **아직 없는 것**: 교환 이력 조회 API·마이페이지 화면(기록은 구현, 조회는 다음 브랜치), 알림 실시간 푸시(STOMP, 다음 브랜치), 사용자 차단(`user_block`, V12 예정). 후보 '예약 중' 뱃지는 폐기(후보 목록은 예약 잠긴 티켓을 계속 제외). (내 매칭 조회 `GET /api/exchange/matches/me`·`/{id}`는 구현됨) 아래 '매칭 API' 참고.
+- **매칭 생성·예약(FR-04 교환 흐름 일부)은 구현 완료** (`ExchangeMatchController`, `ExchangeMatchService`, Flyway V5). 후보를 골라 매칭(채팅 단계, CHATTING)을 만들고, 둘 중 한 명이 예약하면 RESERVED가 되어 두 티켓이 잠기고, 누구든 예약을 취소해 CHATTING으로 되돌릴 수 있다(`reserve`/`unreserve`, Flyway V8). 채팅 종료(취소)·거절은 CHATTING에서만 가능하다. **교환 완료는 구현 완료(2026-10-11, V9)**: 양쪽 '교환 수락'(`complete`)으로 COMPLETED, 기존 티켓 EXCHANGED + 새 티켓, `exchange_history` 기록(아래 '교환 완료' 절). **아직 없는 것**: 교환 이력 조회 API·마이페이지 화면(기록은 구현, 조회는 다음 브랜치), 사용자 차단(`user_block`, V13 예정). 후보 '예약 중' 뱃지는 폐기(후보 목록은 예약 잠긴 티켓을 계속 제외). (내 매칭 조회 `GET /api/exchange/matches/me`·`/{id}`는 구현됨) 아래 '매칭 API' 참고.
 - **알림 3종(R1-3) 구현 완료(2026-10-11, `feature/notifications`, V10)**: 새 제안·상대 예약·상대 예약 취소를 `notification`에 쌓고, 조회·안 읽은 개수·읽음·모두 읽음·읽은 알림 삭제 API 5개를 제공한다. 자세한 규칙은 아래 '알림 (V10)' 절. 실시간 푸시(STOMP 신호)는 2026-10-11 `feature/notifications-realtime`에서 구현됐다(아래 '알림 실시간 푸시' 절). 토스트는 만들지 않았다.
-- 테스트 수치(2026-10-12 기준, `feature/link-autofill`): 기본 `./gradlew test`는 632건 통과·0 실패, MySQL IT 141건은 건너뛴다(링크 자동 입력 신규 32건 포함: 파서 10, PageFetcher 9, 서비스 8, 컨트롤러 슬라이스 5). 직전 기준(2026-10-11, `feature/chat`)은 기본 595건 통과, IT 포함 612건 통과였다. 실제 MySQL이 필요한 `ExchangeCandidateQueryTest`·`ExchangeMatchMysqlTest`·`ExchangeMatchQueryMysqlTest`·`ExchangeCompleteMysqlTest`·`NotificationApiMysqlTest`·`ChatServiceMysqlTest`·`ChatSchemaMysqlTest`·`StompChatMysqlIT`·마이그레이션 테스트(V9 `MigrationV9MysqlTest` 포함)는 `SEATSWAP_IT_JDBC_URL`이 없으면 통째로 건너뛰며 리포트에 `[SKIPPED ...]` 메시지가 남는다. `SEATSWAP_IT_REQUIRED=true`와 `SEATSWAP_IT_*`를 주면 IT 포함 전체 실행이 된다(2026-10-12 IT 포함 실행은 재확인하지 않았다). `SEATSWAP_IT_REQUIRED=true`(또는 `CI` 환경변수가 있으면)는 건너뛰지 않고 실패한다. 주의: Gradle은 환경변수를 입력으로 보지 않아 이전 결과를 재사용하므로 환경을 바꿔 다시 돌릴 때는 `./gradlew cleanTest test`를 쓴다. 아래 '매칭 후보 조회 검증' 참고.
+- **관리자 페이지 (V12, 2026-10-12, `feature/admin`)는 구현 완료**: 공연 수정 제안(제목·공연장)과 좌석 소유 인증 요청(내 티켓 인증, 사진 업로드) 두 가지를 관리자가 처리한다. 자세한 규칙은 아래 '관리자 API' 절.
+- 테스트 수치(2026-10-12, `feature/admin`): 백엔드 전체(임시 MySQL IT 포함) 708건 통과·실패 0·skip 0(V12 스키마 `AdminSchemaMysqlTest` 6건, 수정 제안 24건, 좌석 인증 31건 포함; 기본 모드와 IT 모드를 나눈 수치는 기록하지 않았다). 직전 기준(2026-10-12 기준, `feature/link-autofill`): 기본 `./gradlew test`는 632건 통과·0 실패, MySQL IT 141건은 건너뛴다(링크 자동 입력 신규 32건 포함: 파서 10, PageFetcher 9, 서비스 8, 컨트롤러 슬라이스 5). 직전 기준(2026-10-11, `feature/chat`)은 기본 595건 통과, IT 포함 612건 통과였다. 실제 MySQL이 필요한 `ExchangeCandidateQueryTest`·`ExchangeMatchMysqlTest`·`ExchangeMatchQueryMysqlTest`·`ExchangeCompleteMysqlTest`·`NotificationApiMysqlTest`·`ChatServiceMysqlTest`·`ChatSchemaMysqlTest`·`StompChatMysqlIT`·마이그레이션 테스트(V9 `MigrationV9MysqlTest` 포함)는 `SEATSWAP_IT_JDBC_URL`이 없으면 통째로 건너뛰며 리포트에 `[SKIPPED ...]` 메시지가 남는다. `SEATSWAP_IT_REQUIRED=true`와 `SEATSWAP_IT_*`를 주면 IT 포함 전체 실행이 된다(2026-10-12 IT 포함 실행은 재확인하지 않았다). `SEATSWAP_IT_REQUIRED=true`(또는 `CI` 환경변수가 있으면)는 건너뛰지 않고 실패한다. 주의: Gradle은 환경변수를 입력으로 보지 않아 이전 결과를 재사용하므로 환경을 바꿔 다시 돌릴 때는 `./gradlew cleanTest test`를 쓴다. 아래 '매칭 후보 조회 검증' 참고.
 
 ## 인증 API
 
@@ -291,7 +292,7 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 
 ## DB 마이그레이션 (Flyway)
 
-- 마이그레이션 파일: `src/main/resources/db/migration/V{n}__{snake_description}.sql` (V1 = 새 기준선 5개 테이블, V2 = `venue` 삭제·`performance.venue_name` 추가, V3 = `ticket` 좌석(구역·열·번)·상태 컬럼과 활성 좌석 유일 제약, V4 = 교환 희망 쪽 테이블 4개, V5 = 매칭·예약 잠금 테이블 2개, V6 = 추가금을 요청에서 희망 범위로 이동, V7 = 요청 소프트 삭제, V8 = 예약 방식 변경(`reserved_by_id`·`reserved_at`), V9 = 교환 완료·교환 이력(`ticket.status` EXCHANGED, `exchange_history`), V10 = 알림(`notification`), V11 = 채팅(`chat_message`, `chat_read_state`), 한국어 주석)
+- 마이그레이션 파일: `src/main/resources/db/migration/V{n}__{snake_description}.sql` (V1 = 새 기준선 5개 테이블, V2 = `venue` 삭제·`performance.venue_name` 추가, V3 = `ticket` 좌석(구역·열·번)·상태 컬럼과 활성 좌석 유일 제약, V4 = 교환 희망 쪽 테이블 4개, V5 = 매칭·예약 잠금 테이블 2개, V6 = 추가금을 요청에서 희망 범위로 이동, V7 = 요청 소프트 삭제, V8 = 예약 방식 변경(`reserved_by_id`·`reserved_at`), V9 = 교환 완료·교환 이력(`ticket.status` EXCHANGED, `exchange_history`), V10 = 알림(`notification`), V11 = 채팅(`chat_message`, `chat_read_state`), V12 = 관리자 처리 대상(`performance_edit_proposal`, `seat_claim`), 한국어 주석)
 - 적용 이력: `SELECT * FROM flyway_schema_history;` (docker: `docker exec seatswap-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" seatswap -e "SELECT * FROM flyway_schema_history"'`)
 - 규칙: 스키마 변경은 새 V 파일로만, 적용된 파일 수정 금지, `ddl-auto: validate`, 엔티티 변경과 마이그레이션을 함께 작성
 - 앱 기동 시 자동 적용된다.
@@ -314,7 +315,8 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 - **V9 적용 안내 (교환 완료·교환 이력, `V9__exchange_complete_history.sql`, 2026-10-11)**: `ticket.status`의 `ck_ticket_status`를 ACTIVE/INACTIVE/EXCHANGED로 확장한다(옛 정의에 EXCHANGED가 없을 때만 DROP 후 ADD). 새 테이블 `exchange_history`(append-only, 매칭 1건 완료 시 사용자별 1행씩 2행)를 만든다: `match_id`·`user_id`·`old_ticket_id`·`new_ticket_id`·`performance_id` FK(ON DELETE/UPDATE 동작 없음), 스냅샷 `performance_title`·`venue_name`·`old_starts_at`/`new_starts_at`·`old_`/`new_` 구역·열·번 label, `created_at`. UK `uk_exchange_history_old_ticket`·`uk_exchange_history_new_ticket`(한 티켓은 한 번만 교환), 단일 컬럼 KEY `idx_exchange_history_match`·`_user`·`_performance`, CHECK `ck_exchange_history_tickets`(old <> new). 기존 데이터 이관과 파괴적 단계는 없고, V2·V6~V8과 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하다. 되돌리기는 롤포워드(이력 삭제 후 EXCHANGED 행 정리, CHECK 축소)로 한다. 요구 MySQL 8.0.16 이상. 검증: `MigrationV9MysqlTest`(실제 MySQL, 별도 DB `*_mig_it`, `SEATSWAP_IT_*`가 있을 때만 실행).
 - **V10 적용 안내 (알림, `V10__notification.sql`, 2026-10-11)**: 새 테이블 `notification`만 만든다. 기존 테이블 변경·데이터 이관·파괴적 단계는 없다. 컬럼: `id`, `user_id`(FK users, 수신자), `type`(VARCHAR(40), CHECK로 3종만), `match_id`(FK exchange_match, NOT NULL, CHECK `ck_notification_match_required`), `dedup_key`(VARCHAR(100) NULL, UNIQUE `uk_notification_dedup`), `read_at`(NULL = 안 읽음), `created_at`, 생성 컬럼 `unread_user_id`(STORED, 안 읽었으면 user_id, 안 읽은 개수 인덱스 `idx_notification_unread`, FK 아님). FK 인덱스 `idx_notification_user`·`idx_notification_match`는 단일 컬럼이고 FK에 ON DELETE/UPDATE 동작을 두지 않는다. 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하다. 되돌리기는 롤포워드(알림 삭제 뒤 테이블 정리). 요구 MySQL 8.0.16 이상. 마이그레이션 전용 테스트는 없고, 실제 MySQL의 `NotificationApiMysqlTest`가 V10이 적용된 DB에서 생성·읽음·삭제를 검증한다. 설계 가안의 `(user_id, type, match_id)` 유니크는 쓰지 않는다(재예약 때 위반으로 예약이 롤백되므로, 한 번만 생기는 제안 알림만 `dedup_key`로 막는다).
 - **V11 적용 안내 (채팅, `V11__chat_message.sql`, 2026-10-11)**: 새 테이블 2개만 만든다. 기존 테이블 변경·데이터 이관·파괴적 단계는 없다. `chat_message`(append-only, 만든 뒤 수정·삭제하지 않음): `match_id`·`sender_id` FK(ON DELETE/UPDATE 동작 없음), `content` VARCHAR(1000)(코드 포인트 기준은 앱에서 검사), `client_message_id` VARCHAR(36) ascii_bin(대소문자 구분), UNIQUE `uk_chat_message_client(client_message_id, sender_id)`, 단일 컬럼 KEY `idx_chat_message_match`·`idx_chat_message_sender`, CHECK 2개(본문 공백 아님, id 길이 8~36). `chat_read_state`: PK(`match_id`, `user_id`), `last_read_message_id` BIGINT(FK 아님, 0 = 아무것도 안 읽음, CHECK >= 0), `updated_at`, FK 2개와 `idx_chat_read_state_user`. 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하다. 되돌리기는 롤포워드(두 테이블 삭제). 요구 MySQL 8.0.16 이상. 검증: `ChatSchemaMysqlTest`(실제 MySQL, `SEATSWAP_IT_*`가 있을 때만).
-- 차단(`user_block`)은 **V12 예정**이다(V8은 예약 방식 변경, V9는 교환 완료·교환 이력, V10은 알림, V11은 채팅에 사용됨)(예전 문서의 'V6 이후'는 V6/V7이 추가금·소프트 삭제에 쓰이면서 밀렸다).
+- **V12 적용 안내 (관리자 처리 대상, `V12__admin_edit_proposal_seat_claim.sql`, 2026-10-12)**: 새 테이블 2개만 만든다(`performance_edit_proposal`, `seat_claim`). 기존 테이블 변경·데이터 이관·파괴적 단계는 없다. 두 테이블 모두 상태 `PENDING/APPROVED/REJECTED`(CHECK)이고, 'PENDING은 사용자(·좌석)당 1건'을 생성 컬럼 `pending_proposer_id`·`pending_claimant_id`(PENDING일 때만 사용자 id, 아니면 NULL)와 UNIQUE로 강제한다. 처리되면 NULL이 되어 유니크에서 빠지므로 다시 제안·요청할 수 있다. FK 인덱스는 모두 단일 컬럼이고 FK에 ON DELETE/UPDATE 동작을 두지 않는다. `seat_claim.image_key`는 소문자 UUID(UNIQUE, CHECK 정규식), `image_content_type`은 jpeg/png/webp, `image_size`는 1~5242880(5 MiB), `resolved_ticket_id`는 FK가 아니다(승인 때 내려진 티켓 id 기록용). 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하다. 되돌리기는 롤포워드(두 테이블 삭제). 요구 MySQL 8.0.16 이상. 검증: `AdminSchemaMysqlTest`(실제 MySQL, `SEATSWAP_IT_*`가 있을 때만).
+- 차단(`user_block`)은 **V13 예정**이다(V8은 예약 방식 변경, V9는 교환 완료·교환 이력, V10은 알림, V11은 채팅, V12는 관리자 처리 대상 두 테이블에 사용됨)(예전 문서의 'V6 이후'는 V6/V7이 추가금·소프트 삭제에 쓰이면서 밀렸다).
 - **V3 적용 안내 (`ticket` 좌석 컬럼)**: `zone_label/zone_key`, `row_key`, `col_key`, `status`, `created_at/updated_at`, 생성 컬럼 `active_flag`, `uk_ticket_active_seat`(회차·구역·열·번·active_flag), `idx_ticket_user_status`를 추가하고 `row_label`/`col_label`을 NOT NULL VARCHAR(20)으로 바꾼다.
   - 가드: `ticket`에 행이 있으면 아무것도 바꾸기 전에 SIGNAL로 실패한다(새 NOT NULL 구역 컬럼에 채울 값이 없음). 적용 전 `SELECT COUNT(*) FROM ticket;`가 0인지 확인한다. 행이 있어 실패했다면 테스트 행을 지우고 `flyway repair`(실패 기록 삭제) 후 다시 적용한다. 임시 프로시저 `v3_guard_ticket_empty`가 남을 수 있으나 재실행 시 먼저 DROP 한다.
   - 주의: `./gradlew bootRun`은 `backend/.env`를 읽어 `SPRING_DATASOURCE_URL`을 덮어쓴다. 임시 DB로 검증하려면 `bootRun`이 아니라 `bootJar` 후 `java -jar`로 환경변수를 지정해 실행한다.
@@ -327,6 +329,56 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 - 관리자는 DB에서 직접 부여한다: `UPDATE users SET role = 'ADMIN' WHERE email = '...';` — **반드시 대문자 `ADMIN`으로만**.
   `users.role`은 `utf8mb4_bin` 컬럼이라 소문자(`admin`)는 CHECK 제약에서 거부된다.
   가입은 항상 USER이며 요청 본문의 role은 무시된다. role은 토큰에 넣지 않고 매 요청 DB에서 읽는다(변경 즉시 반영).
+
+## 관리자 API · 공연 수정 제안 · 내 티켓 인증 (V12, 2026-10-12, `feature/admin`)
+
+관리자가 처리하는 것은 두 가지다. ① 공연 수정 제안(제목·공연장) ② 좌석 소유 인증 요청(화면 이름 '내 티켓 인증'). 알림은 만들지 않고, 제안자·요청자는 `/my/...` 목록에서 결과를 본다. 관리자 권한은 위 '관리자 권한' 절과 같다(`/api/admin/**`는 ADMIN, role은 매 요청 DB에서 읽는다).
+
+### API
+
+| Method | Path | 권한 | 설명 |
+|---|---|---|---|
+| POST | /api/performances/{id}/edit-proposals | 로그인 | 공연 수정 제안 (201). 본문 `{newTitle, newVenueName, reason}`, 제목·공연장 중 하나 이상 |
+| GET | /api/performances/edit-proposals/me | 로그인 | 내 수정 제안 목록 |
+| POST | /api/seat-claims | 로그인 | 내 티켓 인증 요청 (201). multipart: `sessionId`, `zone`, `row`, `col`, `memo`(선택), `image`(사진 1장) |
+| GET | /api/seat-claims/me | 로그인 | 내 인증 요청 목록 |
+| GET | /api/seat-claims/{id}/image | 요청자 본인 또는 ADMIN | 사진 바이트. 그 외 404, 삭제됐으면 410 `IMAGE_DELETED` |
+| GET | /api/admin/performance-edit-proposals?status&page&size | ADMIN | 수정 제안 목록 (status 생략 시 전체) |
+| POST | /api/admin/performance-edit-proposals/{id}/approve | ADMIN | 승인: 공연에 반영 (이전 값을 `old_title`·`old_venue_name`에 스냅샷) |
+| POST | /api/admin/performance-edit-proposals/{id}/reject | ADMIN | 거절. 본문 `{note}` |
+| GET | /api/admin/seat-claims?status&page&size | ADMIN | 인증 요청 목록: 사진·요청자·현재 그 좌석을 가진 티켓 요약(holder) |
+| POST | /api/admin/seat-claims/{id}/approve | ADMIN | 승인: 현재 그 좌석의 활성 티켓을 시스템이 내린다 |
+| POST | /api/admin/seat-claims/{id}/reject | ADMIN | 거절. 본문 `{note}`, 사진 삭제 |
+
+### 공연 수정 제안 규칙
+- 제안 값이 현재 값과 같은 항목은 null로 정규화한다. 둘 다 같으면 422 `EDIT_NO_CHANGE`. 회차·링크는 수정 대상이 아니다.
+- 사용자당 PENDING 3건까지(422 `EDIT_PROPOSAL_LIMIT_REACHED`), 같은 공연에는 PENDING 1건만(409 `EDIT_PROPOSAL_ALREADY_PENDING`). 같은 공연의 다른 PENDING 제안은 승인되어도 그대로 둔다. 이미 처리된 제안을 다시 처리하면 409 `PROPOSAL_ALREADY_REVIEWED`.
+- 잠금 순서: 제안 행 FOR UPDATE → 공연 행 FOR UPDATE(단일 트랜잭션). 생성은 첫 쿼리로 사용자 행을 FOR UPDATE해 상한을 동시 요청에서도 지킨다.
+- 공연을 바꾸는 유일한 경로는 `Performance.applyApprovedEdit`(관리자 승인)다.
+
+### 좌석 소유 인증 규칙
+- 티켓 등록에서 같은 좌석이 이미 등록돼 있으면(409 `SEAT_ALREADY_REGISTERED`) 화면이 '내 티켓 인증' 링크를 보인다.
+- 요청은 **회차·구역·열·번(좌석 좌표)** 으로 만든다. 409 응답이 상대 티켓 id를 노출하지 않도록 티켓 id가 아니라 좌석 키를 담는다. 정규화는 `SeatKeyNormalizer`와 같다.
+- 사진은 예매내역 사진 1장, jpeg·png·webp(매직 넘버로 형식 판별), 5 MiB 이하(초과 413 `IMAGE_TOO_LARGE`)다. 서버 저장 이름은 UUID만 쓰고, 저장 위치는 `seatswap.upload.dir`(기본 `./data/seat-claims`, `SEATSWAP_UPLOAD_DIR`로 지정, git 추적 제외, 웹에서 직접 서빙하지 않음)다. 사진에 개인정보가 있을 수 있어 예매번호·이름을 가리고 올리라고 안내한다.
+- 사용자당 PENDING 5건(422 `SEAT_CLAIM_LIMIT_REACHED`), 같은 좌석에 PENDING 1건(409 `SEAT_CLAIM_ALREADY_PENDING`). 이미 내 활성 티켓이면 409 `MY_TICKET_ALREADY_REGISTERED`, 회차가 마감됐으면 422 `SESSION_CLOSED`, 그 좌석에 등록된 티켓이 없으면 422 `SEAT_NOT_REGISTERED`.
+- 승인: 현재 그 좌석의 활성 티켓을 INACTIVE로 내리고, 그 티켓의 교환 요청을 CLOSED로 바꾸고, 그 티켓의 CHATTING 매칭을 시스템 취소한 뒤 요청을 APPROVED로 바꾼다. 예약 잠금 중이면 409 `TICKET_RESERVED`, 교환 완료된 티켓이면 409 `TICKET_EXCHANGED`로 승인할 수 없다. 이미 비어 있으면 승인은 성공하고 `resolved_ticket_id`는 NULL이다. 요청자는 승인 뒤 일반 티켓 등록으로 직접 등록한다(자동 등록 없음).
+- 승인·거절 모두 **커밋 뒤에** 사진 파일을 지우고 `image_deleted_at`을 기록한다. 파일 삭제가 실패해도 처리 결과는 유지된다. 처리된 요청은 `imageAvailable=false`로 응답하고 사진 조회는 410이다.
+- 사진 응답 헤더: `Content-Disposition: inline`, `X-Content-Type-Options: nosniff`, `Cache-Control: private, no-store`. 본인과 ADMIN만 조회할 수 있고, 그 외에는 존재를 숨기려고 404를 준다.
+
+### 잠금 순서
+- 인증 요청 행 FOR UPDATE → 티켓 id↑ → 요청 id↑ → 매칭. 좌석 키 보조 유니크 인덱스로 티켓에 FOR UPDATE를 걸면 PK부터 잠그는 `deactivate`와 교착이 나므로, 티켓은 id를 잠금 없이 읽고 PK로 잠근 뒤 상태를 다시 판단한다(`TicketService.deactivateLocked` 추출, 기존 동작 불변).
+
+### 알려진 한계
+- 커밋 뒤 사진 삭제가 실패하거나 서버가 종료되면 고아 파일이 남는다(정리 스케줄러 없음).
+- 관리자 좌석 인증 목록의 holder 조회는 N+1이다(최대 100건).
+- 관리자가 자기 제안·자기 인증 요청을 승인하는 것은 409 `SELF_REVIEW`로 막는다(거절은 허용). 승인 시점에 좌석을 요청자 본인이 가졌다면 본인 티켓은 내리지 않고 승인만 완료한다(resolved 없음). 승인 트랜잭션은 READ COMMITTED로 돌려 예약 잠금 검사가 낡은 스냅샷을 읽지 않게 한다(검증에서 발견한 TOCTOU).
+- 이미지 저장소는 서버 로컬 디스크라 다중 인스턴스에서는 쓸 수 없다.
+- 사진의 EXIF는 제거하지 않는다(처리 후 삭제로 대응).
+- 신고 처리용 관리자 기능은 이번 범위가 아니다(차단·신고 기능과 함께 후속).
+
+### 테스트
+- 백엔드 708건 통과(임시 MySQL IT 포함, 실패 0·skip 0). V12 스키마 `AdminSchemaMysqlTest` 6건, 수정 제안 24건(동시 승인 10라운드×8스레드에서 1건만 성공 등), 좌석 인증 31건(동시 승인·거절, 승인+소유자 내리기+제3자 제안+예약 혼합 경합에서 교착 0 등).
+- 프론트 `tsc`·빌드 통과. 브라우저 점검은 하지 않았다.
 
 ## 로컬 환경변수 (.env)
 
@@ -384,7 +436,7 @@ AND NOT EXISTS (SELECT 1 FROM exchange_ticket_lock l WHERE l.ticket_id = tb.id)
 - 확장 조각 규칙(`additionalExclusions()`): 조각은 `AND`로 시작해야 하고 `?`(바인딩 파라미터)를 포함할 수 없다. 위반하면 `IllegalStateException`이며(`ExchangeCandidateSqlGuardTest`), 앞뒤 개행은 자동으로 붙는다.
 
 ## 후속 메모 (매칭 생성·예약)
-- 남은 것: ① 사용자 차단(`user_block`, V12 예정: 차단 시 후보 제외·채팅 불가, 두 사용자 사이의 열린 매칭은 시스템 취소하고 잠금 해제) ② 7일 경과 알림. (채팅은 V11로 구현 완료, 2026-10-11.) (완료: 내 매칭 목록·단건 조회 API, 예약 방식 V8, COMPLETED·교환 이력 기록 V9(2026-10-11). 교환 이력 조회 API·화면은 다음 브랜치.)
+- 남은 것: ① 사용자 차단(`user_block`, V13 예정: 차단 시 후보 제외·채팅 불가, 두 사용자 사이의 열린 매칭은 시스템 취소하고 잠금 해제) ② 7일 경과 알림. (채팅은 V11로 구현 완료, 2026-10-11.) (완료: 내 매칭 목록·단건 조회 API, 예약 방식 V8, COMPLETED·교환 이력 기록 V9(2026-10-11). 교환 이력 조회 API·화면은 다음 브랜치.)
 - 회차 마감(당일 끝)이 지난 뒤에도 잠금이 남은 티켓의 자동 비활성은 스케줄러 구현 때 설계 6절 '확인 필요 3'(매칭 종료 뒤 비활성화)에 따른다.
 - 같은 요청에 열린 매칭이 여러 개 있어도 요청 수정·삭제가 막히는 점(어느 한 쪽이라도 열린 매칭이 있으면 409)은 의도다. 채팅 중에 희망 조건이 바뀌는 것을 막는다.
 - 상대 요청이 제안 직후 삭제되는 경쟁은 요청 행 잠금으로 막힌다(잠금 사이 삭제되면 404).
@@ -458,7 +510,7 @@ AND NOT EXISTS (SELECT 1 FROM exchange_ticket_lock l WHERE l.ticket_id = tb.id)
 - 임시 MySQL 수동 검증(2026-10-11): 전송·읽음·교환 수락·예약 토글 혼합 스트레스에서 교착 0건, 동시 전송 160건 누락 0건.
 
 ### 미구현·알려진 한계 (채팅)
-- **차단(`user_block`, V12 예정)**: 차단 시 후보 제외·채팅 불가는 아직 없다. 차단·제재 때는 해당 사용자의 세션을 강제로 닫는 훅이 필요하다(지금은 토큰 만료·사용자 변경 뒤 최대 30초 동안 푸시가 계속 온다).
+- **차단(`user_block`, V13 예정)**: 차단 시 후보 제외·채팅 불가는 아직 없다. 차단·제재 때는 해당 사용자의 세션을 강제로 닫는 훅이 필요하다(지금은 토큰 만료·사용자 변경 뒤 최대 30초 동안 푸시가 계속 온다).
 - 신고 없음. 메시지 수정·삭제 없음(정책). 이미지·첨부 없음(텍스트만). 시스템 메시지·알림 행 없음(새 메시지 알림 없음, 헤더 채팅 아이콘 없음).
 - 속도 제한과 연결 제한은 서버 한 대의 메모리다. 다중 인스턴스로 가려면 공유 저장소가 필요하다.
 - 미인증 소켓은 CONNECT 기한(10초) 뒤 닫히지만 정리 주기 때문에 최대 약 40초 유지될 수 있다(운영 프록시 연결 한도로 흡수). 하트비트 미응답 종료와 16KB 초과 프레임 거부는 실측으로 확인하지 않았다.
@@ -544,7 +596,7 @@ unread-count 예시: `{"total":3,"byType":{"PROPOSAL_RECEIVED":2,"MATCH_RESERVED
 - 토스트는 만들지 않았다. 필요해지면 후속으로 다시 정한다.
 
 ### 다음 작업
-- 관리자 페이지 → 교환 이력 조회(API·마이페이지 화면) → 차단·신고(`user_block`, V12) 순서다. (링크 자동 입력은 2026-10-12 구현 완료.)
+- 관리자 페이지 → 교환 이력 조회(API·마이페이지 화면) → 차단·신고(`user_block`, 당시 V12 → 2026-10-12 기준 V13) 순서다. 관리자 페이지는 2026-10-12 완료. (링크 자동 입력은 2026-10-12 구현 완료.)
 - 7일 경과 알림은 여전히 미구현이다.
 
 ## 수동 검증 시나리오 (임시 MySQL, 재현용)
@@ -677,8 +729,8 @@ docker rm -f seatswap-tmp-match
 - 교환 이력 조회 API(`GET` 이력)와 마이페이지 화면은 다음 브랜치다.
 
 ## 다음 단계
-1. 교환 도메인 구현 계속: (완료) V4 희망 범위·희망 좌석·희망 회차, 매칭 후보 조회, V5 매칭 생성·예약·거절·취소·예약 잠금, V6 추가금 범위 단위, V7 요청 소프트 삭제, V8 한 명 예약·예약 취소, V9 교환 완료(COMPLETED, 기존 티켓 EXCHANGED + 새 티켓)·교환 이력 기록, V10 알림 3종(조회·읽음·삭제 API 포함, 2026-10-11), V11 채팅(REST 전송·조회·읽음 + STOMP 푸시, 2026-10-11), 알림 실시간 푸시(STOMP 신호, 2026-10-11, `feature/notifications-realtime`) / 남음: 교환 이력 조회 API·마이페이지 화면, 차단(`user_block`, V12 예정), 후보 제외 조건(위 후속 메모) (설계안 `산출물/08_ERD/exchange-schema-design.md`)
+1. 교환 도메인 구현 계속: (완료) V4 희망 범위·희망 좌석·희망 회차, 매칭 후보 조회, V5 매칭 생성·예약·거절·취소·예약 잠금, V6 추가금 범위 단위, V7 요청 소프트 삭제, V8 한 명 예약·예약 취소, V9 교환 완료(COMPLETED, 기존 티켓 EXCHANGED + 새 티켓)·교환 이력 기록, V10 알림 3종(조회·읽음·삭제 API 포함, 2026-10-11), V11 채팅(REST 전송·조회·읽음 + STOMP 푸시, 2026-10-11), 알림 실시간 푸시(STOMP 신호, 2026-10-11, `feature/notifications-realtime`), 관리자 페이지 V12(공연 수정 제안·내 티켓 인증, 2026-10-12, `feature/admin`) / 남음: 교환 이력 조회 API·마이페이지 화면, 차단(`user_block`, V13 예정), 후보 제외 조건(위 후속 메모) (설계안 `산출물/08_ERD/exchange-schema-design.md`)
 2. 티켓 자동 비활성(회차 당일 끝 경과, 스케줄러)과 '내 티켓 인증'
 3. (완료) 후보 제시 -> 매칭 생성 -> 한 명 예약/예약 취소 -> 양쪽 '교환 수락'으로 교환 완료(V9, 2026-10-11)
-4. 사용자 차단(V12)·신고 (후기 기능은 없음; 채팅은 2026-10-11 구현 완료)
+4. 사용자 차단(V13)·신고 (후기 기능은 없음; 채팅은 2026-10-11 구현 완료)
 5. 배포 시 SecurityConfig의 CORS allowed-origin을 실제 프론트 도메인으로 교체

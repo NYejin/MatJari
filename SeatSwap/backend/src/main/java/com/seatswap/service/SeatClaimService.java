@@ -81,6 +81,8 @@ public class SeatClaimService {
     private final SessionTimePolicy sessionTimePolicy;
     private final TransactionTemplate transactionTemplate;
     private final TransactionTemplate newTransactionTemplate;
+    /** 처리(승인·거절) 전용: READ COMMITTED. REPEATABLE READ 스냅샷이 잠금 읽기 전에 고정되면 예약 잠금 검사가 낡은 값을 읽는다. */
+    private final TransactionTemplate reviewTransactionTemplate;
     private final int maxPendingPerUser;
     private final int maxRowNumber;
     private final int maxColNumber;
@@ -106,6 +108,8 @@ public class SeatClaimService {
         this.imageStore = imageStore;
         this.sessionTimePolicy = sessionTimePolicy;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.reviewTransactionTemplate = new TransactionTemplate(transactionManager);
+        this.reviewTransactionTemplate.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         this.newTransactionTemplate = new TransactionTemplate(transactionManager);
         this.newTransactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.maxPendingPerUser = maxPendingPerUser;
@@ -299,12 +303,15 @@ public class SeatClaimService {
     }
 
     private AdminSeatClaimResponse review(Long adminId, Long claimId, String note, boolean approve) {
-        return transactionTemplate.execute(status -> {
+        return reviewTransactionTemplate.execute(status -> {
             // 인증 요청 행 잠금이 첫 쿼리(잠금 순서의 맨 앞).
             SeatClaim claim = claimRepository.findByIdForUpdate(claimId)
                     .orElseThrow(() -> new NotFoundException(CLAIM_NOT_FOUND_MESSAGE));
             if (!claim.isPending()) {
                 throw new ConflictException("이미 처리된 인증 요청입니다.", Map.of("code", "CLAIM_ALREADY_REVIEWED"));
+            }
+            if (approve && adminId.equals(claim.getClaimantId())) {
+                throw new ConflictException("본인이 올린 인증 요청은 직접 승인할 수 없습니다.", Map.of("code", "SELF_REVIEW"));
             }
             LocalDateTime now = sessionTimePolicy.now();
             if (approve) {
@@ -315,6 +322,8 @@ public class SeatClaimService {
                 Long resolved = ticketRepository.findActiveIdBySeat(claim.getPerformanceSession().getId(),
                                 claim.getZoneKey(), claim.getRowKey(), claim.getColKey())
                         .flatMap(ticketRepository::findByIdForUpdate)
+                        // 그사이 요청자 본인이 그 좌석을 등록했다면 본인 티켓은 내리지 않는다(승인은 완료, 내려진 티켓 없음)
+                        .filter(t -> !t.isOwnedBy(claim.getClaimantId()))
                         .filter(ticketService::deactivateLocked)
                         .map(Ticket::getId).orElse(null);
                 claim.approve(adminId, resolved, null, now);

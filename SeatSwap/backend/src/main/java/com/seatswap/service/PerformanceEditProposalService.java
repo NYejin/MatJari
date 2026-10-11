@@ -133,6 +133,9 @@ public class PerformanceEditProposalService {
     @Transactional
     public AdminEditProposal approve(Long adminId, Long proposalId) {
         PerformanceEditProposal proposal = lockPending(proposalId);
+        if (adminId.equals(proposal.getProposerId())) {
+            throw new ConflictException("본인이 낸 제안은 직접 승인할 수 없습니다.", Map.of("code", "SELF_REVIEW"));
+        }
         Long performanceId = proposal.getPerformance().getId();
         Performance performance = performanceRepository.findByIdForUpdate(performanceId)
                 .orElseThrow(() -> new NotFoundException("공연을 찾을 수 없습니다."));

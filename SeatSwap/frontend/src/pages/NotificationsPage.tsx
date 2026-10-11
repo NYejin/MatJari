@@ -1,6 +1,7 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { exchangeErrorMessage } from "../api/exchangeMessages";
+import { subscribeNotificationPush } from "../api/realtimeHub";
 import { formatRelativeTime, notificationPath, notificationsApi, notificationText } from "../api/notifications";
 import { button, FOCUS_RING, liveRegionClass, ui } from "../components/ui";
 import { usePagedList } from "../hooks/usePagedList";
@@ -26,6 +27,14 @@ export default function NotificationsPage() {
     "all",
     (n) => n.id
   );
+
+  // 이 페이지가 열려 있는 동안 새 알림 신호가 오면 목록을 바로 바꾸지 않고(보던 위치·불러온 페이지 유지) 안내 버튼만 띄운다
+  const [hasNew, setHasNew] = useState(false);
+  useEffect(() => subscribeNotificationPush(() => setHasNew(true)), []);
+  const showNew = () => {
+    setHasNew(false);
+    reload();
+  };
 
   const run = async (kind: "readAll" | "delete") => {
     if (busyRef.current) return;
@@ -82,6 +91,14 @@ export default function NotificationsPage() {
         <h1 ref={headingRef} tabIndex={-1} className={`${ui.pageTitle} outline-none`}>
           알림
         </h1>
+
+        <div role="status">
+          {hasNew && (
+            <button type="button" className={`${button.outline} w-full`} onClick={showNew}>
+              새 알림이 있어요. 눌러서 불러오기
+            </button>
+          )}
+        </div>
 
         <div className="grid grid-cols-2 gap-2">
           <button type="button" className={button.outline} onClick={() => void run("readAll")} disabled={busy !== null || !hasUnread} aria-busy={busy === "readAll"}>

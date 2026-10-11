@@ -1,22 +1,21 @@
-import { useEffect, useRef, useState } from "react";
-import { openRealtime } from "../api/realtime";
-import { tokenStorage } from "../api/tokenStorage";
+import { useEffect, useRef, useSyncExternalStore } from "react";
+import { acquireRealtime, getRealtimeStatus, subscribeChatPush, subscribeConnected, subscribeRealtimeStatus } from "../api/realtimeHub";
 import type { ChatPush, RealtimeStatus } from "../types/chat";
 
 interface Options {
-  /** false면 연결하지 않는다 */
+  /** false면 구독하지 않는다 */
   enabled: boolean;
   onPush: (push: ChatPush) => void;
-  /** 연결/재연결 직후 (빈 구간 채우기) */
+  /** 연결/재연결 직후 (빈 구간 채우기). 이미 연결돼 있으면 구독 직후 한 번 불린다 */
   onConnected: () => void;
 }
 
 /**
- * 채팅 화면에 있는 동안만 STOMP 연결을 유지한다. 핸들러는 ref로 들고 있어 바뀌어도 재연결하지 않는다.
- * 같은 탭에서 토큰이 재발급되면(AuthProvider가 만료 60초 전 선제 재발급) 새 토큰으로 다시 연결한다.
+ * 채팅 화면의 푸시 수신. 연결 자체는 앱 전체가 공유하므로(realtimeHub) 이 화면은 참조를 잡고 구독만 한다.
+ * 핸들러는 ref로 들고 있어 바뀌어도 다시 구독하지 않는다. 토큰 재발급 시 재연결은 허브가 처리한다.
  */
 export function useChatSocket({ enabled, onPush, onConnected }: Options): RealtimeStatus {
-  const [status, setStatus] = useState<RealtimeStatus>("connecting");
+  const status = useSyncExternalStore(subscribeRealtimeStatus, getRealtimeStatus);
   const pushRef = useRef(onPush);
   const connectedRef = useRef(onConnected);
   pushRef.current = onPush;
@@ -24,23 +23,15 @@ export function useChatSocket({ enabled, onPush, onConnected }: Options): Realti
 
   useEffect(() => {
     if (!enabled) return;
-    const conn = openRealtime({
-      onPush: (p) => pushRef.current(p),
-      onStatus: setStatus,
-      onConnected: () => connectedRef.current(),
-    });
-    let lastToken = tokenStorage.getAccessToken();
-    const unsubscribe = tokenStorage.subscribe(() => {
-      const next = tokenStorage.getAccessToken();
-      if (next === lastToken) return;
-      lastToken = next;
-      if (next) conn.reconnect(); // 로그아웃(null)이면 ProtectedRoute가 화면을 벗어나며 close된다
-    });
+    const release = acquireRealtime();
+    const offPush = subscribeChatPush((p) => pushRef.current(p));
+    const offConnected = subscribeConnected(() => connectedRef.current());
     return () => {
-      unsubscribe();
-      conn.close();
+      offConnected();
+      offPush();
+      release();
     };
   }, [enabled]);
 
-  return status;
+  return enabled ? status : "connecting";
 }

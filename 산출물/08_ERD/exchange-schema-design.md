@@ -17,7 +17,7 @@
 >
 > **8차 답변 반영 (2026-10-09, 브랜치 `docs/exchange-complete-ticket-model`, 문서만 — 코드·마이그레이션은 별도 브랜치에서 구현 예정)**: 이 문서의 두 확정이 **대체**됐다. ①**(g) 완료 시 교체**: '두 티켓의 좌석·회차 교체 + 임시 INACTIVE 순서'는 대체됨 -> 완료 시 **기존 두 티켓을 `EXCHANGED`로 바꾸고 각자 새 자리 티켓을 INSERT**한다(`TicketStatus.EXCHANGED` 신규, 1.10 `exchange_history`는 `ticket_id` 대신 `old_ticket_id`·`new_ticket_id`). 매칭 행(`ticket_a_id`/`ticket_b_id`)의 좌석은 교환 전 자리이고 교환 후 자리는 새 티켓·이력에서 본다. ②**예약 방식**: 3차 답변의 '양쪽 예약 동의'(`a_reserved_at`/`b_reserved_at`)는 대체됨 -> **둘 중 한 명이 예약하면 RESERVED(두 티켓 잠금), 한 명이 예약을 취소하면 CHATTING 복귀**(`reserved_by_id`·`reserved_at` 가안, 상세는 `산출물/04_요구사항정의서/후속요구사항_제안알림_교환됨_공연정보입력.md` §3, §3A). 아래 본문의 해당 서술에는 '(8차 답변으로 대체됨)'을 표기했다. ②는 **V8(2026-10-10)로 구현 완료**(위 갱신)이고, ①(EXCHANGED+새 티켓)은 아직 미구현이다. 같은 날 **Q-15가 확정**됐다: 교환 완료 시 기존 티켓의 교환 요청은 CLOSED로 닫고, 그 티켓에 걸린 다른 CHATTING 매칭은 **자동 취소하지 않으며** 해당 카드의 예약·교환 수락·교환 완료 버튼을 비활성화하고 "이미 교환된 좌석이에요"를 본인과 상대방 모두에게 보여준다('교환됨' 여부는 티켓 상태 EXCHANGED로 판단).
 
-> **구현 완료 (2026-10-11, `feature/notifications`, V10, 병합됨)**: 알림 3종은 **V10(`V10__notification.sql`)** 으로 구현됐고 현재 DB는 V1~V10(12개 테이블)이다. 테이블 `notification`은 1.13절. 다음 마이그레이션은 V11이다(`user_block`·`chat_message`). 조회·읽음·삭제 API와 화면은 같은 브랜치에 있고, 실시간(STOMP) 푸시는 `feature/notifications-realtime`(다음 브랜치)이다.
+> **구현 완료 (2026-10-11, `feature/notifications`, V10, 병합됨)**: 알림 3종은 **V10(`V10__notification.sql`)** 으로 구현됐고 현재 DB는 V1~V10(12개 테이블)이다. 테이블 `notification`은 1.13절. 다음 마이그레이션은 V11이다(`user_block`·`chat_message`). 조회·읽음·삭제 API와 화면은 같은 브랜치에 있고, 실시간(STOMP) 푸시는 `feature/notifications-realtime`(2026-10-11 구현, 신호만 전달, DB 변경 없음)이다.
 
 > **구현 완료 (2026-10-11, `feature/chat`, V11, 미병합)**: 채팅은 **V11(`V11__chat_message.sql`)** 로 구현됐고 현재 DB는 V1~V11(14개 테이블)이다. 테이블 `chat_message`(append-only)와 `chat_read_state`(읽음 포인터)는 1.9절. 전송·목록·읽음 REST 3종과 STOMP 사용자 큐 푸시는 `SeatSwap/backend/README.md`의 '채팅 (V11)' 절을 본다. 다음 마이그레이션은 V12(`user_block`, 예정)다. 헤더 메시지 아이콘·채팅 알림 행은 만들지 않았다(Q-8 확정).
 
@@ -254,7 +254,7 @@ User 1:N Ticket / Performance / notification(수신자, V10) / chat_message(발�
 
 잠금 순서: 티켓 id↑ -> 요청 id↑ -> 매칭 -> users(S, FK 검사) -> notification. notification 행을 잠근 뒤에는 티켓·요청·매칭을 잠그지 않는다. 읽음·삭제는 잠금 없는 SELECT로 id를 모은 뒤 500개씩 `WHERE id IN (...)`으로만 갱신·삭제한다(범위 UPDATE/DELETE 금지, 갭 잠금 회피).
 
-실제 SQL은 `V10__notification.sql`이 기준이다. 조회·읽음·삭제 API는 `SeatSwap/backend/README.md`의 '알림 API'를 본다. 미구현: 실시간 푸시(STOMP, 다음 브랜치), 거절·채팅 종료·7일 경과·교환 완료 알림, 알림 보존 기간 정책.
+실제 SQL은 `V10__notification.sql`이 기준이다. 조회·읽음·삭제 API는 `SeatSwap/backend/README.md`의 '알림 API'를 본다. 실시간 푸시는 2026-10-11 구현(`feature/notifications-realtime`, 신호만 전달). 미구현: 토스트, 거절·채팅 종료·7일 경과·교환 완료 알림, 알림 보존 기간 정책.
 
 ---
 

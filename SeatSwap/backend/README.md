@@ -25,7 +25,7 @@
 - **티켓 등록(FR-03)은 구현 완료** (`TicketController`, `TicketService`, `SeatKeyNormalizer`). 좌석 1개를 텍스트(구역 필수, 열·번은 숫자 또는 문자)로 등록한다. 같은 회차·구역·열·번의 활성 티켓은 1개(DB `uk_ticket_active_seat`), 사용자당 활성 티켓 20개 상한(`users` 행 FOR UPDATE로 직렬화), 회차 당일 끝(다음날 0시 KST)까지만 등록할 수 있다. 교환 희망 범위·매칭·예약은 아래 교환 항목 참고. 내릴 때 예약 잠금이면 `TicketService.ensureCanDeactivate`가 409 `TICKET_RESERVED`로 막는다.
 - **교환 희망 조건 등록(FR-04 교환 요청)은 구현 완료** (`ExchangeRequestController`, `ExchangeRequestService`, `WantSeatExpander`, Flyway V4). 티켓 하나에 미삭제 요청 1개(범위별 추가금 유형·희망 회차 우선순위·희망 좌석 범위)를 등록·조회·수정·소프트 삭제한다. 범위는 (구역, 열 from~to, 번 from~to)로 입력하면 개별 좌석으로 펼쳐 `exchange_want_seat`에 저장한다. **매칭 후보 조회**(`GET /api/exchange/requests/{id}/candidates`, 읽기 전용)는 구현됐다. 티켓을 내리면(`DELETE /api/tickets/{id}`) 그 티켓의 교환 요청은 CLOSED로 바뀐다.
 - **매칭 생성·예약(FR-04 교환 흐름 일부)은 구현 완료** (`ExchangeMatchController`, `ExchangeMatchService`, Flyway V5). 후보를 골라 매칭(채팅 단계, CHATTING)을 만들고, 둘 중 한 명이 예약하면 RESERVED가 되어 두 티켓이 잠기고, 누구든 예약을 취소해 CHATTING으로 되돌릴 수 있다(`reserve`/`unreserve`, Flyway V8). 채팅 종료(취소)·거절은 CHATTING에서만 가능하다. **교환 완료는 구현 완료(2026-10-11, V9)**: 양쪽 '교환 수락'(`complete`)으로 COMPLETED, 기존 티켓 EXCHANGED + 새 티켓, `exchange_history` 기록(아래 '교환 완료' 절). **아직 없는 것**: 교환 이력 조회 API·마이페이지 화면(기록은 구현, 조회는 다음 브랜치), 알림 실시간 푸시(STOMP, 다음 브랜치), 사용자 차단(`user_block`, V12 예정). 후보 '예약 중' 뱃지는 폐기(후보 목록은 예약 잠긴 티켓을 계속 제외). (내 매칭 조회 `GET /api/exchange/matches/me`·`/{id}`는 구현됨) 아래 '매칭 API' 참고.
-- **알림 3종(R1-3) 구현 완료(2026-10-11, `feature/notifications`, V10)**: 새 제안·상대 예약·상대 예약 취소를 `notification`에 쌓고, 조회·안 읽은 개수·읽음·모두 읽음·읽은 알림 삭제 API 5개를 제공한다. 자세한 규칙은 아래 '알림 (V10)' 절. 실시간 푸시(STOMP)는 다음 브랜치다.
+- **알림 3종(R1-3) 구현 완료(2026-10-11, `feature/notifications`, V10)**: 새 제안·상대 예약·상대 예약 취소를 `notification`에 쌓고, 조회·안 읽은 개수·읽음·모두 읽음·읽은 알림 삭제 API 5개를 제공한다. 자세한 규칙은 아래 '알림 (V10)' 절. 실시간 푸시(STOMP 신호)는 2026-10-11 `feature/notifications-realtime`에서 구현됐다(아래 '알림 실시간 푸시' 절). 토스트는 만들지 않았다.
 - 테스트 수치(2026-10-11 기준, `feature/chat`): 기본 `./gradlew test`는 전체 595건 중 140건을 건너뛰고 0 실패(실행 455건)다. 임시 MySQL을 붙인 전체 실행은 612건 통과한다(채팅 전송·읽음·STOMP IT 포함). 실제 MySQL이 필요한 `ExchangeCandidateQueryTest`·`ExchangeMatchMysqlTest`·`ExchangeMatchQueryMysqlTest`·`ExchangeCompleteMysqlTest`·`NotificationApiMysqlTest`·`ChatServiceMysqlTest`·`ChatSchemaMysqlTest`·`StompChatMysqlIT`·마이그레이션 테스트(V9 `MigrationV9MysqlTest` 포함)는 `SEATSWAP_IT_JDBC_URL`이 없으면 통째로 건너뛰며 리포트에 `[SKIPPED ...]` 메시지가 남는다. `SEATSWAP_IT_REQUIRED=true`와 `SEATSWAP_IT_*`를 주면 612건 실행·0 실패(건너뜀 0)다. `SEATSWAP_IT_REQUIRED=true`(또는 `CI` 환경변수가 있으면)는 건너뛰지 않고 실패한다. 주의: Gradle은 환경변수를 입력으로 보지 않아 이전 결과를 재사용하므로 환경을 바꿔 다시 돌릴 때는 `./gradlew cleanTest test`를 쓴다. 아래 '매칭 후보 조회 검증' 참고.
 
 ## 인증 API
@@ -360,7 +360,7 @@ AND NOT EXISTS (SELECT 1 FROM exchange_ticket_lock l WHERE l.ticket_id = tb.id)
 - (해소) 요청 삭제가 소프트 삭제(V7)가 되어 매칭 행은 지워지지 않고 상대의 취소 기록이 남는다. 삭제된 요청 쪽은 응답의 `myRequestDeleted`/`counterpartRequestDeleted`로 표시한다.
 - **차단·신고 전에는 낯선 사용자의 제안(CHATTING)이 b측 요청의 수정·삭제를 막는다.** 열린 매칭이 있는 요청은 409이므로, 아무 후보나 제안해 놓으면 상대가 먼저 취소/거절(reject)해야 자기 요청을 고칠 수 있다. 차단(`user_block`)·신고가 들어오면 완화한다(정책은 사용자 결정 사항이라 동작은 유지).
 - (L2) `TicketService.deactivate`의 CHATTING 매칭 시스템 취소 UPDATE(`ticket_a_id=? and status=CHATTING`)는 REPEATABLE READ에서 `idx_exchange_match_ticket_a/b` 구간을 status 필터 전에 next-key로 잠가, 과거 CANCELED/COMPLETED 행과 인접 gap까지 잠글 수 있다(이웃 티켓 id의 INSERT가 잠시 지연될 수 있으나 교착은 아님). 규모가 커지면 `SELECT id ... FOR UPDATE`로 id를 뽑아 PK로 갱신하는 방식으로 바꾼다.
-- (L3) 한 요청에 열린 매칭이 여러 개일 때 하나가 RESERVED가 되어도 나머지 CHATTING 매칭은 그대로 남는다(자동 취소 없음: 새 제안·새 예약만 막는다). 사용자가 직접 취소해야 하며, 교환 완료로 기존 티켓이 EXCHANGED가 되어도 자동 취소하지 않고 버튼 비활성+"이미 교환된 좌석이에요" 안내로 처리한다. 다른 매칭에서 티켓이 잠긴 상태의 reserve는 409(`TICKET_ALREADY_RESERVED`)이고 이때 아무 흔적(`reserved_*`)도 남기지 않는다(어느 쪽 티켓이 잠겼는지는 응답에 싣지 않는다). 후보 카드의 '예약 중' 뱃지는 폐기(2026-10-11)해 후보 SQL은 바꾸지 않는다(예약 잠긴 티켓은 계속 제외). 알림 3종은 V10으로 구현 완료(2026-10-11, 실시간 푸시는 후속).
+- (L3) 한 요청에 열린 매칭이 여러 개일 때 하나가 RESERVED가 되어도 나머지 CHATTING 매칭은 그대로 남는다(자동 취소 없음: 새 제안·새 예약만 막는다). 사용자가 직접 취소해야 하며, 교환 완료로 기존 티켓이 EXCHANGED가 되어도 자동 취소하지 않고 버튼 비활성+"이미 교환된 좌석이에요" 안내로 처리한다. 다른 매칭에서 티켓이 잠긴 상태의 reserve는 409(`TICKET_ALREADY_RESERVED`)이고 이때 아무 흔적(`reserved_*`)도 남기지 않는다(어느 쪽 티켓이 잠겼는지는 응답에 싣지 않는다). 후보 카드의 '예약 중' 뱃지는 폐기(2026-10-11)해 후보 SQL은 바꾸지 않는다(예약 잠긴 티켓은 계속 제외). 알림 3종은 V10으로 구현 완료(2026-10-11, 실시간 푸시는 같은 날 `feature/notifications-realtime`에서 구현).
 - (L7, 해소) V5의 `ck_exchange_match_canceled`는 CANCELED의 `canceled_at` 필수와 열린 상태의 `canceled_*` NULL만 강제했다. V8이 `ck_exchange_match_reserved`(RESERVED <=> `reserved_*`)와 `ck_exchange_match_completed`(CHATTING이면 수락 표시 NULL, COMPLETED이면 둘 다 NOT NULL)로 상태별 시각 일관성을 DB가 강제하게 보강했다. 교환 완료(V9) 구현 때 이 CHECK와 COMPLETED 전이가 맞는지 확인했다(`ExchangeCompleteMysqlTest` 통과). 남은 것: 레거시 `a/b_reserved_at` 삭제는 충분히 뒤로 미룬다(백필 재계산 근거).
 - (L8, 해소) 응답 변환이 닉네임을 위해 `userRepository.findById`를 따로 호출하던 문제는 조인 한 번(`ExchangeMatchQueryRepository`)으로 바꿔 해소했다. 내 매칭 목록·단건 조회 API도 구현됐다. 회차 마감 후 잠금이 남은 티켓의 자동 비활성(스케줄러)은 아직 없다.
 
@@ -412,11 +412,12 @@ AND NOT EXISTS (SELECT 1 FROM exchange_ticket_lock l WHERE l.ticket_id = tb.id)
 ### STOMP 실시간 수신
 - 엔드포인트 `/ws`(순수 WebSocket, SockJS 없음). 허용 Origin은 `seatswap.websocket.allowed-origins`(환경변수 `SEATSWAP_WS_ALLOWED_ORIGINS`, 기본 `http://localhost:5173`, REST CORS와 같은 설정)이며 정확히 일치해야 한다. `*`를 포함하면 시작 시 거부한다. 허용되지 않은 Origin은 403이다.
 - **CONNECT**: 네이티브 헤더 `Authorization: Bearer <access>`만 읽는다(쿼리스트링과 passcode는 무시). 서명·만료를 검증하고 refresh 토큰은 거부하며, 사용자를 로드해 사용자 이름을 userId로 설정한다. 사용자당 동시 연결 5개(`SEATSWAP_WS_MAX_CONNECTIONS_PER_USER`), 중복 CONNECT는 거부한다. CONNECT 하지 않은 세션은 10초 뒤 1008로 닫는다.
-- **SUBSCRIBE**: `/user/queue/chat`과 정확히 일치할 때만 허용하고 세션당 1개(두 번째는 거부)다. UNSUBSCRIBE·DISCONNECT는 허용한다. 클라이언트 SEND·ACK 등 나머지는 전부 거부한다(ERROR 뒤 close). 전송은 REST로만 한다.
+- **SUBSCRIBE**: `/user/queue/chat`과 `/user/queue/notifications`(알림 신호)를 정확히 일치할 때만 허용하며, **목적지당 구독 1개**다. 같은 목적지의 두 번째 SUBSCRIBE나 이미 쓰인 구독 id 재사용은 거부하고 세션을 1008로 닫는다(세션당 최대 2개). UNSUBSCRIBE·DISCONNECT는 허용한다. 클라이언트 SEND·ACK 등 나머지는 전부 거부한다(ERROR 뒤 close). 전송은 REST로만 한다.
 - 토큰이 만료된 세션은 주기 정리(`SEATSWAP_WS_SWEEP_INTERVAL_MS`, 기본 30초)가 close 1008로 닫는다.
 - 크기·시간 한도: 메시지 16KB, sendBuffer 512KB, sendTime 15초, heartbeat 10초/10초.
 - CSRF는 `csrf.disable()`이고 spring-security-messaging을 쓰지 않아 해당 요건이 없다. `/ws/**`는 permitAll이라 핸드셰이크는 통과하고, 인증은 CONNECT에서 한다.
 - **푸시 본문**: `{type:"MESSAGE", matchId, message:{id, senderId, content, clientMessageId, createdAt}}`, `{type:"READ", matchId, lastReadMessageId}`. 수신자는 참여자 두 사람의 사용자 큐다(`convertAndSendToUser`).
+- **알림 신호**: 알림 푸시는 채팅과 다른 목적지 `/user/queue/notifications`로 `{type:"NOTIFICATION_CREATED", notificationId, notificationType, matchId}`만 보낸다(알림 문구·닉네임·좌석은 싣지 않는다). 자세한 규칙은 '알림 실시간 푸시' 절.
 
 ### 테스트
 - MySQL 없이 도는 것: `ChatServiceTest` 18건, `ChatControllerSliceTest` 7건, `ChatRateLimiterTest` 3건, `StompAuthChannelInterceptorTest` 14건.
@@ -433,7 +434,7 @@ AND NOT EXISTS (SELECT 1 FROM exchange_ticket_lock l WHERE l.ticket_id = tb.id)
 
 ## 알림 (V10, 2026-10-11, `feature/notifications`)
 
-알림 3종(R1-3)의 쓰기 경로와 조회·읽음·삭제 API다. 실시간 푸시(STOMP)·토스트는 다음 브랜치(`feature/notifications-realtime`)다.
+알림 3종(R1-3)의 쓰기 경로와 조회·읽음·삭제 API다. 실시간 푸시(STOMP 신호)는 `feature/notifications-realtime`(2026-10-11)에서 구현했고, 토스트는 만들지 않았다('알림 실시간 푸시' 절).
 
 - 엔티티·저장소: `domain/Notification`(`notification` 테이블; `readAt`은 조회용 매핑이고 갱신은 벌크 쿼리로 한다), `domain/NotificationType`(PROPOSAL_RECEIVED / MATCH_RESERVED / RESERVATION_CANCELED), `NotificationRepository`(저장·읽음·삭제), `NotificationQueryRepository`(목록·개수 조회). 서비스 `NotificationService`, 컨트롤러 `NotificationController`(`/api/notifications`), 응답 `NotificationResponse`·`UnreadCountResponse`.
 
@@ -478,9 +479,40 @@ unread-count 예시: `{"total":3,"byType":{"PROPOSAL_RECEIVED":2,"MATCH_RESERVED
 
 ### 미구현 (알림)
 
-- 실시간 푸시(STOMP 알림 전달)와 토스트: 다음 브랜치 `feature/notifications-realtime`. STOMP 인프라(`/ws`)는 채팅(V11)에서 이미 만들어져 있다.
+- 토스트: 만들지 않았다(벨 뱃지 즉시 갱신과 `/notifications`의 '새 알림' 버튼으로 대체). 실시간 푸시(STOMP 신호)는 구현됐다('알림 실시간 푸시' 절).
 - 거절·채팅 종료·7일 경과·교환 완료 알림: 생성하지 않는다(`NotificationType` 확장으로 추가할 수 있다).
 - 알림 보존 기간·자동 정리 정책: 없다(사용자의 '읽은 알림 삭제'만 있다).
+
+## 알림 실시간 푸시 (2026-10-11, `feature/notifications-realtime`)
+
+새 알림이 생기면 수신자에게 STOMP로 **신호만** 보내고, 화면은 신호를 받으면 REST로 다시 읽는다. DB 변경은 없다(V12를 쓰지 않는다. 다음 마이그레이션은 V12 차단 `user_block`).
+
+### 규칙
+- **전파 시점**: `NotificationService.notify`가 알림 INSERT 뒤 `TransactionSynchronization.afterCommit`에 등록한 콜백에서 `NotificationPushPublisher`(구현 `NotificationPushPublisherImpl`, `convertAndSendToUser`)로 보낸다. 요구사항 계획의 `@TransactionalEventListener(AFTER_COMMIT)`와는 다른 방식이다. 롤백이면 보내지 않는다. 전파가 실패해도 예외는 삼키고 로그만 남기며 저장·응답에는 영향이 없다(폴링이 보완). 알림 쓰기가 트랜잭션 맨 끝이라는 잠금 규칙은 그대로다.
+- **푸시 본문**: `{type:"NOTIFICATION_CREATED", notificationId, notificationType, matchId}`뿐이다. 알림 문구·상대 닉네임·좌석은 싣지 않는다. 수신자의 모든 세션(탭)에 보낸다.
+- **구독 목적지**: `/user/queue/chat`과 `/user/queue/notifications` 두 개만 허용하고 **목적지당 구독 1개**다. 같은 목적지의 두 번째 SUBSCRIBE나 이미 쓰인 구독 id 재사용은 거부하고 세션을 1008로 닫는다. 세션당 최대 2개다. 그 밖의 목적지(`/queue/..`, `/topic/..`, 변형)와 클라이언트 SEND는 전부 거부한다.
+- **연결 제한**: 사용자당 동시 연결 5개, Origin 설정 규칙은 그대로다.
+
+### 구현
+- 백엔드: `NotificationPushPublisher`(인터페이스)·`NotificationPushPublisherImpl`, `NotificationService.notify` 수정, `StompAuthChannelInterceptor`의 구독 허용 목적지를 두 개로 넓히고 목적지당 중복을 거부한다.
+- 프론트: `api/realtimeHub.ts`가 로그인한 앱 전체에서 탭당 STOMP 연결 1개를 공유한다. 벨 훅 `useUnreadNotifications`와 채팅 훅 `useChatSocket`이 각자 참조를 잡고(acquire), 마지막 참조가 풀리면 연결을 닫는다. 토큰 재발급 시 재연결하고, 지수 백오프(1~30초)는 허브와 `realtime.ts`가 처리한다. 이미 연결된 상태에서 채팅 화면이 열리면 구독 직후 `onConnected`가 한 번 불려 빈 구간을 채운다.
+- 화면: 신호를 받으면 벨 개수를 즉시 다시 읽는다. 벨 말풍선이 열려 있으면 목록을 조용히 다시 읽는다. `/notifications` 페이지는 목록을 바로 바꾸지 않고 "새 알림이 있어요. 눌러서 불러오기" 버튼(`role="status"`)만 띄운다. 토스트는 만들지 않았다.
+- 폴링: 연결이 살아 있으면 30초 폴링을 하지 않고 5분(30초×10틱)마다 안전 확인만 한다. 연결이 끊겨 있으면 이전처럼 화면이 보일 때만 30초 폴링하고, focus·visibilitychange·경로 이동·읽음/삭제 직후에 즉시 다시 읽는다. (재)연결 직후에도 안 읽은 개수를 즉시 다시 읽는다.
+- 새 채팅 메시지는 여전히 알림 행을 만들지 않고 헤더 메시지 아이콘도 없다(채팅 푸시 규칙은 불변).
+
+### 테스트
+- 백엔드 기본 + 임시 MySQL IT 포함 617건 통과(실패 0, skip 0). 새 테스트: `NotificationServicePushTest`(커밋 뒤 1회, 롤백 시 미전송, 전파 실패 삼킴), `StompAuthChannelInterceptorTest`(알림 큐 구독, 두 큐 동시 구독, 목적지당 중복·변형 거부), `StompChatMysqlIT`(제안받은 사용자의 모든 탭만 수신, 제안한 사람·제3자는 미수신).
+- 프론트 `tsc`·`build` 통과. ESLint 설정과 프론트 테스트 러너는 없다.
+
+### 알려진 한계
+- 브라우저와 실제 `@stomp/stompjs` 수동 점검은 아직 하지 않았다(헤더 폭, 벨 말풍선, 알림 흐름 포함).
+- 다른 탭에서 읽음 처리한 결과는 다른 탭에 푸시하지 않는다(focus·visibilitychange·5분 확인으로 보정).
+- 토큰 만료 뒤 최대 30초 동안 푸시가 계속될 수 있다. 미인증 소켓은 최대 약 40초 유지될 수 있다. 연결·속도 제한은 단일 인스턴스 메모리다(기존 한계 그대로).
+- 토스트는 만들지 않았다. 필요해지면 후속으로 다시 정한다.
+
+### 다음 작업
+- 링크 기반 공연정보 자동 입력 → 관리자 페이지 → 교환 이력 조회(API·마이페이지 화면) → 차단·신고(`user_block`, V12) 순서다.
+- 7일 경과 알림은 여전히 미구현이다.
 
 ## 수동 검증 시나리오 (임시 MySQL, 재현용)
 
@@ -612,7 +644,7 @@ docker rm -f seatswap-tmp-match
 - 교환 이력 조회 API(`GET` 이력)와 마이페이지 화면은 다음 브랜치다.
 
 ## 다음 단계
-1. 교환 도메인 구현 계속: (완료) V4 희망 범위·희망 좌석·희망 회차, 매칭 후보 조회, V5 매칭 생성·예약·거절·취소·예약 잠금, V6 추가금 범위 단위, V7 요청 소프트 삭제, V8 한 명 예약·예약 취소, V9 교환 완료(COMPLETED, 기존 티켓 EXCHANGED + 새 티켓)·교환 이력 기록, V10 알림 3종(조회·읽음·삭제 API 포함, 2026-10-11), V11 채팅(REST 전송·조회·읽음 + STOMP 푸시, 2026-10-11) / 남음: 교환 이력 조회 API·마이페이지 화면, 차단(`user_block`, V12 예정), 알림 실시간 푸시(다음 브랜치)과 후보 제외 조건(위 후속 메모) (설계안 `산출물/08_ERD/exchange-schema-design.md`)
+1. 교환 도메인 구현 계속: (완료) V4 희망 범위·희망 좌석·희망 회차, 매칭 후보 조회, V5 매칭 생성·예약·거절·취소·예약 잠금, V6 추가금 범위 단위, V7 요청 소프트 삭제, V8 한 명 예약·예약 취소, V9 교환 완료(COMPLETED, 기존 티켓 EXCHANGED + 새 티켓)·교환 이력 기록, V10 알림 3종(조회·읽음·삭제 API 포함, 2026-10-11), V11 채팅(REST 전송·조회·읽음 + STOMP 푸시, 2026-10-11), 알림 실시간 푸시(STOMP 신호, 2026-10-11, `feature/notifications-realtime`) / 남음: 교환 이력 조회 API·마이페이지 화면, 차단(`user_block`, V12 예정), 후보 제외 조건(위 후속 메모) (설계안 `산출물/08_ERD/exchange-schema-design.md`)
 2. 티켓 자동 비활성(회차 당일 끝 경과, 스케줄러)과 '내 티켓 인증'
 3. (완료) 후보 제시 -> 매칭 생성 -> 한 명 예약/예약 취소 -> 양쪽 '교환 수락'으로 교환 완료(V9, 2026-10-11)
 4. 사용자 차단(V12)·신고 (후기 기능은 없음; 채팅은 2026-10-11 구현 완료)

@@ -33,3 +33,11 @@ export interface UnreadCount {
   total: number;
   byType: Record<NotificationType, number>;
 }
+
+/** STOMP /user/queue/notifications 푸시. 새 알림이 생겼다는 신호이며 문구·상대 정보는 실리지 않는다 */
+export interface NotificationPush {
+  type: "NOTIFICATION_CREATED";
+  notificationId: number;
+  notificationType: NotificationType;
+  matchId: number;
+}

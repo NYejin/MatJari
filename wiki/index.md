@@ -16,7 +16,7 @@ SeatSwap 프로젝트의 결정 근거, 함정, 조사 결과, 용어를 모은 
 
 - [교환 완료 시 티켓 처리: 안 2의 근거](decisions/exchange-complete-new-ticket.md): 교환 완료 때 기존 티켓을 `EXCHANGED`로 바꾸고 새 티켓을 만드는 안의 선택지와 이유, Q-15(기존 티켓의 요청 CLOSED, 다른 채팅 유지) 확정 근거, 구현 완료 후 flush 순서 함정.
 
-- [알림 3종 설계 근거](decisions/notification-design.md): 동기 INSERT 대 커밋 후 이벤트 비교와 선택 이유, dedup_key, 닫힌 매칭 알림·화면 구성·실시간 분리의 사용자 결정 3개.
+- [알림 3종 설계 근거](decisions/notification-design.md): 동기 INSERT 대 커밋 후 이벤트 비교와 선택 이유, dedup_key, 닫힌 매칭 알림·화면 구성·실시간 분리의 사용자 결정 3개, 실시간 푸시(신호만 싣는 payload·폴링 완화).
 
 - [채팅 설계 근거 (REST 전송 + STOMP 수신)](decisions/chat-design.md): REST 전송 대 STOMP 전송, 읽음 포인터 대 메시지별 read_at, 시스템 메시지 저장 대 상단 배너, 종료 후 읽기 전용. 사용자 결정 4개 명시.
 

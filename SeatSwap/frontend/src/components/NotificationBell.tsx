@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { subscribeNotificationPush } from "../api/realtimeHub";
 import { exchangeErrorMessage } from "../api/exchangeMessages";
 import { formatRelativeTime, notificationPath, notificationsApi, notificationText } from "../api/notifications";
 import { adjustUnreadCount, refreshUnreadCount, useUnreadNotifications } from "../hooks/useUnreadNotifications";
@@ -67,6 +68,12 @@ export default function NotificationBell({ userId, onOpen }: { userId: number; o
     void loadPreview(controller.signal);
     popoverRef.current?.focus();
     return () => controller.abort();
+  }, [open, loadPreview]);
+
+  // 말풍선이 열려 있는 동안 새 알림 신호가 오면 목록을 조용히 다시 읽는다 (로딩 표시 없이 교체)
+  useEffect(() => {
+    if (!open) return;
+    return subscribeNotificationPush(() => void loadPreview());
   }, [open, loadPreview]);
 
   // 경로가 바뀌면 닫기

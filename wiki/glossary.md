@@ -64,3 +64,5 @@ SeatSwap 고유 용어의 짧은 정의다. 확정 결정 본문은 [CLAUDE.md](
 - **상태 배너**: 채팅 화면 상단에 매칭 상태(예약 중, 교환된 좌석, 종료 등)를 보여주는 표시. 시스템 메시지를 저장하지 않고 이 배너로 대신한다.
 - **읽기 전용 채팅**: `CANCELED`·`COMPLETED` 매칭의 채팅. 참여자는 열람할 수 있고 전송은 409 `MATCH_STATE_CONFLICT`다. 입력창은 비활성이다.
 - **채팅 사용자 큐**: STOMP 수신 전용 목적지 `/user/queue/chat`. 푸시 종류는 `MESSAGE`와 `READ` 두 가지다.
+- **알림 사용자 큐**: STOMP 수신 전용 목적지 `/user/queue/notifications`. 새 알림이 커밋되면 `NOTIFICATION_CREATED` 신호(알림 id·유형·매칭 id뿐)만 보내고, 화면은 REST로 다시 읽는다. 설계 근거는 [알림 설계 근거](decisions/notification-design.md).
+- **앱 공용 연결**: 로그인한 앱이 탭당 STOMP 연결 1개를 참조 카운트로 공유하는 구조(헤더 벨 훅과 채팅 훅). 구독은 목적지당 1개다.

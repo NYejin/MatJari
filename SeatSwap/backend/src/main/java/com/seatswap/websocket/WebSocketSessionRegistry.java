@@ -13,6 +13,7 @@ import org.springframework.web.socket.WebSocketSession;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
@@ -42,8 +43,8 @@ public class WebSocketSessionRegistry {
         final Instant openedAt;
         volatile Long userId;
         volatile Instant expiresAt;
-        /** 이 세션의 유일한 구독 id(없으면 null). */
-        String subscriptionId;
+        /** 이 세션의 구독: 목적지 → 구독 id. 목적지당 1개만 허용한다. */
+        final Map<String, String> subscriptions = new HashMap<>();
 
         Entry(WebSocketSession socket, Instant openedAt) {
             this.socket = socket;
@@ -115,33 +116,31 @@ public class WebSocketSessionRegistry {
     }
 
     /**
-     * 세션당 구독은 1개다. 이미 구독 중이면 false(호출자가 거부), 아니면 subscriptionId 를 기록하고 true.
-     * 같은 사용자 큐를 한 세션이 여러 번 구독해 푸시가 중복·증폭되는 것을 막는다.
+     * 목적지당 구독은 1개다. 이미 그 목적지를 구독 중이거나 같은 구독 id 가 이미 쓰이고 있으면 false(호출자가 거부),
+     * 아니면 기록하고 true. 같은 사용자 큐를 한 세션이 여러 번 구독해 푸시가 중복·증폭되는 것을 막는다.
      */
-    public boolean registerSubscription(String sessionId, String subscriptionId) {
+    public boolean registerSubscription(String sessionId, String destination, String subscriptionId) {
         Entry entry = sessions.get(sessionId);
-        if (entry == null || subscriptionId == null) {
+        if (entry == null || destination == null || subscriptionId == null) {
             return false;
         }
         synchronized (entry) {
-            if (entry.subscriptionId != null) {
+            if (entry.subscriptions.containsKey(destination) || entry.subscriptions.containsValue(subscriptionId)) {
                 return false;
             }
-            entry.subscriptionId = subscriptionId;
+            entry.subscriptions.put(destination, subscriptionId);
             return true;
         }
     }
 
-    /** UNSUBSCRIBE: 기록된 구독 id 와 일치할 때만 비운다(다른 id 의 UNSUBSCRIBE 로는 비워지지 않는다). */
+    /** UNSUBSCRIBE: 기록된 구독 id 와 일치하는 구독만 비운다(모르는 id 의 UNSUBSCRIBE 로는 아무것도 비워지지 않는다). */
     public void clearSubscription(String sessionId, String subscriptionId) {
         Entry entry = sessions.get(sessionId);
         if (entry == null || subscriptionId == null) {
             return;
         }
         synchronized (entry) {
-            if (subscriptionId.equals(entry.subscriptionId)) {
-                entry.subscriptionId = null;
-            }
+            entry.subscriptions.values().removeIf(subscriptionId::equals);
         }
     }
 

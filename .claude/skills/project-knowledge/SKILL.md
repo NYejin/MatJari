@@ -93,8 +93,8 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 - 중복 방지: `dedup_key` 단일 유니크. 새 제안만 `PROPOSAL_RECEIVED:{matchId}`, 예약·예약 취소는 반복마다 1건이라 NULL. 재예약 때 예약이 롤백되는 `(user, type, match)` 유니크는 쓰지 않는다.
 - 닫힌 매칭(CANCELED·COMPLETED) 알림도 안 읽은 개수·목록에 남고 회색 '종료된 매칭' 라벨만 붙는다. 제거 경로는 사용자의 '읽은 알림 삭제'(읽은 것만)뿐이다.
 - 조회 API는 본인 것만 보이며 남의 알림은 404다. 읽음·삭제는 잠금 없는 SELECT로 id를 모은 뒤 500개씩 `WHERE id IN`으로 처리한다(범위 UPDATE/DELETE 금지).
-- 화면: 헤더 벨(안 읽은 개수) → 말풍선(최신 5건, 모두 읽음, 알림 전체 보기) → `/notifications`. 알림 클릭은 읽음 처리 후 `/exchange/matches?role=…&matchId=…`로 이동해 카드를 강조한다. 실시간 푸시는 없고 화면이 보일 때만 30초 폴링한다.
-- 미구현: 7일 경과 알림, 실시간 푸시(STOMP).
+- 화면: 헤더 벨(안 읽은 개수) → 말풍선(최신 5건, 모두 읽음, 알림 전체 보기) → `/notifications`. 알림 클릭은 읽음 처리 후 `/exchange/matches?role=…&matchId=…`로 이동해 카드를 강조한다. 새 알림은 STOMP 푸시(`/user/queue/notifications`, 신호만)로 즉시 반영하고, 연결이 끊겼을 때만 화면이 보일 때 30초 폴링한다.
+- 미구현: 7일 경과 알림.
 
 ### 3.10 채팅 (구현, V11 `chat_message`·`chat_read_state`)
 - 매칭 한 건마다 참여자 둘이 나누는 텍스트 채팅. 참여자가 아니면 404. 매칭 상태와 무관하게 매칭 단위로 열린다.
@@ -103,8 +103,8 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 - **시스템 메시지는 저장하지 않는다**. 예약·취소·교환 완료 같은 상태 변화는 채팅 화면 상단 상태 배너로만 보여준다.
 - **읽음**은 '마지막으로 읽은 메시지' 포인터 하나(앞으로만 이동, 단조 증가). 매칭 카드에는 안 읽은 개수 뱃지, 내가 보낸 마지막 메시지 아래에는 상대가 읽었으면 '읽음'.
 - 본문은 텍스트만 1000자(코드 포인트) 이하. 이미지·파일 첨부 없음, 민감정보 가리기 안내. 메시지는 무기한 보관하며 삭제·수정 불가.
-- 실시간 연결(STOMP)은 채팅 화면이 열려 있는 동안만. 새 메시지는 알림 행을 만들지 않고 헤더 아이콘·벨 표시도 없다. 새 메시지는 매칭 `updated_at`을 바꾸지 않는다.
-- 연결 제한: 사용자당 동시 연결 5개, 연결당 구독 1개(`/user/queue/chat`). 허용 Origin은 `seatswap.websocket.allowed-origins` 설정으로만 연다(와일드카드 금지).
+- 실시간 연결(STOMP)은 로그인한 앱 전체가 탭당 하나를 공유한다(알림 푸시와 채팅). 새 메시지는 알림 행을 만들지 않고 헤더 아이콘·벨 표시도 없다. 새 메시지는 매칭 `updated_at`을 바꾸지 않는다.
+- 연결 제한: 사용자당 동시 연결 5개, 구독 목적지는 `/user/queue/chat`·`/user/queue/notifications` 두 개뿐이고 목적지당 구독 1개. 허용 Origin은 `seatswap.websocket.allowed-origins` 설정으로만 연다(와일드카드 금지).
 - 서버 전송 경로의 속도 제한(사용자별 429 `CHAT_RATE_LIMITED`)과 본문 정규화 세부 규칙은 backend 코드·`ChatService` 주석을 따른다.
 
 ## 4. 기능 목록과 구현 상태
@@ -122,9 +122,8 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 | 완료된 티켓의 다른 채팅 비활성 처리(버튼 비활성+안내) | 구현 |
 | 교환 이력 조회 API·마이페이지 '교환 이력' 화면 | 미구현 (다음 브랜치) |
 | 채팅(매칭별 텍스트: REST 전송·조회·읽음, STOMP 사용자 큐 수신, 채팅 화면, 종료 후 읽기 전용) | 구현 (V11) |
-| 알림 3종(새 제안·상대 예약·예약 취소, 벨 말풍선·알림 페이지·읽은 알림 삭제, 30초 폴링) | 구현 (V10) |
+| 알림 3종(새 제안·상대 예약·예약 취소, 벨 말풍선·알림 페이지·읽은 알림 삭제, STOMP 실시간 푸시) | 구현 (V10, 푸시는 DB 변경 없음) |
 | 7일 경과 알림 | 미구현 |
-| 실시간 알림 푸시(STOMP) | 미구현 (후속) |
 | 사용자 차단·신고(V12 이후) | 미구현 |
 | 링크 기반 공연 정보 자동 입력 | 미구현 |
 | 관리자 페이지·공연 수정 제안·내 티켓 인증 | 미구현 |
@@ -175,7 +174,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 
 - 매칭 응답: `id, status, mySide, role, myRequestId/TicketId, mySeat, counterpartRequestId/TicketId, counterpartSeat, counterpartNickname, myExtraType/Amount, counterpartExtraType/Amount, myRequestDeleted, counterpartRequestDeleted, reservedBy("ME"|"COUNTERPART"|null), reservedAt, myAccepted, counterpartAccepted(교환 수락 시각 기준 실제 값), myTicketExchanged, counterpartTicketExchanged, myTicketReservedElsewhere, counterpartTicketReservedElsewhere, unreadChatCount(보낸 사람 제외, 닫힌 매칭도 셈), canceledBy, canceledAt, createdAt, updatedAt`. COMPLETED 응답의 mySeat/counterpartSeat와 ticket id는 교환 전 자리·티켓이다.
 - 요청 응답의 열·번 범위는 정규화 값이라 사용자가 입력한 원문 표기는 복원할 수 없다(알려진 한계).
-- 예정 API: 교환 이력 조회, 차단·신고, 알림 실시간 푸시(STOMP, 채팅 연결 재사용).
+- 예정 API: 교환 이력 조회, 차단·신고.
 
 ## 7. 프론트 화면 (react-conventions 스킬 참고)
 
@@ -199,7 +198,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 ## 8. 알려진 한계·후속 과제
 
 - 브라우저 수동 점검·실서버 연동은 교환 화면 전반에서 아직 충분히 하지 않았다.
-- 링크 자동 입력, 관리자 페이지(공연 수정 제안), 교환 이력 조회 화면, 실시간 알림 푸시·7일 경과 알림, 차단·신고, 내 티켓 인증, 회원탈퇴는 위 4절 미구현 항목이다.
+- 링크 자동 입력, 관리자 페이지(공연 수정 제안), 교환 이력 조회 화면, 7일 경과 알림, 차단·신고, 내 티켓 인증, 회원탈퇴는 위 4절 미구현 항목이다.
 - 채팅 알려진 한계: 실제 브라우저와 @stomp/stompjs 연동 점검 미실시, 모바일 이중 스크롤 완전 해소 미보장(AppLayout 높이 규칙), 미인증 소켓은 최대 약 40초 유지(운영 프록시 연결 한도로 흡수), 토큰 만료·사용자 변경 후 최대 30초 푸시 유지(차단·제재 구현 시 해당 사용자 세션 강제 종료 훅 필요), 응답·푸시에 상대 `senderId`(users.id) 노출(차단·신고 브랜치에서 `mine`으로 대체 검토), 속도·연결 제한은 단일 인스턴스 메모리, 하트비트 미응답 종료·16KB 초과 프레임 거부 미확인.
 - 공연: 예매처별로 같은 공연이 갈라지는 문제(같은 공연장+비슷한 제목 안내), 회차 추가 상한·스팸 정리는 후속.
 - 필터에서 전파된 예외(DB 장애 등)는 Spring 기본 `/error` 포맷으로 나간다(`{message}` 통일 검토). `/me` 한 번에 사용자 조회 2회(필터+서비스). `index.html` viewport에 `viewport-fit=cover`가 없어 safe-area 여백 미적용.

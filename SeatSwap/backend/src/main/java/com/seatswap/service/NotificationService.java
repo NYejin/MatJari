@@ -9,9 +9,12 @@ import com.seatswap.exception.FieldValidationException;
 import com.seatswap.exception.NotFoundException;
 import com.seatswap.repository.NotificationQueryRepository;
 import com.seatswap.repository.NotificationRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -28,6 +31,7 @@ import java.util.Map;
  * 이 갱신 트랜잭션은 notification 행만 잠그고 티켓·요청·매칭·users 는 건드리지 않으므로 잠금 순서 규약(마지막에 notification)에 어긋나지 않는다.
  * 닫힌 매칭(CANCELED/COMPLETED)의 알림도 개수·목록에서 빼지 않는다. 알림이 사라지는 경로는 {@link #deleteRead} 뿐이다.
  */
+@Slf4j
 @Service
 public class NotificationService {
 
@@ -38,11 +42,14 @@ public class NotificationService {
     private final NotificationRepository notificationRepository;
     private final NotificationQueryRepository queryRepository;
     private final Clock clock;
+    private final NotificationPushPublisher pushPublisher;
 
-    public NotificationService(NotificationRepository notificationRepository, NotificationQueryRepository queryRepository, Clock clock) {
+    public NotificationService(NotificationRepository notificationRepository, NotificationQueryRepository queryRepository, Clock clock,
+                               NotificationPushPublisher pushPublisher) {
         this.notificationRepository = notificationRepository;
         this.queryRepository = queryRepository;
         this.clock = clock;
+        this.pushPublisher = pushPublisher;
     }
 
     /** 내 알림 목록(id 내림차순). 잘못된 page/size 는 400. */
@@ -124,7 +131,27 @@ public class NotificationService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public Notification notify(Long recipientUserId, NotificationType type, Long matchId, String dedupKey) {
-        return notificationRepository.saveAndFlush(Notification.of(recipientUserId, type, matchId, dedupKey));
+        Notification saved = notificationRepository.saveAndFlush(Notification.of(recipientUserId, type, matchId, dedupKey));
+        pushAfterCommit(saved);
+        return saved;
+    }
+
+    /** 커밋된 뒤에만 실시간 신호를 보낸다(롤백되면 보내지 않는다). 전파가 실패해도 저장·응답에는 영향이 없다(폴링이 보완). */
+    private void pushAfterCommit(Notification saved) {
+        Long recipient = saved.getUserId();
+        Long id = saved.getId();
+        NotificationType type = saved.getType();
+        Long matchId = saved.getMatchId();
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    pushPublisher.publishCreated(recipient, id, type, matchId);
+                } catch (RuntimeException e) {
+                    log.warn("알림 실시간 전파 실패 (notificationId={}): {}", id, e.toString());
+                }
+            }
+        });
     }
 
     /** 제안 알림의 dedup 키. */

@@ -1,13 +1,16 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { useLocation } from "react-router-dom";
 import { notificationsApi } from "../api/notifications";
+import { acquireRealtime, getRealtimeStatus, subscribeConnected, subscribeNotificationPush } from "../api/realtimeHub";
 
-// 안 읽은 알림 개수 저장소 (useSyncExternalStore). 화면이 보일 때만 30초마다 폴링하고,
-// 탭이 다시 보이거나 포커스를 얻거나 경로가 바뀔 때, 읽음/삭제 직후에는 즉시 다시 조회한다.
-// 폴링은 이 훅(헤더 벨)에서만 돌린다. 다른 화면은 refreshUnreadCount()/adjustUnreadCount()만 부른다.
-// 이번 브랜치는 폴링이며 실시간(STOMP)은 다음 브랜치다.
+// 안 읽은 알림 개수 저장소 (useSyncExternalStore). 실시간 연결(STOMP, realtimeHub)로 새 알림 신호를 받으면 바로 다시 조회한다.
+// 연결이 끊겨 있는 동안에는 화면이 보일 때만 30초마다 폴링하고(연결 중에는 5분마다 안전 확인만),
+// 탭이 다시 보이거나 포커스를 얻거나 경로가 바뀔 때, 읽음/삭제 직후, (재)연결 직후에는 즉시 다시 조회한다.
+// 연결·폴링은 이 훅(헤더 벨)에서만 돌린다. 다른 화면은 refreshUnreadCount()/adjustUnreadCount()만 부른다.
 
 const POLL_INTERVAL_MS = 30_000;
+/** 실시간 연결이 살아 있을 때는 푸시를 놓친 경우만 보완하려고 이 횟수(=5분)마다 한 번만 조회한다 */
+const CONNECTED_POLL_EVERY = 10;
 
 let count = 0;
 let generation = 0;
@@ -61,13 +64,23 @@ export function useUnreadNotifications(enabled: boolean, userId?: number): numbe
 
   useEffect(() => {
     if (!enabled) return;
+    const release = acquireRealtime();
+    const offPush = subscribeNotificationPush(() => void refreshUnreadCount());
+    const offConnected = subscribeConnected(() => void refreshUnreadCount());
     const poll = () => {
       if (document.visibilityState === "visible") void refreshUnreadCount();
     };
-    const timer = window.setInterval(poll, POLL_INTERVAL_MS);
+    let tick = 0;
+    const timer = window.setInterval(() => {
+      tick++;
+      if (getRealtimeStatus() !== "connected" || tick % CONNECTED_POLL_EVERY === 0) poll();
+    }, POLL_INTERVAL_MS);
     document.addEventListener("visibilitychange", poll);
     window.addEventListener("focus", poll);
     return () => {
+      offConnected();
+      offPush();
+      release();
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", poll);
       window.removeEventListener("focus", poll);

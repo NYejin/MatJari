@@ -168,6 +168,10 @@ class StompChatMysqlIT {
             // simple broker 는 RECEIPT 를 보내지 않는다. 호출하는 쪽이 SimpUserRegistry 로 구독 등록을 기다린다.
             send("SUBSCRIBE\nid:sub-0\ndestination:/user/queue/chat\n\n");
         }
+
+        void subscribeNotifications() throws Exception {
+            send("SUBSCRIBE\nid:sub-n\ndestination:/user/queue/notifications\n\n");
+        }
     }
 
     private StompTestClient open(String origin, String query) throws Exception {
@@ -454,6 +458,37 @@ class StompChatMysqlIT {
         sendMessage(match, users.get(2), "중복 구독 뒤", "44444444-dddd");
         assertThat(healthy.expect("MESSAGE")).isNotNull();
         assertThat(healthy.next(500)).isNull();
+    }
+
+    @Test
+    void 제안을_받은_사용자의_모든_탭만_알림_신호를_받고_제안한_사람과_제3자는_받지_못한다() throws Exception {
+        Party p = party(1);
+        Party q = party(2);
+        wants(p, 2);
+        wants(q, 1);
+        long u3 = users.computeIfAbsent(3, k -> user("outsider"));
+        StompTestClient proposer = ready(p.userId);
+        StompTestClient recipientA = ready(q.userId);
+        StompTestClient recipientB = ready(q.userId);
+        StompTestClient outsider = ready(u3);
+        for (StompTestClient c : List.of(proposer, recipientA, recipientB, outsider)) {
+            c.subscribeNotifications();
+        }
+        Thread.sleep(500); // 구독 등록(브로커 반영) 대기
+
+        long matchId = matchService.propose(p.userId, p.requestId, q.requestId).id();
+
+        for (StompTestClient c : List.of(recipientA, recipientB)) {
+            Frame f = c.expect("MESSAGE");
+            assertThat(f.headers().get("destination")).isEqualTo("/user/queue/notifications");
+            JsonNode body = JSON.readTree(f.body());
+            assertThat(body.get("type").asText()).isEqualTo("NOTIFICATION_CREATED");
+            assertThat(body.get("notificationType").asText()).isEqualTo("PROPOSAL_RECEIVED");
+            assertThat(body.get("matchId").asLong()).isEqualTo(matchId);
+            assertThat(body.has("notificationId")).isTrue();
+        }
+        assertThat(proposer.next(500)).isNull();
+        assertThat(outsider.next(300)).isNull();
     }
 
     @Test

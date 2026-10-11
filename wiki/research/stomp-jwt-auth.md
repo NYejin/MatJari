@@ -74,7 +74,7 @@ status: draft
 - **Origin**: 허용 목록 밖 Origin의 핸드셰이크는 403이다. 허용 목록은 설정 `seatswap.websocket.allowed-origins`이고 `*`가 들어 있으면 시작 시 거부한다.
 - **만료 세션 1008**: 만료된 세션을 스위퍼가 close code 1008로 닫는 것을 수신으로 확인했다. 인증 안 한 소켓도 10초 뒤 1008이다. 인터셉터가 거부했을 때의 close는 Spring이 1002로 닫는다.
 - **RECEIPT 없음**: SUBSCRIBE에 receipt 헤더를 붙여도 RECEIPT 프레임이 오지 않는 것을 확인했다. 프론트는 RECEIPT를 기다리지 않는다.
-- **세션당 구독 1개**: 구독이 무제한이면 자원 고갈 여지가 있어(리뷰 중간 지적) 세션당 1개로 제한했다. 이유는 [함정 페이지 10절](../gotchas/lock-order-and-index-pitfalls.md) 참고.
+- **목적지당 구독 1개**: 구독이 무제한이면 자원 고갈 여지가 있어(리뷰 중간 지적) 처음에는 세션당 1개로 제한했다. 실시간 알림 푸시로 허용 목적지가 `/user/queue/chat`, `/user/queue/notifications` 두 개가 되면서 목적지당 1개(세션당 최대 2개)로 바뀌었다. 같은 목적지의 두 번째 SUBSCRIBE나 이미 쓰인 구독 id 재사용은 거부하고 세션을 1008로 닫는다. 이유는 [함정 페이지 10절](../gotchas/lock-order-and-index-pitfalls.md), 푸시 내용은 [알림 설계](../decisions/notification-design.md) 참고.
 
 위 확인은 백엔드 STOMP 통합 테스트 10건과 코드 읽기 기준이다. 실제 브라우저와 `@stomp/stompjs` 연동 점검은 하지 않았다. 아직 확인하지 못한 것은 아래와 같다.
 

@@ -5,7 +5,7 @@ import { useLogout } from "../hooks/useLogout";
 import { FOCUS_RING } from "../components/ui";
 
 // FR-01 회원 — 마이페이지 (보호 라우트 /me). 내 정보(/api/users/me) 표시 + 로그아웃.
-// 내 티켓·내 매칭은 링크, 교환 이력은 이후 기능이라 "준비 중" 자리만 둔다.
+// 내 티켓·내 매칭·교환 이력 등은 링크, 회원탈퇴만 "준비 중" 자리로 둔다.
 
 const cls = {
   /** AppLayout 콘텐츠 영역을 채우는 배경 (로그인 화면과 같은 톤) */
@@ -51,10 +51,10 @@ const retryButton = `${cls.button} ${cls.buttonSolid} ${cls.retryButton}`;
 const ACTIVITY_LINKS = [
   { to: "/tickets", label: "내 티켓" },
   { to: "/exchange/matches", label: "내 매칭" },
+  { to: "/exchange/history", label: "교환 이력" },
   { to: "/my/edit-proposals", label: "내 수정 제안" },
   { to: "/my/seat-claims", label: "내 티켓 인증 요청" },
 ] as const;
-const COMING_SOON = ["교환 이력"] as const;
 
 /**
  * 신뢰도 점수는 소수 1자리. 값이 없으면(null) 대시.
@@ -154,12 +154,6 @@ export default function MyPage() {
                   <span>{item.label}</span>
                   <span aria-hidden="true">›</span>
                 </Link>
-              </li>
-            ))}
-            {COMING_SOON.map((label) => (
-              <li key={label} className={cls.comingItem}>
-                <span>{label}</span>
-                <span className={cls.comingBadge}>준비 중</span>
               </li>
             ))}
           </ul>

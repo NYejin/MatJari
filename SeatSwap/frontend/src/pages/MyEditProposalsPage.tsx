@@ -53,8 +53,8 @@ export default function MyEditProposalsPage() {
                   </Link>
                   <span className={ui.badge}>{STATUS_LABEL[p.status]}</span>
                 </div>
-                {p.newTitle && <Change label="제목" from={p.currentTitle} to={p.newTitle} />}
-                {p.newVenueName && <Change label="공연장" from={p.currentVenueName} to={p.newVenueName} />}
+                {p.newTitle && <Change label="제목" from={p.status === "APPROVED" ? null : p.currentTitle} to={p.newTitle} />}
+                {p.newVenueName && <Change label="공연장" from={p.status === "APPROVED" ? null : p.currentVenueName} to={p.newVenueName} />}
                 {p.reason && <p className={ui.body}>사유: {p.reason}</p>}
                 {p.reviewNote && <p className={ui.notice}>검토 의견: {p.reviewNote}</p>}
                 <p className={ui.muted}>
@@ -83,10 +83,10 @@ export default function MyEditProposalsPage() {
   );
 }
 
-function Change({ label, from, to }: { label: string; from: string; to: string }) {
+function Change({ label, from, to }: { label: string; from: string | null; to: string }) {
   return (
     <p className={`${ui.body} break-words`}>
-      <span className="font-semibold">{label}</span> {from} <span aria-label="에서">→</span> <strong>{to}</strong>
+      <span className="font-semibold">{label}</span> {from !== null && (<>{from} <span aria-label="에서">→</span> </>)}<strong>{to}</strong>
     </p>
   );
 }

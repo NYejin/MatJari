@@ -119,6 +119,7 @@ function ProposalCard({ proposal: p, onDone }: { proposal: AdminEditProposal; on
   const [busy, setBusy] = useState(false);
   const [rejecting, setRejecting] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [approving, setApproving] = useState(false);
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const noteId = `reject-note-${p.id}`;
@@ -172,18 +173,38 @@ function ProposalCard({ proposal: p, onDone }: { proposal: AdminEditProposal; on
       )}
 
       {pending && !rejecting && (
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            className={button.solid}
-            disabled={busy}
-            onClick={() => void run(() => editProposalsApi.approve(p.id), "승인했어요.")}
-          >
-            {busy ? "처리 중..." : "승인"}
-          </button>
-          <button type="button" className={button.dangerOutline} disabled={busy} onClick={() => setRejecting(true)}>
-            거절
-          </button>
+        <div className="flex flex-col gap-2">
+          {approving && (
+            <p className={ui.warning} role="alert">
+              승인하면 공연 정보가 모든 사용자에게 바로 바뀌고 되돌릴 수 없어요. 승인할까요?
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            {approving ? (
+              <button
+                type="button"
+                className={button.solid}
+                disabled={busy}
+                onClick={() => void run(() => editProposalsApi.approve(p.id), "승인했어요.")}
+              >
+                {busy ? "처리 중..." : "승인 확정"}
+              </button>
+            ) : (
+              <button type="button" className={button.solid} disabled={busy} onClick={() => setApproving(true)}>
+                승인
+              </button>
+            )}
+            {approving && (
+              <button type="button" className={button.outline} disabled={busy} onClick={() => setApproving(false)}>
+                취소
+              </button>
+            )}
+            {!approving && (
+              <button type="button" className={button.dangerOutline} disabled={busy} onClick={() => setRejecting(true)}>
+                거절
+              </button>
+            )}
+          </div>
         </div>
       )}
 

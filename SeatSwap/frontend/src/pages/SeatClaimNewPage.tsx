@@ -178,7 +178,6 @@ export default function SeatClaimNewPage() {
         <span>{submitError.message}</span>
         {submitError.code === "SEAT_NOT_REGISTERED" && (
           <>
-            <span>지금은 비어 있어요. 직접 등록해 주세요.</span>
             <Link
               to={performanceId ? `/tickets/new?performanceId=${performanceId}${sessionId ? `&sessionId=${sessionId}` : ""}` : "/tickets/new"}
               className={linkButton.outline}

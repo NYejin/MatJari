@@ -4,9 +4,11 @@ import com.seatswap.dto.request.PerformanceCreateRequest;
 import com.seatswap.dto.response.PageResponse;
 import com.seatswap.dto.response.PerformanceDetailResponse;
 import com.seatswap.dto.response.PerformanceLookupResponse;
+import com.seatswap.dto.response.PerformancePreviewResponse;
 import com.seatswap.dto.response.PerformanceSummaryResponse;
 import com.seatswap.security.AuthUserPrincipal;
 import com.seatswap.service.PerformanceService;
+import com.seatswap.service.linkinfo.PerformancePreviewService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -33,6 +35,7 @@ import java.time.LocalDateTime;
 public class PerformanceController {
 
     private final PerformanceService performanceService;
+    private final PerformancePreviewService previewService;
 
     /** 목록. asOf("yyyy-MM-ddTHH:mm", 선택): 페이지를 넘기는 동안 정렬 기준 시각 고정. 형식 오류는 400. */
     @GetMapping
@@ -48,6 +51,16 @@ public class PerformanceController {
     @GetMapping("/lookup")
     public PerformanceLookupResponse lookup(@RequestParam String sourceUrl) {
         return performanceService.lookup(sourceUrl);
+    }
+
+    /**
+     * 링크 페이지의 공개 HTML에서 제목·공연장·기간 미리보기 (회차 시각은 읽을 수 없다). 항상 200 + status,
+     * 형식 오류 400, 사용자당 분당 10회 초과 429 PREVIEW_RATE_LIMITED. 요청 URL은 서버 고정 템플릿뿐이다.
+     */
+    @GetMapping("/preview")
+    public PerformancePreviewResponse preview(@RequestParam String sourceUrl,
+                                              @AuthenticationPrincipal AuthUserPrincipal principal) {
+        return previewService.preview(principal.userId(), sourceUrl);
     }
 
     @GetMapping("/{id}")

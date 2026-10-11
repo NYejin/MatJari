@@ -31,3 +31,6 @@ llm-wiki 스킬, researcher·wiki-curator 에이전트, `scripts/lint-wiki.mjs`�
 
 ## [2026-10-11] ingest | 실시간 알림 푸시 반영
 실시간 알림 푸시(브랜치 `feature/notifications-realtime`, 커밋 `45def5e`·`386bede`, 미병합, V12 없음) 구현 사실을 반영했다. 알림 설계 페이지에 실시간 푸시 절(신호만 싣는 payload, afterCommit 전파, 폴링 완화)을 추가하고 "실시간은 다음 브랜치" 서술을 고쳤다. 채팅 설계의 연결 범위를 앱 공용 연결로 바꿨고, STOMP 조사와 함정 10절의 "세션당 구독 1개"를 "목적지당 1개"로 정정했으며 용어집에 알림 사용자 큐·앱 공용 연결을 더했다.
+
+## [2026-10-12] ingest | 링크 기반 공연정보 자동 입력 반영
+링크 자동 입력(브랜치 `feature/link-autofill`, 미병합, V12 없음) 구현 사실을 반영했다. 결정 페이지 `link-autofill-design.md`와 함정 페이지 `link-fetch-pitfalls.md`를 추가하고, 목차와 용어집에 링크 자동 입력 절을 더했다. 실측은 2026-10-12 한 시점 결과이며 confidence는 medium이다.

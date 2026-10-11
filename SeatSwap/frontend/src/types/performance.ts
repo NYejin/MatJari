@@ -33,6 +33,18 @@ export interface PerformanceLookup {
   performanceId?: number | null;
 }
 
+/** GET /api/performances/preview — 링크 페이지에서 읽은 공연 정보 (항상 200) */
+export type PerformancePreviewStatus = "OK" | "UNSUPPORTED_SITE" | "NO_INFO" | "FETCH_FAILED";
+export interface PerformancePreview {
+  status: PerformancePreviewStatus;
+  site: "yes24" | "ticketlink" | "melon" | null;
+  title: string | null;
+  venueName: string | null;
+  /** yyyy-MM-dd */
+  periodStart: string | null;
+  periodEnd: string | null;
+}
+
 export interface PerformanceListParams {
   query?: string;
   /** 0부터 */

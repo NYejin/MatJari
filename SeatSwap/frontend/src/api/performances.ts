@@ -6,6 +6,7 @@ import type {
   PerformanceDetail,
   PerformanceListParams,
   PerformanceLookup,
+  PerformancePreview,
   PerformanceSummary,
 } from "../types/performance";
 
@@ -31,6 +32,12 @@ export const performancesApi = {
   /** GET /api/performances/lookup?sourceUrl= — 같은 티켓팅 링크로 이미 등록된 공연이 있는지 */
   async lookup(sourceUrl: string): Promise<PerformanceLookup> {
     const { data } = await apiClient.get<PerformanceLookup>("/performances/lookup", { params: { sourceUrl } });
+    return data;
+  },
+
+  /** GET /api/performances/preview?sourceUrl= — 링크에서 제목·공연장·기간 읽기. 400/429는 오류, 읽기 실패는 status로 온다 */
+  async preview(sourceUrl: string, signal?: AbortSignal): Promise<PerformancePreview> {
+    const { data } = await apiClient.get<PerformancePreview>("/performances/preview", { params: { sourceUrl }, signal });
     return data;
   },
 

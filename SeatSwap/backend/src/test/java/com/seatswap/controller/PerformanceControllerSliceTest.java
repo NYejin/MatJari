@@ -15,7 +15,10 @@ import com.seatswap.security.JwtAccessDeniedHandler;
 import com.seatswap.security.JwtAuthenticationEntryPoint;
 import com.seatswap.security.JwtTokenProvider;
 import com.seatswap.security.SecurityErrorResponseWriter;
+import com.seatswap.dto.response.PerformancePreviewResponse;
+import com.seatswap.exception.FieldValidationException;
 import com.seatswap.service.PerformanceService;
+import com.seatswap.service.linkinfo.PerformancePreviewService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -63,6 +66,8 @@ class PerformanceControllerSliceTest {
     private CustomUserDetailsService userDetailsService;
     @MockBean
     private PerformanceService performanceService;
+    @MockBean
+    private PerformancePreviewService previewService;
 
     @BeforeEach
     void setUp() {
@@ -221,5 +226,53 @@ class PerformanceControllerSliceTest {
                         """))
                 .andExpect(status().isConflict())
                 .andExpect(content().json("{\"message\":\"요청이 다른 변경과 충돌했습니다. 다시 시도해주세요.\"}", true));
+    }
+
+    @Test
+    void previewRequiresLogin() throws Exception {
+        mockMvc.perform(get("/api/performances/preview").param("sourceUrl", "https://ticket.yes24.com/Perf/1"))
+                .andExpect(status().isUnauthorized());
+        verify(previewService, never()).preview(any(), any());
+    }
+
+    @Test
+    void previewOkShape() throws Exception {
+        when(previewService.preview(1L, "https://ticket.yes24.com/Perf/1")).thenReturn(
+                PerformancePreviewResponse.ok("yes24", "공연 A", "홀", java.time.LocalDate.of(2026, 10, 11),
+                        java.time.LocalDate.of(2026, 10, 13)));
+        mockMvc.perform(auth(get("/api/performances/preview").param("sourceUrl", "https://ticket.yes24.com/Perf/1")))
+                .andExpect(status().isOk())
+                .andExpect(content().json("{\"status\":\"OK\",\"site\":\"yes24\",\"title\":\"공연 A\","
+                        + "\"venueName\":\"홀\",\"periodStart\":\"2026-10-11\",\"periodEnd\":\"2026-10-13\"}", true));
+    }
+
+    @Test
+    void previewNonOkStatusesAre200WithNulls() throws Exception {
+        when(previewService.preview(1L, "https://tickets.interpark.com/goods/1"))
+                .thenReturn(PerformancePreviewResponse.empty("UNSUPPORTED_SITE", null));
+        mockMvc.perform(auth(get("/api/performances/preview").param("sourceUrl", "https://tickets.interpark.com/goods/1")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UNSUPPORTED_SITE"))
+                .andExpect(jsonPath("$.site").doesNotExist())
+                .andExpect(jsonPath("$.title").doesNotExist());
+    }
+
+    @Test
+    void previewBadUrlIs400() throws Exception {
+        when(previewService.preview(1L, "nope"))
+                .thenThrow(new FieldValidationException("sourceUrl", "올바른 티켓팅 링크(http/https)가 아닙니다."));
+        mockMvc.perform(auth(get("/api/performances/preview").param("sourceUrl", "nope")))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void previewRateLimitedIs429WithRetryAfter() throws Exception {
+        when(previewService.preview(1L, "https://ticket.yes24.com/Perf/1"))
+                .thenThrow(new PerformancePreviewService.PreviewRateLimitedException(42));
+        mockMvc.perform(auth(get("/api/performances/preview").param("sourceUrl", "https://ticket.yes24.com/Perf/1")))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string("Retry-After", "42"))
+                .andExpect(jsonPath("$.code").value("PREVIEW_RATE_LIMITED"))
+                .andExpect(jsonPath("$.retryAfterSeconds").value(42));
     }
 }

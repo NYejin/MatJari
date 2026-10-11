@@ -138,7 +138,7 @@ class ExchangeMatchServiceTest {
                 m.getRequestAId(), m.getRequestBId(), m.getTicketAId(), m.getTicketBId(),
                 m.getReservedById(), m.getReservedAt(), m.getACompletedAt() != null, m.getBCompletedAt() != null, m.getCanceledById(), m.getCanceledAt(),
                 m.getCreatedAt(), m.getUpdatedAt(), mine, mine, m.getAExtraType().name(), m.getAExtraAmount(),
-                m.getBExtraType().name(), m.getBExtraAmount(), false, false, false, false, false, false, "나", "상대");
+                m.getBExtraType().name(), m.getBExtraAmount(), false, false, false, false, false, false, "나", "상대", 0);
     }
 
     private ExchangeMatchResponse toResponse(ExchangeMatch m, long userId) {

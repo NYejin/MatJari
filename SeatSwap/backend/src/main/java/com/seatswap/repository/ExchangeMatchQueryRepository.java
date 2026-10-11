@@ -19,6 +19,8 @@ import java.util.Optional;
  * 접근 경로: 내 사용자 id -> idx_exchange_match_user_a / user_b (ALL 이면 index_merge) -> 매칭 행 -> 나머지는 PK 점조회.
  * 전제: 목록은 INNER JOIN 8개, COUNT 는 exchange_match 만 센다. FK 때문에 고아 행이 없어 두 결과가 같다(users 익명화·티켓 삭제를 도입하면 LEFT JOIN 또는 COUNT 에도 같은 조인 필요).
  * STRAIGHT_JOIN: 소규모 테이블(회차 등)에서 옵티마이저가 작은 테이블부터 해시 조인으로 시작하는 것을 막고 매칭 행(사용자 인덱스)에서 시작하도록 고정한다.
+ * unreadChatCount 는 호출자 기준 상관 서브쿼리다: 상대가 보낸(sender_id <> 나) 메시지 중 내 읽음 포인터(chat_read_state, 없으면 0)보다 큰 id 의 수.
+ * 매칭 상태와 무관하게(닫힌 매칭 포함) 센다. chat_message 는 idx_chat_message_match(match_id, id)로 범위 스캔, 포인터는 PK 점조회다. SELECT 절의 자리표시자 2개(나, 나)가 WHERE 보다 먼저 바인딩된다.
  * 정렬은 updated_at DESC, id DESC (사용자당 매칭 수는 작아 filesort 로 충분하며 전용 인덱스는 만들지 않았다. README EXPLAIN 참고).
  */
 @Repository
@@ -40,7 +42,9 @@ public class ExchangeMatchQueryRepository {
                    ta.status AS a_ticket_status, tb.status AS b_ticket_status,
                    EXISTS (SELECT 1 FROM exchange_ticket_lock la WHERE la.ticket_id = ta.id AND la.match_id <> m.id) AS a_reserved_elsewhere,
                    EXISTS (SELECT 1 FROM exchange_ticket_lock lb WHERE lb.ticket_id = tb.id AND lb.match_id <> m.id) AS b_reserved_elsewhere,
-                   ua.nickname AS a_nickname, ub.nickname AS b_nickname
+                   ua.nickname AS a_nickname, ub.nickname AS b_nickname,
+                   (SELECT COUNT(*) FROM chat_message c WHERE c.match_id = m.id AND c.sender_id <> ?
+                       AND c.id > COALESCE((SELECT r.last_read_message_id FROM chat_read_state r WHERE r.match_id = m.id AND r.user_id = ?), 0)) AS unread_chat_count
             FROM exchange_match m
             JOIN ticket ta               ON ta.id = m.ticket_a_id
             JOIN performance_session psa ON psa.id = ta.performance_session_id
@@ -70,7 +74,7 @@ public class ExchangeMatchQueryRepository {
                       boolean aRequestDeleted, boolean bRequestDeleted,
                       boolean aTicketExchanged, boolean bTicketExchanged,
                       boolean aReservedElsewhere, boolean bReservedElsewhere,
-                      String aNickname, String bNickname) {
+                      String aNickname, String bNickname, int unreadChatCount) {
 
         public ExchangeMatchResponse toResponse(Long userId) {
             boolean mineIsA = userId.equals(userAId);
@@ -93,20 +97,22 @@ public class ExchangeMatchQueryRepository {
                     mineIsA ? aTicketExchanged : bTicketExchanged, mineIsA ? bTicketExchanged : aTicketExchanged,
                     mineIsA ? aReservedElsewhere : bReservedElsewhere, mineIsA ? bReservedElsewhere : aReservedElsewhere,
                     reservedBy, reservedAt, mineIsA ? aAccepted : bAccepted, mineIsA ? bAccepted : aAccepted,
-                    canceledBy, canceledAt, createdAt, updatedAt);
+                    canceledBy, canceledAt, createdAt, updatedAt, unreadChatCount);
         }
     }
 
     /** 내가 참여한 매칭 1건. 비참여자·없는 매칭은 빈 결과(호출자가 404 로 합친다). */
     public Optional<Row> findOne(Long matchId, Long userId) {
         List<Row> rows = jdbc.query(SELECT + " WHERE m.id = ? AND (m.user_a_id = ? OR m.user_b_id = ?)",
-                (rs, i) -> map(rs), matchId, userId, userId);
+                (rs, i) -> map(rs), userId, userId, matchId, userId, userId);
         return rows.stream().findFirst();
     }
 
     /** @param statuses 비어 있으면 상태 필터 없음. 값은 호출자가 enum 으로 검증한 이름이다. */
     public List<Row> findMine(Long userId, Role role, List<String> statuses, int limit, long offset) {
         List<Object> params = new ArrayList<>();
+        params.add(userId);   // SELECT 절의 안 읽은 채팅 수 서브쿼리 (sender_id <> ?, r.user_id = ?)
+        params.add(userId);
         String where = where(userId, role, statuses, params);
         params.add(limit);
         params.add(offset);
@@ -162,6 +168,6 @@ public class ExchangeMatchQueryRepository {
                 "DELETED".equals(rs.getString("a_request_status")), "DELETED".equals(rs.getString("b_request_status")),
                 "EXCHANGED".equals(rs.getString("a_ticket_status")), "EXCHANGED".equals(rs.getString("b_ticket_status")),
                 rs.getBoolean("a_reserved_elsewhere"), rs.getBoolean("b_reserved_elsewhere"),
-                rs.getString("a_nickname"), rs.getString("b_nickname"));
+                rs.getString("a_nickname"), rs.getString("b_nickname"), rs.getInt("unread_chat_count"));
     }
 }

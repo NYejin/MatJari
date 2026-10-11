@@ -332,11 +332,14 @@ class ExchangeMatchQueryMysqlTest {
         jdbc.execute("ANALYZE TABLE exchange_match, ticket, users, exchange_request, performance_session");
         for (ExchangeMatchQueryRepository.Role role : ExchangeMatchQueryRepository.Role.values()) {
             String sql = ExchangeMatchQueryRepository.listSql(role, 0);
-            Object[] params = role == ExchangeMatchQueryRepository.Role.ALL ? new Object[]{u1, u1, 20, 0} : new Object[]{u1, 20, 0};
+            Object[] params = role == ExchangeMatchQueryRepository.Role.ALL ? new Object[]{u1, u1, u1, u1, 20, 0} : new Object[]{u1, u1, u1, 20, 0};
             List<java.util.Map<String, Object>> plan = jdbc.queryForList("EXPLAIN " + sql, params);
             java.util.Map<String, Object> first = plan.stream().filter(r -> "m".equals(r.get("table"))).findFirst().orElseThrow();
             assertThat(String.valueOf(first.get("type"))).as(role + " " + plan).isNotEqualTo("ALL");
-            plan.stream().filter(r -> !"m".equals(r.get("table"))).forEach(r ->
+            // 안 읽은 채팅 수 서브쿼리의 chat_message(c)는 idx_chat_message_match 범위 스캔이어야 한다(전체 스캔 금지)
+            plan.stream().filter(r -> "c".equals(r.get("table"))).forEach(r ->
+                    assertThat(String.valueOf(r.get("type"))).as(role + " " + r).isIn("ref", "range"));
+            plan.stream().filter(r -> !"m".equals(r.get("table")) && !"c".equals(r.get("table"))).forEach(r ->
                     assertThat(String.valueOf(r.get("type"))).as(role + " " + r).isIn("eq_ref", "const"));
         }
     }

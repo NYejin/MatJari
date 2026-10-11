@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import type { PerformancePreview } from "../types/performance";
 import { getConflictPerformanceId, performancesApi } from "../api/performances";
 import { parseApiError } from "../api/errors";
 import {
@@ -18,7 +19,7 @@ import { button, linkButton, liveRegionClass, ui } from "../components/ui";
 
 // FR-02 공연 등록 (보호 라우트 /performances/new) — 단계형:
 // ① 티켓팅 링크(이미 등록됐는지 확인) ② 공연 정보(제목·공연장 이름·회차) ③ 확인 후 등록.
-// 공연장은 별도 엔티티 없이 텍스트 한 칸(venueName). 추후 ②단계에 링크에서 읽은 정보를 미리 채울 예정.
+// 공연장은 별도 엔티티 없이 텍스트 한 칸(venueName). 링크 확인 뒤 읽은 제목·공연장을 ②단계에 미리 채운다(회차는 읽을 수 없어 직접 입력).
 
 const STEPS = ["티켓팅 링크", "공연 정보", "확인"] as const;
 type Step = 0 | 1 | 2;
@@ -27,6 +28,17 @@ const TITLE_MAX = 200;
 const VENUE_MAX = 100;
 const URL_MAX = 2048;
 const SESSIONS_MAX = 100;
+/** 링크 정보 읽기 전체 제한 시간 — 넘으면 중단하고 그냥 다음 단계로 */
+const PREVIEW_TIMEOUT_MS = 15_000;
+
+/** 2단계 상단 안내 — 링크에서 읽은 결과 */
+type AutoFillNote = { kind: "filled" | "none" | "unsupported" | "failed"; periodStart: string | null; periodEnd: string | null };
+
+/** yyyy-MM-dd → yyyy.MM.dd */
+const dotDate = (d: string) => d.replace(/-/g, ".");
+function periodText(start: string, end: string | null): string {
+  return end && end !== start ? `${dotDate(start)} ~ ${dotDate(end)}` : dotDate(start);
+}
 
 const cls = {
   steps: "flex flex-wrap gap-x-3 gap-y-1",
@@ -90,6 +102,18 @@ export default function PerformanceRegisterPage() {
   const focusTargetId = useRef<string | null>(null);
   /** 중복 조회에서 "등록되지 않음"으로 확인된 링크 — 같은 링크면 다시 조회하지 않는다 */
   const checkedUrl = useRef<string | null>(null);
+  /** 링크 정보를 이미 읽어 본 링크 — 같은 링크면 다시 호출하지 않는다 */
+  const previewedUrl = useRef<string | null>(null);
+  const lastPrefill = useRef<{ title: string; venue: string } | null>(null);
+  const previewAbort = useRef<AbortController | null>(null);
+  const unmounted = useRef(false);
+  useEffect(() => {
+    unmounted.current = false;
+    return () => {
+      unmounted.current = true;
+      previewAbort.current?.abort();
+    };
+  }, []);
 
   // ① 링크
   const [sourceUrl, setSourceUrl] = useState("");
@@ -97,6 +121,8 @@ export default function PerformanceRegisterPage() {
   const [checking, setChecking] = useState(false);
   const [existingId, setExistingId] = useState<number | null>(null);
   const [lookupError, setLookupError] = useState<string | null>(null);
+  const [reading, setReading] = useState(false);
+  const [autoFill, setAutoFill] = useState<AutoFillNote | null>(null);
   // ② 공연 정보: 제목·공연장 이름·회차
   const [title, setTitle] = useState("");
   const [titleError, setTitleError] = useState<string>();
@@ -129,27 +155,82 @@ export default function PerformanceRegisterPage() {
     setStep(next);
   };
 
+  /** 링크 정보 읽기. 실패해도 오류로 막지 않고(15초 제한) 호출한 쪽이 다음 단계로 간다 */
+  const readPreview = async (url: string) => {
+    const controller = new AbortController();
+    previewAbort.current = controller;
+    const timer = window.setTimeout(() => controller.abort(), PREVIEW_TIMEOUT_MS);
+    setReading(true);
+    let result: PerformancePreview | null = null;
+    try {
+      result = await performancesApi.preview(url, controller.signal);
+    } catch {
+      result = null; // 시간 초과·400·429·네트워크 오류 모두 직접 입력으로 안내
+    } finally {
+      window.clearTimeout(timer);
+      setReading(false);
+    }
+    if (unmounted.current) return; // 화면을 떠난 뒤의 응답은 버린다
+    // 오류·시간 초과·읽기 실패는 기록하지 않아 같은 링크로 다시 시도할 수 있다
+    if (result && result.status !== "FETCH_FAILED") previewedUrl.current = url;
+    // 사용자가 쓴 값은 덮어쓰지 않는다 — 제목·공연장이 모두 비어 있거나, 이전 링크에서 미리 채운 값 그대로일 때만 바꾼다
+    const prev = lastPrefill.current;
+    const untouched = (!title.trim() && !venueName.trim()) || (prev !== null && title === prev.title && venueName === prev.venue);
+    if (!result || result.status === "FETCH_FAILED" || result.status === "NO_INFO" || result.status === "UNSUPPORTED_SITE") {
+      if (untouched && prev !== null) {
+        // 다른 링크에서 미리 채운 값이 남아 있으면 지운다(이 링크의 정보가 아니다)
+        setTitle("");
+        setVenueName("");
+        lastPrefill.current = null;
+      }
+      setAutoFill({
+        kind: result?.status === "UNSUPPORTED_SITE" ? "unsupported" : "failed",
+        periodStart: null,
+        periodEnd: null,
+      });
+      return;
+    }
+    const nextTitle = untouched ? (result.title ?? "") : title;
+    const nextVenue = untouched ? (result.venueName ?? "") : venueName;
+    if (untouched) {
+      setTitle(nextTitle);
+      setVenueName(nextVenue);
+      setTitleError(undefined);
+      setVenueError(undefined);
+      lastPrefill.current = { title: nextTitle, venue: nextVenue };
+    }
+    setAutoFill({
+      kind: untouched && (result.title || result.venueName) ? "filled" : "none",
+      periodStart: result.periodStart,
+      periodEnd: result.periodEnd,
+    });
+  };
+
   const submitUrl = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (checking) return;
+    if (checking || reading) return;
     const error = validateSourceUrl(sourceUrl);
     setUrlError(error);
     setExistingId(null);
     setLookupError(null);
     if (error) return;
     // 이미 "등록되지 않음"으로 확인한 같은 링크면 조회를 건너뛴다
-    if (sourceUrl.trim() === checkedUrl.current) {
+    const url = sourceUrl.trim();
+    if (url === checkedUrl.current) {
+      if (url !== previewedUrl.current) await readPreview(url);
       goTo(1);
       return;
     }
     setChecking(true);
     try {
-      const result = await performancesApi.lookup(sourceUrl.trim());
+      const result = await performancesApi.lookup(url);
       if (result.exists && typeof result.performanceId === "number") {
         setExistingId(result.performanceId);
         return;
       }
-      checkedUrl.current = sourceUrl.trim();
+      checkedUrl.current = url;
+      // 중복이 없을 때만 링크에서 공연 정보를 읽는다 (실패해도 2단계로 간다)
+      if (url !== previewedUrl.current) await readPreview(url);
       goTo(1);
     } catch (err) {
       setLookupError(parseApiError(err, "링크를 확인하지 못했습니다.").message);
@@ -259,7 +340,7 @@ export default function PerformanceRegisterPage() {
             setLookupError(null);
             setUrlError(undefined);
           }}
-          disabled={checking}
+          disabled={checking || reading}
           error={urlError}
           hint="공연을 예매한 티켓팅 사이트의 공연 페이지 주소를 붙여 넣어 주세요."
           placeholder="https://"
@@ -269,6 +350,9 @@ export default function PerformanceRegisterPage() {
           {existingId !== null
             ? "이미 등록된 공연이에요. 새로 등록하지 않고 기존 공연에서 회차를 추가하거나 교환할 수 있어요."
             : ""}
+        </p>
+        <p className={ui.status} role="status">
+          {reading ? "링크에서 공연 정보를 읽는 중..." : ""}
         </p>
         {existingId !== null && (
           <div>
@@ -283,8 +367,8 @@ export default function PerformanceRegisterPage() {
           </p>
         )}
         <div className="flex justify-end">
-          <button type="submit" className={button.solid} disabled={checking} aria-busy={checking}>
-            {checking ? "확인 중..." : "다음"}
+          <button type="submit" className={button.solid} disabled={checking || reading} aria-busy={checking || reading}>
+            {checking || reading ? "확인 중..." : "다음"}
           </button>
         </div>
       </form>
@@ -292,8 +376,15 @@ export default function PerformanceRegisterPage() {
   } else if (step === 1) {
     body = (
       <div className={cls.stepBody}>
-        {/* 추후 링크에서 읽은 정보를 미리 채우고 "이 정보가 맞나요?"를 묻는 기능이 들어갈 자리 */}
-        <p className={ui.notice}>정보가 맞는지 확인하고 틀리면 고쳐 주세요.</p>
+        <p className={ui.notice} role="status">
+          {autoFill?.kind === "filled"
+            ? "링크에서 읽은 정보예요. 맞는지 확인하고, 다르면 고쳐 주세요."
+            : autoFill?.kind === "unsupported"
+              ? "이 사이트는 자동 입력을 지원하지 않아요. 직접 입력해 주세요."
+              : autoFill?.kind === "failed"
+                ? "링크에서 정보를 읽지 못했어요. 직접 입력해 주세요."
+                : "정보가 맞는지 확인하고 틀리면 고쳐 주세요."}
+        </p>
         <TextField
           id="perf-title"
           label="공연 제목"
@@ -337,6 +428,12 @@ export default function PerformanceRegisterPage() {
             </p>
           )}
           {/* 안내는 오류가 있어도 계속 보이고 aria-describedby로 연결된다 */}
+          {autoFill?.periodStart && (
+            <p className={ui.hint}>
+              링크에 적힌 공연 기간: {periodText(autoFill.periodStart, autoFill.periodEnd)} · 회차 일시는 링크에서 읽을 수
+              없어 직접 입력해 주세요.
+            </p>
+          )}
           <p id="perf-session-hint" className={ui.hint}>
             {/* TODO: Hint 지우기 */}
             {/* {SESSION_TIME_STEP_HINT}  */}같은 공연의 여러 회차를 모두 추가해 주세요.

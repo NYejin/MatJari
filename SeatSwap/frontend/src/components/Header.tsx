@@ -51,8 +51,10 @@ const cls = {
     "md:flex-row md:items-center md:gap-2 md:border-t-0 md:pt-0",
   /** 초기화 중: 로그인 상태 영역과 같은 크기로 자리만 차지 */
   authPending: "invisible",
-  /** 768px 기준 로고+알림 벨(44px+gap 16)+메뉴+이름+마이페이지+로그아웃 합계 약 706px(가용 736px) — 이름은 md에서 최대 104px(lg 248px)에서 말줄임 */
+  /** 768px 기준 로고+알림 벨(44px+gap 16)+메뉴+이름+마이페이지+로그아웃 합계 약 706px(가용 736px) — 이름은 md에서 최대 104px(lg 248px)에서 말줄임.
+      관리자는 '관리자' 링크(약 73px)가 더 붙어 이름을 md에서 최대 40px로 줄인다(706+73-64=715px) */
   userName: "flex min-w-0 items-baseline gap-2 px-3 py-2 md:max-w-[104px] md:px-1 md:py-0 lg:max-w-[248px]",
+  userNameAdmin: "md:max-w-[40px]! lg:max-w-[248px]!",
   /** 표시 이름(닉네임, 없으면 email) */
   userNameMain: "min-w-0 truncate text-sm/[normal] text-gray-500",
   /** 모바일 패널에서만 닉네임 옆에 작은 email (흰 배경 gray-500 4.83:1). md 이상은 공간 계산상 숨김 */
@@ -90,7 +92,10 @@ const MENU: readonly { to: string; label: string }[] = [
   { to: "/exchange/matches", label: "내 매칭" },
 ];
 
-const navClass = ({ isActive }: { isActive: boolean }) =>
+// ADMIN일 때만 덧붙이는 메뉴 (UI 분기용 — 서버가 최종 판정)
+const ADMIN_MENU_ITEM = { to: "/admin", label: "관리자" } as const;
+
+const navClass =({ isActive }: { isActive: boolean }) =>
   `${cls.navLink} ${isActive ? cls.navLinkActive : cls.navLinkIdle}`;
 // 모바일은 /me에서도 채운 버튼 모양 유지, md 이상에서만 활성 여부로 분기 (aria-current는 NavLink 기본)
 const accountNavClass = ({ isActive }: { isActive: boolean }) =>
@@ -102,6 +107,7 @@ export default function Header() {
   const logoutAndGoHome = useLogout();
   const { forwardState } = useAuthRedirect();
   const location = useLocation();
+  const isAdmin = profile?.role === "ADMIN";
   const [menuOpen, setMenuOpen] = useState(false);
   const menuId = useId();
   const headerRef = useRef<HTMLElement>(null);
@@ -174,7 +180,7 @@ export default function Header() {
     const hasNickname = !!profile?.nickname;
     authArea = (
       <div className={cls.auth}>
-        <span className={cls.userName} title={hasNickname ? `${name} (${user.email})` : name}>
+        <span className={`${cls.userName} ${isAdmin ? cls.userNameAdmin : ""}`} title={hasNickname ? `${name} (${user.email})` : name}>
           <span className={cls.userNameMain}>{name}</span>
           {hasNickname && <span className={cls.userEmail}>{user.email}</span>}
         </span>
@@ -225,7 +231,7 @@ export default function Header() {
 
         <div id={menuId} className={`${cls.panel} ${menuOpen ? cls.panelOpen : cls.panelClosed}`}>
           <nav className={cls.nav} aria-label="주요 메뉴">
-            {(user ? MENU : []).map((item) => (
+            {(user ? (isAdmin ? [...MENU, ADMIN_MENU_ITEM] : MENU) : []).map((item) => (
               <NavLink key={item.to} to={item.to} className={navClass} onClick={closeMenu}>
                 {item.label}
               </NavLink>

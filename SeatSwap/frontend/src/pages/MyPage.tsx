@@ -51,6 +51,8 @@ const retryButton = `${cls.button} ${cls.buttonSolid} ${cls.retryButton}`;
 const ACTIVITY_LINKS = [
   { to: "/tickets", label: "내 티켓" },
   { to: "/exchange/matches", label: "내 매칭" },
+  { to: "/my/edit-proposals", label: "내 수정 제안" },
+  { to: "/my/seat-claims", label: "내 티켓 인증 요청" },
 ] as const;
 const COMING_SOON = ["교환 이력"] as const;
 

@@ -12,7 +12,7 @@ status: draft
 
 > 이 문서는 조사 요약이며 채팅 구현 결정이 아니다. 구현 때 설계를 확정한다. 프로젝트 맥락과 확정 결정은 [CLAUDE.md](../../CLAUDE.md), 백엔드 현황은 [백엔드 README](../../SeatSwap/backend/README.md)를 본다. 여기서는 결정을 복사하지 않는다.
 
-채팅은 교환 흐름에서 매칭(`CHATTING`) 이후 단계이며 아직 구현되지 않았다. 코드 확인(2026-10-11): `build.gradle`에 websocket 스타터 의존성만 있고 `WebSocketConfig`는 `@Configuration` 클래스에 TODO 주석뿐이다(엔드포인트·브로커·인터셉터 없음). 채팅 메시지 테이블(`chat_message` 등)은 아직 없고, 만든다면 V9(교환 이력)까지 적용된 뒤이므로 V10 이후 마이그레이션이다. 용어는 [용어집의 매칭 상태](../glossary.md) 참고.
+채팅은 교환 흐름에서 매칭(`CHATTING`) 이후 단계이며 아직 구현되지 않았다. 코드 확인(2026-10-11): `build.gradle`에 websocket 스타터 의존성만 있고 `WebSocketConfig`는 `@Configuration` 클래스에 TODO 주석뿐이다(엔드포인트·브로커·인터셉터 없음). 채팅 메시지 테이블(`chat_message` 등)은 아직 없고, 만든다면 V10(알림 `notification`)까지 적용된 뒤이므로 V11 이후 마이그레이션이다. 실시간 알림(STOMP)은 다음 브랜치 `feature/notifications-realtime`에서 다루며, 알림 설계는 [알림 설계](../decisions/notification-design.md) 참고. 용어는 [용어집의 매칭 상태](../glossary.md) 참고.
 
 ## 결론
 

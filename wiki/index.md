@@ -16,9 +16,11 @@ SeatSwap 프로젝트의 결정 근거, 함정, 조사 결과, 용어를 모은 
 
 - [교환 완료 시 티켓 처리: 안 2의 근거](decisions/exchange-complete-new-ticket.md): 교환 완료 때 기존 티켓을 `EXCHANGED`로 바꾸고 새 티켓을 만드는 안의 선택지와 이유, Q-15(기존 티켓의 요청 CLOSED, 다른 채팅 유지) 확정 근거, 구현 완료 후 flush 순서 함정.
 
+- [알림 3종 설계 근거](decisions/notification-design.md): 동기 INSERT 대 커밋 후 이벤트 비교와 선택 이유, dedup_key, 닫힌 매칭 알림·화면 구성·실시간 분리의 사용자 결정 3개.
+
 ## 함정
 
-- [잠금 순서와 인덱스·유니크 키 함정](gotchas/lock-order-and-index-pitfalls.md): 교환 도메인(MySQL)의 잠금 순서 규약, 인덱스·유니크 키로 겪은 교착, Hibernate flush 순서와 유니크 키.
+- [잠금 순서와 인덱스·유니크 키 함정](gotchas/lock-order-and-index-pitfalls.md): 교환 도메인(MySQL)의 잠금 순서 규약, 인덱스·유니크 키로 겪은 교착, Hibernate flush 순서와 유니크 키, 알림 쓰기 규칙과 dedup_key 함정, 교환 완료 갭 잠금 교착 가능성.
 
 ## 조사
 
@@ -26,4 +28,4 @@ SeatSwap 프로젝트의 결정 근거, 함정, 조사 결과, 용어를 모은 
 
 ## 용어집
 
-- [용어집](glossary.md): 매칭 상태, 교환 요청·희망 조건, 추가금, 티켓과 마감 등 고유 용어.
+- [용어집](glossary.md): 매칭 상태, 교환 요청·희망 조건, 추가금, 티켓과 마감, 알림 등 고유 용어.

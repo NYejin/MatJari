@@ -4,7 +4,7 @@ type: gotcha
 tags: [mysql, 교착, 인덱스, flyway, 동시성]
 sources: [SeatSwap/backend/src/main/resources/db/migration/V9__exchange_complete_history.sql, 산출물/08_ERD/exchange-schema-design.md, SeatSwap/backend/README.md, SeatSwap/backend/src/main/resources/db/migration/V3__ticket_seat_columns.sql, SeatSwap/backend/src/main/resources/db/migration/V5__exchange_match_tables.sql, SeatSwap/backend/src/main/resources/db/migration/V7__exchange_request_soft_delete.sql, SeatSwap/backend/src/main/resources/db/migration/V8__exchange_match_single_reserve.sql, CLAUDE.md]
 updated: 2026-10-11
-confidence: high
+confidence: medium
 status: draft
 ---
 
@@ -16,7 +16,7 @@ status: draft
 
 - 항상 티켓(id 오름차순), 요청(id 오름차순), 매칭 순이다 (`SeatSwap/backend/README.md` "동시성" 절).
 - 요청만 잠그는 update/delete 경로에서는 티켓을 잠그지 않는다 ([CLAUDE.md](../../CLAUDE.md)의 교환 희망 조건 항목에도 같은 규약이 적혀 있다).
-- `users` 행은 티켓 이후에 잡는다. 새 코드에서 users 행을 X 잠금한 뒤 티켓·요청을 잠그지 않는다. 지금은 `TicketService.create`가 users 행을 먼저 잡고 티켓은 INSERT만 해서 순환이 없다. 앞으로 차단(`user_block`) 서비스도 users X 잠금 뒤에 티켓·요청·매칭을 잠그면 안 된다.
+- `users` 행은 티켓 이후에 잡는다. 새 코드에서 users 행을 X 잠금한 뒤 티켓·요청을 잠그지 않는다. `TicketService.create`는 users 행을 먼저 잡고 티켓은 INSERT만 하므로 잠금 순서 규약 안에서는 순환이 없다. 다만 교환 완료의 새 티켓 INSERT와는 갭 잠금으로 엇갈릴 수 있다(8절). 앞으로 차단(`user_block`) 서비스도 users X 잠금 뒤에 티켓·요청·매칭을 잠그면 안 된다.
 - 잠금 읽기가 트랜잭션의 첫 쿼리들이 되게 한다. 불변 컬럼(티켓 id, 사용자 id)은 트랜잭션 밖에서 먼저 읽어 잠금 대상을 정한다. REPEATABLE READ 스냅샷이 잠금 뒤에 시작해야 최신 상태를 본다.
 
 ## 2. FK 인덱스에 갱신 컬럼을 붙이면 교착 (실제 재현)
@@ -70,3 +70,21 @@ status: draft
 
 - 증상: 한 트랜잭션에서 "기존 티켓 UPDATE, 새 티켓 INSERT" 순서로 호출해도 Hibernate는 flush 때 INSERT를 UPDATE보다 먼저 실행한다. 3절의 `uk_ticket_active_seat`는 UPDATE가 먼저 나가야 슬롯이 비므로, 순서가 뒤집히면 유니크 위반이 난다.
 - 해결: UPDATE 직후 명시적으로 flush해 순서를 강제한 뒤 INSERT한다. 교환 완료가 이 경우다 ([근거 페이지](../decisions/exchange-complete-new-ticket.md)). 유니크 키가 걸린 "비우고 채우기"는 이 점을 테스트(실제 MySQL IT)로 확인한다.
+
+## 8. 알림(notification) 쓰기 규칙 (V10)
+
+알림 3종 구현 근거는 [알림 설계](../decisions/notification-design.md), 용어는 [용어집](../glossary.md).
+
+- **트랜잭션 맨 끝에서 INSERT**: `NotificationService.notify`는 propose/reserve/unreserve 트랜잭션의 마지막에 일반 INSERT로 쓴다. `notification.user_id`, `match_id` FK 때문에 users 행에 S 잠금이 걸리므로, 잠금 순서는 티켓 id 오름차순, 요청 id 오름차순, 매칭, users S, notification이다. notification 행을 잠근 뒤 티켓·요청·매칭을 잠그지 않는다. 한 트랜잭션에서 수신자당 알림은 1건이다.
+- **읽음·삭제는 잠금 없는 SELECT 후 IN 벌크**: 먼저 잠금 없는 SELECT로 대상 id를 모으고, 500개씩 `WHERE id IN (...)`로 UPDATE/DELETE 한다. `WHERE user_id = ? AND read_at IS NULL` 같은 범위 UPDATE/DELETE는 쓰지 않는다. 인덱스 범위에 갭 잠금이 걸려 같은 수신자에게 알림을 INSERT하는 다른 트랜잭션(propose 등)과 교착할 수 있기 때문이다. 읽은 알림 삭제에서도 안 읽은 것은 건드리지 않는다.
+- **dedup_key 유니크 함정**: 요구사항 가안은 `(user_id, type, match_id)`를 유니크로 두는 것이었다. 그러면 예약, 예약 취소, 재예약을 반복할 때 같은 키가 두 번 들어가 유니크 위반이 나고 **예약 자체가 롤백**된다. 그래서 `dedup_key` 단일 컬럼 유니크(`uk_notification_dedup`)로 바꿨다. 중복을 막아야 하는 새 제안만 `PROPOSAL_RECEIVED:{matchId}` 값을 넣고, 예약·예약 취소는 `dedup_key`를 NULL로 둔다. MySQL 유니크는 NULL끼리 비교하지 않으므로(3절과 같은 성질) 예약↔취소 반복마다 매번 1건이 쌓인다.
+- 안 읽은 개수용 `unread_user_id`는 생성 컬럼이며 FK가 아니고, 갱신 컬럼 인덱스가 FK 인덱스를 겸하지 않게 user/match/unread 키를 모두 단일 컬럼으로 뒀다(2절 원칙).
+- 검증: 한 수신자에게 14명이 동시에 propose·reserve/unreserve 하는 동안 수신자가 읽음·삭제 60회 반복과 `TicketService.create`를 병행하는 임시 MySQL IT에서 1213(교착) 0건. 기본 테스트 527건 통과, 임시 MySQL IT 포함 543건 통과(교착 스트레스 보강 전 수치, 보강 후 알림 테스트 클래스만 재실행) (이 수치는 구현 세션 기록이며 재실행은 하지 않았다).
+
+## 9. 교환 완료의 갭 잠금과 users S 잠금 vs TicketService.create (교착 가능성)
+
+- 출처: 알림 구현 코드 리뷰에서 Fable이 지적. 판정은 PLAUSIBLE(그럴듯함)이며 실제 재현은 하지 않았다. 심각도는 낮음, 코드는 수정하지 않았다.
+- 시나리오: `complete`의 두 번째 수락은 새 티켓 INSERT 때 `uk_ticket_active_seat` 인덱스에 갭 잠금을 쥔다. 이어서 FK 검사(users 참조)로 users 행 S 잠금을 요구한다. 같은 참여자가 인접 좌석을 등록하는 `TicketService.create`는 users 행을 X로 먼저 잡은 뒤 같은 유니크 인덱스 범위에 INSERT하므로, 서로의 잠금을 기다리는 순환이 생길 수 있다. 1절의 "create는 INSERT만 하므로 순환 없음" 전제는 티켓 행 잠금에 대해서만 맞고 갭 잠금은 포함하지 않았다.
+- 영향: MySQL이 한쪽을 희생(1213)시키고 서비스는 이를 503으로 흡수한다. 트랜잭션이 통째로 롤백되므로 데이터 손상은 없고 재시도하면 된다고 본다.
+- 완화안(미적용): `complete`에서 새 티켓 INSERT 전에 users 두 행을 id 순서로 `FOR SHARE` 선행 잠금한다. 그러면 users S를 먼저 잡고 갭 잠금을 나중에 잡아 `create`(users X 선행)와 같은 순서가 된다. 적용 전에는 실제 MySQL IT로 재현을 먼저 확인한다.
+- 앞선 구현 세션의 "받을 좌석을 그 순간 직접 등록하면 users S 잠금과 엇갈릴 수 있다"는 알려진 한계([작업일지](../../산출물/07_작업일지/2026-10-11.md))와 같은 건이다.

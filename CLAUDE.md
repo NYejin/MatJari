@@ -36,7 +36,7 @@
 
 ## 현재 구현 현황
 
-DB는 Flyway V1~V9, 11개 테이블(users·performance·performance_session·ticket·exchange_request·exchange_want_range·exchange_want_seat·exchange_want_session·exchange_match·exchange_ticket_lock·exchange_history). **구현 완료**: 가입·로그인(JWT), 공연 등록·목록·상세(등록 후 수정 불가), 티켓 등록·내리기, 교환 희망 조건(범위별 추가금·소프트 삭제), 후보 조회, 제안·거절·채팅 종료, 한 명 예약·예약 취소, 교환 수락→교환 완료(기존 티켓 EXCHANGED+새 티켓, 교환 이력 기록, 교환된 좌석 안내), 내 매칭 조회, 교환 화면 5개(티켓 등록·내 티켓·희망 조건 폼·후보 목록·내 매칭). **미구현**: 교환 이력 조회 API·마이페이지 '교환 이력' 화면, 알림 3종, 채팅, 차단·신고, 링크 자동 입력(회차 포함), 관리자 페이지(공연 수정 제안·티켓 인증 확인). 다음 마이그레이션 번호는 V10부터. 상세 수치는 [STATS.md](STATS.md), 이력은 [HISTORY.md](HISTORY.md).
+DB는 Flyway V1~V10, 12개 테이블(users·performance·performance_session·ticket·exchange_request·exchange_want_range·exchange_want_seat·exchange_want_session·exchange_match·exchange_ticket_lock·exchange_history·notification). **구현 완료**: 가입·로그인(JWT), 공연 등록·목록·상세(등록 후 수정 불가), 티켓 등록·내리기, 교환 희망 조건(범위별 추가금·소프트 삭제), 후보 조회, 제안·거절·채팅 종료, 한 명 예약·예약 취소, 교환 수락→교환 완료(기존 티켓 EXCHANGED+새 티켓, 교환 이력 기록, 교환된 좌석 안내), 내 매칭 조회, 교환 화면 5개(티켓 등록·내 티켓·희망 조건 폼·후보 목록·내 매칭), 알림 3종(새 제안·상대 예약·상대 예약 취소: 헤더 벨 말풍선, 알림 페이지, 읽은 알림 삭제, 화면이 보일 때 30초 폴링). **미구현**: 교환 이력 조회 API·마이페이지 '교환 이력' 화면, 7일 경과 알림, 실시간 알림 푸시(STOMP), 채팅, 차단·신고, 링크 자동 입력(회차 포함), 관리자 페이지(공연 수정 제안·티켓 인증 확인). 다음 마이그레이션 번호는 V11부터. 상세 수치는 [STATS.md](STATS.md), 이력은 [HISTORY.md](HISTORY.md).
 
 ## 제품·교환 규칙 (확정)
 
@@ -72,7 +72,7 @@ DB는 Flyway V1~V9, 11개 테이블(users·performance·performance_session·tic
 ### 제안·취소
 - 제안: `POST /api/exchange/requests/{id}/proposals` = CHATTING 매칭 생성. 거절(`reject`)은 제안받은 쪽만, 채팅 종료(`cancel`)는 참여자 누구나 → CANCELED(`canceled_by_id`, 시스템 취소는 NULL). 불허 전이는 409 `MATCH_STATE_CONFLICT`.
 - **취소는 재매칭 불가가 아니다.** 같은 쌍 재매칭 불가는 **차단·신고 때만** 적용한다. 양쪽 완료 전에는 누구든 취소할 수 있다.
-- 한쪽만 수락하고 방치해도 자동 완료·자동 취소는 없다. **7일 경과 알림만** 보낸다.
+- 한쪽만 수락하고 방치해도 자동 완료·자동 취소는 없다. **7일 경과 알림만** 보낸다(7일 경과 알림은 미구현).
 
 ### 예약 (한 명이 예약하는 방식)
 - **둘 중 한 명이 예약하면 RESERVED**가 되고 두 티켓이 `exchange_ticket_lock`으로 잠긴다. **한 명이 예약을 취소하면 CHATTING으로 복귀**(매칭·채팅 유지, 잠금 해제, 같은 쌍도 바로 재예약 가능). API는 `reserve`/`unreserve`, DB는 `reserved_by_id`·`reserved_at`(`a/b_reserved_at`은 레거시로 남김). 이미 다른 매칭에서 잠긴 티켓이면 409 `TICKET_ALREADY_RESERVED`.
@@ -100,7 +100,12 @@ DB는 Flyway V1~V9, 11개 테이블(users·performance·performance_session·tic
 - 요청·어댑터(SSRF 방어 포함)는 Spring Boot 백엔드에 새로 만든다. 이전 safe_fetch 구현은 태그 `archive/seatmap-track-20261007`에서 참고한다.
 
 ### 알림·차단·신고·관리자
-- 알림 3종(R1-3): '새 제안'·'상대가 예약'·'상대가 예약 취소'. 구조는 재사용 가능하게 만든다.
+- **알림 3종(구현됨)**: '새 제안'(`PROPOSAL_RECEIVED`, 제안받은 쪽), '상대가 예약'(`MATCH_RESERVED`), '상대가 예약 취소'(`RESERVATION_CANCELED`). 저장 테이블은 `notification`, 유형은 CHECK로 3종만 허용한다.
+- 알림 행은 propose·reserve·unreserve 트랜잭션의 **맨 끝**에서, 매칭 상태가 실제로 바뀐 경우에만 INSERT한다(멱등 재호출·오류 경로는 0건). 한 트랜잭션에서 수신자당 1건.
+- 중복 방지는 `dedup_key` 단일 유니크다. **한 번만 생기는 '새 제안'만** `PROPOSAL_RECEIVED:{matchId}`를 채우고, '상대가 예약'·'예약 취소'는 반복마다 1건씩 쌓이므로 `dedup_key`를 NULL로 둔다. (수신자·매칭·유형 복합 유니크는 재예약 때 예약 자체가 롤백되므로 쓰지 않는다.)
+- 닫힌 매칭(CANCELED·COMPLETED)의 알림도 안 읽은 개수·목록에서 빼지 않고, 회색 '종료된 매칭' 라벨로만 표시한다. 알림이 사라지는 유일한 경로는 사용자의 **'읽은 알림 삭제'**(읽은 알림만 대상)다.
+- 화면: 헤더 벨을 누르면 바로 아래 말풍선(최신 5건, 모두 읽음, 알림 전체 보기), 알림 전체 보기는 `/notifications` 페이지다. 알림 클릭은 읽음 처리 후 매칭 카드로 이동한다. 목록·안 읽은 개수는 화면이 보일 때만 30초 폴링한다(실시간 푸시는 후속).
+- 알림 구조는 type 추가로 확장할 수 있게 둔다(예: 7일 경과 알림).
 - **사용자 차단 기능을 만든다**: 차단하면 후보에서 제외되고 채팅할 수 없다. **사용자 신고는 필수**(교환 핵심 흐름 이후 추가).
 - 관리자는 DB에서 ADMIN 역할을 직접 부여하는 방식으로 시작한다. 회원탈퇴는 물리 삭제가 아니라 익명화(로그·제재 FK 유지)한다.
 
@@ -111,6 +116,7 @@ DB는 Flyway V1~V9, 11개 테이블(users·performance·performance_session·tic
 - **FK에 쓰이는 인덱스에 갱신 컬럼(status 등)을 붙이지 않는다**(FK 인덱스는 단일 컬럼). 교착 원인이 된다.
 - **이미 적용된 Flyway 마이그레이션 파일은 수정하지 않는다**(체크섬 불일치). 새 번호로 추가하고, 마이그레이션은 재실행 가능한 프로시저 패턴을 따른다. 이전 스키마가 남은 로컬 DB는 `docker compose down -v`로 비운 뒤 적용한다.
 - 실제 MySQL 통합 테스트는 환경변수 `SEATSWAP_IT_*`가 있을 때만 실행하며 개발 DB 보호 장치를 유지한다(IT용 DB 이름 규칙은 ops-rules).
+- notification 쓰기는 트랜잭션 마지막에 한다. notification 행을 잠근 뒤 티켓·요청·매칭 잠금 금지.
 - 소스코드 수정분 전달은 `MMDD-순번_수정내역영문.zip`, 문서(계획서/요구사항정의서 등)는 압축 없이 단일 파일.
 
 ## 기술 스택·범위 제외
@@ -139,7 +145,7 @@ DB는 Flyway V1~V9, 11개 테이블(users·performance·performance_session·tic
 
 ## 후속 작업 목록
 
-①링크 기반 공연 정보 자동 입력(제목·공연장·회차) ②관리자 페이지(공연 수정 제안 처리, 티켓 인증 확인) ③교환 이력 조회·마이페이지 '교환 이력' 화면 ④알림 3종 ⑤채팅 ⑥신고·차단. 로고 변경은 완료.
+①링크 기반 공연 정보 자동 입력(제목·공연장·회차) ②관리자 페이지(공연 수정 제안 처리, 티켓 인증 확인) ③교환 이력 조회·마이페이지 '교환 이력' 화면 ④실시간 알림(STOMP 푸시, 지금은 30초 폴링) ⑤채팅 ⑥신고·차단. 로고 변경과 알림 3종은 완료.
 
 ## 확인 필요 (열린 질문만)
 

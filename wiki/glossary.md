@@ -67,6 +67,14 @@ SeatSwap 고유 용어의 짧은 정의다. 확정 결정 본문은 [CLAUDE.md](
 - **알림 사용자 큐**: STOMP 수신 전용 목적지 `/user/queue/notifications`. 새 알림이 커밋되면 `NOTIFICATION_CREATED` 신호(알림 id·유형·매칭 id뿐)만 보내고, 화면은 REST로 다시 읽는다. 설계 근거는 [알림 설계 근거](decisions/notification-design.md).
 - **앱 공용 연결**: 로그인한 앱이 탭당 STOMP 연결 1개를 참조 카운트로 공유하는 구조(헤더 벨 훅과 채팅 훅). 구독은 목적지당 1개다.
 
+## 관리자
+
+설계 근거는 [관리자 설계 근거](decisions/admin-design.md), 함정은 [함정 페이지 11절](gotchas/lock-order-and-index-pitfalls.md) 참고. 구현 완료(V12, 브랜치 `feature/admin`, 미병합).
+
+- **공연 수정 제안** (`performance_edit_proposal`): 사용자가 공연의 제목·공연장 수정을 제안하고 관리자가 승인(공연에 반영)·거절하는 흐름. 상태 `PENDING`/`APPROVED`/`REJECTED`. 사용자당 대기는 3건까지.
+- **좌석 소유 인증 요청** (`seat_claim`, 화면 이름 '내 티켓 인증'): 이미 등록된 좌석의 소유를 예매내역 사진으로 주장하는 요청. 관리자가 승인하면 현재 그 좌석의 활성 티켓이 내려진다. 처리 후 사진은 삭제된다(`image_deleted_at`).
+- **PENDING 전용 유니크**: 상태가 PENDING일 때만 사용자 id를 갖는 생성 컬럼(`pending_proposer_id`, `pending_claimant_id`)에 건 UNIQUE. 처리되면 NULL이 되어 재요청이 가능하다.
+
 ## 링크 자동 입력
 
 설계 근거는 [링크 자동 입력 설계 근거](decisions/link-autofill-design.md), 함정은 [링크 가져오기 함정](gotchas/link-fetch-pitfalls.md) 참고. 구현 완료(브랜치 `feature/link-autofill`, 미병합, DB 변경 없음).

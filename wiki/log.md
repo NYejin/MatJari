@@ -34,3 +34,6 @@ llm-wiki 스킬, researcher·wiki-curator 에이전트, `scripts/lint-wiki.mjs`�
 
 ## [2026-10-12] ingest | 링크 기반 공연정보 자동 입력 반영
 링크 자동 입력(브랜치 `feature/link-autofill`, 미병합, V12 없음) 구현 사실을 반영했다. 결정 페이지 `link-autofill-design.md`와 함정 페이지 `link-fetch-pitfalls.md`를 추가하고, 목차와 용어집에 링크 자동 입력 절을 더했다. 실측은 2026-10-12 한 시점 결과이며 confidence는 medium이다.
+
+## [2026-10-12] ingest | 관리자 페이지(공연 수정 제안·좌석 소유 인증) 반영
+관리자 기능(V12, 브랜치 `feature/admin`, 커밋 `e608c5a`·`96a5623`·`6c04c08`·`04fecf7`, 미병합) 구현 사실을 반영했다. 결정 페이지 `admin-design.md`를 추가하고, 함정 페이지에 11절(좌석 키 보조 인덱스 FOR UPDATE 교착, PENDING 전용 생성 컬럼 유니크)을, 용어집에 관리자 절을 더했다. 범위 해석("다")은 추정이라 confidence는 medium이다.

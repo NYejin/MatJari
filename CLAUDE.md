@@ -36,7 +36,7 @@
 
 ## 현재 구현 현황
 
-DB는 Flyway V1~V11, 14개 테이블(users·performance·performance_session·ticket·exchange_request·exchange_want_range·exchange_want_seat·exchange_want_session·exchange_match·exchange_ticket_lock·exchange_history·notification·chat_message·chat_read_state). **구현 완료**: 가입·로그인(JWT), 공연 등록·목록·상세(등록 후 수정 불가), 티켓 등록·내리기, 교환 희망 조건(범위별 추가금·소프트 삭제), 후보 조회, 제안·거절·채팅 종료, 한 명 예약·예약 취소, 교환 수락→교환 완료(기존 티켓 EXCHANGED+새 티켓, 교환 이력 기록, 교환된 좌석 안내), 내 매칭 조회, 교환 화면 5개(티켓 등록·내 티켓·희망 조건 폼·후보 목록·내 매칭), 알림 3종(새 제안·상대 예약·상대 예약 취소: 헤더 벨 말풍선, 알림 페이지, 읽은 알림 삭제, STOMP 실시간 푸시 + 연결이 끊겼을 때만 30초 폴링), 매칭별 채팅(채팅 화면에서 REST로 보내고 STOMP 사용자 큐로 받기, 읽음 표시, 종료 후 읽기 전용), 링크 기반 공연정보 자동 입력(제목·공연장·공연 기간, 회차 시각 제외). **미구현**: 교환 이력 조회 API·마이페이지 '교환 이력' 화면, 7일 경과 알림, 차단·신고, 관리자 페이지(공연 수정 제안·티켓 인증 확인). 다음 마이그레이션 번호는 V12부터. 상세 수치는 [STATS.md](STATS.md), 이력은 [HISTORY.md](HISTORY.md).
+DB는 Flyway V1~V12, 16개 테이블(performance_edit_proposal·seat_claim 포함, users·performance·performance_session·ticket·exchange_request·exchange_want_range·exchange_want_seat·exchange_want_session·exchange_match·exchange_ticket_lock·exchange_history·notification·chat_message·chat_read_state). **구현 완료**: 가입·로그인(JWT), 공연 등록·목록·상세(등록 후 수정 불가), 티켓 등록·내리기, 교환 희망 조건(범위별 추가금·소프트 삭제), 후보 조회, 제안·거절·채팅 종료, 한 명 예약·예약 취소, 교환 수락→교환 완료(기존 티켓 EXCHANGED+새 티켓, 교환 이력 기록, 교환된 좌석 안내), 내 매칭 조회, 교환 화면 5개(티켓 등록·내 티켓·희망 조건 폼·후보 목록·내 매칭), 알림 3종(새 제안·상대 예약·상대 예약 취소: 헤더 벨 말풍선, 알림 페이지, 읽은 알림 삭제, STOMP 실시간 푸시 + 연결이 끊겼을 때만 30초 폴링), 매칭별 채팅(채팅 화면에서 REST로 보내고 STOMP 사용자 큐로 받기, 읽음 표시, 종료 후 읽기 전용), 링크 기반 공연정보 자동 입력(제목·공연장·공연 기간, 회차 시각 제외), 관리자 페이지(공연 수정 제안 처리·내 티켓 인증 확인). **미구현**: 교환 이력 조회 API·마이페이지 '교환 이력' 화면, 7일 경과 알림, 차단·신고. 다음 마이그레이션 번호는 V13부터(차단 `user_block`). 상세 수치는 [STATS.md](STATS.md), 이력은 [HISTORY.md](HISTORY.md).
 
 ## 제품·교환 규칙 (확정)
 
@@ -56,7 +56,7 @@ DB는 Flyway V1~V11, 14개 테이블(users·performance·performance_session·ti
 - 지난 회차: 회차 당일 끝(**다음날 0시 KST**)까지 티켓 등록·매칭을 허용하고 이후 자동 비활성한다(등록 400 `sessionId`, 요청 생성·수정 422 `SESSION_CLOSED`, 희망 회차 마감 400). 공연 시작 후에도 매칭·예약·교환 수락은 계속 가능하고, 이미 시작한 채팅의 예약·교환 수락에는 마감 검사를 하지 않는다.
 
 ### 티켓
-- 같은 회차·구역·열·번의 활성 티켓은 1개(409 `SEAT_ALREADY_REGISTERED`/`MY_TICKET_ALREADY_REGISTERED`), 사용자당 활성 20개 상한(422 `TICKET_LIMIT_REACHED`). 이미 등록된 좌석이면 안내 팝업을 띄우고 '내 티켓 인증' 링크를 둔다(인증 방식은 추후, 사진 업로드→관리자 수동 확인 예정).
+- 같은 회차·구역·열·번의 활성 티켓은 1개(409 `SEAT_ALREADY_REGISTERED`/`MY_TICKET_ALREADY_REGISTERED`), 사용자당 활성 20개 상한(422 `TICKET_LIMIT_REACHED`). 이미 등록된 좌석이면 안내 팝업을 띄우고 '내 티켓 인증' 링크를 둔다(사진 업로드→관리자 확인, 아래 '관리자' 절).
 - 티켓 내리기는 소프트 삭제(INACTIVE)이며 본인만(남의 티켓 404, 멱등 204). 예약 잠금 중이면 409 `TICKET_RESERVED`. 잠기지 않았으면 해당 요청을 CLOSED로 바꾸고 그 티켓의 CHATTING 매칭을 시스템 취소한다. 닫힌 요청 수정은 422 `TICKET_NOT_ACTIVE`. 교환 완료로 `EXCHANGED`가 된 티켓은 409 `TICKET_EXCHANGED`로 내릴 수 없고, 그 티켓의 예약 시도도 같은 코드로 막힌다(INACTIVE는 기존대로 멱등 204). 교환으로 받은 새 티켓은 일반 ACTIVE 티켓이라 내리기·새 교환 요청이 가능하다.
 
 ### 추가금
@@ -91,7 +91,7 @@ DB는 Flyway V1~V11, 14개 테이블(users·performance·performance_session·ti
 ### 공연 등록
 - 공연장 관련 새 지시가 나오면 구현 전에 사용자에게 되묻는다.
 - 공연장(`venue` 테이블)은 없다. `performance.venue_name`에 텍스트로 둔다(필수, 공백 정리 후 1~100자). 공연장 검색·추가·필터·정식 등록(VERIFIED) 개념은 없다. 공연 목록 검색은 제목만.
-- **공연은 등록 후 아무도 수정·삭제하지 못한다**(제목·공연장·회차 포함, 무분별한 수정 방지). 수정은 추후 **관리자 페이지의 '수정 제안'** 으로만 한다. 공연 API는 등록·목록·상세·lookup뿐이고 상세 화면은 읽기 전용이다.
+- **공연은 등록 후 아무도 수정·삭제하지 못한다**(제목·공연장·회차 포함, 무분별한 수정 방지). 수정은 **관리자 페이지의 '수정 제안'**(제목·공연장만) 승인으로만 한다. 공연 API는 등록·목록·상세·lookup뿐이고 상세 화면은 읽기 전용이다.
 - 등록 화면은 3단계: ①티켓팅 링크(중복 확인) ②공연 정보(제목·공연장 이름·회차, 지금은 직접 입력) ③확인·등록.
 
 ### 링크 기반 공연정보 자동 입력 (구현됨, DB 변경 없음)
@@ -122,6 +122,12 @@ DB는 Flyway V1~V11, 14개 테이블(users·performance·performance_session·ti
 - **사용자 차단 기능을 만든다**: 차단하면 후보에서 제외되고 채팅할 수 없다. **사용자 신고는 필수**(교환 핵심 흐름 이후 추가).
 - 관리자는 DB에서 ADMIN 역할을 직접 부여하는 방식으로 시작한다. 회원탈퇴는 물리 삭제가 아니라 익명화(로그·제재 FK 유지)한다.
 
+### 관리자·공연 수정 제안·내 티켓 인증 (구현됨, V12 `performance_edit_proposal`·`seat_claim`)
+- 관리자는 DB에서 `users.role='ADMIN'`을 직접 부여한다. `/api/admin/**`는 서버가 ADMIN만 허용하고, 프론트는 `AdminRoute`(`/api/users/me`의 role)로 `/admin` 화면을 가린다. 헤더에는 ADMIN일 때만 '관리자' 링크가 보인다.
+- **공연 수정 제안**: 공연 상세 "정보가 틀렸어요"에서 **제목·공연장**(최소 하나)과 사유를 제안하면, 관리자가 현재 값→제안 값을 비교해 승인(공연에 반영)하거나 거절(사유)한다. **회차·링크는 수정 대상이 아니다.** 공연을 바꾸는 유일한 경로는 관리자 승인(`Performance.applyApprovedEdit`)이다. 사용자당 PENDING 3건, 같은 공연 PENDING 1건. 알림은 만들지 않고 제안자는 `/my/edit-proposals`에서 결과를 본다. 잠금 순서는 제안 행 → 공연 행.
+- **내 티켓 인증(좌석 소유 인증 요청)**: 이미 같은 좌석이 등록돼 있다는 안내의 '내 티켓 인증'에서 회차·좌석과 **예매내역 사진 1장**(jpeg/png/webp, ≤5 MiB)을 올리면 관리자가 사진·현재 그 좌석을 가진 티켓을 보고 승인/거절한다. **승인하면 현재 그 좌석의 활성 티켓을 시스템이 내린다**(요청 CLOSED, CHATTING 매칭 시스템 취소; 예약 잠금 중이면 승인 불가). 요청자는 이후 일반 티켓 등록으로 직접 등록한다. 사진은 서버 로컬 디스크(`seatswap.upload.dir`)에 UUID 이름으로 저장하고 본인·ADMIN만 조회하며, **처리(승인·거절)가 끝나면 커밋 뒤 삭제**한다. 사용자당 PENDING 5건. 잠금 순서는 인증 요청 행 → 티켓 id↑ → 요청 id↑ → 매칭.
+- 상세는 [wiki/decisions/admin-design.md](wiki/decisions/admin-design.md).
+
 ## 개발 규칙 (앞으로도 지킨다)
 
 근거와 사례는 [wiki/gotchas/lock-order-and-index-pitfalls.md](wiki/gotchas/lock-order-and-index-pitfalls.md).
@@ -134,6 +140,7 @@ DB는 Flyway V1~V11, 14개 테이블(users·performance·performance_session·ti
 - 읽음 포인터 advance는 매칭·users 잠금을 잡은 트랜잭션 안에서 호출하지 않는다(자기 대기·갭 잠금 교착).
 - 메시지 조회 쿼리는 `FORCE INDEX (idx_chat_message_match)`를 유지한다(옵티마이저가 PRIMARY 역방향·filesort를 고르는 문제).
 - 링크 자동 입력은 사용자가 준 URL을 요청하지 않고 `SourceKeyResolver`로 뽑은 사이트·숫자 ID로 고정 템플릿 URL만 만들어 요청한다(SSRF 방어의 핵심). 새 사이트를 추가할 때도 이 규칙과 호스트 고정을 유지한다.
+- 좌석 소유 인증 승인처럼 좌석 키(보조 유니크 인덱스)로 티켓을 잠가야 할 때는 `FOR UPDATE`를 키로 걸지 말고 id를 잠금 없이 읽은 뒤 PK로 잠그고 상태를 다시 판단한다(`deactivate`와 교착). 상태 전이로 바뀌는 값을 유니크로 쓸 때는 생성 컬럼 UNIQUE(PENDING만 유니크)를 쓴다.
 - 소스코드 수정분 전달은 `MMDD-순번_수정내역영문.zip`, 문서(계획서/요구사항정의서 등)는 압축 없이 단일 파일.
 
 ## 기술 스택·범위 제외
@@ -162,7 +169,7 @@ DB는 Flyway V1~V11, 14개 테이블(users·performance·performance_session·ti
 
 ## 후속 작업 목록
 
-①관리자 페이지(공연 수정 제안 처리, 티켓 인증 확인) ②교환 이력 조회 API·마이페이지 '교환 이력' 화면 ③신고·차단. 로고 변경, 알림 3종, 채팅, 실시간 알림 푸시, 링크 자동 입력은 완료.
+①교환 이력 조회 API·마이페이지 '교환 이력' 화면 ②신고·차단. 로고 변경, 알림 3종, 채팅, 실시간 알림 푸시, 링크 자동 입력, 관리자 페이지는 완료.
 
 ## 확인 필요 (열린 질문만)
 

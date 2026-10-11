@@ -3,7 +3,7 @@ title: 잠금 순서와 인덱스·유니크 키 함정
 type: gotcha
 tags: [mysql, 교착, 인덱스, flyway, 동시성]
 sources: [SeatSwap/backend/src/main/resources/db/migration/V9__exchange_complete_history.sql, 산출물/08_ERD/exchange-schema-design.md, SeatSwap/backend/README.md, SeatSwap/backend/src/main/resources/db/migration/V3__ticket_seat_columns.sql, SeatSwap/backend/src/main/resources/db/migration/V5__exchange_match_tables.sql, SeatSwap/backend/src/main/resources/db/migration/V7__exchange_request_soft_delete.sql, SeatSwap/backend/src/main/resources/db/migration/V8__exchange_match_single_reserve.sql, SeatSwap/backend/src/main/resources/db/migration/V11__chat_message.sql, CLAUDE.md]
-updated: 2026-10-11
+updated: 2026-10-12
 confidence: medium
 status: draft
 ---
@@ -102,3 +102,11 @@ status: draft
 - **목적지당 구독 1개**: 구독 수가 무제한이었던 점이 리뷰에서 중간 심각도로 지적됐다(Opus). 같은 큐를 반복 구독하면 푸시가 중복되고 자원을 더 쓸 수 있다. 레지스트리에 subscriptionId를 저장해 제한했고, 처음에는 세션당 1개였으나 실시간 알림 푸시 이후 허용 목적지 `/user/queue/chat`, `/user/queue/notifications` 정확 일치만 각각 1번씩 구독할 수 있다(세션당 최대 2개). 같은 목적지 중복 SUBSCRIBE나 구독 id 재사용은 거부하고 세션을 1008로 닫으며, 다른 목적지·변형과 SEND·ACK는 전부 거부한다. 사용자당 동시 연결도 5개로 제한한다. 알림 푸시는 커밋 뒤 전송이라 이 절의 "전파는 커밋 뒤에" 규칙과 같고, 알림 쓰기가 트랜잭션 맨 끝이라는 8절 규칙도 그대로다.
 - **속도 제한 함정**: 제한은 5초 5건과 60초 60건 두 개다(구현은 사용자별 슬라이딩 윈도이며, 토큰 버킷 2개로 만들 때도 같은 문제가 있다). 5초 5건의 지속 속도는 분당 60건이라 60초 60건과 같다. 그래서 60초 한도는 실질적으로 따로 걸리지 않고, 효과를 내는 것은 5초 한도뿐이다. 두 한도의 지속 속도가 달라야(예: 분당 30건) 장기 연속 전송을 따로 막는다. 소모는 새 INSERT 직전에만 하며(멱등 재전송은 소모하지 않음), 단일 인스턴스 메모리라 서버가 여러 대면 공유되지 않는다. 한도를 바꾸는 것은 결정 사항이므로 여기서는 사실만 적는다.
 - **검증**: 전송·예약 토글·교환 완료·티켓 등록·알림 읽음 혼합 스트레스에서 교착 0건, 동시 전송 160건 누락 0건, STOMP 통합 10건. 기본 595건 통과, 임시 MySQL IT 포함 612건 통과(구현 세션 기록, 이 위키에서 재실행하지 않았다).
+
+## 11. 관리자 기능(V12) 잠금·유니크 함정
+
+설계 근거는 [관리자 설계 근거](../decisions/admin-design.md). 구현 세션(2026-10-12, `feature/admin`)의 코드·임시 MySQL IT로 확인한 사실이다.
+
+- **좌석 키 보조 유니크 인덱스로 티켓을 `FOR UPDATE` 하면 교착**: 좌석 소유 인증 승인에서 (회차, 구역, 열, 번)으로 티켓을 `FOR UPDATE` 하면 InnoDB가 보조 유니크 인덱스(`uk_ticket_active_seat`)를 먼저 잠그고 PK를 나중에 잠근다. 반면 `deactivate`는 PK(id)로 티켓을 잠가 순서가 엇갈려 교착이 났다. 해결: 좌석 키로는 **id만 잠금 없이 읽고**, 그 id로 PK 잠금을 잡은 뒤 **상태를 다시 판단**한다(그사이 내려졌거나 바뀌었을 수 있다). 이를 위해 `TicketService.deactivateLocked`를 추출했고 기존 동작과 테스트는 바뀌지 않았다. 잠금 순서는 인증 요청 행, 티켓 id 오름차순, 요청 id 오름차순, 매칭이다(1절 규약 앞에 claim 행이 붙는다). 승인+소유자 내리기+제3자 제안+예약 혼합 경합 테스트에서 교착 0건(구현 세션 기록).
+- **상태 전이로 바뀌는 값은 생성 컬럼 UNIQUE로, PENDING만 유일**: "사용자(·좌석)당 대기 1건"은 `status` 자체에 유니크를 걸 수 없다(처리된 행이 쌓이므로). 생성 컬럼 `pending_proposer_id`/`pending_claimant_id` = `IF(status='PENDING', 사용자 id, NULL)`에 UNIQUE를 걸면 처리 후 NULL이 되어 슬롯이 비고 재제안이 가능하다. 3절의 `active_flag`·`live_flag`와 같은 성질(NULL은 유니크 비교 제외)이다. FK 인덱스는 이와 분리해 단일 컬럼으로 둔다(2절).
+- **사용자당 상한은 사용자 행 `FOR UPDATE`로**: 수정 제안 생성(PENDING 3건)은 첫 쿼리로 사용자 행을 잠가야 동시 요청에서도 상한을 지킨다. 승인 쪽 잠금은 제안 행, 공연 행 순서다(공연을 잠그는 다른 경로가 없어 1절 규약과 충돌하지 않는다).

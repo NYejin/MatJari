@@ -65,4 +65,25 @@ class PerformanceDomainTest {
         assertThatThrownBy(() -> PerformanceSession.create(performance, null))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void 승인된_수정은_null이_아닌_값만_바꾸고_정리한다() {
+        User registrant = User.create("a@b.com", "encoded", "닉네임");
+        Performance performance = Performance.create("KSPO DOME", "콘서트",
+                "https://example.com/goods/1", "example:1", registrant);
+
+        performance.applyApprovedEdit("  새   제목 ", null);
+        assertThat(performance.getTitle()).isEqualTo("새 제목");
+        assertThat(performance.getVenueName()).isEqualTo("KSPO DOME");
+
+        performance.applyApprovedEdit(null, " 올림픽홀 ");
+        assertThat(performance.getTitle()).isEqualTo("새 제목");
+        assertThat(performance.getVenueName()).isEqualTo("올림픽홀");
+
+        assertThatThrownBy(() -> performance.applyApprovedEdit(null, null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> performance.applyApprovedEdit("가".repeat(201), null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(performance.getTitle()).isEqualTo("새 제목");
+    }
 }

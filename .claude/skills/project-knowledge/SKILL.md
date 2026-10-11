@@ -1,6 +1,6 @@
 ---
 name: project-knowledge
-description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙·기능 목록과 구현 상태·데이터 모델(Flyway V1~V11)·API/화면 요약. 기능 구현이나 설계 질문에 답하기 전에 먼저 참고한다. 결정이 바뀌면 이 문서의 해당 항목을 직접 고친다(이력은 HISTORY.md, 산출물/07_작업일지, wiki/).
+description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙·기능 목록과 구현 상태·데이터 모델(Flyway V1~V12)·API/화면 요약. 기능 구현이나 설계 질문에 답하기 전에 먼저 참고한다. 결정이 바뀌면 이 문서의 해당 항목을 직접 고친다(이력은 HISTORY.md, 산출물/07_작업일지, wiki/).
 ---
 
 # 프로젝트 지식 요약
@@ -26,7 +26,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 | Frontend | React + TypeScript + Vite + Tailwind CSS v4 (Tailwind 유틸리티만 사용, 브레이크포인트 640/768/1024px 고정, 브랜드색 primary #8A2BE2 / secondary #BEA886(글자색 금지) / accent #E8A33D) |
 | Backend | Spring Boot 3.3.13(Security 6.3.10) + JPA + Flyway, JWT 인증. WebSocket(STOMP, `/ws`)은 채팅 푸시에 구현됨(커스텀 CONNECT 인증 인터셉터, 사용자 큐만 구독) |
 | Frontend 추가 | `@stomp/stompjs` ^7.3(채팅 화면 전용), `VITE_WS_URL`(없으면 API 주소에서 계산) |
-| DB | MySQL 8.0 (Flyway V1~V11) |
+| DB | MySQL 8.0 (Flyway V1~V12) |
 | 배포 | `SeatSwap/docker-compose.yml`: mysql · backend · frontend 3개. 시간대 KST(Clock Asia/Seoul, TZ=Asia/Seoul) |
 
 - 이미지 인식 서비스(FastAPI/OpenCV/Tesseract)는 동결로 삭제됐다.
@@ -37,7 +37,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 ### 3.1 좌석·회차·티켓
 - 구역·열·번은 사용자가 텍스트로 입력한다. 공연장 단위 구역 테이블·구역 자동완성·직사각형 범위 선택·펼침 상한은 두지 않는다(좌석표 기능과 함께 후속). 지정석·1매 제한 없음(스탠딩 등도 텍스트 입력). 연석(2매 이상)과 3자 이상 순환 교환은 구현하지 않되 모델이 막지 않게 한다.
 - 열·번 정규화: NFKC, 공백 제거, 대문자, 앞 0 제거, 끝의 '열'/'번' 제거. 숫자·문자 모두 허용(숫자 1~999). 제어·제로폭 문자 거부, 부호 붙은 정수(`-3`, `+3`, U+2212) 400 거부. 숫자는 `3~5` 범위로 입력해 펼치고, 문자 열(`A열`)은 하나씩 추가. 이 범위 규칙은 열·번에만 해당하며 **구역은 별도 필수 입력**.
-- 티켓: 같은 회차·구역·열·번의 **활성 티켓은 1개**(409 `SEAT_ALREADY_REGISTERED`, 내 것이면 `MY_TICKET_ALREADY_REGISTERED`), 사용자당 활성 20개 상한(422 `TICKET_LIMIT_REACHED`). 이미 등록된 좌석이면 안내와 함께 '내 티켓 인증' 링크를 두기로 했으나 인증 방식(사진 업로드 후 관리자 수동 확인 예정)은 미정·미구현. 티켓 내리기는 소프트 삭제(INACTIVE), 본인만, 멱등 204, 남의 티켓 404. 교환 완료로 `EXCHANGED`가 된 티켓은 내리기 409 `TICKET_EXCHANGED`(예약 시도도 같은 코드). 교환으로 받은 새 티켓은 일반 ACTIVE 티켓이다.
+- 티켓: 같은 회차·구역·열·번의 **활성 티켓은 1개**(409 `SEAT_ALREADY_REGISTERED`, 내 것이면 `MY_TICKET_ALREADY_REGISTERED`), 사용자당 활성 20개 상한(422 `TICKET_LIMIT_REACHED`). 이미 등록된 좌석이면 안내와 함께 '내 티켓 인증' 링크(`/seat-claims/new`)를 둔다: 예매내역 사진을 올리면 관리자가 승인(현재 그 좌석의 활성 티켓을 내림)/거절하고 사진은 처리 후 삭제한다(구현됨, 3.6절). 티켓 내리기는 소프트 삭제(INACTIVE), 본인만, 멱등 204, 남의 티켓 404. 교환 완료로 `EXCHANGED`가 된 티켓은 내리기 409 `TICKET_EXCHANGED`(예약 시도도 같은 코드). 교환으로 받은 새 티켓은 일반 ACTIVE 티켓이다.
 - **지난 회차**: 회차 당일 끝(다음날 0시 KST)까지 티켓 등록·매칭 허용, 이후 자동 비활성(등록은 400 `sessionId`). 공연 시작 후에도 매칭·예약·교환 수락이 계속 가능(현장 교환). 티켓 내리기는 예약 중이 아니면 언제든 가능. 이미 시작한 채팅의 예약·취소에는 회차 마감 검사가 없다.
 - 본인 좌석을 증명할 수단이 없으므로 채팅에서 예매내역을 서로 확인하도록 안내한다. 추가금은 서비스 밖에서 오가며 결제를 중개하지 않는다.
 
@@ -74,11 +74,11 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 ### 3.6 신고·차단·후기·관리자
 - 후기 기능은 만들지 않는다. 신뢰도 점수는 매칭에 쓰지 않는다(우선순위는 사용자가 정한 것).
 - **사용자 차단**: 차단하면 후보에서 제외되고 채팅할 수 없다(미구현). **사용자 신고**는 필수이며 교환 핵심 흐름 이후 추가(미구현). 신고 처리용 최소 관리자 기능의 범위는 신고 착수 시 확인한다.
-- 관리자 페이지·공연 수정 제안 처리는 후속. 관리자는 DB에서 `users.role=ADMIN`을 직접 부여하는 방식으로 시작한다.
+- **관리자 페이지(구현됨, V12)**: 관리자는 DB에서 `users.role=ADMIN`을 직접 부여하고 `/api/admin/**`는 ADMIN만, 프론트 `/admin`은 `AdminRoute`. ①공연 수정 제안(`performance_edit_proposal`): 제목·공연장만, 관리자 승인으로만 공연 수정, 사용자당 PENDING 3건, 알림 없음(`/my/edit-proposals`). ②좌석 소유 인증(`seat_claim`): 사진(jpeg/png/webp ≤5 MiB, `seatswap.upload.dir`) 업로드→관리자 승인 시 기존 활성 티켓 INACTIVE(요청 CLOSED, CHATTING 매칭 취소, 예약 잠금이면 409), 처리 후 사진 삭제, 사용자당 PENDING 5건(`/my/seat-claims`). 상세는 wiki/decisions/admin-design.md.
 
 ### 3.7 공연 등록
 - 로그인 사용자 누구나 등록. 필드: 티켓팅 링크(sourceUrl), 제목, 공연장 이름(텍스트 필수 1~100자, 공백 정리), 회차(직접 입력, 10분 단위, 과거 불가). 중복 판정은 링크 정규화 값 `source_key`(utf8mb4_bin) unique: 인터파크·멜론·YES24·티켓링크는 `{site}:{productId}`, 그 외는 호스트+경로+정렬 쿼리+프래그먼트. 중복 409 + performanceId.
-- **공연은 등록 후 아무도 수정·삭제하지 못한다**(제목·공연장·회차 추가/수정/삭제 모두 불가). 변경은 추후 관리자 페이지의 '수정 제안'으로만(후속, 정책 메모 `산출물/04_요구사항정의서/FR-02_공연정보_정정정책_후속과제.md`).
+- **공연은 등록 후 아무도 수정·삭제하지 못한다**(제목·공연장·회차 추가/수정/삭제 모두 불가). 변경은 관리자 페이지의 '수정 제안'(제목·공연장만, 승인으로만 반영)으로만(정책 메모 `산출물/04_요구사항정의서/FR-02_공연정보_정정정책_후속과제.md`).
 - 공연 목록 검색은 제목만. 공연장 별도 테이블·검색·정식 등록(VERIFIED)·필터는 없다. 등록 화면은 3단계(①링크 중복 확인 ②공연 정보 ③확인·등록).
 - **링크 기반 자동 입력(구현됨)**: `GET /api/performances/preview`로 링크에서 제목·공연장·공연 기간을 읽어(회차 시각은 세 사이트 모두 Ajax라 읽지 못함, 직접 입력) 다음 단계에 미리 채우고 '이 정보가 맞나요?'를 묻고, 아니면 직접 수정 후 등록. 공개 페이지(JSON-LD·og)만 읽고 자동 등록은 없으며 직접 입력은 항상 가능. 대상은 YES24·티켓링크(JSON-LD)·멜론(본문 HTML), 인터파크는 robots.txt로 제외. SSRF 방어: 사용자 URL을 요청하지 않고 `SourceKeyResolver` 키(`site:숫자id`)로 고정 템플릿 URL만 만들며, 리다이렉트 불가·공인 IP·https·2 MiB·10초·사용자당 분당 10회·10분 캐시. 구현은 `service/linkinfo/`. 로그인·캡차 우회와 내부 API 조사는 하지 않는다.
 
@@ -124,12 +124,12 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 | 채팅(매칭별 텍스트: REST 전송·조회·읽음, STOMP 사용자 큐 수신, 채팅 화면, 종료 후 읽기 전용) | 구현 (V11) |
 | 알림 3종(새 제안·상대 예약·예약 취소, 벨 말풍선·알림 페이지·읽은 알림 삭제, STOMP 실시간 푸시) | 구현 (V10, 푸시는 DB 변경 없음) |
 | 7일 경과 알림 | 미구현 |
-| 사용자 차단·신고(V12 이후) | 미구현 |
+| 사용자 차단·신고(V13 이후) | 미구현 |
 | 링크 기반 공연 정보 자동 입력(제목·공연장·공연 기간) | 구현 (DB 변경 없음) |
-| 관리자 페이지·공연 수정 제안·내 티켓 인증 | 미구현 |
+| 관리자 페이지·공연 수정 제안·내 티켓 인증 | 구현 (V12) |
 | 회원탈퇴 | 미구현 (마이페이지 버튼 비활성) |
 
-## 5. 데이터 모델 (Flyway V1~V11, 14개 테이블 + flyway_schema_history)
+## 5. 데이터 모델 (Flyway V1~V12, 16개 테이블 + flyway_schema_history)
 
 기준 다이어그램 `산출물/08_ERD/erd.dot`, 설계 근거 `산출물/08_ERD/exchange-schema-design.md`. 규칙은 `erd-conventions` 스킬.
 
@@ -155,7 +155,8 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 - V9 `exchange_history`·`ck_ticket_status` 변경은 교환 완료 구현과 함께 추가했다(재실행 가능한 프로시저 패턴). V10 `notification`은 알림 기능과 함께, V11 `chat_message`·`chat_read_state`는 채팅 기능과 함께 추가했다(V11도 재실행 가능한 프로시저 패턴).
 - 설계 규칙: FK에 쓰이는 인덱스에 갱신 컬럼(status 등)을 붙이지 않고 **단일 컬럼**으로 둔다(UPDATE가 부모 행에 S 잠금을 걸어 교착). 잠금 순서는 티켓 id↑ -> 요청 id↑ -> 매칭(요청만 잠그는 update/delete는 티켓을 잠그지 않음).
 - V2는 venue 삭제·`venue_name` 백필, V3 티켓 좌석 컬럼(ticket 행이 있으면 SIGNAL 가드), V4 교환 희망 4개, V5 매칭·잠금, V6 범위별 추가금, V7 요청 소프트 삭제, V8 단일 예약자, V9 교환 이력·EXCHANGED, V10 알림, V11 채팅. V6~V11은 재실행 가능한 프로시저 패턴. 이미 적용된 마이그레이션 파일을 수정하면 체크섬 불일치로 기동 불가(롤백은 `docker compose down -v`).
-- **예정**: `user_block`은 V12 이후. 사용자 신고 테이블은 교환 핵심 흐름 이후 설계하며, 좌석표·제재(`abuse_report`·`user_sanction`) 설계는 동결.
+- **V12**: `performance_edit_proposal`(공연 수정 제안: new_title/new_venue_name/reason, status PENDING|APPROVED|REJECTED, old_* 스냅샷, 사용자당 PENDING 1건은 생성 컬럼+UNIQUE), `seat_claim`(좌석 좌표+사진 메타 image_key/content_type/size/deleted_at, status, resolved_ticket_id는 FK 아님).
+- **예정**: `user_block`은 V13 이후. 사용자 신고 테이블은 교환 핵심 흐름 이후 설계하며, 좌석표·제재(`abuse_report`·`user_sanction`) 설계는 동결.
 
 ## 6. API 요약
 
@@ -198,7 +199,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 ## 8. 알려진 한계·후속 과제
 
 - 브라우저 수동 점검·실서버 연동은 교환 화면 전반에서 아직 충분히 하지 않았다.
-- 관리자 페이지(공연 수정 제안), 교환 이력 조회 화면, 7일 경과 알림, 차단·신고, 내 티켓 인증, 회원탈퇴는 위 4절 미구현 항목이다.
+- 교환 이력 조회 화면, 7일 경과 알림, 차단·신고, 회원탈퇴는 위 4절 미구현 항목이다.
 - 채팅 알려진 한계: 실제 브라우저와 @stomp/stompjs 연동 점검 미실시, 모바일 이중 스크롤 완전 해소 미보장(AppLayout 높이 규칙), 미인증 소켓은 최대 약 40초 유지(운영 프록시 연결 한도로 흡수), 토큰 만료·사용자 변경 후 최대 30초 푸시 유지(차단·제재 구현 시 해당 사용자 세션 강제 종료 훅 필요), 응답·푸시에 상대 `senderId`(users.id) 노출(차단·신고 브랜치에서 `mine`으로 대체 검토), 속도·연결 제한은 단일 인스턴스 메모리, 하트비트 미응답 종료·16KB 초과 프레임 거부 미확인.
 - 공연: 예매처별로 같은 공연이 갈라지는 문제(같은 공연장+비슷한 제목 안내), 회차 추가 상한·스팸 정리는 후속.
 - 필터에서 전파된 예외(DB 장애 등)는 Spring 기본 `/error` 포맷으로 나간다(`{message}` 통일 검토). `/me` 한 번에 사용자 조회 2회(필터+서비스). `index.html` viewport에 `viewport-fit=cover`가 없어 safe-area 여백 미적용.

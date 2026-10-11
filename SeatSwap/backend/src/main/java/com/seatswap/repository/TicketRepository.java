@@ -58,4 +58,32 @@ public interface TicketRepository extends JpaRepository<Ticket, Long> {
             where t.id = :id
             """)
     Optional<Ticket> findWithSessionById(@Param("id") Long id);
+
+    /**
+     * 좌석의 활성 티켓 id 만 잠금 없이 읽는다(엔티티를 영속성 컨텍스트에 올리지 않는다). 관리자 좌석 인증 승인용:
+     * 이어서 PK 로 FOR UPDATE(findByIdForUpdate)해야 최신 상태를 본다.
+     */
+    @Query("""
+            select t.id from Ticket t
+            where t.performanceSession.id = :sessionId
+              and t.zoneKey = :zoneKey and t.rowKey = :rowKey and t.colKey = :colKey
+              and t.status = com.seatswap.domain.TicketStatus.ACTIVE
+            """)
+    Optional<Long> findActiveIdBySeat(@Param("sessionId") Long sessionId,
+                                      @Param("zoneKey") String zoneKey,
+                                      @Param("rowKey") String rowKey,
+                                      @Param("colKey") String colKey);
+
+    /** 좌석을 가진 가장 최근 티켓(상태 무관, 잠금 없음) - 관리자 목록의 holder 요약용. Pageable 로 1건만 읽는다. */
+    @Query("""
+            select t from Ticket t join fetch t.user
+            where t.performanceSession.id = :sessionId
+              and t.zoneKey = :zoneKey and t.rowKey = :rowKey and t.colKey = :colKey
+            order by t.id desc
+            """)
+    List<Ticket> findLatestBySeat(@Param("sessionId") Long sessionId,
+                                  @Param("zoneKey") String zoneKey,
+                                  @Param("rowKey") String rowKey,
+                                  @Param("colKey") String colKey,
+                                  org.springframework.data.domain.Pageable pageable);
 }

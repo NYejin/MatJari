@@ -27,7 +27,7 @@ import java.time.LocalDateTime;
 
 /**
  * 공연 API (FR-02): 목록·링크 조회·상세·등록만 제공한다. 모두 로그인 필요 (SecurityConfig anyRequest().authenticated()).
- * 공연·회차는 등록 후 아무도 수정·삭제할 수 없다 (수정은 추후 관리자 수정 제안으로만).
+ * 공연·회차는 등록 후 사용자가 수정·삭제할 수 없다 (제목·공연장 변경은 관리자 승인 수정 제안으로만, PerformanceEditProposalController).
  */
 @RestController
 @RequestMapping("/api/performances")

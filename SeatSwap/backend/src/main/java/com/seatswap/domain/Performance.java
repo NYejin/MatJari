@@ -19,10 +19,11 @@ import java.time.LocalDateTime;
  * 서비스 계층에서 수행한 뒤 넘긴다. "공연장+제목"은 같은 공연장에서 같은 제목으로 다시 열리는 공연이
  * 있어 unique로 쓰지 않는다(서비스에서 유사 공연 안내용으로만 사용).
  *
- * 공연장은 별도 테이블 없이 공연의 텍스트 속성(venueName)이다. 등록 후 수정할 수 없다
- * (티켓팅 링크에서 자동으로 읽어 채울 예정이라 사용자 수정을 열지 않는다).
+ * 공연장은 별도 테이블 없이 공연의 텍스트 속성(venueName)이다. 사용자가 직접 수정할 수 없다
+ * (관리자가 수정 제안을 승인할 때만 {@link #applyApprovedEdit} 로 바뀐다).
  *
- * 수정/삭제 정책: 등록 후 아무도 수정·삭제할 수 없다(제목·공연장·링크 모두). 수정은 추후 관리자 수정 제안으로만.
+ * 수정/삭제 정책: 등록 후 사용자는 수정·삭제할 수 없다(제목·공연장·링크 모두). 제목·공연장 변경은 관리자 승인으로만
+ * ({@link #applyApprovedEdit} 가 유일한 수정 경로, 링크·회차는 수정 대상이 아니다). 삭제는 없다.
  * 등록자(registrant)는 상세 응답의 canEdit 표시 등에 쓰는 기록이다.
  */
 @Entity
@@ -47,7 +48,7 @@ public class Performance {
     @Column(nullable = false, length = TITLE_MAX_LENGTH)
     private String title;
 
-    /** 공연장 이름 (텍스트, 앞뒤 공백 제거·연속 공백 한 칸). 등록 후 수정 불가. */
+    /** 공연장 이름 (텍스트, 앞뒤 공백 제거·연속 공백 한 칸). 관리자 승인으로만 수정된다. */
     @Column(name = "venue_name", nullable = false, length = VENUE_NAME_MAX_LENGTH)
     private String venueName;
 
@@ -97,6 +98,20 @@ public class Performance {
         performance.sourceKey = sourceKey;
         performance.registrant = registrant;
         return performance;
+    }
+
+    /**
+     * 관리자가 승인한 수정 제안 반영 — 이 엔티티의 유일한 수정 경로. null 인 값은 바꾸지 않는다(둘 다 null 이면 오류).
+     * 호출하는 서비스가 공연 행을 FOR UPDATE 로 잠근 트랜잭션 안이어야 한다.
+     */
+    public void applyApprovedEdit(String newTitle, String newVenueName) {
+        if (newTitle == null && newVenueName == null) {
+            throw new IllegalArgumentException("새 제목과 새 공연장 이름 중 하나 이상이 필요합니다.");
+        }
+        String title = newTitle == null ? this.title : cleanTitle(newTitle);
+        String venue = newVenueName == null ? this.venueName : cleanVenueName(newVenueName);
+        this.title = title;
+        this.venueName = venue;
     }
 
     /** 등록자 여부. LAZY 프록시의 id만 읽으므로 추가 쿼리가 나가지 않는다. */

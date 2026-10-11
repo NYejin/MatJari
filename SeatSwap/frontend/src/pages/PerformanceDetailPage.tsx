@@ -1,11 +1,19 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getErrorStatus, performancesApi } from "../api/performances";
 import { parseApiError } from "../api/errors";
 import { compareLocalDateTime, formatKstDateTime, isPastKst } from "../api/dateTime";
 import type { PerformanceDetail } from "../types/performance";
-import { button, linkButton, liveRegionClass, ui } from "../components/ui";
-
+import { button, input, linkButton, liveRegionClass, ui } from "../components/ui";
+import TextField from "../components/TextField";
+import {
+  EDIT_ERROR_MESSAGES,
+  EDIT_REASON_MAX,
+  EDIT_TITLE_MAX,
+  EDIT_VENUE_MAX,
+  editProposalsApi,
+} from "../api/editProposals";
+import { getErrorCode } from "../api/errors";
 // FR-02 공연 상세 (보호 라우트 /performances/:id) — 읽기 전용.
 // 공연은 등록 후 아무도 수정·삭제할 수 없다 (수정은 추후 관리자 수정 제안으로만).
 // 티켓 영역: 이 공연 티켓 등록(/tickets/new?performanceId=) 진입.
@@ -100,6 +108,7 @@ export default function PerformanceDetailPage() {
       <>
         <InfoSection detail={detail} />
         <SessionsSection detail={detail} />
+        <EditProposalSection detail={detail} />
         <section className={`${ui.card} flex flex-col gap-4`} aria-labelledby="perf-coming-title">
           <h2 id="perf-coming-title" className={ui.sectionTitle}>
             티켓
@@ -196,6 +205,135 @@ function SessionsSection({ detail }: { detail: PerformanceDetail }) {
             );
           })}
         </ul>
+      )}
+    </section>
+  );
+}
+
+// ---- 수정 제안 ("정보가 틀렸어요", 접이식) ----
+// 공연은 직접 수정할 수 없다. 제목·공연장 중 바뀐 것만 적어 제안하면 관리자가 검토한다 (회차·링크는 대상 아님).
+
+function EditProposalSection({ detail }: { detail: PerformanceDetail }) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [venue, setVenue] = useState("");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [done, setDone] = useState(false);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (busy) return;
+    const newTitle = title.trim();
+    const newVenueName = venue.trim();
+    if (!newTitle && !newVenueName) {
+      setError("바뀐 제목이나 공연장 중 하나는 적어 주세요.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setFieldErrors({});
+    try {
+      await editProposalsApi.create(detail.id, {
+        newTitle: newTitle || null,
+        newVenueName: newVenueName || null,
+        reason: reason.trim() || null,
+      });
+      setDone(true);
+      setOpen(false);
+      setTitle("");
+      setVenue("");
+      setReason("");
+    } catch (err) {
+      const code = getErrorCode(err);
+      const parsed = parseApiError(err, "제안을 보내지 못했습니다.");
+      setFieldErrors(parsed.fieldErrors);
+      setError((code && EDIT_ERROR_MESSAGES[code]) || parsed.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const panelId = "edit-proposal-panel";
+  return (
+    <section className={`${ui.card} flex flex-col gap-3`} aria-labelledby="edit-proposal-title">
+      <h2 id="edit-proposal-title" className={ui.sectionTitle}>
+        정보가 틀렸어요
+      </h2>
+      <p className={liveRegionClass(done ? "done" : "", ui.notice)} role="status">
+        {done && (
+          <>
+            제안을 보냈어요. 관리자가 확인한 뒤 반영해요.{" "}
+            <Link to="/my/edit-proposals" className={ui.link}>
+              내 수정 제안 보기
+            </Link>
+          </>
+        )}
+      </p>
+      <button
+        type="button"
+        className={`${button.outline} self-start`}
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => {
+          setOpen((o) => !o);
+          setDone(false);
+        }}
+      >
+        {open ? "닫기" : "수정 제안하기"}
+      </button>
+
+      {open && (
+        <form id={panelId} onSubmit={(e) => void submit(e)} className="flex flex-col gap-4" noValidate>
+          <p className={ui.hint}>공연 정보는 직접 고칠 수 없어요. 제목·공연장 중 바뀐 것만 적어 제안해 주세요.</p>
+          <p className={`${ui.body} break-words`}>
+            현재 제목: <strong>{detail.title}</strong>
+            <br />
+            현재 공연장: <strong>{detail.venueName}</strong>
+          </p>
+          <TextField
+            id="edit-new-title"
+            label="새 제목 (선택)"
+            value={title}
+            maxLength={EDIT_TITLE_MAX}
+            error={fieldErrors.newTitle}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+          <TextField
+            id="edit-new-venue"
+            label="새 공연장 (선택)"
+            value={venue}
+            maxLength={EDIT_VENUE_MAX}
+            error={fieldErrors.newVenueName}
+            onChange={(e) => setVenue(e.target.value)}
+          />
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="edit-reason" className={ui.label}>
+              사유 (선택)
+            </label>
+            <textarea
+              id="edit-reason"
+              className={`${input.normal} py-2`}
+              rows={3}
+              maxLength={EDIT_REASON_MAX}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+            />
+            <p className={ui.hint}>
+              {reason.length}/{EDIT_REASON_MAX}
+            </p>
+          </div>
+          {error && (
+            <p className={ui.errorBox} role="alert">
+              {error}
+            </p>
+          )}
+          <button type="submit" className={`${button.solid} self-start`} disabled={busy}>
+            {busy ? "보내는 중..." : "제안 보내기"}
+          </button>
+        </form>
       )}
     </section>
   );

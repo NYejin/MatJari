@@ -170,12 +170,22 @@ public class TicketService {
         Ticket ticket = ticketRepository.findByIdForUpdate(ticketId)
                 .filter(t -> t.isOwnedBy(userId))
                 .orElseThrow(() -> new NotFoundException(TICKET_NOT_FOUND_MESSAGE));
+        deactivateLocked(ticket);
+    }
+
+    /**
+     * 소유자 검사 없는 내리기 본체. 호출자가 이미 활성 트랜잭션 안에서 이 티켓 행을 FOR UPDATE 로 잠갔어야 한다
+     * (사용자 내리기는 deactivate, 관리자 좌석 인증 승인은 SeatClaimService 가 호출). 잠금 순서는 티켓 -> 요청 -> 매칭.
+     * 반환 true = 이번 호출로 내렸다, false = 이미 INACTIVE(멱등). EXCHANGED 409 TICKET_EXCHANGED, 예약 잠금 409 TICKET_RESERVED.
+     */
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public boolean deactivateLocked(Ticket ticket) {
         if (ticket.isExchanged()) {
-            // 교환 완료로 닫힌 기존 티켓: 내릴 수 없다(INACTIVE 로 되돌리면 이력과 어긋난다). INACTIVE 는 아래처럼 멱등 204.
+            // 교환 완료로 닫힌 기존 티켓: 내릴 수 없다(INACTIVE 로 되돌리면 이력과 어긋난다). INACTIVE 는 멱등.
             throw new ConflictException(TICKET_EXCHANGED_MESSAGE, Map.of("code", TICKET_EXCHANGED_CODE));
         }
         if (!ticket.isActive()) {
-            return;
+            return false;
         }
         ensureCanDeactivate(ticket);
         ticket.deactivate();
@@ -183,6 +193,7 @@ public class TicketService {
         exchangeRequestRepository.closeByTicketId(ticket.getId(), now);
         matchRepository.cancelChattingByTicketA(ticket.getId(), now);
         matchRepository.cancelChattingByTicketB(ticket.getId(), now);
+        return true;
     }
 
     /** 내릴 수 없는 상태 검사: 예약 잠금이 걸린 티켓은 409. 티켓 행 잠금을 잡은 뒤에 호출한다. */

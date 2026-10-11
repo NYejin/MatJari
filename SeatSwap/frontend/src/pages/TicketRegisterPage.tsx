@@ -312,11 +312,18 @@ function TicketForm({ performanceId, presetSessionId, canChangePerformance, onCh
         {submitError.code === "SEAT_ALREADY_REGISTERED" && (
           <>
             <span>내 자리가 맞다면 티켓을 인증해 주세요.</span>
-            {/* 인증 방식은 추후 결정 — 자리만 둔다(동작 없음) */}
-            <button type="button" className={button.outline} disabled>
+            <Link
+              to={`/seat-claims/new?${new URLSearchParams({
+                performanceId: String(performanceId),
+                ...(sessionId !== null ? { sessionId: String(sessionId) } : {}),
+                zone: zone.trim(),
+                row: row.trim(),
+                col: col.trim(),
+              }).toString()}`}
+              className={linkButton.outline}
+            >
               내 티켓 인증
-              <span className={ui.badge}>준비 중</span>
-            </button>
+            </Link>
           </>
         )}
         {submitError.code === "MY_TICKET_ALREADY_REGISTERED" && (

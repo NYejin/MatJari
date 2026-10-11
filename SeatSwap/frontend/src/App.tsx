@@ -14,6 +14,13 @@ import CandidatesPage from "./pages/CandidatesPage";
 import MatchesPage from "./pages/MatchesPage";
 import NotificationsPage from "./pages/NotificationsPage";
 import ChatPage from "./pages/ChatPage";
+import AdminRoute from "./components/AdminRoute";
+import SeatClaimNewPage from "./pages/SeatClaimNewPage";
+import MySeatClaimsPage from "./pages/MySeatClaimsPage";
+import AdminSeatClaimsPage from "./pages/AdminSeatClaimsPage";
+import AdminDashboardPage from "./pages/AdminDashboardPage";
+import AdminEditProposalsPage from "./pages/AdminEditProposalsPage";
+import MyEditProposalsPage from "./pages/MyEditProposalsPage";
 
 export default function App() {
   return (
@@ -38,6 +45,16 @@ export default function App() {
             <Route path="/exchange/matches" element={<MatchesPage />} />
             <Route path="/exchange/matches/:matchId/chat" element={<ChatPage />} />
             <Route path="/notifications" element={<NotificationsPage />} />
+            <Route path="/seat-claims/new" element={<SeatClaimNewPage />} />
+            <Route path="/my/seat-claims" element={<MySeatClaimsPage />} />
+            <Route path="/my/edit-proposals" element={<MyEditProposalsPage />} />
+
+            {/* 관리자 전용 (UI 가드 — 최종 권한은 서버) */}
+            <Route element={<AdminRoute />}>
+              <Route path="/admin" element={<AdminDashboardPage />} />
+              <Route path="/admin/performance-edit-proposals" element={<AdminEditProposalsPage />} />
+              <Route path="/admin/seat-claims" element={<AdminSeatClaimsPage />} />
+            </Route>
           </Route>
         </Route>
       </Routes>

@@ -1,9 +1,11 @@
 package com.seatswap.repository;
 
 import com.seatswap.domain.Performance;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -14,6 +16,11 @@ public interface PerformanceRepository extends JpaRepository<Performance, Long> 
 
     @Query("select p.id from Performance p where p.sourceKey = :sourceKey")
     Optional<Long> findIdBySourceKey(@Param("sourceKey") String sourceKey);
+
+    /** 공연 행 잠금(SELECT ... FOR UPDATE). 수정 제안 승인에서만 쓴다(제안 행 잠금 다음에 호출). */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Performance p where p.id = :id")
+    Optional<Performance> findByIdForUpdate(@Param("id") Long id);
 
     /** 상세 조회용 — 등록자 fetch join (N+1 방지). */
     @Query("""

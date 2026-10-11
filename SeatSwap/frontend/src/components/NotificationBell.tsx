@@ -29,7 +29,7 @@ const cls = {
     "text-xs/[normal] font-bold text-white",
   popover:
     "absolute top-full right-2 left-2 z-[110] mt-1 flex flex-col gap-2 rounded-2xl border border-gray-200 bg-white p-3 " +
-    "shadow-[0_8px_24px_rgba(0,0,0,0.12)] outline-none md:right-0 md:left-auto md:w-88",
+    "shadow-[0_8px_24px_rgba(0,0,0,0.12)] outline-none md:right-auto md:left-0 md:w-88",
   item:
     "flex min-h-11 w-full cursor-pointer touch-manipulation flex-col gap-0.5 rounded-[10px] px-3 py-2 text-left " +
     "active:bg-gray-100 " +
@@ -94,6 +94,7 @@ export default function NotificationBell({ userId, onOpen }: { userId: number; o
   }, [open]);
 
   const openItem = async (n: AppNotification) => {
+    setOpen(false); // 두 번 눌러 개수가 두 번 줄지 않게 먼저 닫는다
     if (!n.read) {
       adjustUnreadCount(-1);
       try {
@@ -103,7 +104,6 @@ export default function NotificationBell({ userId, onOpen }: { userId: number; o
       }
       void refreshUnreadCount();
     }
-    setOpen(false);
     navigate(notificationPath(n));
   };
 

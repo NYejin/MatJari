@@ -73,7 +73,8 @@ export default function NotificationsPage() {
         : state.status === "success"
           ? `알림 ${state.totalElements}개`
           : "";
-  const hasUnread = state.status === "success" && state.items.some((n) => !n.read);
+  // 불러오지 않은 뒤쪽 페이지에 안 읽은 알림이 있을 수 있으면 버튼을 켜 둔다
+  const hasUnread = state.status === "success" && (state.items.some((n) => !n.read) || state.items.length < state.totalElements);
 
   return (
     <div className={ui.page}>

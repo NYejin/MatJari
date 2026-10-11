@@ -79,7 +79,7 @@ export default function MatchesPage() {
 
   const { state, loadingMore, moreError, loadMore, reload } = usePagedList<ExchangeMatch>(
     (page, signal) => exchangeApi.listMatches({ role, page, size: 20 }, signal),
-    role,
+    `${role}:${location.key}`, // 같은 탭에서 알림을 다시 눌러 들어와도 최신 목록을 다시 불러온다
     (m) => m.id
   );
 

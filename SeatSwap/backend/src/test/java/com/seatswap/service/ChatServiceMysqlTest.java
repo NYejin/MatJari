@@ -272,8 +272,12 @@ class ChatServiceMysqlTest {
                     assertThat(e.getMessage()).isEqualTo("종료된 채팅에는 메시지를 보낼 수 없어요");
                     assertThat(e.getDetails()).containsEntry("code", "MATCH_STATE_CONFLICT").containsEntry("status", "CANCELED");
                 });
-        // 이미 저장된 메시지의 멱등 재전송도 종료된 매칭에서는 409(상태 검사가 먼저)
-        assertThatThrownBy(() -> chatService.send(p.userId, m, "예약 전", "before-reserve-1")).isInstanceOf(ConflictException.class);
+        // 이미 저장된 메시지의 멱등 재전송(응답 유실 뒤 재시도)은 종료된 매칭에서도 200이고 새로 저장·전파되지 않는다
+        int eventsBefore = publisher.events.size();
+        ChatService.SendResult replay = chatService.send(p.userId, m, "예약 전", "before-reserve-1");
+        assertThat(replay.created()).isFalse();
+        assertThat(replay.message().content()).isEqualTo("예약 전");
+        assertThat(publisher.events.size()).isEqualTo(eventsBefore);
         assertThat(count("SELECT COUNT(*) FROM chat_message")).isEqualTo(3);
         // 읽기·읽음은 허용, 닫힌 매칭도 안 읽은 수를 센다
         assertThat(chatService.list(p.userId, m, null, null, null).messages()).hasSize(3);

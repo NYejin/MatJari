@@ -439,6 +439,24 @@ class StompChatMysqlIT {
     }
 
     @Test
+    void 같은_세션의_두_번째_SUBSCRIBE는_거부되고_닫히며_같은_사용자의_다른_탭은_영향이_없다() throws Exception {
+        long match = matchOf1And2();
+        long u1 = users.get(1);
+        StompTestClient healthy = ready(u1);
+        StompTestClient dup = ready(u1);
+
+        dup.send("SUBSCRIBE\nid:sub-1\ndestination:/user/queue/chat\n\n");
+        Frame f = dup.expect("ERROR");
+        assertThat(f.toString()).contains("duplicate subscription");
+        assertClosedAfterError(dup);
+
+        // 다른 탭은 그대로 한 번만 받는다
+        sendMessage(match, users.get(2), "중복 구독 뒤", "44444444-dddd");
+        assertThat(healthy.expect("MESSAGE")).isNotNull();
+        assertThat(healthy.next(500)).isNull();
+    }
+
+    @Test
     void 직접_topic_queue_구독과_클라이언트_SEND_는_모두_거부된다() throws Exception {
         long match = matchOf1And2();
         long u1 = users.get(1);

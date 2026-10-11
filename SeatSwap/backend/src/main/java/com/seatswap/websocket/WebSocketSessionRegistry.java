@@ -42,6 +42,8 @@ public class WebSocketSessionRegistry {
         final Instant openedAt;
         volatile Long userId;
         volatile Instant expiresAt;
+        /** 이 세션의 유일한 구독 id(없으면 null). */
+        String subscriptionId;
 
         Entry(WebSocketSession socket, Instant openedAt) {
             this.socket = socket;
@@ -110,6 +112,37 @@ public class WebSocketSessionRegistry {
         }
         entry.expiresAt = expiresAt;
         entry.userId = userId;
+    }
+
+    /**
+     * 세션당 구독은 1개다. 이미 구독 중이면 false(호출자가 거부), 아니면 subscriptionId 를 기록하고 true.
+     * 같은 사용자 큐를 한 세션이 여러 번 구독해 푸시가 중복·증폭되는 것을 막는다.
+     */
+    public boolean registerSubscription(String sessionId, String subscriptionId) {
+        Entry entry = sessions.get(sessionId);
+        if (entry == null || subscriptionId == null) {
+            return false;
+        }
+        synchronized (entry) {
+            if (entry.subscriptionId != null) {
+                return false;
+            }
+            entry.subscriptionId = subscriptionId;
+            return true;
+        }
+    }
+
+    /** UNSUBSCRIBE: 기록된 구독 id 와 일치할 때만 비운다(다른 id 의 UNSUBSCRIBE 로는 비워지지 않는다). */
+    public void clearSubscription(String sessionId, String subscriptionId) {
+        Entry entry = sessions.get(sessionId);
+        if (entry == null || subscriptionId == null) {
+            return;
+        }
+        synchronized (entry) {
+            if (subscriptionId.equals(entry.subscriptionId)) {
+                entry.subscriptionId = null;
+            }
+        }
     }
 
     /** 인증됐고 토큰이 만료되지 않은 세션인가. */

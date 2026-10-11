@@ -21,7 +21,6 @@ import org.springframework.web.socket.handler.WebSocketHandlerDecorator;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Pattern;
 
 /**
  * 채팅 수신용 STOMP 설정. 순수 WebSocket(`/ws`, SockJS 없음), 브로커는 사용자 큐(`/user/queue/chat`)만 쓰는 simple broker다.
@@ -38,7 +37,6 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private static final int SEND_BUFFER_SIZE_LIMIT = 512 * 1024;
     private static final int SEND_TIME_LIMIT_MS = 15_000;
     private static final long HEARTBEAT_MS = 10_000;
-    private static final Pattern WILDCARD_HOST = Pattern.compile("^(https?://)?\\*(:\\d+)?$");
 
     private final StompAuthChannelInterceptor authInterceptor;
     private final WebSocketSessionRegistry sessionRegistry;
@@ -66,7 +64,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         return scheduler;
     }
 
-    /** Origin 설정 검증: 비어 있거나 전체 허용('*')이거나 http(s):// 로 시작하지 않으면 시작 시 실패한다. REST CORS 도 같은 검증을 쓴다. */
+    /** Origin 설정 검증: 비어 있거나 '*' 가 하나라도 들어 있거나 http(s):// 로 시작하지 않으면 시작 시 실패한다. REST CORS 도 같은 검증을 쓴다. */
     public static String[] validatedOrigins(String[] raw) {
         List<String> result = new ArrayList<>();
         if (raw != null) {
@@ -75,8 +73,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 if (origin.isEmpty()) {
                     continue;
                 }
-                if (WILDCARD_HOST.matcher(origin).matches()) {
-                    throw new IllegalStateException("seatswap.websocket.allowed-origins 에 전체 허용('*')은 쓸 수 없습니다: " + origin);
+                if (origin.contains("*")) {
+                    // 패턴(https://*.example.com 등)도 금지: 정확히 일치하는 Origin 만 허용한다
+                    throw new IllegalStateException("seatswap.websocket.allowed-origins 에 '*' 는 쓸 수 없습니다(정확한 Origin 만 허용): " + origin);
                 }
                 if (!(origin.startsWith("http://") || origin.startsWith("https://"))) {
                     throw new IllegalStateException("seatswap.websocket.allowed-origins 는 http:// 또는 https:// 로 시작해야 합니다: " + origin);
@@ -92,8 +91,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        // SockJS 없음. Origin 은 명시 allowlist 만(브라우저가 아닌 클라이언트는 Origin 헤더가 없을 수 있으나 JWT 가 막는다)
-        registry.addEndpoint(ENDPOINT).setAllowedOriginPatterns(allowedOrigins);
+        // SockJS 없음. Origin 은 정확히 일치하는 allowlist 만(브라우저가 아닌 클라이언트는 Origin 헤더가 없을 수 있으나 JWT 가 막는다)
+        registry.addEndpoint(ENDPOINT).setAllowedOrigins(allowedOrigins);
     }
 
     @Override

@@ -174,11 +174,34 @@ class ChatServiceTest {
     }
 
     @Test
-    void 속도_제한에_걸리면_저장소를_건드리지_않고_예외가_그대로_나간다() {
+    void 속도_제한에_걸리면_저장도_전파도_없이_예외가_그대로_나간다() {
         doThrow(new ChatRateLimiter.ChatRateLimitedException(3)).when(rateLimiter).acquire(ME);
 
         assertThatThrownBy(() -> service.send(ME, MATCH, "hi", CID)).isInstanceOf(ChatRateLimiter.ChatRateLimitedException.class);
-        verifyNoInteractions(matchRepository, messageRepository);
+        verify(messageRepository, never()).saveAndFlush(any());
+        verifyNoInteractions(publisher);
+    }
+
+    @Test
+    void 비참여자는_속도_제한_이전에_404이고_속도_제한을_소모하지_않는다() {
+        assertThatThrownBy(() -> service.send(99L, MATCH, "hi", CID)).isInstanceOf(NotFoundException.class);
+        verifyNoInteractions(rateLimiter);
+    }
+
+    @Test
+    void 멱등_재전송은_종료된_매칭에서도_200이고_속도_제한을_소모하지_않으며_전파하지_않는다() {
+        ChatMessage existing = stored(650L, ME, "먼저 보낸 글");
+        when(messageRepository.findByClientMessageIdAndSenderId(CID, ME)).thenReturn(Optional.of(existing));
+        doThrow(new ChatRateLimiter.ChatRateLimitedException(3)).when(rateLimiter).acquire(ME);
+
+        for (ExchangeMatchStatus closed : List.of(ExchangeMatchStatus.CANCELED, ExchangeMatchStatus.COMPLETED)) {
+            status(closed);
+            ChatService.SendResult r = service.send(ME, MATCH, "먼저 보낸 글", CID);
+            assertThat(r.created()).isFalse();
+            assertThat(r.message().id()).isEqualTo(650L);
+        }
+        verifyNoInteractions(rateLimiter, publisher);
+        verify(messageRepository, never()).saveAndFlush(any());
     }
 
     // ------------------------------------------------------------------ 본문 정규화

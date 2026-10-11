@@ -19,6 +19,9 @@ import java.util.Optional;
  * 호출자의 트랜잭션 밖에서(PROPAGATION_NOT_SUPPORTED) 문장마다 자동 커밋으로 실행한다. REPEATABLE READ 에서 행이 없는 UPDATE 는 간격 잠금을 잡아
  * 같은 트랜잭션 안에서 INSERT 를 이어 하는 두 탭이 서로의 간격 잠금을 기다리며 교착하기 때문이다(실제 MySQL 테스트로 확인).
  * 자동 커밋이면 잠금이 문장 직후 풀려 교착이 생기지 않는다. 포인터는 다른 쓰기와 원자적으로 묶을 필요가 없다.
+ * <b>주의: advance 는 매칭·users 행을 잠근 트랜잭션 안에서 호출하면 안 된다.</b> NOT_SUPPORTED 로 호출자 트랜잭션을 보류한 채 별도 연결에서
+ * FK(match_id, user_id) 검사용 S 잠금을 요구하므로, 보류된 트랜잭션이 쥔 X 잠금을 자기 자신이 기다리다 1205(잠금 대기 초과)가 난다.
+ * 지금 호출자(markRead)는 트랜잭션 없이 호출한다.
  * 그래도 교착 희생자(ConcurrencyFailureException)가 나오면 최대 {@value #MAX_ATTEMPTS}번까지 다시 시도한다.
  */
 @Repository

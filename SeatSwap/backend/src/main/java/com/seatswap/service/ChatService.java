@@ -28,10 +28,11 @@ import java.util.regex.Pattern;
  * 매칭 채팅 (V11). 보내기는 REST, 받기는 STOMP 사용자 큐(전파는 {@link ChatPushPublisher}, 커밋 후)다. 시스템 메시지·알림 행은 만들지 않는다.
  *
  * <h3>전송</h3>
- * ①본문 정규화·검증(400) ②사용자별 속도 제한(429) ③<b>트랜잭션 밖</b>에서 매칭을 읽어 참여자 확인(비참여자·없는 매칭 404)
- * ④트랜잭션 안에서 <b>첫 쿼리</b>로 매칭 행 {@code FOR UPDATE}(이후 일관 읽기가 잠금 뒤에 시작되도록) -> 상태가 CHATTING·RESERVED 가 아니면 409 MATCH_STATE_CONFLICT
- * 같은 (clientMessageId, 보낸 사람)이 이미 있으면 그 행을 돌려주고(멱등, 200) 없으면 INSERT(201)
- * ⑤<b>커밋 뒤</b> 트랜잭션 밖에서 두 참여자에게 전파(실패해도 저장은 유지, 멱등 재전송은 다시 전파하지 않는다).
+ * ①본문 정규화·검증(400) ②<b>트랜잭션 밖</b>에서 매칭을 읽어 참여자 확인(비참여자·없는 매칭 404)
+ * ③트랜잭션 안에서 <b>첫 쿼리</b>로 매칭 행 {@code FOR UPDATE}(이후 일관 읽기가 잠금 뒤에 시작되도록) -> 같은 (clientMessageId, 보낸 사람)이 이미 있으면
+ * 상태·속도 제한과 무관하게 그 행을 돌려준다(멱등, 200, 응답이 유실된 재전송 보호) -> 없으면 상태가 CHATTING·RESERVED 가 아닐 때 409 MATCH_STATE_CONFLICT
+ * -> 속도 제한(429, 새 INSERT 만 소모) -> INSERT(201)
+ * ④<b>커밋 뒤</b> 트랜잭션 밖에서 두 참여자에게 전파(실패해도 저장은 유지, 멱등 재전송은 다시 전파하지 않는다).
  * 채팅 트랜잭션은 매칭 행 하나만 잠그므로 티켓 -> 요청 -> 매칭 잠금 순서 규약을 깨지 않는다(매칭 행은 UPDATE 하지 않아 updated_at·정렬이 변하지 않는다).
  * 같은 매칭의 전송은 그 행 잠금으로 직렬화되므로 id 순서 = 커밋 순서이고, 종료(cancel/complete)와 겹쳐도 종료 커밋 뒤에는 메시지가 커밋되지 않는다.
  *
@@ -87,18 +88,13 @@ public class ChatService {
     public SendResult send(Long userId, Long matchId, String rawContent, String clientMessageId) {
         String content = normalizeContent(rawContent);
         validateClientMessageId(clientMessageId);
-        rateLimiter.acquire(userId);
-
         ExchangeMatch seen = requireParticipant(userId, matchId);   // 트랜잭션 밖: 잠금 읽기가 첫 일관 읽기가 되도록
         List<Long> recipients = List.of(seen.getUserAId(), seen.getUserBId());
 
         Stored stored = tx.execute(status -> {
             ExchangeMatch m = matchRepository.findByIdForUpdate(matchId)
                     .orElseThrow(() -> new NotFoundException(ExchangeMatchService.MATCH_NOT_FOUND_MESSAGE));
-            if (m.getStatus() != ExchangeMatchStatus.CHATTING && m.getStatus() != ExchangeMatchStatus.RESERVED) {
-                throw new ConflictException(CLOSED_MESSAGE, Map.of("code", ExchangeMatchService.STATE_CONFLICT_CODE,
-                        "status", m.getStatus().name(), "action", "SEND"));
-            }
+            // 멱등 재전송(응답 유실 뒤 재시도)이 종료 상태·속도 제한에 막히지 않도록 기존 행 조회를 상태 검사보다 먼저 한다
             var existing = messageRepository.findByClientMessageIdAndSenderId(clientMessageId, userId);
             if (existing.isPresent()) {
                 if (!existing.get().getMatchId().equals(matchId)) {
@@ -106,6 +102,11 @@ public class ChatService {
                 }
                 return new Stored(existing.get(), false);
             }
+            if (m.getStatus() != ExchangeMatchStatus.CHATTING && m.getStatus() != ExchangeMatchStatus.RESERVED) {
+                throw new ConflictException(CLOSED_MESSAGE, Map.of("code", ExchangeMatchService.STATE_CONFLICT_CODE,
+                        "status", m.getStatus().name(), "action", "SEND"));
+            }
+            rateLimiter.acquire(userId);   // 새 INSERT 일 때만 소모(메모리 연산이라 매칭 행 잠금을 오래 잡지 않는다)
             return new Stored(messageRepository.saveAndFlush(ChatMessage.of(matchId, userId, content, clientMessageId)), true);
         });
 

@@ -85,8 +85,16 @@ class StompAuthChannelInterceptorTest {
     }
 
     private Message<byte[]> frame(StompCommand command, String sessionId, String destination, Principal user, String authorization) {
+        return frame(command, sessionId, destination, user, authorization, "sub-0");
+    }
+
+    private Message<byte[]> frame(StompCommand command, String sessionId, String destination, Principal user, String authorization,
+                                 String subscriptionId) {
         StompHeaderAccessor accessor = StompHeaderAccessor.create(command);
         accessor.setSessionId(sessionId);
+        if (subscriptionId != null && (command == StompCommand.SUBSCRIBE || command == StompCommand.UNSUBSCRIBE)) {
+            accessor.setSubscriptionId(subscriptionId);
+        }
         if (destination != null) {
             accessor.setDestination(destination);
         }
@@ -210,6 +218,60 @@ class StompAuthChannelInterceptorTest {
                     .as("목적지 %s", dest).isInstanceOf(StompRejectedException.class);
             verify(fresh).close(any(CloseStatus.class));
         }
+    }
+
+    @Test
+    void 세션당_구독은_1개이고_두_번째_SUBSCRIBE는_거부되며_일치하는_UNSUBSCRIBE_뒤에는_다시_구독할_수_있다() throws Exception {
+        WebSocketSession ws = socket("s1");
+        validToken("t", 7L, Duration.ofMinutes(10));
+        Principal user = connect("s1", "t", 7L);
+        assertThat(interceptor.preSend(frame(StompCommand.SUBSCRIBE, "s1", "/user/queue/chat", user, null, "a"), null)).isNotNull();
+
+        // 다른 id 의 UNSUBSCRIBE 는 구독을 비우지 않는다
+        interceptor.preSend(frame(StompCommand.UNSUBSCRIBE, "s1", null, user, null, "zzz"), null);
+        assertThatThrownBy(() -> interceptor.preSend(frame(StompCommand.SUBSCRIBE, "s1", "/user/queue/chat", user, null, "b"), null))
+                .isInstanceOf(StompRejectedException.class).hasMessage("duplicate subscription");
+        verify(ws).close(any(CloseStatus.class));
+
+        // 거부된 세션은 닫히므로, 새 세션에서 UNSUBSCRIBE(일치하는 id) -> 재구독을 확인한다
+        socket("s2");
+        Principal user2 = connect("s2", "t", 7L);
+        interceptor.preSend(frame(StompCommand.SUBSCRIBE, "s2", "/user/queue/chat", user2, null, "a"), null);
+        interceptor.preSend(frame(StompCommand.UNSUBSCRIBE, "s2", null, user2, null, "a"), null);
+        assertThat(interceptor.preSend(frame(StompCommand.SUBSCRIBE, "s2", "/user/queue/chat", user2, null, "b"), null)).isNotNull();
+    }
+
+    @Test
+    void 구독_id가_없는_SUBSCRIBE는_거부된다() throws Exception {
+        socket("s1");
+        validToken("t", 7L, Duration.ofMinutes(10));
+        Principal user = connect("s1", "t", 7L);
+        assertThatThrownBy(() -> interceptor.preSend(frame(StompCommand.SUBSCRIBE, "s1", "/user/queue/chat", user, null, null), null))
+                .isInstanceOf(StompRejectedException.class);
+    }
+
+    @Test
+    void Origin_설정에_별표가_하나라도_있으면_시작_시_거부하고_정확히_일치하는_값만_허용한다() {
+        for (String bad : new String[]{"*", "https://*", "https://*.example.com", "http://localhost:*", "https://a.com,*", "http://exa*mple.com"}) {
+            assertThatThrownBy(() -> com.seatswap.config.WebSocketConfig.validatedOrigins(bad.split(",")))
+                    .as(bad).isInstanceOf(IllegalStateException.class);
+        }
+        assertThatThrownBy(() -> com.seatswap.config.WebSocketConfig.validatedOrigins(new String[]{" ", ""})).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> com.seatswap.config.WebSocketConfig.validatedOrigins(new String[]{"example.com"})).isInstanceOf(IllegalStateException.class);
+        assertThat(com.seatswap.config.WebSocketConfig.validatedOrigins(new String[]{" http://localhost:5173 ", "https://seatswap.example"}))
+                .containsExactly("http://localhost:5173", "https://seatswap.example");
+
+        // REST CORS: 정확히 일치(패턴 아님), 별표 설정이면 빈 생성 단계에서 실패
+        com.seatswap.config.SecurityConfig security = new com.seatswap.config.SecurityConfig(null, null, null);
+        org.springframework.test.util.ReflectionTestUtils.setField(security, "allowedOrigins", new String[]{"https://seatswap.example"});
+        var cors = (org.springframework.web.cors.UrlBasedCorsConfigurationSource) security.corsConfigurationSource();
+        var config = cors.getCorsConfigurations().get("/**");
+        assertThat(config.getAllowedOrigins()).containsExactly("https://seatswap.example");
+        assertThat(config.getAllowedOriginPatterns()).isNull();
+        assertThat(config.checkOrigin("https://seatswap.example")).isEqualTo("https://seatswap.example");
+        assertThat(config.checkOrigin("https://evil.example")).isNull();
+        org.springframework.test.util.ReflectionTestUtils.setField(security, "allowedOrigins", new String[]{"https://*.example.com"});
+        assertThatThrownBy(security::corsConfigurationSource).isInstanceOf(IllegalStateException.class);
     }
 
     @Test

@@ -318,6 +318,23 @@ function MatchCard({
   /** 삭제된 조건이 걸린 매칭은 회색으로 낮춰 보인다 (글자 표시를 함께 쓴다) */
   const anyDeleted = m.counterpartRequestDeleted || m.myRequestDeleted;
 
+  /** 채팅 화면 이동 (종료된 매칭도 이전 대화는 읽을 수 있다). 안 읽은 메시지 수 뱃지를 함께 보인다 */
+  const unread = m.unreadChatCount > 0 ? m.unreadChatCount : 0;
+  const chatLink = (
+    <Link
+      to={`/exchange/matches/${m.id}/chat`}
+      className={linkButton.outline}
+      aria-label={`${m.counterpartNickname}님과 채팅${unread > 0 ? `, 안 읽은 메시지 ${unread}개` : ""}`}
+    >
+      채팅
+      {unread > 0 && (
+        <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 text-[0.75rem]/[1.25rem] font-semibold text-white" aria-hidden="true">
+          {unread > 99 ? "99+" : unread}
+        </span>
+      )}
+    </Link>
+  );
+
   return (
     <article
       className={`${ui.card} flex flex-col gap-3 ${anyDeleted ? "border-gray-300! bg-gray-100!" : ""}`}
@@ -397,6 +414,7 @@ function MatchCard({
 
       {open && (
         <div className="flex flex-wrap gap-2">
+          {chatLink}
           {canReserve &&
             (seatExchanged ? (
               <button type="button" className={NOT_READY_CLASS} aria-disabled="true" aria-describedby={exchangedId} onClick={(e) => e.preventDefault()}>
@@ -453,6 +471,7 @@ function MatchCard({
           )}
         </div>
       )}
+      {!open && <div className="flex flex-wrap gap-2">{chatLink}</div>}
       {reserved && (
         <div className="flex flex-col gap-1 text-sm/[normal] text-gray-700">
           <p id={lockedReasonId}>예약 중에는 거절·채팅 종료를 할 수 없어요. 먼저 예약을 취소해주세요.</p>
@@ -504,11 +523,6 @@ function MatchCard({
         </p>
       )}
 
-      {open && (
-        <p className={anyDeleted ? "text-[0.8125rem]/[normal] text-gray-600" : ui.hint}>
-          채팅 기능은 준비 중이에요.
-        </p>
-      )}
     </article>
   );
 }

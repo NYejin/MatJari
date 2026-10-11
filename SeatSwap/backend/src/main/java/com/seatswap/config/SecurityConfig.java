@@ -29,6 +29,10 @@ public class SecurityConfig {
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
     private final JwtAccessDeniedHandler jwtAccessDeniedHandler;
 
+    /** REST CORS 와 WebSocket 핸드셰이크가 같은 Origin 목록(seatswap.websocket.allowed-origins)을 쓴다. */
+    @org.springframework.beans.factory.annotation.Value("${seatswap.websocket.allowed-origins:http://localhost:5173}")
+    private String[] allowedOrigins = {"http://localhost:5173"};
+
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
@@ -56,7 +60,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // FR-01: 회원가입/로그인/토큰재발급은 인증 없이 허용
                         .requestMatchers("/api/auth/**").permitAll()
-                        // WebSocket(STOMP) 핸드셰이크 — 인증은 핸드셰이크 이후 메시지 레벨에서 처리 예정
+                        // WebSocket(STOMP) 핸드셰이크 — 인증은 STOMP CONNECT 프레임(StompAuthChannelInterceptor)에서 한다
                         .requestMatchers("/ws/**").permitAll()
                         // 예외 발생 시 서블릿 컨테이너가 /error로 포워드하는데, 여기서 막히면 원래 오류가
                         // 403 빈 바디로 둔갑한다. 오류 응답 자체는 인증 없이 내려가야 한다.
@@ -83,7 +87,7 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(List.of("http://localhost:5173"));
+        config.setAllowedOriginPatterns(List.of(WebSocketConfig.validatedOrigins(allowedOrigins)));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);

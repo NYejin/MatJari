@@ -87,6 +87,7 @@ class ChatServiceMysqlTest {
     @TestConfiguration
     static class Config {
         @Bean
+        @Primary // 실제 STOMP 구현(ChatPushPublisherImpl)과 함께 있어도 이 기록용 발행기를 쓴다
         RecordingPublisher recordingPublisher() {
             return new RecordingPublisher();
         }

@@ -73,7 +73,7 @@ class ExchangeCompleteMysqlTest {
     void reset() {
         assertThat(jdbc.queryForObject("SELECT DATABASE()", String.class)).endsWith("_it");
         jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
-        for (String t : List.of("exchange_history", "exchange_ticket_lock", "exchange_match", "exchange_want_seat", "exchange_want_session",
+        for (String t : List.of("notification", "exchange_history", "exchange_ticket_lock", "exchange_match", "exchange_want_seat", "exchange_want_session",
                 "exchange_want_range", "exchange_request", "ticket", "performance_session", "performance", "users")) {
             jdbc.execute("TRUNCATE TABLE " + t);
         }

@@ -62,6 +62,10 @@ class ExchangeMatchMysqlTest {
     @Autowired
     private ExchangeRequestService requestService;
     @Autowired
+    private NotificationService notificationService;
+    @Autowired
+    private org.springframework.transaction.PlatformTransactionManager transactionManager;
+    @Autowired
     private JdbcTemplate jdbc;
 
     private long seq;
@@ -73,7 +77,7 @@ class ExchangeMatchMysqlTest {
     void reset() {
         assertThat(jdbc.queryForObject("SELECT DATABASE()", String.class)).endsWith("_it");
         jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
-        for (String t : List.of("exchange_ticket_lock", "exchange_match", "exchange_want_seat", "exchange_want_session",
+        for (String t : List.of("notification", "exchange_ticket_lock", "exchange_match", "exchange_want_seat", "exchange_want_session",
                 "exchange_want_range", "exchange_request", "ticket", "performance_session", "performance", "users")) {
             jdbc.execute("TRUNCATE TABLE " + t);
         }
@@ -374,6 +378,8 @@ class ExchangeMatchMysqlTest {
             assertThat(conflicts).as("round " + round).isEqualTo(7);
             assertThat(count("SELECT COUNT(*) FROM exchange_match WHERE open_flag = 1 AND request_low_id = LEAST("
                     + p.requestId + "," + q.requestId + ")")).isEqualTo(1);
+            assertThat(count("SELECT COUNT(*) FROM notification WHERE type = 'PROPOSAL_RECEIVED'"))
+                    .as("round " + round + ": 같은 쌍 동시 제안은 매칭 1개당 알림 1건(누적)").isEqualTo(round + 1);
         }
         assertInvariants();
     }
@@ -508,6 +514,7 @@ class ExchangeMatchMysqlTest {
                 assertThat(results).anyMatch(x -> x instanceof BusinessRuleException);
                 assertThat(count("SELECT COUNT(*) FROM exchange_match")).isZero();
             }
+            jdbc.update("DELETE FROM notification");
             jdbc.update("DELETE FROM exchange_match");
         }
         System.out.println("[update-vs-propose] proposedThenCanceled=" + proposedThenCanceled + " updatedFirst=" + updatedFirst);
@@ -555,6 +562,7 @@ class ExchangeMatchMysqlTest {
                 assertThat(locks()).isEqualTo(2);
             }
             jdbc.update("DELETE FROM exchange_ticket_lock");
+            jdbc.update("DELETE FROM notification");
             jdbc.update("DELETE FROM exchange_match");
         }
         System.out.println("[update-vs-reserve] updateWins=" + updateWins + " reservedWins=" + reservedWins);
@@ -667,6 +675,7 @@ class ExchangeMatchMysqlTest {
                 deletedFirst++;
                 assertThat(results).anyMatch(x -> x instanceof BusinessRuleException);
             }
+            jdbc.update("DELETE FROM notification");
             jdbc.update("DELETE FROM exchange_match");
         }
         System.out.println("[propose-vs-delete] proposedThenCanceled=" + proposedThenCanceled + " deletedFirst=" + deletedFirst);
@@ -706,6 +715,7 @@ class ExchangeMatchMysqlTest {
                 deactivatedFirst++;
                 assertThat(results).anyMatch(x -> x instanceof BusinessRuleException);
             }
+            jdbc.update("DELETE FROM notification");
             jdbc.update("DELETE FROM exchange_match");
         }
         System.out.println("[propose-vs-deactivate] proposedThenCanceled=" + proposedThenDeactivated + " deactivatedFirst=" + deactivatedFirst);
@@ -732,6 +742,9 @@ class ExchangeMatchMysqlTest {
             assertThat(locks()).isEqualTo(2);
             assertThat(count("SELECT COUNT(*) FROM exchange_match WHERE id = " + m + " AND reserved_by_id IS NOT NULL AND reserved_at IS NOT NULL"))
                     .isEqualTo(1);
+            assertThat(count("SELECT COUNT(*) FROM notification WHERE match_id = " + m + " AND type = 'MATCH_RESERVED'"))
+                    .as("round " + round + ": A·B 동시 reserve 는 RESERVED 1회, MATCH_RESERVED 1건").isEqualTo(1);
+            assertThat(count("SELECT COUNT(*) FROM notification WHERE match_id = " + m)).as("제안 알림 포함 총 2건").isEqualTo(2);
             matchService.unreserve(p.userId, m);
             matchService.cancel(p.userId, m);
         }
@@ -871,6 +884,81 @@ class ExchangeMatchMysqlTest {
     private static void assertRejected(String constraint, Runnable insert) {
         assertThatThrownBy(insert::run).isInstanceOf(org.springframework.dao.DataAccessException.class)
                 .hasMessageContaining(constraint);
+    }
+
+    // ------------------------------------------------------------------ 알림 쓰기 경로 (V10)
+
+    @Test
+    void 알림은_트랜잭션_없이는_만들_수_없고_롤백되면_함께_사라진다() {
+        Party p = party(1, "Z1");
+        Party q = party(2, "Z1");
+        mutual(p, q);
+        long m = matchService.propose(p.userId, p.requestId, q.requestId).id();
+        long before = count("SELECT COUNT(*) FROM notification");   // 제안 알림 1건
+        assertThat(before).isEqualTo(1);
+
+        assertThatThrownBy(() -> notificationService.notify(q.userId, com.seatswap.domain.NotificationType.MATCH_RESERVED, m, null))
+                .as("MANDATORY: 호출자 트랜잭션이 없으면 거부").isInstanceOf(org.springframework.transaction.IllegalTransactionStateException.class);
+
+        var template = new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        assertThatThrownBy(() -> template.executeWithoutResult(status -> {
+            notificationService.notify(q.userId, com.seatswap.domain.NotificationType.MATCH_RESERVED, m, null);
+            throw new IllegalStateException("rollback");
+        })).isInstanceOf(IllegalStateException.class);
+        assertThat(count("SELECT COUNT(*) FROM notification")).as("롤백 뒤 알림 증가 없음").isEqualTo(before);
+
+        // 상태 변경 서비스 경로에서 예외가 나면(예약 중 취소 409) 알림도 없다
+        matchService.reserve(p.userId, m);
+        long afterReserve = count("SELECT COUNT(*) FROM notification");
+        assertThat(afterReserve).isEqualTo(2);
+        assertThatThrownBy(() -> matchService.cancel(q.userId, m)).isInstanceOf(ConflictException.class);
+        assertThat(count("SELECT COUNT(*) FROM notification")).isEqualTo(afterReserve);
+    }
+
+    @Test
+    void MATCH_ALREADY_OPEN_409와_멱등_호출은_알림을_만들지_않는다() {
+        Party p = party(1, "Z1");
+        Party q = party(2, "Z1");
+        mutual(p, q);
+        long m = matchService.propose(p.userId, p.requestId, q.requestId).id();
+        assertThat(count("SELECT COUNT(*) FROM notification")).isEqualTo(1);
+
+        assertThatThrownBy(() -> matchService.propose(p.userId, p.requestId, q.requestId))
+                .isInstanceOfSatisfying(ConflictException.class, e -> assertThat(e.getDetails()).containsEntry("code", "MATCH_ALREADY_OPEN"));
+        assertThatThrownBy(() -> matchService.propose(q.userId, q.requestId, p.requestId)).isInstanceOf(ConflictException.class);
+        matchService.unreserve(p.userId, m);   // CHATTING 에서 멱등
+        assertThat(count("SELECT COUNT(*) FROM notification")).as("409 와 멱등 unreserve 는 0건").isEqualTo(1);
+        matchService.reserve(p.userId, m);
+        matchService.reserve(q.userId, m);     // RESERVED 에서 멱등
+        matchService.reserve(p.userId, m);
+        assertThat(count("SELECT COUNT(*) FROM notification WHERE type = 'MATCH_RESERVED'")).as("멱등 reserve 는 추가 알림 없음").isEqualTo(1);
+    }
+
+    @Test
+    void 예약_예약취소를_3번_반복하면_알림_6행이고_수신자는_호출자가_아닌_쪽이며_유니크_위반이_없다() {
+        Party p = party(1, "Z1");
+        Party q = party(2, "Z1");
+        mutual(p, q);
+        long m = matchService.propose(p.userId, p.requestId, q.requestId).id();
+
+        for (int i = 0; i < 3; i++) {
+            matchService.reserve(p.userId, m);     // 수신자 q
+            matchService.unreserve(q.userId, m);   // 수신자 p
+        }
+
+        assertThat(count("SELECT COUNT(*) FROM notification WHERE match_id = " + m + " AND type IN ('MATCH_RESERVED','RESERVATION_CANCELED')"))
+                .isEqualTo(6);
+        assertThat(count("SELECT COUNT(*) FROM notification WHERE type = 'MATCH_RESERVED' AND user_id = " + q.userId + " AND dedup_key IS NULL"))
+                .isEqualTo(3);
+        assertThat(count("SELECT COUNT(*) FROM notification WHERE type = 'RESERVATION_CANCELED' AND user_id = " + p.userId + " AND dedup_key IS NULL"))
+                .isEqualTo(3);
+        assertThat(count("SELECT COUNT(*) FROM notification WHERE type = 'PROPOSAL_RECEIVED' AND user_id = " + q.userId
+                + " AND dedup_key = 'PROPOSAL_RECEIVED:" + m + "' AND read_at IS NULL AND unread_user_id = " + q.userId)).isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM notification WHERE read_at IS NULL AND unread_user_id IS NULL")).isZero();
+        jdbc.update("UPDATE notification SET read_at = NOW(6) WHERE user_id = ?", q.userId);
+        assertThat(count("SELECT COUNT(*) FROM notification WHERE user_id = " + q.userId + " AND unread_user_id IS NOT NULL"))
+                .as("읽으면 생성 컬럼이 NULL").isZero();
+        assertInvariants();
     }
 
     // ------------------------------------------------------------------ 도우미

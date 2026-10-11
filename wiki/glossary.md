@@ -2,7 +2,7 @@
 title: 용어집
 type: glossary
 tags: [용어, 교환, 매칭]
-sources: [SeatSwap/backend/src/main/resources/db/migration/V9__exchange_complete_history.sql, CLAUDE.md, 산출물/04_요구사항정의서/후속요구사항_제안알림_교환됨_공연정보입력.md, 산출물/08_ERD/exchange-schema-design.md, SeatSwap/backend/README.md, SeatSwap/backend/src/main/resources/db/migration/V3__ticket_seat_columns.sql, SeatSwap/backend/src/main/resources/db/migration/V5__exchange_match_tables.sql, SeatSwap/backend/src/main/resources/db/migration/V7__exchange_request_soft_delete.sql, SeatSwap/backend/src/main/resources/application.yml]
+sources: [SeatSwap/backend/src/main/resources/db/migration/V11__chat_message.sql, SeatSwap/backend/src/main/resources/db/migration/V9__exchange_complete_history.sql, CLAUDE.md, 산출물/04_요구사항정의서/후속요구사항_제안알림_교환됨_공연정보입력.md, 산출물/08_ERD/exchange-schema-design.md, SeatSwap/backend/README.md, SeatSwap/backend/src/main/resources/db/migration/V3__ticket_seat_columns.sql, SeatSwap/backend/src/main/resources/db/migration/V5__exchange_match_tables.sql, SeatSwap/backend/src/main/resources/db/migration/V7__exchange_request_soft_delete.sql, SeatSwap/backend/src/main/resources/application.yml]
 updated: 2026-10-11
 confidence: high
 status: draft
@@ -54,3 +54,13 @@ SeatSwap 고유 용어의 짧은 정의다. 확정 결정 본문은 [CLAUDE.md](
 - **활성 티켓**: `ticket.status = 'ACTIVE'`. 생성 컬럼 `active_flag`가 1이며 같은 회차·좌석의 활성 티켓은 1개만 허용된다 (`uk_ticket_active_seat`, V3).
 - **소프트 삭제**: 티켓은 사용자가 내리면 `INACTIVE`(행은 남음, `DELETE /api/tickets/{id}`). 교환 요청은 삭제하면 `DELETED` + `deleted_at` (V7). 둘 다 물리 삭제가 아니다.
 - **회차 당일 마감**: 회차 당일 끝(다음날 0시 KST)까지 티켓 등록·매칭을 허용하고 이후 자동 비활성하는 정책이다. 후보 SQL은 `starts_at >= 오늘 0시`로 같은 뜻을 표현한다. 이미 시작한 채팅의 예약·취소에는 마감 검사를 하지 않는다. 자동 비활성 스케줄러는 아직 없다 (README "다음 단계").
+
+## 채팅
+
+설계 근거는 [채팅 설계 근거](decisions/chat-design.md), 함정은 [함정 페이지 10절](gotchas/lock-order-and-index-pitfalls.md) 참고. 구현 완료(V11, 브랜치 `feature/chat`, 미병합).
+
+- **읽음 포인터** (`chat_read_state.last_read_message_id`): (매칭, 사용자)당 1행으로, 그 사용자가 읽은 마지막 메시지 id다. 단조 증가만 하며 FK가 아니다. 안 읽은 개수(`unreadChatCount`)와 상대의 '읽음' 표시가 이 값으로 계산된다.
+- **clientMessageId**: 클라이언트가 보내는 8~36자 식별자(`^[A-Za-z0-9_-]{8,36}$`). (`clientMessageId`, 발신자) 유니크로 같은 전송의 재전송을 멱등 처리한다(같은 id 재전송은 200). 다른 매칭에서 쓴 id는 409 `CLIENT_MESSAGE_ID_REUSED`.
+- **상태 배너**: 채팅 화면 상단에 매칭 상태(예약 중, 교환된 좌석, 종료 등)를 보여주는 표시. 시스템 메시지를 저장하지 않고 이 배너로 대신한다.
+- **읽기 전용 채팅**: `CANCELED`·`COMPLETED` 매칭의 채팅. 참여자는 열람할 수 있고 전송은 409 `MATCH_STATE_CONFLICT`다. 입력창은 비활성이다.
+- **채팅 사용자 큐**: STOMP 수신 전용 목적지 `/user/queue/chat`. 푸시 종류는 `MESSAGE`와 `READ` 두 가지다.

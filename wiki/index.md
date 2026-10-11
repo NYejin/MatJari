@@ -18,14 +18,16 @@ SeatSwap 프로젝트의 결정 근거, 함정, 조사 결과, 용어를 모은 
 
 - [알림 3종 설계 근거](decisions/notification-design.md): 동기 INSERT 대 커밋 후 이벤트 비교와 선택 이유, dedup_key, 닫힌 매칭 알림·화면 구성·실시간 분리의 사용자 결정 3개.
 
+- [채팅 설계 근거 (REST 전송 + STOMP 수신)](decisions/chat-design.md): REST 전송 대 STOMP 전송, 읽음 포인터 대 메시지별 read_at, 시스템 메시지 저장 대 상단 배너, 종료 후 읽기 전용. 사용자 결정 4개 명시.
+
 ## 함정
 
-- [잠금 순서와 인덱스·유니크 키 함정](gotchas/lock-order-and-index-pitfalls.md): 교환 도메인(MySQL)의 잠금 순서 규약, 인덱스·유니크 키로 겪은 교착, Hibernate flush 순서와 유니크 키, 알림 쓰기 규칙과 dedup_key 함정, 교환 완료 갭 잠금 교착 가능성.
+- [잠금 순서와 인덱스·유니크 키 함정](gotchas/lock-order-and-index-pitfalls.md): 교환 도메인(MySQL)의 잠금 순서 규약, 인덱스·유니크 키로 겪은 교착, Hibernate flush 순서와 유니크 키, 알림 쓰기 규칙과 dedup_key 함정, 교환 완료 갭 잠금 교착 가능성, 채팅 전송 잠금·읽음 포인터 교착·조회 힌트·속도 제한 함정.
 
 ## 조사
 
-- [실시간 채팅(STOMP) JWT 인증·인가 조사](research/stomp-jwt-auth.md): CONNECT 인증, 토큰 만료, 구독·전송 인가, Origin·크기 제한. 조사 요약이며 구현 결정이 아니다.
+- [실시간 채팅(STOMP) JWT 인증·인가 조사](research/stomp-jwt-auth.md): CONNECT 인증, 토큰 만료, 구독·전송 인가, Origin·크기 제한. 조사 요약에 구현 후 확인 결과(CSRF·Origin 403·1008·RECEIPT 없음)를 덧붙였다.
 
 ## 용어집
 
-- [용어집](glossary.md): 매칭 상태, 교환 요청·희망 조건, 추가금, 티켓과 마감, 알림 등 고유 용어.
+- [용어집](glossary.md): 매칭 상태, 교환 요청·희망 조건, 추가금, 티켓과 마감, 알림, 채팅 등 고유 용어.

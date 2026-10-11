@@ -726,7 +726,7 @@ docker rm -f seatswap-tmp-match
 - 응답: 매칭 응답의 `mySeat`/`counterpartSeat`와 ticket id는 교환 전 자리·티켓이다. 교환 후 자리는 새 티켓과 `exchange_history`에서 본다.
 - 테스트: `ExchangeCompleteMysqlTest` 8건(실제 MySQL, 실제 서비스·트랜잭션), `MigrationV9MysqlTest` 3건. 같은 매칭 양쪽 동시 수락 20라운드(COMPLETED는 정확히 한 번), 같은 티켓을 건 두 매칭 경합 20라운드, 교착 0건.
 - 알려진 한계(코드 리뷰 기준): ① 받을 좌석을 그 순간 직접 등록하면 `users` 잠금과 엇갈려 드물게 교착이 날 수 있으나 이를 처리하는 코드는 없다. ② 완료 후 새 티켓으로 재교환 요청을 만드는 회귀 IT가 없다. ③ 제안받은 쪽(b측) 기준의 다른 매칭 대칭 IT가 없다.
-- 교환 이력 조회 API(`GET` 이력)와 마이페이지 화면은 다음 브랜치다.
+- 교환 이력 조회 API(`GET /api/exchange/history`)와 마이페이지 화면은 2026-10-12 `feature/exchange-history`에서 구현했다(DB 변경 없음, 본인 행만 id 내림차순, size 기본 20 최대 100, `ExchangeHistoryService`·`ExchangeHistoryController`, 슬라이스·서비스 테스트 5건).
 
 ## 다음 단계
 1. 교환 도메인 구현 계속: (완료) V4 희망 범위·희망 좌석·희망 회차, 매칭 후보 조회, V5 매칭 생성·예약·거절·취소·예약 잠금, V6 추가금 범위 단위, V7 요청 소프트 삭제, V8 한 명 예약·예약 취소, V9 교환 완료(COMPLETED, 기존 티켓 EXCHANGED + 새 티켓)·교환 이력 기록, V10 알림 3종(조회·읽음·삭제 API 포함, 2026-10-11), V11 채팅(REST 전송·조회·읽음 + STOMP 푸시, 2026-10-11), 알림 실시간 푸시(STOMP 신호, 2026-10-11, `feature/notifications-realtime`), 관리자 페이지 V12(공연 수정 제안·내 티켓 인증, 2026-10-12, `feature/admin`) / 남음: 교환 이력 조회 API·마이페이지 화면, 차단(`user_block`, V13 예정), 후보 제외 조건(위 후속 메모) (설계안 `산출물/08_ERD/exchange-schema-design.md`)

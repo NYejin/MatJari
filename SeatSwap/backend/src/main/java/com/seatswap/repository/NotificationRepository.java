@@ -14,7 +14,7 @@ import java.util.List;
 /**
  * 알림 저장소. 쓰기 순서 규약: notification 은 항상 트랜잭션의 마지막에 쓴다(티켓 id↑ -> 요청 id↑ -> 매칭 -> users S(FK) -> notification).
  * notification 행을 잠근 뒤 티켓·요청·매칭을 잠그는 경로는 만들지 않는다. 범위 UPDATE/DELETE 는 쓰지 않고 id 목록으로만 갱신한다(갭 잠금 회피).
- * markRead/markAllRead/deleteRead 와 id 수집 쿼리는 후속 작업(조회·읽음·삭제 API)이 쓴다. 이번 범위에서는 선언만 있다.
+ * markRead/markAllRead/deleteRead 와 id 수집 쿼리는 NotificationService 가 쓴다(id 수집은 정렬해서 PK 순서로 잠근다).
  */
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
 
@@ -35,10 +35,13 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
 
     /** 잠금 없는 SELECT: 전체 읽음 대상 id 수집(type 이 null 이면 전체). */
     @Query("select n.id from Notification n where n.userId = :userId and n.readAt is null "
-            + "and (:type is null or n.type = :type)")
+            + "and (:type is null or n.type = :type) order by n.id")
     List<Long> findUnreadIds(@Param("userId") Long userId, @Param("type") NotificationType type);
 
     /** 잠금 없는 SELECT: 읽은 알림 삭제 대상 id 수집. */
-    @Query("select n.id from Notification n where n.userId = :userId and n.readAt is not null")
+    @Query("select n.id from Notification n where n.userId = :userId and n.readAt is not null order by n.id")
     List<Long> findReadIds(@Param("userId") Long userId);
+
+    /** 단건 읽음에서 '이미 읽음(멱등 204)'과 '없음/남의 것(404)'을 가르는 잠금 없는 점조회. */
+    boolean existsByIdAndUserId(Long id, Long userId);
 }

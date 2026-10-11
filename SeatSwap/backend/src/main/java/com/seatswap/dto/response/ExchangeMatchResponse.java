@@ -19,6 +19,7 @@ import java.time.LocalDateTime;
  * CHATTING 매칭 카드에서 "이미 교환된 좌석이에요"를 보여주는 근거. COMPLETED 매칭 자신의 두 티켓도 true 다).
  * myTicketReservedElsewhere / counterpartTicketReservedElsewhere 는 그 쪽 티켓이 이 매칭이 아닌 다른 매칭의 예약 잠금에 걸려 있는지다
  * (CHATTING 카드에서만 의미가 있다. 이 매칭이 RESERVED 일 때 자기 잠금은 세지 않는다).
+ * unreadChatCount 는 상대가 보낸 채팅 메시지 중 내가 아직 읽지 않은 수(읽음 포인터 기준, CANCELED·COMPLETED 매칭도 센다).
  * status 가 RESERVED 이면 두 티켓이 잠겨 있다. canceledBy 는 CANCELED 일 때만: ME / COUNTERPART / SYSTEM.
  */
 public record ExchangeMatchResponse(
@@ -54,7 +55,8 @@ public record ExchangeMatchResponse(
         @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = DateTimeFormats.SECOND)
         LocalDateTime createdAt,
         @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = DateTimeFormats.SECOND)
-        LocalDateTime updatedAt
+        LocalDateTime updatedAt,
+        int unreadChatCount
 ) {
     /** 좌석 한 곳: 표시용 구역·열·번 + 회차 id·시작 시각. */
     public record Seat(

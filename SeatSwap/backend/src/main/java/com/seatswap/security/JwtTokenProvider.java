@@ -78,6 +78,11 @@ public class JwtTokenProvider {
         return Long.valueOf(parseClaims(token).getSubject());
     }
 
+    /** 토큰 만료 시각(STOMP 세션이 토큰보다 오래 살지 않게 하는 데 쓴다). 검증된 토큰에만 호출한다. */
+    public java.time.Instant getExpiration(String token) {
+        return parseClaims(token).getExpiration().toInstant();
+    }
+
     public String getEmail(String token) {
         return parseClaims(token).get(CLAIM_EMAIL, String.class);
     }

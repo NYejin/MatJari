@@ -2,7 +2,7 @@
 title: 잠금 순서와 인덱스·유니크 키 함정
 type: gotcha
 tags: [mysql, 교착, 인덱스, flyway, 동시성]
-sources: [SeatSwap/backend/src/main/resources/db/migration/V9__exchange_complete_history.sql, 산출물/08_ERD/exchange-schema-design.md, SeatSwap/backend/README.md, SeatSwap/backend/src/main/resources/db/migration/V3__ticket_seat_columns.sql, SeatSwap/backend/src/main/resources/db/migration/V5__exchange_match_tables.sql, SeatSwap/backend/src/main/resources/db/migration/V7__exchange_request_soft_delete.sql, SeatSwap/backend/src/main/resources/db/migration/V8__exchange_match_single_reserve.sql, CLAUDE.md]
+sources: [SeatSwap/backend/src/main/resources/db/migration/V9__exchange_complete_history.sql, 산출물/08_ERD/exchange-schema-design.md, SeatSwap/backend/README.md, SeatSwap/backend/src/main/resources/db/migration/V3__ticket_seat_columns.sql, SeatSwap/backend/src/main/resources/db/migration/V5__exchange_match_tables.sql, SeatSwap/backend/src/main/resources/db/migration/V7__exchange_request_soft_delete.sql, SeatSwap/backend/src/main/resources/db/migration/V8__exchange_match_single_reserve.sql, SeatSwap/backend/src/main/resources/db/migration/V11__chat_message.sql, CLAUDE.md]
 updated: 2026-10-11
 confidence: medium
 status: draft
@@ -88,3 +88,17 @@ status: draft
 - 영향: MySQL이 한쪽을 희생(1213)시키고 서비스는 이를 503으로 흡수한다. 트랜잭션이 통째로 롤백되므로 데이터 손상은 없고 재시도하면 된다고 본다.
 - 완화안(미적용): `complete`에서 새 티켓 INSERT 전에 users 두 행을 id 순서로 `FOR SHARE` 선행 잠금한다. 그러면 users S를 먼저 잡고 갭 잠금을 나중에 잡아 `create`(users X 선행)와 같은 순서가 된다. 적용 전에는 실제 MySQL IT로 재현을 먼저 확인한다.
 - 앞선 구현 세션의 "받을 좌석을 그 순간 직접 등록하면 users S 잠금과 엇갈릴 수 있다"는 알려진 한계([작업일지](../../산출물/07_작업일지/2026-10-11.md))와 같은 건이다.
+
+## 10. 채팅(V11) 전송·읽음·조회·연결 함정
+
+설계 근거는 [채팅 설계 근거](../decisions/chat-design.md), STOMP 인증은 [STOMP 조사](../research/stomp-jwt-auth.md), 용어는 [용어집](../glossary.md). 아래는 구현 세션(2026-10-11, `feature/chat`)의 코드·임시 MySQL IT로 확인한 사실이다.
+
+- **전송은 매칭 행 FOR UPDATE만 잡는다**: 전송 트랜잭션의 첫 쿼리는 `exchange_match` 행 `FOR UPDATE`(UPDATE는 하지 않음)이고, 티켓·요청은 잠그지 않는다. 한 매칭 안에서 전송이 직렬화되므로 id 순서가 커밋 순서가 된다. S 잠금(FOR SHARE)이면 두 전송이 동시에 진입해 id가 먼저 나온 쪽이 나중에 커밋될 수 있고, 클라이언트가 `after` 커서로 빈 구간을 채울 때 아직 커밋 전이던 작은 id를 건너뛰어 **메시지가 누락**된다. 종료(취소·완료) 커밋과도 같은 행을 잠그므로 종료 커밋 뒤에는 메시지가 0건이다.
+- **전파는 커밋 뒤에**: `convertAndSendToUser`는 커밋 후에 호출한다. 전파가 실패해도 저장은 유지되고, 받는 쪽은 재연결 때 `after` 커서로 따라잡는다.
+- **읽음 포인터 UPDATE→INSERT→재UPDATE를 트랜잭션 안에서 하면 교착(재현됨)**: `chat_read_state`는 먼저 `UPDATE ... GREATEST`, 행이 없으면 INSERT, DuplicateKey면 UPDATE를 다시 한다. 이 순서를 트랜잭션 안에서 하면 갭 잠금 교착이 재현됐다(정확한 잠금 대기 사슬은 기록하지 않았다. 없는 키에 대한 UPDATE의 갭 잠금과 INSERT가 엇갈린 것으로 추정한다). 그래서 `ChatReadStateRepository.advance`는 호출자 트랜잭션 밖(autocommit, `NOT_SUPPORTED`)에서 실행해 문장마다 잠금을 바로 풀게 했다.
+- **그 부작용**: 매칭이나 users 행을 잠근 트랜잭션 안에서 `advance`를 호출하면, 호출자 트랜잭션이 쥔 잠금을 별도 연결(autocommit)이 기다리게 되어 **자기 대기로 1205(잠금 대기 초과)** 가 난다. `advance`는 잠금 트랜잭션 안에서 부르지 않는다.
+- **`ON DUPLICATE KEY UPDATE`는 쓰지 않는다**: 읽음 포인터 갱신을 이 구문 하나로 줄이지 않고 위 UPDATE→INSERT→재UPDATE로 나눈다. 이 구문을 금지한 정확한 기술 이유(잠금 동작 차이 등)는 이번 입력에서 확인하지 못했다(미확인). 이유를 확인하면 이 항목에 보강한다.
+- **메시지 조회는 `FORCE INDEX (idx_chat_message_match)`**: 힌트 없이는 옵티마이저가 PRIMARY 역방향 스캔, filesort, index_merge를 골라 매칭 하나의 목록 조회가 느려질 수 있었다. 4절 STRAIGHT_JOIN과 같은 이유로 계획을 고정했다. `idx_chat_message_match`는 FK용 단일 컬럼 인덱스다(2절 원칙).
+- **세션당 구독 1개**: 구독 수가 무제한이었던 점이 리뷰에서 중간 심각도로 지적됐다(Opus). 같은 큐를 반복 구독하면 푸시가 중복되고 자원을 더 쓸 수 있다. 레지스트리에 subscriptionId를 저장해 세션당 1개로 제한했고, `/user/queue/chat` 정확 일치만 허용하며 SEND·ACK는 전부 거부한다. 사용자당 동시 연결도 5개로 제한한다.
+- **속도 제한 함정**: 제한은 5초 5건과 60초 60건 두 개다(구현은 사용자별 슬라이딩 윈도이며, 토큰 버킷 2개로 만들 때도 같은 문제가 있다). 5초 5건의 지속 속도는 분당 60건이라 60초 60건과 같다. 그래서 60초 한도는 실질적으로 따로 걸리지 않고, 효과를 내는 것은 5초 한도뿐이다. 두 한도의 지속 속도가 달라야(예: 분당 30건) 장기 연속 전송을 따로 막는다. 소모는 새 INSERT 직전에만 하며(멱등 재전송은 소모하지 않음), 단일 인스턴스 메모리라 서버가 여러 대면 공유되지 않는다. 한도를 바꾸는 것은 결정 사항이므로 여기서는 사실만 적는다.
+- **검증**: 전송·예약 토글·교환 완료·티켓 등록·알림 읽음 혼합 스트레스에서 교착 0건, 동시 전송 160건 누락 0건, STOMP 통합 10건. 기본 595건 통과, 임시 MySQL IT 포함 612건 통과(구현 세션 기록, 이 위키에서 재실행하지 않았다).

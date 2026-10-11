@@ -69,7 +69,7 @@ function CandidatesView({ requestId, validId }: { requestId: number; validId: bo
     try {
       await exchangeApi.propose(requestId, candidate.requestId);
       navigate("/exchange/matches", {
-        state: { notice: `${candidate.nickname}님과 매칭을 시작했어요. 채팅은 준비 중이에요. 예약은 내 매칭 화면에서 한 명이 누르면 돼요.` },
+        state: { notice: `${candidate.nickname}님과 매칭을 시작했어요. 내 매칭 화면에서 채팅하고, 한 명이 예약을 누르면 돼요.` },
       });
     } catch (err) {
       const parsed = exchangeErrorMessage(err, "제안하지 못했습니다.");

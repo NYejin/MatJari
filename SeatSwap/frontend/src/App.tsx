@@ -13,6 +13,7 @@ import ExchangeRequestFormPage from "./pages/ExchangeRequestFormPage";
 import CandidatesPage from "./pages/CandidatesPage";
 import MatchesPage from "./pages/MatchesPage";
 import NotificationsPage from "./pages/NotificationsPage";
+import ChatPage from "./pages/ChatPage";
 
 export default function App() {
   return (
@@ -35,6 +36,7 @@ export default function App() {
             <Route path="/tickets/:ticketId/exchange" element={<ExchangeRequestFormPage />} />
             <Route path="/exchange/requests/:requestId/candidates" element={<CandidatesPage />} />
             <Route path="/exchange/matches" element={<MatchesPage />} />
+            <Route path="/exchange/matches/:matchId/chat" element={<ChatPage />} />
             <Route path="/notifications" element={<NotificationsPage />} />
           </Route>
         </Route>

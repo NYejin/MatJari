@@ -77,7 +77,7 @@ class ExchangeMatchControllerSliceTest {
                 new ExchangeMatchResponse.Seat("B구역", "4", "6", 8L, LocalDateTime.of(2026, 11, 2, 19, 0)),
                 "상대", "X", null, "POS", 30000, false, true, false, true, false, true,
                 "ME", LocalDateTime.of(2026, 10, 8, 12, 0, 5), false, false, null, null,
-                LocalDateTime.of(2026, 10, 8, 11, 0, 0), LocalDateTime.of(2026, 10, 8, 12, 0, 5));
+                LocalDateTime.of(2026, 10, 8, 11, 0, 0), LocalDateTime.of(2026, 10, 8, 12, 0, 5), 3);
     }
 
     private static ExchangeMatchResponse response(String status) {
@@ -92,7 +92,7 @@ class ExchangeMatchControllerSliceTest {
              "counterpartNickname":"상대","myExtraType":"X","myExtraAmount":null,
              "counterpartExtraType":"POS","counterpartExtraAmount":30000,"myRequestDeleted":false,"counterpartRequestDeleted":true,"myTicketExchanged":false,"counterpartTicketExchanged":true,"myTicketReservedElsewhere":false,"counterpartTicketReservedElsewhere":true,
              "reservedBy":"ME","reservedAt":"2026-10-08T12:00:05","myAccepted":false,"counterpartAccepted":false,"canceledBy":null,"canceledAt":null,
-             "createdAt":"2026-10-08T11:00:00","updatedAt":"2026-10-08T12:00:05"}
+             "createdAt":"2026-10-08T11:00:00","updatedAt":"2026-10-08T12:00:05","unreadChatCount":3}
             """;
 
     @Test

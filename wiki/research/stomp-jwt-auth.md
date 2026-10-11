@@ -10,9 +10,9 @@ status: draft
 
 # 실시간 채팅(STOMP) JWT 인증·인가 조사
 
-> 이 문서는 조사 요약이며 채팅 구현 결정이 아니다. 구현 때 설계를 확정한다. 프로젝트 맥락과 확정 결정은 [CLAUDE.md](../../CLAUDE.md), 백엔드 현황은 [백엔드 README](../../SeatSwap/backend/README.md)를 본다. 여기서는 결정을 복사하지 않는다.
+> 이 문서는 조사 요약이며 채팅 구현 결정이 아니다. 구현 결정 근거는 [채팅 설계 근거](../decisions/chat-design.md), 구현 후 확인 결과는 아래 '구현 후 확인 결과' 절에 있다. 프로젝트 맥락과 확정 결정은 [CLAUDE.md](../../CLAUDE.md), 백엔드 현황은 [백엔드 README](../../SeatSwap/backend/README.md)를 본다. 여기서는 결정을 복사하지 않는다.
 
-채팅은 교환 흐름에서 매칭(`CHATTING`) 이후 단계이며 아직 구현되지 않았다. 코드 확인(2026-10-11): `build.gradle`에 websocket 스타터 의존성만 있고 `WebSocketConfig`는 `@Configuration` 클래스에 TODO 주석뿐이다(엔드포인트·브로커·인터셉터 없음). 채팅 메시지 테이블(`chat_message` 등)은 아직 없고, 만든다면 V10(알림 `notification`)까지 적용된 뒤이므로 V11 이후 마이그레이션이다. 실시간 알림(STOMP)은 다음 브랜치 `feature/notifications-realtime`에서 다루며, 알림 설계는 [알림 설계](../decisions/notification-design.md) 참고. 용어는 [용어집의 매칭 상태](../glossary.md) 참고.
+채팅은 교환 흐름에서 매칭(`CHATTING`) 이후 단계이며 **2026-10-11에 `feature/chat` 브랜치에서 구현됐다**(미병합, 커밋 `48d5e17`·`6f566f7`·`3bb70b5`·`9f56d59`·`8b662e5`·`fc20c82`). 이 조사 시점(2026-10-10~11 초)에는 `WebSocketConfig`가 TODO뿐이었고 `chat_message`도 없었으나, 지금은 V11(`chat_message`·`chat_read_state`)이 있고 STOMP 인증·푸시가 구현돼 있다. 구현 결정 근거는 [채팅 설계 근거](../decisions/chat-design.md), 잠금·인덱스 함정은 [함정 페이지 10절](../gotchas/lock-order-and-index-pitfalls.md), 알림 설계는 [알림 설계](../decisions/notification-design.md), 용어는 [용어집](../glossary.md) 참고. 아래 '결론'~'권장 구성'은 조사 당시의 문서 요약이며, 실제 구현과 다른 부분은 '구현 후 확인 결과'가 우선한다.
 
 ## 결론
 
@@ -65,19 +65,37 @@ status: draft
 4. Origin은 `https://` 명시 allowlist만 쓰고 `*`는 쓰지 않는다. CSRF는 Spring Security 6.3.10 동작을 확인한 뒤 결정한다. 확인 전에는 JWT 헤더 방식이라는 근거만으로 끄는 것을 확정하지 말고, same-origin 관련 설정을 테스트로 검증한다.
 5. 초기에는 순수 WebSocket과 단일 인스턴스 simple broker로 시작하고, 다중 인스턴스가 되면 외부 브로커 릴레이와 `userDestinationBroadcast`를 검토한다.
 
+## 구현 후 확인 결과 (2026-10-11, 코드·통합 테스트 기준)
+
+구현은 `/ws` 순수 WebSocket 엔드포인트(SockJS 없음), `spring-security-messaging` 미사용, 커스텀 `StompAuthChannelInterceptor`다. 확인한 항목:
+
+- **CSRF**: 앱이 `csrf.disable()`이고 messaging 보안 모듈을 쓰지 않아 STOMP CSRF 토큰 요건이 없다. 위 4절의 "CSRF 설정 불가" 문서 내용은 `@EnableWebSocketSecurity`를 쓸 때의 이야기이고 이 구현에는 해당하지 않는다. CSRF를 끈 판단 자체의 안전성(CSWSH)은 Origin 검증(아래)과 CONNECT 헤더 JWT에 의존한다.
+- **`/ws/**` 매칭**: HTTP 보안 설정의 `/ws/**` permitAll로 `/ws` 핸드셰이크가 통과한다(통합 테스트로 확인). 인증은 CONNECT 프레임에서만 한다.
+- **Origin**: 허용 목록 밖 Origin의 핸드셰이크는 403이다. 허용 목록은 설정 `seatswap.websocket.allowed-origins`이고 `*`가 들어 있으면 시작 시 거부한다.
+- **만료 세션 1008**: 만료된 세션을 스위퍼가 close code 1008로 닫는 것을 수신으로 확인했다. 인증 안 한 소켓도 10초 뒤 1008이다. 인터셉터가 거부했을 때의 close는 Spring이 1002로 닫는다.
+- **RECEIPT 없음**: SUBSCRIBE에 receipt 헤더를 붙여도 RECEIPT 프레임이 오지 않는 것을 확인했다. 프론트는 RECEIPT를 기다리지 않는다.
+- **세션당 구독 1개**: 구독이 무제한이면 자원 고갈 여지가 있어(리뷰 중간 지적) 세션당 1개로 제한했다. 이유는 [함정 페이지 10절](../gotchas/lock-order-and-index-pitfalls.md) 참고.
+
+위 확인은 백엔드 STOMP 통합 테스트 10건과 코드 읽기 기준이다. 실제 브라우저와 `@stomp/stompjs` 연동 점검은 하지 않았다. 아직 확인하지 못한 것은 아래와 같다.
+
+### 후속 메모
+
+- 토큰 만료·사용자 변경 후 푸시가 최대 약 30초 유지될 수 있다. 차단·제재를 구현할 때는 해당 사용자의 세션을 강제로 종료하는 훅이 필요하다.
+- push payload와 REST 응답에 상대 `senderId`(users.id)가 노출된다. 차단·신고 브랜치에서 `mine` 같은 불리언으로 대체할지 검토한다.
+
 ## 미확인
 
-- Spring Security 6.3.10 기준 WebSocket CSRF 동작, 6.3에서의 `sameOriginDisabled` 차이
+구현 후에도 확인하지 못한 것이다.
+
+- 하트비트 미응답 시 종료 동작(설정은 10초/10초이지만 종료를 시험하지 않음)
+- 16KB 초과 프레임 거부(메시지 크기 제한 16KB 설정을 시험하지 않음)
+- 실제 브라우저·`@stomp/stompjs` 연동
 - 토큰 만료를 메시지 단위로 재검사하는 내장 기능
-- CONNECT 헤더에서 Authorization을 읽는 공식 API·예제
 - `setAllowedOriginPatterns`의 공식 설명
-- 크기·버퍼 기본값(Spring 6.1 기준)
-- 메시지 속도 제한 내장 지원
-- 다중 인스턴스에서의 sticky session 요구와 외부 브로커 세부
-- time-to-first-message 설정
+- 다중 인스턴스에서의 sticky session 요구와 외부 브로커 세부(현재 단일 인스턴스 메모리 전제)
 - SockJS와 순수 WebSocket의 2026년 공식 권장
-- 방 참여자 검사를 `AuthorizationManager`와 `ChannelInterceptor` 중 어디에 둘지의 공식 권장
-- 제3자 블로그의 `sameOriginDisabled` 설명(검증하지 않음)
+- 방 참여자 검사를 `AuthorizationManager`와 `ChannelInterceptor` 중 어디에 둘지의 공식 권장(구현은 REST 전송 + 사용자 큐 구독만 허용이라 목적지 기반 참여자 검사가 필요 없었다)
+- Spring Security 6.3.10에서 `@EnableWebSocketSecurity` 사용 시의 CSRF 동작(이 구현은 해당 모듈을 쓰지 않음)
 
 ## 출처
 
@@ -102,4 +120,4 @@ status: draft
 
 ## 신뢰도
 
-전체 confidence는 medium이다. 항목 1·3·4의 핵심 구성은 Spring 공식 문서 여러 페이지에서 일관되지만 대부분 7.x 페이지라 medium-high 수준이다. 항목 2는 OWASP 일반 권고에 의존해 low-medium, 항목 5는 추론이 섞여 medium이다. 프로젝트가 쓰는 Spring 6.3 라인 전용 문서를 확인하지 못했으므로 구현 전에 해당 버전 동작을 테스트로 확인해야 한다.
+전체 confidence는 medium이다. 구현 후 확인 결과 절은 코드와 통합 테스트로 확인한 사실이며, 조사 당시 요약 부분(결론~권장 구성)은 아래 판단 그대로다. 항목 1·3·4의 핵심 구성은 Spring 공식 문서 여러 페이지에서 일관되지만 대부분 7.x 페이지라 medium-high 수준이다. 항목 2는 OWASP 일반 권고에 의존해 low-medium, 항목 5는 추론이 섞여 medium이다. 프로젝트가 쓰는 Spring 6.3 라인 전용 문서를 확인하지 못했으므로 구현 전에 해당 버전 동작을 테스트로 확인해야 한다.

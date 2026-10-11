@@ -33,7 +33,8 @@ src/
 - 매칭은 금액이 아니라 추가금 **유형**만 보고, 금액은 후보 목록에 참고용으로 표시한다. 후보 목록에 신뢰도 표시는 없다(후기·신뢰도 기능 없음). 예약으로 잠긴 티켓은 후보에 나오지 않는다.
 
 ## 교환 화면 (현재 구현)
-`/tickets/new`(티켓 등록) · `/tickets`(내 티켓, 내리기·교환 조건 진입) · `/tickets/:ticketId/exchange`(희망 조건 폼) · `/exchange/requests/:requestId/candidates`(후보 목록·제안하기, '내 조건/상대 조건' 표시) · `/exchange/matches`(내 매칭, 보낸/받은 탭). 헤더에 '내 티켓'·'내 매칭', 공연 상세에 '이 공연 티켓 등록' 버튼이 있다. 로그인 시 헤더에 알림 벨(안 읽은 개수, 말풍선 최신 5건)과 알림 페이지 `/notifications`가 있다.
+`/tickets/new`(티켓 등록) · `/tickets`(내 티켓, 내리기·교환 조건 진입) · `/tickets/:ticketId/exchange`(희망 조건 폼) · `/exchange/requests/:requestId/candidates`(후보 목록·제안하기, '내 조건/상대 조건' 표시) · `/exchange/matches`(내 매칭, 보낸/받은 탭) · `/exchange/matches/:matchId/chat`(채팅 화면). 헤더에 '내 티켓'·'내 매칭', 공연 상세에 '이 공연 티켓 등록' 버튼이 있다.
+- 채팅 화면: 보내기는 REST `POST .../messages`, 받기는 STOMP `/user/queue/chat` 구독으로만 한다(클라이언트 STOMP SEND 없음). STOMP는 이 화면이 열려 있는 동안만 연결하고, `VITE_WS_URL`(없으면 API 주소에서 계산)을 쓴다. 재연결은 지수 백오프(1s~30s), 연결 시 `after` 커서로 빈 구간을 채우며, 토큰 재발급 시 재연결한다. 상단 상태 배너(시스템 메시지 대신), 입력 중 포커스 유지, IME 조합 중 전송 금지, 1000 코드 포인트 카운터, 낭독(role=status). 종료된 매칭(CANCELED·COMPLETED)은 열람만 되고 입력을 비활성한다. 매칭 카드에는 '채팅' 링크와 안 읽은 뱃지가 있고, 헤더에는 채팅 아이콘이 없다. 채팅 알림 행도 없다. 로그인 시 헤더에 알림 벨(안 읽은 개수, 말풍선 최신 5건)과 알림 페이지 `/notifications`가 있다.
 - 알림: 화면이 보일 때만 30초 폴링하고 focus·visibilitychange·경로 이동 시 즉시 재조회한다. 알림 클릭은 읽음 처리 후 `/exchange/matches?role=RECEIVED&matchId=N`(새 제안) 또는 `/exchange/matches?matchId=N`으로 이동하고, MatchesPage는 URL 쿼리로 탭 선택·카드 스크롤·강조를 한다. 종료된 매칭 알림은 회색 '종료된 매칭' 라벨로 표시한다.
 - 시스템이 후보 목록을 띄우면 사용자가 골라 채팅을 시작한다. 한 티켓에 채팅을 여러 개 동시에 열 수 있다.
 - 매칭 카드: CHATTING은 '진행 중' 배지(라벨 미확정), '예약하기'·받은 쪽 '거절'·'채팅 종료'. 한 명이 예약하면 RESERVED가 되고 **[예약 중]** 뱃지, '내가/○○님이 예약했어요', '예약 취소'(2단계 확인), '교환 수락' 버튼(2단계 확인)이 생긴다. 예약 중에는 '거절'·'채팅 종료'를 막고(숨기지 않고 aria-disabled + 사유 안내) 먼저 예약을 취소하게 한다. 응답 필드는 `reservedBy`("ME"|"COUNTERPART"|null)·`reservedAt`·`myAccepted`/`counterpartAccepted`(실제 수락 여부)·`myTicketExchanged`/`counterpartTicketExchanged`·`myTicketReservedElsewhere`/`counterpartTicketReservedElsewhere`.
@@ -45,7 +46,7 @@ src/
 - 교환 완료: 양쪽이 '교환 수락'(확인 후)을 누르면 상태 COMPLETED(라벨 '교환 완료'는 상태·뱃지·이력에 유지, 버튼 이름만 '교환 수락'). 기존 티켓은 '교환됨'(EXCHANGED)이 되고 새 자리의 새 티켓이 생긴다. 완료된 매칭 카드는 교환 전 자리를 보여준다. 교환된 좌석에 걸린 다른 채팅은 예약·교환 수락·교환 완료를 비활성하고 "이미 교환된 좌석이에요"를 본인·상대 양쪽에 표시한다.
 
 ## 미구현·예정 (지시 전에는 시작하지 않음)
-- 교환 이력 조회 화면(마이페이지 '교환 이력', `(기존 자리) -> (바꾼 자리)`). 채팅·신고 UI도 아직 없다. 실시간 알림 푸시(STOMP)는 없고 30초 폴링이다.
+- 교환 이력 조회 화면(마이페이지 '교환 이력', `(기존 자리) -> (바꾼 자리)`). 신고 UI도 아직 없다. 실시간 알림 푸시(STOMP)는 없고 30초 폴링이다(채팅 연결은 채팅 화면에서만 열린다).
 - 사용자 차단 UI(차단하면 후보 제외·채팅 불가), 링크 입력 시 공연 정보를 미리 채워 '이 정보가 맞나요?'를 묻는 자동 입력, 관리자 페이지.
 - 브라우저 수동 점검·실서버 연동은 아직 충분히 하지 않았다.
 

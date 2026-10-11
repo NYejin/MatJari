@@ -1,5 +1,6 @@
 package com.seatswap.exception;
 
+import com.seatswap.service.ChatRateLimiter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.PessimisticLockingFailureException;
@@ -56,6 +57,17 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, String>> handleDataIntegrityViolation(DataIntegrityViolationException e) {
         log.warn("Unclassified data integrity violation: {}", e.getMostSpecificCause().getMessage());
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message", DATA_CONFLICT_MESSAGE));
+    }
+
+    // 429 — 채팅 전송 속도 제한: {"code":"CHAT_RATE_LIMITED","message":..,"retryAfterSeconds":n} + Retry-After 헤더
+    @ExceptionHandler(ChatRateLimiter.ChatRateLimitedException.class)
+    public ResponseEntity<Map<String, Object>> handleChatRateLimited(ChatRateLimiter.ChatRateLimitedException e) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("code", e.getCode());
+        body.put("message", e.getMessage());
+        body.put("retryAfterSeconds", e.getRetryAfterSeconds());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", String.valueOf(e.getRetryAfterSeconds())).body(body);
     }
 
     // 행 잠금 대기 초과·교착(CannotAcquireLockException 포함) -> 503 일반 문구. 잠시 뒤 다시 시도하면 된다

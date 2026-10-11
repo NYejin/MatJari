@@ -40,3 +40,12 @@ exchange:
     # 교환 희망 조건 서버 안전 상한 (사용자 대상 상한이 아니라 DoS 방어용). 초과하면 422
     max-seats: ${EXCHANGE_WANT_MAX_SEATS:5000}
     max-ranges: ${EXCHANGE_WANT_MAX_RANGES:50}
+
+seatswap:
+  websocket:
+    # STOMP 핸드셰이크 허용 Origin(쉼표 구분)이자 REST CORS 허용 Origin. '*' 금지(시작 시 거부), http:// 또는 https:// 로 시작.
+    allowed-origins: ${SEATSWAP_WS_ALLOWED_ORIGINS:http://localhost:5173}
+    max-connections-per-user: ${SEATSWAP_WS_MAX_CONNECTIONS_PER_USER:5}
+    # 토큰 만료·CONNECT 하지 않은 세션을 닫는 주기와 CONNECT 대기 시한
+    sweep-interval-ms: ${SEATSWAP_WS_SWEEP_INTERVAL_MS:30000}
+    connect-timeout-ms: ${SEATSWAP_WS_CONNECT_TIMEOUT_MS:10000}

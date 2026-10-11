@@ -133,6 +133,8 @@ export interface ExchangeMatch {
   /** 내/상대 티켓이 이 매칭이 아닌 다른 매칭에서 예약 잠금 중인지 (CHATTING 카드에서만 의미) */
   myTicketReservedElsewhere: boolean;
   counterpartTicketReservedElsewhere: boolean;
+  /** 상대가 보낸 안 읽은 채팅 메시지 수 (종료된 매칭도 센다) */
+  unreadChatCount: number;
   canceledBy: CanceledBy | null;
   canceledAt: string | null;
   createdAt: string;

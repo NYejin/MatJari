@@ -22,3 +22,6 @@ llm-wiki 스킬, researcher·wiki-curator 에이전트, `scripts/lint-wiki.mjs`�
 
 ## [2026-10-11] ingest | 교환 완료 구현 반영
 교환 완료(V9, `complete` API, 커밋 `52cfb5a`) 구현 사실을 반영했다. 결정 페이지의 구현 상태 절과 낡은 문장을 고치고, 용어집의 교환 수락·교환 완료·교환됨 행에서 미구현 표기를 뺐다. 함정 페이지에 `ck_ticket_status` 확장, `exchange_history` 유니크 키 설계, Hibernate flush 순서 절을 추가했고, STOMP 조사에는 채팅 테이블이 V10 이후라는 점을 적었다.
+
+## [2026-10-11] ingest | 알림 3종 구현 반영
+알림 3종(V10, 커밋 `48f5858`·`acc156e`·`3a7c61c`·`b16fb60`·`45203b2`) 구현 사실을 반영했다. 결정 페이지 `notification-design.md`를 추가하고, 함정 페이지에 알림 쓰기 규칙·dedup_key 함정(8절)과 교환 완료 갭 잠금 교착 가능성(9절, 1절 전제 보완)을 적었다. 용어집에 알림 절을, STOMP 조사의 마이그레이션 번호를 V11 이후로 고쳤다.

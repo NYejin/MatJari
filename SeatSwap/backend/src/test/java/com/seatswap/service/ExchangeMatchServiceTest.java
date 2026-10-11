@@ -7,6 +7,7 @@ import com.seatswap.domain.ExchangeMatchStatus;
 import com.seatswap.domain.ExchangeRequest;
 import com.seatswap.domain.ExchangeRequestStatus;
 import com.seatswap.domain.ExtraType;
+import com.seatswap.domain.NotificationType;
 import com.seatswap.domain.WantExtra;
 import com.seatswap.domain.Performance;
 import com.seatswap.domain.PerformanceSession;
@@ -73,6 +74,7 @@ class ExchangeMatchServiceTest {
     private ExchangeCandidateRepository candidateRepository;
     private ExchangeHistoryRepository historyRepository;
     private ExchangeMatchQueryRepository queryRepository;
+    private NotificationService notificationService;
     /** 가장 최근에 저장·등록된 매칭(조인 조회 mock 이 이 상태로 응답 행을 만든다). */
     private ExchangeMatch tracked;
     private ExchangeMatchService service;
@@ -97,8 +99,9 @@ class ExchangeMatchServiceTest {
         candidateRepository = mock(ExchangeCandidateRepository.class);
         historyRepository = mock(ExchangeHistoryRepository.class);
         queryRepository = mock(ExchangeMatchQueryRepository.class);
+        notificationService = mock(NotificationService.class);
         service = new ExchangeMatchService(matchRepository, requestRepository, ticketRepository, lockRepository,
-                candidateRepository, historyRepository, queryRepository, PerformanceFixtures.timePolicy(),
+                candidateRepository, historyRepository, queryRepository, notificationService, PerformanceFixtures.timePolicy(),
                 PerformanceFixtures.noopTransactionManager());
 
         myTicket = ticket(MY_TICKET, me, openSession);
@@ -540,6 +543,86 @@ class ExchangeMatchServiceTest {
         when(lockRepository.deleteByMatchId(MATCH)).thenReturn(1);
 
         assertThatThrownBy(() -> service.unreserve(1L, MATCH)).isInstanceOf(IllegalStateException.class);
+    }
+
+    // ------------------------------------------------------------------ 알림 (V10 쓰기 경로)
+
+    @Test
+    void 제안하면_제안받는_쪽_b에게_PROPOSAL_RECEIVED_알림_1건을_매칭_저장_뒤에_만든다() {
+        service.propose(1L, MY_REQ, THEIR_REQ);
+
+        InOrder order = inOrder(matchRepository, notificationService);
+        order.verify(matchRepository).saveAndFlush(any(ExchangeMatch.class));
+        order.verify(notificationService).notify(2L, NotificationType.PROPOSAL_RECEIVED, MATCH, "PROPOSAL_RECEIVED:" + MATCH);
+        verify(notificationService, org.mockito.Mockito.times(1)).notify(any(), any(), any(), any());
+    }
+
+    @Test
+    void 제안이_오류나_멱등_경로로_끝나면_알림을_만들지_않는다() {
+        ExchangeMatch open = existingMatch(ExchangeMatchStatus.CHATTING);
+        when(matchRepository.findOpenByPair(MY_REQ, THEIR_REQ)).thenReturn(List.of(open));
+        assertThatThrownBy(() -> service.propose(1L, MY_REQ, THEIR_REQ)).isInstanceOf(ConflictException.class);
+        when(matchRepository.findOpenByPair(MY_REQ, THEIR_REQ)).thenReturn(List.of());
+        when(candidateRepository.findCandidatePair(eq(MY_REQ), eq(THEIR_REQ), any())).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.propose(1L, MY_REQ, THEIR_REQ)).isInstanceOf(BusinessRuleException.class);
+        assertThatThrownBy(() -> service.propose(2L, MY_REQ, THEIR_REQ)).isInstanceOf(ForbiddenException.class);
+
+        verify(notificationService, never()).notify(any(), any(), any(), any());
+    }
+
+    @Test
+    void 예약하면_호출자가_아닌_쪽에게_MATCH_RESERVED_알림_1건_dedup_없음_잠금_INSERT_뒤에() {
+        existingMatch(ExchangeMatchStatus.CHATTING);
+
+        service.reserve(2L, MATCH);   // b 가 누르면 a(1번)에게
+
+        InOrder order = inOrder(lockRepository, notificationService);
+        order.verify(lockRepository).insert(eq(MY_TICKET), eq(MATCH), any());
+        order.verify(notificationService).notify(1L, NotificationType.MATCH_RESERVED, MATCH, null);
+        verify(notificationService, org.mockito.Mockito.times(1)).notify(any(), any(), any(), any());
+    }
+
+    @Test
+    void a가_예약하면_b에게_알림이_간다() {
+        existingMatch(ExchangeMatchStatus.CHATTING);
+
+        service.reserve(1L, MATCH);
+
+        verify(notificationService).notify(2L, NotificationType.MATCH_RESERVED, MATCH, null);
+        verify(notificationService, org.mockito.Mockito.times(1)).notify(any(), any(), any(), any());
+    }
+
+    @Test
+    void 예약_취소하면_호출자가_아닌_쪽에게_RESERVATION_CANCELED_알림_1건이다_A든_B든() {
+        existingMatch(ExchangeMatchStatus.RESERVED);
+        when(lockRepository.deleteByMatchId(MATCH)).thenReturn(2);
+
+        service.unreserve(2L, MATCH);
+        verify(notificationService).notify(1L, NotificationType.RESERVATION_CANCELED, MATCH, null);
+
+        existingMatch(ExchangeMatchStatus.RESERVED);
+        service.unreserve(1L, MATCH);
+        verify(notificationService).notify(2L, NotificationType.RESERVATION_CANCELED, MATCH, null);
+        verify(notificationService, org.mockito.Mockito.times(2)).notify(any(), any(), any(), any());
+    }
+
+    @Test
+    void 멱등_reserve_unreserve와_오류_경로와_거절_취소는_알림을_만들지_않는다() {
+        existingMatch(ExchangeMatchStatus.RESERVED);
+        service.reserve(2L, MATCH);                                    // 이미 RESERVED: 멱등
+        assertThatThrownBy(() -> service.cancel(1L, MATCH)).isInstanceOf(ConflictException.class);   // RESERVED 에서 취소 409
+        assertThatThrownBy(() -> service.reserve(99L, MATCH)).isInstanceOf(NotFoundException.class);   // 비참여자
+
+        existingMatch(ExchangeMatchStatus.CHATTING);
+        service.unreserve(1L, MATCH);                                  // 이미 CHATTING: 멱등
+        when(lockRepository.existsAnyByTicketIds(anyCollection())).thenReturn(true);
+        assertThatThrownBy(() -> service.reserve(2L, MATCH)).isInstanceOf(ConflictException.class);   // TICKET_ALREADY_RESERVED
+        when(lockRepository.existsAnyByTicketIds(anyCollection())).thenReturn(false);
+        service.reject(2L, MATCH);
+        existingMatch(ExchangeMatchStatus.CHATTING);
+        service.cancel(1L, MATCH);
+
+        verify(notificationService, never()).notify(any(), any(), any(), any());
     }
 
     // ------------------------------------------------------------------ 거절·취소

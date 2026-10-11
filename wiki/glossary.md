@@ -40,6 +40,15 @@ SeatSwap 고유 용어의 짧은 정의다. 확정 결정 본문은 [CLAUDE.md](
 - `settlementHint`: 후보 응답의 참고 표시. 한쪽 POS와 다른 쪽 NEG에 둘 다 금액이 있고 낼 수 있는 최대가 받을 최소 이상이면 `{min, max}`, 아니면 null. 매칭 여부와 무관하다.
 - **후보**: 서로 조건이 맞는 상대 요청. 조회는 `GET /api/exchange/requests/{id}/candidates`이고 선택은 사용자가 한다.
 
+## 알림
+
+설계 근거는 [알림 설계](decisions/notification-design.md), 쓰기 규칙은 [함정 페이지 8절](gotchas/lock-order-and-index-pitfalls.md) 참고.
+
+- **알림 종류 3종** (`notification.type`, V10 CHECK): `PROPOSAL_RECEIVED`(새 제안, 수신자는 제안받는 쪽), `MATCH_RESERVED`(상대가 예약), `RESERVATION_CANCELED`(상대가 예약 취소). 뒤의 둘은 수신자가 호출자 반대편이다.
+- **dedup_key**: 중복 생성을 막는 단일 컬럼 유니크 키. 새 제안만 `PROPOSAL_RECEIVED:{matchId}` 값을 갖고, 예약·예약 취소는 NULL이라 반복마다 매번 알림 1건이 쌓인다.
+- **안 읽음**: `read_at`이 NULL인 알림. 안 읽은 개수는 생성 컬럼 `unread_user_id`로 센다. 닫힌 매칭의 알림도 센다.
+- **종료된 매칭 라벨**: 매칭이 CANCELED·COMPLETED가 된 알림에 붙는 회색 라벨(응답 `matchClosed`). 알림을 숨기지 않는다.
+
 ## 티켓과 마감
 
 - **활성 티켓**: `ticket.status = 'ACTIVE'`. 생성 컬럼 `active_flag`가 1이며 같은 회차·좌석의 활성 티켓은 1개만 허용된다 (`uk_ticket_active_seat`, V3).

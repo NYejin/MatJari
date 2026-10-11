@@ -14,9 +14,9 @@ Spring Boot 3.x, Spring Security(JWT), Spring Data JPA, WebSocket(STOMP), MySQL,
 `com.seatswap` 아래 `domain`(엔티티) · `controller` · `service` · `repository` · `config`(Security·WebSocket·Clock·JPA Auditing) · `security`(JwtTokenProvider) · `exception`(커스텀 예외 + GlobalExceptionHandler) · `dto`.
 
 ## 현재 범위
-- DB는 Flyway V1~V9, 11개 테이블. 다음 마이그레이션은 V10부터이고 적용된 V1~V9는 수정하지 않는다. 스키마 구조 변경은 직접 하지 말고 db-schema-architect에게 먼저 설계를 요청하라고 사용자에게 알린다. 엔티티는 `산출물/08_ERD/erd.dot`을 따른다.
-- 구현됨: 인증, 공연(등록·목록·상세·lookup만), 티켓, 교환 희망 조건(`/api/exchange/requests`), 후보 조회(`.../candidates`), 제안·예약(`.../proposals`, `/api/exchange/matches/{id}/reserve|unreserve|complete|reject|cancel`), 매칭 조회(`/api/exchange/matches/me`, `/{id}`; 비참여자 404), 교환 완료(V9 `exchange_history` 기록 포함).
-- 미구현(V10 이후, 지시 전에는 시작하지 않음): 교환 이력 조회 API, 채팅, 사용자 차단, 알림, 신고, 링크 기반 공연 정보 자동 입력, 관리자 기능.
+- DB는 Flyway V1~V10, 12개 테이블. 다음 마이그레이션은 V11부터이고 적용된 V1~V10은 수정하지 않는다. 스키마 구조 변경은 직접 하지 말고 db-schema-architect에게 먼저 설계를 요청하라고 사용자에게 알린다. 엔티티는 `산출물/08_ERD/erd.dot`을 따른다.
+- 구현됨: 인증, 공연(등록·목록·상세·lookup만), 티켓, 교환 희망 조건(`/api/exchange/requests`), 후보 조회(`.../candidates`), 제안·예약(`.../proposals`, `/api/exchange/matches/{id}/reserve|unreserve|complete|reject|cancel`), 매칭 조회(`/api/exchange/matches/me`, `/{id}`; 비참여자 404), 교환 완료(V9 `exchange_history` 기록 포함), 알림(V10 `notification`, `/api/notifications` 조회·안 읽은 개수·읽음·모두 읽음·읽은 알림 삭제, 새 제안·상대 예약·예약 취소 알림 생성).
+- 미구현(V11 이후, 지시 전에는 시작하지 않음): 교환 이력 조회 API, 채팅, 사용자 차단, 신고, 실시간 알림 푸시(STOMP)·7일 경과 알림, 링크 기반 공연 정보 자동 입력, 관리자 기능.
 - 좌석표 트랙은 동결이다. seatmap-service와 좌석표 코드는 삭제되어 태그 `archive/seatmap-track-20261007`에 보관된다. 좌석 인식(OpenCV/OCR)은 이 에이전트의 책임이 아니고, 좌석표 관련 새 기능은 사용자가 다시 지시하기 전에는 만들지 않는다.
 
 ## 도메인 규칙
@@ -26,13 +26,15 @@ Spring Boot 3.x, Spring Security(JWT), Spring Data JPA, WebSocket(STOMP), MySQL,
 - **희망 요청**: 서버 상한 5,000석(합집합)·50범위. 자기 좌석 포함은 희망 회차가 내 티켓 회차뿐일 때만 422. 티켓당 미삭제 요청 1개. 요청은 **소프트 삭제**(DELETED, 삭제 API 멱등 204, 삭제된 요청 수정·후보 조회 409 `REQUEST_DELETED`). 요청 수정·삭제 시 CHATTING 매칭은 시스템 취소(`canceled_by` NULL), RESERVED가 있으면 409 `ACTIVE_MATCH_EXISTS`. 티켓 내리기는 요청을 CLOSED로 만들고 CHATTING 매칭을 시스템 취소하며, 예약 잠금 티켓은 내릴 수 없다(409 `TICKET_RESERVED`).
 - **회차 마감**: 회차 당일 끝(다음날 0시 KST)까지 티켓 등록·요청·매칭 허용, 이후 자동 비활성. 이미 시작한 채팅의 예약·취소에는 마감 검사를 하지 않는다.
 - **예약**: 한 명이 `reserve`하면 즉시 RESERVED + 두 티켓 `exchange_ticket_lock` INSERT(같은 트랜잭션, 이미 RESERVED면 멱등 200, 다른 매칭에서 잠겼으면 409 `TICKET_ALREADY_RESERVED`). 누구든 `unreserve`하면 CHATTING 복귀 + 잠금 해제 + `reserved_*`·`a/b_completed_at` 초기화(양쪽 완료 전). RESERVED에서 `cancel`·`reject`는 409 `MATCH_STATE_CONFLICT`(먼저 예약 취소). 예약된 티켓의 새 제안·새 예약만 막고 이미 열린 다른 채팅은 유지. 예약-취소 남용 방지 장치는 없다. RESERVED를 벗어나는 UPDATE는 같은 문장에서 `reserved_by_id`·`reserved_at`을 NULL로 만든다. `a/b_reserved_at`은 레거시라 읽지도 쓰지도 않는다.
-- **취소**: 양쪽 완료 전에는 누구든 취소 가능하고 재매칭 불가가 아니다(재매칭 불가는 차단·신고 때만). 한쪽만 완료하고 방치돼도 자동 완료·취소는 없고 7일 경과 알림만 보낸다(알림 미구현).
+- **취소**: 양쪽 완료 전에는 누구든 취소 가능하고 재매칭 불가가 아니다(재매칭 불가는 차단·신고 때만). 한쪽만 완료하고 방치돼도 자동 완료·취소는 없고 7일 경과 알림만 보낸다(7일 경과 알림은 미구현).
+- **알림(구현됨, V10)**: `NotificationService.notify`(MANDATORY)는 propose·reserve·unreserve 트랜잭션의 맨 끝에서, 매칭 상태가 실제로 바뀐 경우에만 호출한다. 수신자당 1건. `dedup_key`는 새 제안만 `PROPOSAL_RECEIVED:{matchId}`, 예약·예약 취소는 NULL. 닫힌 매칭 알림도 개수·목록에 남고 제거 경로는 사용자의 '읽은 알림 삭제'뿐이다. 읽음·삭제는 잠금 없는 SELECT로 id를 모아 500개씩 `WHERE id IN`으로 처리하고 범위 UPDATE/DELETE를 쓰지 않는다.
 - **교환 완료(구현됨, V9)**: 첫 '교환 수락'(API `complete`)은 `*_completed_at`만 기록하고 RESERVED를 유지한다. 두 번째가 한 트랜잭션에서 기존 두 티켓을 `EXCHANGED`로 바꾸고 각자 새 자리 티켓(소유자 그대로, 상대의 기존 회차·구역·열·번)을 INSERT, `exchange_history`에 `(기존 자리) -> (바꾼 자리)` 스냅샷과 `old_ticket_id`/`new_ticket_id`를 남긴다. 매칭 행의 좌석은 교환 전 자리. 완료된 매칭은 취소 불가, EXCHANGED 티켓은 내리기·예약 모두 409 `TICKET_EXCHANGED`. 기존 티켓의 교환 요청은 CLOSED로 닫는다. 잠금 순서(티켓 → 요청 → 매칭)와 마감 검사 없음은 서비스 Javadoc 참고. 교환 완료된 좌석의 다른 CHATTING 매칭은 자동 취소하지 않고 버튼 비활성 + "이미 교환된 좌석이에요" 표시. 근거: `wiki/decisions/exchange-complete-new-ticket.md`.
 - **공연**: 공연장은 `Performance.venueName` 텍스트(1~100자). 공연은 등록 후 아무도 수정·삭제할 수 없고 변경은 추후 관리자 '수정 제안'으로만 한다.
 
 ## 잠금·동시성 (`wiki/gotchas/lock-order-and-index-pitfalls.md`)
 - 행 잠금 순서는 항상 티켓 id↑ → 요청 id↑ → 매칭. 요청만 잠그는 update/delete 경로에서는 티켓을 잠그지 않는다.
 - FK 인덱스에 `status` 같은 갱신 컬럼을 붙이지 않는다(UPDATE가 부모 행에 S 잠금을 걸어 교착). FK 인덱스는 단일 컬럼.
+- notification 쓰기는 트랜잭션 마지막에 한다. notification 행을 잠근 뒤 티켓·요청·매칭 잠금 금지.
 - 후보 SQL은 `STRAIGHT_JOIN`(옵티마이저가 상대 요청 테이블을 풀스캔하는 것 방지). 같은 쌍 열린 매칭·예약 잠금 제외는 `ExchangeCandidateRepository.additionalExclusions()`이고 차단 제외는 `user_block` 생성 시 추가한다. 실제 MySQL 통합 테스트는 `SEATSWAP_IT_*` 환경변수가 있을 때만 실행하며 개발 DB 보호 장치를 유지한다.
 
 ## 코딩 규칙

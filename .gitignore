@@ -1,2 +1,4 @@
 # llm-wiki 원문 보관: 제3자 자료이므로 커밋하지 않는다 (위키에는 출처 URL·접근일·요약만)
 raw/
+
+.claude/worktrees/

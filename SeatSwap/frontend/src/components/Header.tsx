@@ -3,10 +3,10 @@ import { Link, NavLink, useLocation } from "react-router-dom";
 import { getDisplayName, useAuth } from "../hooks/useAuth";
 import { useAuthRedirect, type AuthRouteState } from "../hooks/useAuthRedirect";
 import { useLogout } from "../hooks/useLogout";
+import NotificationBell from "./NotificationBell";
 import { FOCUS_RING } from "./ui";
 
-// 공통 상단 헤더 (FR-01 로그인 상태 표시 + 주요 화면 진입점)
-// TODO: 알림 아이콘 (교환 요청/채팅 알림) — 별도 작업
+// 공통 상단 헤더 (FR-01 로그인 상태 표시 + 주요 화면 진입점 + 알림 벨)
 
 /** 데스크톱(가로 메뉴) 전환 기준. index.css @theme --breakpoint-md(768px)와 같은 값 (클래스의 md: 접두사) */
 const DESKTOP_MEDIA_QUERY = "(min-width: 768px)";
@@ -51,14 +51,14 @@ const cls = {
     "md:flex-row md:items-center md:gap-2 md:border-t-0 md:pt-0",
   /** 초기화 중: 로그인 상태 영역과 같은 크기로 자리만 차지 */
   authPending: "invisible",
-  /** 768px 기준 로고+메뉴+이메일+마이페이지+로그아웃 합계 약 710px — 이메일은 최대 168px(lg 248px)에서 말줄임 */
-  userName: "flex min-w-0 items-baseline gap-2 px-3 py-2 md:max-w-[168px] md:px-1 md:py-0 lg:max-w-[248px]",
+  /** 768px 기준 로고+알림 벨(44px+gap 16)+메뉴+이름+마이페이지+로그아웃 합계 약 706px(가용 736px) — 이름은 md에서 최대 104px(lg 248px)에서 말줄임 */
+  userName: "flex min-w-0 items-baseline gap-2 px-3 py-2 md:max-w-[104px] md:px-1 md:py-0 lg:max-w-[248px]",
   /** 표시 이름(닉네임, 없으면 email) */
   userNameMain: "min-w-0 truncate text-sm/[normal] text-gray-500",
   /** 모바일 패널에서만 닉네임 옆에 작은 email (흰 배경 gray-500 4.83:1). md 이상은 공간 계산상 숨김 */
   userEmail: "min-w-0 flex-1 truncate text-xs/[normal] text-gray-500 md:hidden",
   /** 초기화 중 자리 표시 — em 기준을 표시 이름(text-sm)과 맞춰 높이 유지 */
-  userNamePending: "min-h-[1.25em] text-sm/[normal] md:w-[168px] lg:w-[248px]",
+  userNamePending: "min-h-[1.25em] text-sm/[normal] md:w-[104px] lg:w-[248px]",
   button:
     "inline-flex min-h-11 shrink-0 cursor-pointer touch-manipulation items-center justify-center rounded-[10px] " +
     "px-4 text-base/[normal] font-semibold whitespace-nowrap no-underline md:px-3.5 md:text-[0.9375rem]/[normal] " +
@@ -207,6 +207,9 @@ export default function Header() {
         <Link ref={logoRef} to="/" className={cls.logo} onClick={closeMenu}>
           <img src="/logo.png" alt="SeatSwap" className={cls.logoImage} />
         </Link>
+
+        {/* 알림 벨: 로그인 상태에서만. 모바일은 로고와 햄버거 사이(패널 밖)라 메뉴를 열지 않아도 보인다 */}
+        {user && !isInitializing && <NotificationBell userId={user.id} onOpen={closeMenu} />}
 
         <button
           ref={toggleRef}

@@ -6,6 +6,7 @@ import com.seatswap.domain.ExchangeMatch.Side;
 import com.seatswap.domain.ExchangeMatchAction;
 import com.seatswap.domain.ExchangeMatchStatus;
 import com.seatswap.domain.ExchangeRequest;
+import com.seatswap.domain.NotificationType;
 import com.seatswap.domain.Ticket;
 import com.seatswap.dto.response.ExchangeMatchResponse;
 import com.seatswap.exception.BusinessRuleException;
@@ -82,6 +83,10 @@ import java.util.Map;
  * <b>같은 티켓들의 다른 CHATTING 매칭은 자동 취소하지 않는다</b>(Q-15). 그 매칭 카드는 응답의 myTicketExchanged/counterpartTicketExchanged 로 "이미 교환된 좌석이에요"를 보여 주고,
  * 서버는 안전장치로 그 매칭의 새 reserve 를 409 TICKET_EXCHANGED 로 막는다. 채팅 메시지·차단은 후속이다.
  *
+ * <h3>알림 (V10)</h3>
+ * 상태가 실제로 바뀐 propose/reserve/unreserve 의 같은 트랜잭션 맨 끝에서 수신자당 1건: 제안은 받는 쪽(b)에게 PROPOSAL_RECEIVED(dedup_key 있음),
+ * 예약·예약 취소는 호출자가 아닌 쪽에게 MATCH_RESERVED / RESERVATION_CANCELED(dedup_key NULL). 멱등·오류 경로는 알림이 없다. 롤백되면 알림도 사라진다.
+ *
  * 공연 시작 후에도 예약·예약 취소·취소가 가능하다. 이미 시작한 채팅의 reserve/unreserve 에는 회차 마감 검사를 하지 않는다(새 매칭 생성에만 적용).
  */
 @Slf4j
@@ -118,6 +123,7 @@ public class ExchangeMatchService {
     private final ExchangeCandidateRepository candidateRepository;
     private final ExchangeHistoryRepository historyRepository;
     private final ExchangeMatchQueryRepository queryRepository;
+    private final NotificationService notificationService;
     private final SessionTimePolicy timePolicy;
     private final TransactionTemplate tx;
 
@@ -128,6 +134,7 @@ public class ExchangeMatchService {
                                 ExchangeCandidateRepository candidateRepository,
                                 ExchangeHistoryRepository historyRepository,
                                 ExchangeMatchQueryRepository queryRepository,
+                                NotificationService notificationService,
                                 SessionTimePolicy timePolicy,
                                 PlatformTransactionManager transactionManager) {
         this.matchRepository = matchRepository;
@@ -137,6 +144,7 @@ public class ExchangeMatchService {
         this.candidateRepository = candidateRepository;
         this.historyRepository = historyRepository;
         this.queryRepository = queryRepository;
+        this.notificationService = notificationService;
         this.timePolicy = timePolicy;
         this.tx = new TransactionTemplate(transactionManager);
     }
@@ -206,6 +214,9 @@ public class ExchangeMatchService {
                 ExchangeMatch saved = matchRepository.saveAndFlush(ExchangeMatch.propose(myRequestId, targetRequestId,
                         myTicketId, targetTicketId, myTicket.getUser().getId(), targetTicket.getUser().getId(),
                         extras.my(), extras.their()));
+                // 알림: 제안받는 쪽(b)에게 1건. 트랜잭션의 맨 끝 쓰기(잠금 순서: ... 매칭 -> users S(FK) -> notification).
+                notificationService.notify(saved.getUserBId(), NotificationType.PROPOSAL_RECEIVED, saved.getId(),
+                        NotificationService.proposalDedupKey(saved.getId()));
                 return view(saved.getId(), userId);
             });
         } catch (DataIntegrityViolationException e) {
@@ -354,8 +365,12 @@ public class ExchangeMatchService {
                         // 새 예약에만 적용(멱등 reserve·unreserve·reject·cancel 에는 없다): 이미 열린 매칭이라도 닫힌 요청/내린 티켓은 예약할 수 없다.
                         ensureReservable(tickets.values(), requests.values());
                         doReserve(m, userId, now);
+                        notifyCounterpart(m, side, NotificationType.MATCH_RESERVED);
                     }
-                    case UNRESERVE -> doUnreserve(m);
+                    case UNRESERVE -> {
+                        doUnreserve(m);
+                        notifyCounterpart(m, side, NotificationType.RESERVATION_CANCELED);
+                    }
                     case REJECT, CANCEL -> {
                         // CHATTING 만 여기까지 온다(RESERVED 는 위에서 409): 잠금이 없고 reserved_* 도 이미 NULL 이다.
                         m.cancel(userId, now);
@@ -417,6 +432,15 @@ public class ExchangeMatchService {
     }
 
     // ---------------------------------------------------------------- 도우미
+
+    /**
+     * 상태가 실제로 바뀐 reserve/unreserve 의 끝에서 호출자가 아닌 쪽에게 알림 1건(dedup_key NULL: 반복마다 매번 1건).
+     * 멱등·오류 경로는 여기까지 오지 않는다. notification 쓰기는 항상 트랜잭션의 마지막이다.
+     */
+    private void notifyCounterpart(ExchangeMatch m, Side callerSide, NotificationType type) {
+        Long recipient = callerSide == Side.A ? m.getUserBId() : m.getUserAId();
+        notificationService.notify(recipient, type, m.getId(), null);
+    }
 
     /** 티켓 행을 id 오름차순으로 잠근다(FOR UPDATE). 없는 티켓이면 404. */
     private Map<Long, Ticket> lockTickets(List<Long> ids) {

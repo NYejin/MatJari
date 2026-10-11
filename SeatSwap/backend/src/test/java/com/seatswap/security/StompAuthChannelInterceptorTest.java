@@ -242,6 +242,37 @@ class StompAuthChannelInterceptorTest {
     }
 
     @Test
+    void 알림_큐도_구독할_수_있고_채팅_큐와_함께_목적지당_1개씩이며_같은_목적지_두_번째는_거부된다() throws Exception {
+        WebSocketSession ws = socket("s1");
+        validToken("t", 7L, Duration.ofMinutes(10));
+        Principal user = connect("s1", "t", 7L);
+        assertThat(interceptor.preSend(frame(StompCommand.SUBSCRIBE, "s1", "/user/queue/chat", user, null, "a"), null)).isNotNull();
+        assertThat(interceptor.preSend(frame(StompCommand.SUBSCRIBE, "s1", "/user/queue/notifications", user, null, "b"), null)).isNotNull();
+
+        // 같은 구독 id 를 다른 목적지에 다시 쓰는 것도 거부한다
+        assertThatThrownBy(() -> interceptor.preSend(frame(StompCommand.SUBSCRIBE, "s1", "/user/queue/notifications", user, null, "c"), null))
+                .isInstanceOf(StompRejectedException.class).hasMessage("duplicate subscription");
+        verify(ws).close(any(CloseStatus.class));
+
+        socket("s2");
+        Principal user2 = connect("s2", "t", 7L);
+        interceptor.preSend(frame(StompCommand.SUBSCRIBE, "s2", "/user/queue/notifications", user2, null, "a"), null);
+        assertThatThrownBy(() -> interceptor.preSend(frame(StompCommand.SUBSCRIBE, "s2", "/user/queue/chat", user2, null, "a"), null))
+                .isInstanceOf(StompRejectedException.class).hasMessage("duplicate subscription");
+
+        // 알림 큐 변형 목적지는 거부된다
+        String[] bad = {"/queue/notifications", "/user/queue/notifications/x", "/topic/notifications", "/user/7/queue/notifications"};
+        for (int i = 0; i < bad.length; i++) {
+            String sid = "v" + i;
+            String dest = bad[i];
+            socket(sid);
+            Principal p = connect(sid, "t", 7L);
+            assertThatThrownBy(() -> interceptor.preSend(frame(StompCommand.SUBSCRIBE, sid, dest, p, null, "z"), null))
+                    .as(dest).isInstanceOf(StompRejectedException.class);
+        }
+    }
+
+    @Test
     void 구독_id가_없는_SUBSCRIBE는_거부된다() throws Exception {
         socket("s1");
         validToken("t", 7L, Duration.ofMinutes(10));

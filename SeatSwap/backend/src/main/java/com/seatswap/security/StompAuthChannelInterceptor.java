@@ -14,6 +14,7 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.util.Set;
 
 /**
  * clientInboundChannel 인터셉터: STOMP 프레임 인증·인가 (spring-security-messaging 미사용).
@@ -21,7 +22,7 @@ import java.time.Instant;
  *   refresh 토큰 거부, 사용자 존재 확인 뒤 Principal(이름 = userId 문자열)을 세팅하고 토큰 만료 시각을 세션에 붙인다.
  *   사용자당 동시 연결 한도를 넘으면 거부한다.
  * - 그 외 프레임은 인증된 세션이고 토큰이 만료되지 않았을 때만 통과(만료면 거부 + close 1008).
- * - SUBSCRIBE 는 {@code /user/queue/chat} 만(세션당 1개, 두 번째는 거부), UNSUBSCRIBE·DISCONNECT 는 허용, 클라이언트 SEND 를 포함한 나머지는 모두 거부한다.
+ * - SUBSCRIBE 는 {@code /user/queue/chat}·{@code /user/queue/notifications} 만(목적지당 1개, 같은 목적지 두 번째는 거부), UNSUBSCRIBE·DISCONNECT 는 허용, 클라이언트 SEND 를 포함한 나머지는 모두 거부한다.
  * 거부하면 예외로 ERROR 프레임이 나가고, 세션은 곧 close 1008 로 닫는다. 토큰 값은 로그·오류 메시지에 남기지 않는다.
  */
 @Slf4j
@@ -29,6 +30,8 @@ import java.time.Instant;
 public class StompAuthChannelInterceptor implements ChannelInterceptor {
 
     public static final String USER_CHAT_DESTINATION = "/user/queue/chat";
+    public static final String USER_NOTIFICATION_DESTINATION = "/user/queue/notifications";
+    private static final Set<String> ALLOWED_DESTINATIONS = Set.of(USER_CHAT_DESTINATION, USER_NOTIFICATION_DESTINATION);
     private static final String AUTH_HEADER = "Authorization";
     private static final String BEARER = "Bearer ";
 
@@ -76,11 +79,12 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         }
         switch (command) {
             case SUBSCRIBE -> {
-                if (!USER_CHAT_DESTINATION.equals(accessor.getDestination())) {
+                String destination = accessor.getDestination();
+                if (destination == null || !ALLOWED_DESTINATIONS.contains(destination)) {
                     throw reject(sessionId, "forbidden destination");
                 }
-                // 세션당 구독은 1개: 두 번째 SUBSCRIBE(또는 id 없는 SUBSCRIBE)는 거부한다
-                if (!registry.registerSubscription(sessionId, accessor.getSubscriptionId())) {
+                // 목적지당 구독은 1개: 같은 목적지의 두 번째 SUBSCRIBE(또는 id 없는 SUBSCRIBE)는 거부한다
+                if (!registry.registerSubscription(sessionId, destination, accessor.getSubscriptionId())) {
                     throw reject(sessionId, "duplicate subscription");
                 }
             }

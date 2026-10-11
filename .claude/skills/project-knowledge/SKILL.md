@@ -1,6 +1,6 @@
 ---
 name: project-knowledge
-description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙·기능 목록과 구현 상태·데이터 모델(Flyway V1~V10)·API/화면 요약. 기능 구현이나 설계 질문에 답하기 전에 먼저 참고한다. 결정이 바뀌면 이 문서의 해당 항목을 직접 고친다(이력은 HISTORY.md, 산출물/07_작업일지, wiki/).
+description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙·기능 목록과 구현 상태·데이터 모델(Flyway V1~V11)·API/화면 요약. 기능 구현이나 설계 질문에 답하기 전에 먼저 참고한다. 결정이 바뀌면 이 문서의 해당 항목을 직접 고친다(이력은 HISTORY.md, 산출물/07_작업일지, wiki/).
 ---
 
 # 프로젝트 지식 요약
@@ -24,8 +24,9 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 | 구분 | 기술 |
 |---|---|
 | Frontend | React + TypeScript + Vite + Tailwind CSS v4 (Tailwind 유틸리티만 사용, 브레이크포인트 640/768/1024px 고정, 브랜드색 primary #8A2BE2 / secondary #BEA886(글자색 금지) / accent #E8A33D) |
-| Backend | Spring Boot 3.3.13(Security 6.3.10) + JPA + Flyway, JWT 인증. WebSocket(STOMP)은 `WebSocketConfig` 스텁만 있음(채팅 미구현) |
-| DB | MySQL 8.0 (Flyway V1~V10) |
+| Backend | Spring Boot 3.3.13(Security 6.3.10) + JPA + Flyway, JWT 인증. WebSocket(STOMP, `/ws`)은 채팅 푸시에 구현됨(커스텀 CONNECT 인증 인터셉터, 사용자 큐만 구독) |
+| Frontend 추가 | `@stomp/stompjs` ^7.3(채팅 화면 전용), `VITE_WS_URL`(없으면 API 주소에서 계산) |
+| DB | MySQL 8.0 (Flyway V1~V11) |
 | 배포 | `SeatSwap/docker-compose.yml`: mysql · backend · frontend 3개. 시간대 KST(Clock Asia/Seoul, TZ=Asia/Seoul) |
 
 - 이미지 인식 서비스(FastAPI/OpenCV/Tesseract)는 동결로 삭제됐다.
@@ -95,6 +96,17 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 - 화면: 헤더 벨(안 읽은 개수) → 말풍선(최신 5건, 모두 읽음, 알림 전체 보기) → `/notifications`. 알림 클릭은 읽음 처리 후 `/exchange/matches?role=…&matchId=…`로 이동해 카드를 강조한다. 실시간 푸시는 없고 화면이 보일 때만 30초 폴링한다.
 - 미구현: 7일 경과 알림, 실시간 푸시(STOMP).
 
+### 3.10 채팅 (구현, V11 `chat_message`·`chat_read_state`)
+- 매칭 한 건마다 참여자 둘이 나누는 텍스트 채팅. 참여자가 아니면 404. 매칭 상태와 무관하게 매칭 단위로 열린다.
+- **보내기는 REST(`POST /api/exchange/matches/{id}/messages`)만**, **받기는 STOMP 사용자 큐(`/user/queue/chat`)만** 쓴다. 클라이언트가 보내는 STOMP 프레임은 전부 거부. 같은 `clientMessageId` 재전송은 중복 저장하지 않는다(멱등).
+- **종료 후 읽기 전용**: CANCELED·COMPLETED는 열람만 가능하고 쓰기는 409 `MATCH_STATE_CONFLICT`. CHATTING·RESERVED는 읽기·쓰기 모두 가능(교환된 좌석이 걸린 채팅 포함).
+- **시스템 메시지는 저장하지 않는다**. 예약·취소·교환 완료 같은 상태 변화는 채팅 화면 상단 상태 배너로만 보여준다.
+- **읽음**은 '마지막으로 읽은 메시지' 포인터 하나(앞으로만 이동, 단조 증가). 매칭 카드에는 안 읽은 개수 뱃지, 내가 보낸 마지막 메시지 아래에는 상대가 읽었으면 '읽음'.
+- 본문은 텍스트만 1000자(코드 포인트) 이하. 이미지·파일 첨부 없음, 민감정보 가리기 안내. 메시지는 무기한 보관하며 삭제·수정 불가.
+- 실시간 연결(STOMP)은 채팅 화면이 열려 있는 동안만. 새 메시지는 알림 행을 만들지 않고 헤더 아이콘·벨 표시도 없다. 새 메시지는 매칭 `updated_at`을 바꾸지 않는다.
+- 연결 제한: 사용자당 동시 연결 5개, 연결당 구독 1개(`/user/queue/chat`). 허용 Origin은 `seatswap.websocket.allowed-origins` 설정으로만 연다(와일드카드 금지).
+- 서버 전송 경로의 속도 제한(사용자별 429 `CHAT_RATE_LIMITED`)과 본문 정규화 세부 규칙은 backend 코드·`ChatService` 주석을 따른다.
+
 ## 4. 기능 목록과 구현 상태
 
 | 기능 | 상태 |
@@ -109,16 +121,16 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 | 교환 수락(complete)·COMPLETED·티켓 EXCHANGED+새 티켓·교환 이력 기록 | 구현 (V9) |
 | 완료된 티켓의 다른 채팅 비활성 처리(버튼 비활성+안내) | 구현 |
 | 교환 이력 조회 API·마이페이지 '교환 이력' 화면 | 미구현 (다음 브랜치) |
-| 실시간 채팅(STOMP) | 미구현 |
+| 채팅(매칭별 텍스트: REST 전송·조회·읽음, STOMP 사용자 큐 수신, 채팅 화면, 종료 후 읽기 전용) | 구현 (V11) |
 | 알림 3종(새 제안·상대 예약·예약 취소, 벨 말풍선·알림 페이지·읽은 알림 삭제, 30초 폴링) | 구현 (V10) |
 | 7일 경과 알림 | 미구현 |
 | 실시간 알림 푸시(STOMP) | 미구현 (후속) |
-| 사용자 차단·신고(V11 이후) | 미구현 |
+| 사용자 차단·신고(V12 이후) | 미구현 |
 | 링크 기반 공연 정보 자동 입력 | 미구현 |
 | 관리자 페이지·공연 수정 제안·내 티켓 인증 | 미구현 |
 | 회원탈퇴 | 미구현 (마이페이지 버튼 비활성) |
 
-## 5. 데이터 모델 (Flyway V1~V10, 12개 테이블 + flyway_schema_history)
+## 5. 데이터 모델 (Flyway V1~V11, 14개 테이블 + flyway_schema_history)
 
 기준 다이어그램 `산출물/08_ERD/erd.dot`, 설계 근거 `산출물/08_ERD/exchange-schema-design.md`. 규칙은 `erd-conventions` 스킬.
 
@@ -136,13 +148,15 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 | `exchange_ticket_lock` | PK ticket_id, match_id, 두 FK ON DELETE CASCADE (RESERVED일 때 매칭당 2행) |
 | `exchange_history` | 교환 완료 이력(append-only, V9). `match_id`·`user_id`·`performance_id`·`old_ticket_id`·`new_ticket_id` FK, 공연 제목·공연장과 기존/새 자리(회차 시작 시각·구역·열·번) 스냅샷, `old_ticket_id`·`new_ticket_id` 각각 UNIQUE, CHECK old≠new. 매칭 1건당 2행(사용자별 1행) |
 | `notification` | 알림(V10). `user_id`(수신자 FK)·`match_id`(FK, NOT NULL)·`type`(3종, `ck_notification_type`), `read_at`(NULL=안 읽음), `dedup_key` UNIQUE NULL(새 제안만 `PROPOSAL_RECEIVED:{matchId}`), 생성 컬럼 `unread_user_id`(안 읽은 개수 전용 `idx_notification_unread`, FK 아님). FK 2개는 ON DELETE/UPDATE 미지정 |
+| `chat_message` | 채팅 메시지(V11, append-only). `match_id`·`sender_id`(FK), `content` VARCHAR(1000), `client_message_id` VARCHAR(36) ascii_bin, UK(`client_message_id`, `sender_id`) 멱등, 단일 컬럼 KEY(match/sender). 수정·삭제 없음 |
+| `chat_read_state` | 읽음 포인터(V11). PK(`match_id`, `user_id`), `last_read_message_id` BIGINT(FK 아님, 단조 증가), `updated_at`. FK 2개(match·user), KEY(user) |
 
 관계: User 1:N Performance/Ticket, Performance 1:N PerformanceSession, PerformanceSession 1:N Ticket, Ticket 1:0..1 미삭제 ExchangeRequest, ExchangeRequest 1:N WantRange/WantSeat/WantSession(자식 3개는 request ON DELETE CASCADE), ExchangeRequest·Ticket·User 1:N ExchangeMatch(a/b측), ExchangeMatch 1:N ExchangeTicketLock(최대 2). 교환 판정은 회차가 속한 **공연이 같은지** 기준.
 
-- V9 `exchange_history`·`ck_ticket_status` 변경은 교환 완료 구현과 함께 추가했다(재실행 가능한 프로시저 패턴). V10 `notification`은 알림 기능과 함께 추가했다.
+- V9 `exchange_history`·`ck_ticket_status` 변경은 교환 완료 구현과 함께 추가했다(재실행 가능한 프로시저 패턴). V10 `notification`은 알림 기능과 함께, V11 `chat_message`·`chat_read_state`는 채팅 기능과 함께 추가했다(V11도 재실행 가능한 프로시저 패턴).
 - 설계 규칙: FK에 쓰이는 인덱스에 갱신 컬럼(status 등)을 붙이지 않고 **단일 컬럼**으로 둔다(UPDATE가 부모 행에 S 잠금을 걸어 교착). 잠금 순서는 티켓 id↑ -> 요청 id↑ -> 매칭(요청만 잠그는 update/delete는 티켓을 잠그지 않음).
-- V2는 venue 삭제·`venue_name` 백필, V3 티켓 좌석 컬럼(ticket 행이 있으면 SIGNAL 가드), V4 교환 희망 4개, V5 매칭·잠금, V6 범위별 추가금, V7 요청 소프트 삭제, V8 단일 예약자, V9 교환 이력·EXCHANGED, V10 알림. V6~V10은 재실행 가능한 프로시저 패턴. 이미 적용된 마이그레이션 파일을 수정하면 체크섬 불일치로 기동 불가(롤백은 `docker compose down -v`).
-- **예정**: `user_block`, `chat_message`는 V11 이후. 사용자 신고 테이블은 교환 핵심 흐름 이후 설계하며, 좌석표·제재(`abuse_report`·`user_sanction`) 설계는 동결.
+- V2는 venue 삭제·`venue_name` 백필, V3 티켓 좌석 컬럼(ticket 행이 있으면 SIGNAL 가드), V4 교환 희망 4개, V5 매칭·잠금, V6 범위별 추가금, V7 요청 소프트 삭제, V8 단일 예약자, V9 교환 이력·EXCHANGED, V10 알림, V11 채팅. V6~V11은 재실행 가능한 프로시저 패턴. 이미 적용된 마이그레이션 파일을 수정하면 체크섬 불일치로 기동 불가(롤백은 `docker compose down -v`).
+- **예정**: `user_block`은 V12 이후. 사용자 신고 테이블은 교환 핵심 흐름 이후 설계하며, 좌석표·제재(`abuse_report`·`user_sanction`) 설계는 동결.
 
 ## 6. API 요약
 
@@ -156,10 +170,12 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 | 교환 요청 | `POST /api/exchange/requests {ticketId, wantSessions[{sessionId,priority}], ranges[{zone,rowFrom,rowTo,colFrom,colTo,extraType,extraAmount}]}`, `GET .../me`, `PATCH`·`DELETE .../{id}`, `GET .../{id}/candidates` |
 | 매칭 | `POST /api/exchange/requests/{id}/proposals {targetRequestId}`, `POST /api/exchange/matches/{id}/reserve`·`unreserve`·`complete`(교환 수락)·`reject`·`cancel`, `GET /api/exchange/matches/me?role=SENT\|RECEIVED\|ALL&status&page&size`, `GET /api/exchange/matches/{id}` |
 | 알림 | `GET /api/notifications?page&size&unreadOnly`, `GET /api/notifications/unread-count`(`{total, byType}`), `POST /api/notifications/{id}/read`, `POST /api/notifications/read-all?type=`, `DELETE /api/notifications/read`(읽은 알림만 삭제, `{deleted}`). 모두 로그인 필요, 본인 것만 |
+| 채팅 | `POST /api/exchange/matches/{id}/messages {content, clientMessageId}`(201 저장, 같은 id 재전송 200, 종료된 매칭은 409 — 이미 저장된 메시지 재전송은 200), `GET .../messages?before=&size=30` 또는 `?after=&size=100`(`{messages 오름차순, hasMore, myLastReadMessageId, counterpartLastReadMessageId}`), `PUT .../messages/read {lastReadMessageId}`(204, 올라갔을 때만 상대에게 READ 푸시), 모두 로그인·참여자만(비참여자 404). `clientMessageId`는 `^[A-Za-z0-9_-]{8,36}$`. 전송 속도 제한은 429 `CHAT_RATE_LIMITED`(+Retry-After) |
+| 채팅 STOMP | 엔드포인트 `/ws`(CONNECT 네이티브 헤더 `Authorization: Bearer`만), 구독 `/user/queue/chat`만. 푸시 payload: `{type:"MESSAGE", matchId, message:{id,senderId,content,clientMessageId,createdAt}}` 또는 `{type:"READ", matchId, lastReadMessageId}` |
 
-- 매칭 응답: `id, status, mySide, role, myRequestId/TicketId, mySeat, counterpartRequestId/TicketId, counterpartSeat, counterpartNickname, myExtraType/Amount, counterpartExtraType/Amount, myRequestDeleted, counterpartRequestDeleted, reservedBy("ME"|"COUNTERPART"|null), reservedAt, myAccepted, counterpartAccepted(교환 수락 시각 기준 실제 값), myTicketExchanged, counterpartTicketExchanged, myTicketReservedElsewhere, counterpartTicketReservedElsewhere, canceledBy, canceledAt, createdAt, updatedAt`. COMPLETED 응답의 mySeat/counterpartSeat와 ticket id는 교환 전 자리·티켓이다.
+- 매칭 응답: `id, status, mySide, role, myRequestId/TicketId, mySeat, counterpartRequestId/TicketId, counterpartSeat, counterpartNickname, myExtraType/Amount, counterpartExtraType/Amount, myRequestDeleted, counterpartRequestDeleted, reservedBy("ME"|"COUNTERPART"|null), reservedAt, myAccepted, counterpartAccepted(교환 수락 시각 기준 실제 값), myTicketExchanged, counterpartTicketExchanged, myTicketReservedElsewhere, counterpartTicketReservedElsewhere, unreadChatCount(보낸 사람 제외, 닫힌 매칭도 셈), canceledBy, canceledAt, createdAt, updatedAt`. COMPLETED 응답의 mySeat/counterpartSeat와 ticket id는 교환 전 자리·티켓이다.
 - 요청 응답의 열·번 범위는 정규화 값이라 사용자가 입력한 원문 표기는 복원할 수 없다(알려진 한계).
-- 예정 API: 교환 이력 조회, 채팅(STOMP), 차단·신고.
+- 예정 API: 교환 이력 조회, 차단·신고, 알림 실시간 푸시(STOMP, 채팅 연결 재사용).
 
 ## 7. 프론트 화면 (react-conventions 스킬 참고)
 
@@ -172,7 +188,8 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 | `/tickets/new`, `/tickets` | 티켓 등록 / 내 티켓(내리기·교환 조건 진입) |
 | `/tickets/:ticketId/exchange` | 희망 조건 폼: 범위 카드(구역·열·번 범위, 카드마다 추가금 라디오 4개, 카드 복제, 클라이언트 겹침 경고), 요청 단위 희망 회차 우선순위, 총 N석 합집합 미리보기와 5,000석·50범위 경고, 마감 회차 선택 불가 |
 | `/exchange/requests/:requestId/candidates` | 후보 목록·제안하기('내 조건/상대 조건', 참고용 금액 구간, 신뢰도 표시 없음) |
-| `/exchange/matches` | 내 매칭(보낸/받은 탭): 'RESERVED=예약 중', CHATTING='진행 중' 라벨(미확정), '예약하기'·'예약 취소'(2단계 확인), RESERVED에서 '교환 수락'(2단계 확인, 수락 후 "상대 수락을 기다려요"), 완료 카드는 교환 전 자리와 받은 자리 표시, 교환된 좌석 카드는 예약·교환 수락 비활성 + "이미 교환된 좌석이에요"(본인·상대 양쪽), 예약 중 '거절/채팅 종료'는 숨기지 않고 사유를 안내하며 비활성, 삭제된 요청은 회색 '(삭제)'/'(내 조건 삭제됨)', 채팅은 '준비 중' |
+| `/exchange/matches` | 내 매칭(보낸/받은 탭): 'RESERVED=예약 중', CHATTING='진행 중' 라벨(미확정), '예약하기'·'예약 취소'(2단계 확인), RESERVED에서 '교환 수락'(2단계 확인, 수락 후 "상대 수락을 기다려요"), 완료 카드는 교환 전 자리와 받은 자리 표시, 교환된 좌석 카드는 예약·교환 수락 비활성 + "이미 교환된 좌석이에요"(본인·상대 양쪽), 예약 중 '거절/채팅 종료'는 숨기지 않고 사유를 안내하며 비활성, 삭제된 요청은 회색 '(삭제)'/'(내 조건 삭제됨)', 카드에 '채팅' 링크와 안 읽은 뱃지 |
+| `/exchange/matches/:matchId/chat` | 채팅 화면: 상단 상태 배너(시스템 메시지 대체), 메시지 목록, 입력창(1000자 카운터, IME 조합 중 전송 금지), '읽음' 표시. 종료된 매칭은 열람만 되고 입력 비활성. STOMP는 이 화면에 있는 동안만 연결(지수 백오프 재연결, 재연결 시 `after` 커서로 빈 구간 채움) |
 
 - 헤더 메뉴(로그인 시): 내 티켓, 내 매칭, 마이페이지, 로그아웃. 768px 미만은 햄버거 메뉴. 로고는 이미지. 로그인 시 헤더에 알림 벨(안 읽은 개수)이 있다.
 - `/notifications`: 알림 전체 보기(더 보기 페이징, 모두 읽음, 읽은 알림 삭제 2단계 확인). 알림 클릭 시 읽음 처리 후 `/exchange/matches?role=RECEIVED&matchId=N`(새 제안) 또는 `/exchange/matches?matchId=N`으로 이동하며, 매칭 화면은 URL 쿼리로 탭과 카드를 강조한다.
@@ -182,7 +199,8 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 ## 8. 알려진 한계·후속 과제
 
 - 브라우저 수동 점검·실서버 연동은 교환 화면 전반에서 아직 충분히 하지 않았다.
-- 링크 자동 입력, 관리자 페이지(공연 수정 제안), 교환 이력 조회 화면, 채팅, 실시간 알림 푸시·7일 경과 알림, 차단·신고, 내 티켓 인증, 회원탈퇴는 위 4절 미구현 항목이다.
+- 링크 자동 입력, 관리자 페이지(공연 수정 제안), 교환 이력 조회 화면, 실시간 알림 푸시·7일 경과 알림, 차단·신고, 내 티켓 인증, 회원탈퇴는 위 4절 미구현 항목이다.
+- 채팅 알려진 한계: 실제 브라우저와 @stomp/stompjs 연동 점검 미실시, 모바일 이중 스크롤 완전 해소 미보장(AppLayout 높이 규칙), 미인증 소켓은 최대 약 40초 유지(운영 프록시 연결 한도로 흡수), 토큰 만료·사용자 변경 후 최대 30초 푸시 유지(차단·제재 구현 시 해당 사용자 세션 강제 종료 훅 필요), 응답·푸시에 상대 `senderId`(users.id) 노출(차단·신고 브랜치에서 `mine`으로 대체 검토), 속도·연결 제한은 단일 인스턴스 메모리, 하트비트 미응답 종료·16KB 초과 프레임 거부 미확인.
 - 공연: 예매처별로 같은 공연이 갈라지는 문제(같은 공연장+비슷한 제목 안내), 회차 추가 상한·스팸 정리는 후속.
 - 필터에서 전파된 예외(DB 장애 등)는 Spring 기본 `/error` 포맷으로 나간다(`{message}` 통일 검토). `/me` 한 번에 사용자 조회 2회(필터+서비스). `index.html` viewport에 `viewport-fit=cover`가 없어 safe-area 여백 미적용.
 - Testcontainers 미도입: 실제 MySQL 통합 테스트(`ExchangeCandidateQueryTest`, `MigrationV6V7MysqlTest`, `MigrationV8MysqlTest`, `ExchangeCompleteMysqlTest`, `MigrationV9MysqlTest` 등)는 환경변수 `SEATSWAP_IT_*`가 있을 때만 실행(기본 skip, 개발 DB 보호 장치 포함).

@@ -1,11 +1,11 @@
 ---
 name: erd-conventions
-description: DB 엔티티/ERD 관련 작업(신규 테이블, 관계 수정, JPA 엔티티 작성) 시 반드시 참고. 현재 기준선 V1~V10(12개 테이블: users·performance·performance_session·ticket, 교환 희망 4개, 매칭·잠금 2개, 교환 이력 1개, 알림 1개)과 네이밍·제약·마이그레이션 규칙을 담고 있다. 좌석표·수정 로그·제재 설계는 삭제되어 태그 archive/seatmap-track-20261007에 보관된다. 기준 다이어그램은 산출물/08_ERD/erd.dot.
+description: DB 엔티티/ERD 관련 작업(신규 테이블, 관계 수정, JPA 엔티티 작성) 시 반드시 참고. 현재 기준선 V1~V11(14개 테이블: users·performance·performance_session·ticket, 교환 희망 4개, 매칭·잠금 2개, 교환 이력 1개, 알림 1개, 채팅 2개)과 네이밍·제약·마이그레이션 규칙을 담고 있다. 좌석표·수정 로그·제재 설계는 삭제되어 태그 archive/seatmap-track-20261007에 보관된다. 기준 다이어그램은 산출물/08_ERD/erd.dot.
 ---
 
 # ERD 컨벤션
 
-## 기준선 (12개 테이블, Flyway V1~V10)
+## 기준선 (14개 테이블, Flyway V1~V11)
 
 | 테이블 | 요점 |
 |---|---|
@@ -21,6 +21,8 @@ description: DB 엔티티/ERD 관련 작업(신규 테이블, 관계 수정, JPA
 | `exchange_ticket_lock` | PK ticket_id, match_id. 예약된 두 티켓의 잠금 |
 | `exchange_history` | 교환 완료 이력(append-only, V9). `match_id`·`user_id`·`performance_id`·`old_ticket_id`·`new_ticket_id` FK(ON DELETE/UPDATE 미지정, `fk_exchange_history_*`), 공연·자리 스냅샷 컬럼(`old_/new_` 회차 시작 시각·zone/row/col_label), `old_ticket_id`·`new_ticket_id` 각각 `uk_exchange_history_*_ticket` UNIQUE, `ck_exchange_history_tickets`(old≠new). 단일 컬럼 KEY(match/user/performance) |
 | `notification` | 알림(V10). `user_id`(수신자 FK)·`match_id`(FK NOT NULL), `type`(PROPOSAL_RECEIVED·MATCH_RESERVED·RESERVATION_CANCELED, `ck_notification_type`), `read_at`(NULL=안 읽음), `dedup_key` UNIQUE NULL(`uk_notification_dedup`), 생성 컬럼 `unread_user_id`(`idx_notification_unread`, FK 아님). 단일 컬럼 KEY(user/match/unread). `ck_notification_match_required` |
+| `chat_message` | 채팅 메시지(V11, append-only, setter 없음). `match_id`·`sender_id` FK, `content` VARCHAR(1000), `client_message_id` VARCHAR(36) ascii_bin, `uk_chat_message_client`(client_message_id, sender_id) 멱등, `idx_chat_message_match`(FK·조회용 단일 컬럼), `idx_chat_message_sender`(FK). 두 FK는 ON DELETE/UPDATE 미지정. `ck_*` CHECK 2개 |
+| `chat_read_state` | 읽음 포인터(V11). PK(`match_id`, `user_id`), `last_read_message_id` BIGINT(FK 아님, 단조 증가), `updated_at`, `idx_chat_read_state_user`(FK 단일 컬럼), FK 2개, CHECK |
 
 - 자식 3개(range/seat/session)는 request FK ON DELETE CASCADE. 요청 소프트 삭제 시 서비스가 자식 행을 삭제한다.
 - 추가금 CHECK: X/ANY는 금액 NULL, POS는 `extra_amount IS NOT NULL AND > 0`, NEG는 `IS NOT NULL AND < 0`. NULL이면 CHECK가 통과하므로 `IS NOT NULL`을 명시한다.
@@ -44,9 +46,16 @@ description: DB 엔티티/ERD 관련 작업(신규 테이블, 관계 수정, JPA
 - 쓰기 규칙: notification INSERT는 트랜잭션 마지막에 한다. notification 행을 잠근 뒤 티켓·요청·매칭을 잠그지 않는다.
 - 닫힌 매칭의 알림은 지우지 않는다(사용자 '읽은 알림 삭제'만 제거 경로).
 
-### 다음 마이그레이션 (V11부터, 미구현)
+### V11 (구현 완료: 채팅)
 
-- 채팅 메시지 `chat_message`, 사용자 차단 `user_block`(차단하면 후보 제외·채팅 불가; 재매칭 불가의 근거는 차단·신고뿐)이 예정이다. 컬럼·제약은 설계 시 결정(db-schema-architect). 차단 제외는 `ExchangeCandidateRepository.additionalExclusions()`에 추가한다.
+- `chat_message`는 INSERT만 한다(append-only). 전송은 트랜잭션 첫 쿼리로 `exchange_match`만 FOR UPDATE로 잠그고(매칭 행만 잠금, UPDATE 안 함), 같은 트랜잭션에서 멱등 조회 → 종료 상태 검사 → INSERT. 커밋 뒤 STOMP로 전파한다. 한 매칭 안에서 id 순서가 커밋 순서가 된다.
+- `chat_read_state`는 사용자별 '마지막으로 읽은 메시지' 포인터 하나다. `last_read_message_id`는 FK가 아니고 단조 증가한다(GREATEST 갱신). 읽음 advance는 매칭·users 잠금을 잡은 트랜잭션 **밖**에서 호출한다(안에서 호출하면 갭 잠금으로 교착이 재현됨).
+- 메시지 조회는 `FORCE INDEX (idx_chat_message_match)` 네이티브 쿼리를 쓴다. 옵티마이저가 PRIMARY 역방향·filesort를 고르는 문제를 막기 위해서다(STRAIGHT_JOIN과 같은 이유).
+- 종료된 매칭(CANCELED·COMPLETED)은 쓰기만 막고 읽기는 허용한다. 새 메시지는 `exchange_match.updated_at`을 바꾸지 않고 `notification` 행을 만들지 않는다.
+
+### 다음 마이그레이션 (V12부터, 미구현)
+
+- 사용자 차단 `user_block`(차단하면 후보 제외·채팅 불가; 재매칭 불가의 근거는 차단·신고뿐)이 예정이다. 컬럼·제약은 설계 시 결정(db-schema-architect). 차단 제외는 `ExchangeCandidateRepository.additionalExclusions()`에 추가하고, 채팅 쓰기 경로에도 차단 검사를 넣는다.
 - 후기·신뢰도 테이블은 만들지 않는다. 사용자 신고 테이블은 교환 핵심 흐름 이후 설계한다. 좌석표·수정 로그·제재(`abuse_report`·`user_sanction` 등)는 동결 상태라 설계하지 않는다.
 
 ## 관계 원칙
@@ -82,17 +91,17 @@ description: DB 엔티티/ERD 관련 작업(신규 테이블, 관계 수정, JPA
 
 `ddl-auto: validate` — Hibernate는 스키마를 만들거나 고치지 않고 엔티티와 일치하는지 검증만 한다(불일치 시 기동 실패).
 
-- 변경은 `SeatSwap/backend/src/main/resources/db/migration/V{n}__{snake_description}.sql`을 **새로 추가**해서만 한다. 번호는 마지막 번호 + 1(다음은 V11).
-- **이미 적용된 파일(V1~V10)은 수정 금지**(체크섬 불일치로 기동 실패). 잘못됐으면 새 V 파일로 고친다. 로컬 개발 DB를 되돌릴 때는 `docker compose down -v`.
+- 변경은 `SeatSwap/backend/src/main/resources/db/migration/V{n}__{snake_description}.sql`을 **새로 추가**해서만 한다. 번호는 마지막 번호 + 1(다음은 V12).
+- **이미 적용된 파일(V1~V11)은 수정 금지**(체크섬 불일치로 기동 실패). 잘못됐으면 새 V 파일로 고친다. 로컬 개발 DB를 되돌릴 때는 `docker compose down -v`.
 - 새 엔티티·컬럼·인덱스·길이·NOT NULL·collation 변경은 엔티티 수정과 **같은 커밋에 마이그레이션 파일을 함께 작성**한다.
-- 이관이 있는 변경은 재실행 가능한 프로시저 패턴(INFORMATION_SCHEMA 가드, V2·V6·V7·V8·V9·V10)으로 쓴다. 데이터를 이관할 수 없는 변경은 파일 맨 앞에서 임시 프로시저 + `SIGNAL SQLSTATE '45000'`으로 즉시 실패시킨다(MySQL DDL은 트랜잭션에 묶이지 않아 중간 실패 시 앞선 변경이 남기 때문). 실패 후에는 데이터를 고치고 `flyway repair` 후 재시도.
+- 이관이 있는 변경은 재실행 가능한 프로시저 패턴(INFORMATION_SCHEMA 가드, V2·V6·V7·V8·V9·V10·V11)으로 쓴다. 데이터를 이관할 수 없는 변경은 파일 맨 앞에서 임시 프로시저 + `SIGNAL SQLSTATE '45000'`으로 즉시 실패시킨다(MySQL DDL은 트랜잭션에 묶이지 않아 중간 실패 시 앞선 변경이 남기 때문). 실패 후에는 데이터를 고치고 `flyway repair` 후 재시도.
 - 요구 버전은 MySQL 8.0.16 이상(CHECK 강제). Flyway baseline 설정은 없다(V1은 빈 DB 전용). 이전 스키마가 남은 로컬 DB는 `docker compose down -v`로 비운다.
 - 이력 확인: `SELECT * FROM flyway_schema_history;`(절차는 `SeatSwap/backend/README.md` "DB 마이그레이션").
 - 통합 테스트(`SEATSWAP_IT_*` 환경변수)는 개발 DB를 보호하는 별도 DB 이름 규칙을 따른다(ops-rules 참고).
 
 ## 08_ERD 반영 규칙
 
-`산출물/08_ERD/erd.dot`이 기준 다이어그램이다. 현재 erd.dot은 V1~V10·12개 테이블(`exchange_history`·`notification` 포함)까지 그려져 있다. 현재 테이블은 파란 헤더, 예정 테이블(채팅·차단 등 V11 이후)은 주황 헤더 노드로 둔다. 삭제된 좌석표·수정 로그·제재 테이블은 그리지 않는다(설계는 태그 `archive/seatmap-track-20261007`의 이전 erd.dot과 마이그레이션에 보관). 시각 컬럼(created_at/updated_at/starts_at)은 KST 기준이라는 주석을 유지한다. 새 V 파일이 추가되면 erd.dot도 함께 갱신하고 이 문서의 기준선 표를 갱신한다. 설계 상세는 `산출물/08_ERD/exchange-schema-design.md`.
+`산출물/08_ERD/erd.dot`이 기준 다이어그램이다. 현재 erd.dot은 V1~V11·14개 테이블(`exchange_history`·`notification`·`chat_message`·`chat_read_state` 포함)까지 그려야 한다. 현재 테이블은 파란 헤더, 예정 테이블(차단 `user_block` 등 V12 이후)은 주황 헤더 노드로 둔다. 삭제된 좌석표·수정 로그·제재 테이블은 그리지 않는다(설계는 태그 `archive/seatmap-track-20261007`의 이전 erd.dot과 마이그레이션에 보관). 시각 컬럼(created_at/updated_at/starts_at)은 KST 기준이라는 주석을 유지한다. 새 V 파일이 추가되면 erd.dot도 함께 갱신하고 이 문서의 기준선 표를 갱신한다. 설계 상세는 `산출물/08_ERD/exchange-schema-design.md`.
 
 ## 변경 시 절차
 

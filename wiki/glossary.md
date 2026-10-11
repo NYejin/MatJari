@@ -3,7 +3,7 @@ title: 용어집
 type: glossary
 tags: [용어, 교환, 매칭]
 sources: [SeatSwap/backend/src/main/resources/db/migration/V11__chat_message.sql, SeatSwap/backend/src/main/resources/db/migration/V9__exchange_complete_history.sql, CLAUDE.md, 산출물/04_요구사항정의서/후속요구사항_제안알림_교환됨_공연정보입력.md, 산출물/08_ERD/exchange-schema-design.md, SeatSwap/backend/README.md, SeatSwap/backend/src/main/resources/db/migration/V3__ticket_seat_columns.sql, SeatSwap/backend/src/main/resources/db/migration/V5__exchange_match_tables.sql, SeatSwap/backend/src/main/resources/db/migration/V7__exchange_request_soft_delete.sql, SeatSwap/backend/src/main/resources/application.yml]
-updated: 2026-10-11
+updated: 2026-10-12
 confidence: high
 status: draft
 ---
@@ -66,3 +66,11 @@ SeatSwap 고유 용어의 짧은 정의다. 확정 결정 본문은 [CLAUDE.md](
 - **채팅 사용자 큐**: STOMP 수신 전용 목적지 `/user/queue/chat`. 푸시 종류는 `MESSAGE`와 `READ` 두 가지다.
 - **알림 사용자 큐**: STOMP 수신 전용 목적지 `/user/queue/notifications`. 새 알림이 커밋되면 `NOTIFICATION_CREATED` 신호(알림 id·유형·매칭 id뿐)만 보내고, 화면은 REST로 다시 읽는다. 설계 근거는 [알림 설계 근거](decisions/notification-design.md).
 - **앱 공용 연결**: 로그인한 앱이 탭당 STOMP 연결 1개를 참조 카운트로 공유하는 구조(헤더 벨 훅과 채팅 훅). 구독은 목적지당 1개다.
+
+## 링크 자동 입력
+
+설계 근거는 [링크 자동 입력 설계 근거](decisions/link-autofill-design.md), 함정은 [링크 가져오기 함정](gotchas/link-fetch-pitfalls.md) 참고. 구현 완료(브랜치 `feature/link-autofill`, 미병합, DB 변경 없음).
+
+- **미리보기 API** (`GET /api/performances/preview?sourceUrl=`): 링크 페이지에서 제목·공연장·공연 기간을 읽어 돌려준다. 응답 `status`는 `OK`·`UNSUPPORTED_SITE`·`NO_INFO`·`FETCH_FAILED` 중 하나이고 항상 200이다.
+- **고정 템플릿 URL**: 사용자가 준 URL 대신 사이트별 템플릿 3종에 id만 끼워 만든 주소. SSRF를 구조적으로 막는 장치다.
+- **공연 기간**: 링크에서 읽는 날짜 범위(`periodStart`/`periodEnd`). 회차 일시는 읽지 못해 안내 문구로만 보여준다.

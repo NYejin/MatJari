@@ -36,7 +36,7 @@
 
 ## 현재 구현 현황
 
-DB는 Flyway V1~V11, 14개 테이블(users·performance·performance_session·ticket·exchange_request·exchange_want_range·exchange_want_seat·exchange_want_session·exchange_match·exchange_ticket_lock·exchange_history·notification·chat_message·chat_read_state). **구현 완료**: 가입·로그인(JWT), 공연 등록·목록·상세(등록 후 수정 불가), 티켓 등록·내리기, 교환 희망 조건(범위별 추가금·소프트 삭제), 후보 조회, 제안·거절·채팅 종료, 한 명 예약·예약 취소, 교환 수락→교환 완료(기존 티켓 EXCHANGED+새 티켓, 교환 이력 기록, 교환된 좌석 안내), 내 매칭 조회, 교환 화면 5개(티켓 등록·내 티켓·희망 조건 폼·후보 목록·내 매칭), 알림 3종(새 제안·상대 예약·상대 예약 취소: 헤더 벨 말풍선, 알림 페이지, 읽은 알림 삭제, STOMP 실시간 푸시 + 연결이 끊겼을 때만 30초 폴링), 매칭별 채팅(채팅 화면에서 REST로 보내고 STOMP 사용자 큐로 받기, 읽음 표시, 종료 후 읽기 전용). **미구현**: 교환 이력 조회 API·마이페이지 '교환 이력' 화면, 7일 경과 알림, 차단·신고, 링크 자동 입력(회차 포함), 관리자 페이지(공연 수정 제안·티켓 인증 확인). 다음 마이그레이션 번호는 V12부터. 상세 수치는 [STATS.md](STATS.md), 이력은 [HISTORY.md](HISTORY.md).
+DB는 Flyway V1~V11, 14개 테이블(users·performance·performance_session·ticket·exchange_request·exchange_want_range·exchange_want_seat·exchange_want_session·exchange_match·exchange_ticket_lock·exchange_history·notification·chat_message·chat_read_state). **구현 완료**: 가입·로그인(JWT), 공연 등록·목록·상세(등록 후 수정 불가), 티켓 등록·내리기, 교환 희망 조건(범위별 추가금·소프트 삭제), 후보 조회, 제안·거절·채팅 종료, 한 명 예약·예약 취소, 교환 수락→교환 완료(기존 티켓 EXCHANGED+새 티켓, 교환 이력 기록, 교환된 좌석 안내), 내 매칭 조회, 교환 화면 5개(티켓 등록·내 티켓·희망 조건 폼·후보 목록·내 매칭), 알림 3종(새 제안·상대 예약·상대 예약 취소: 헤더 벨 말풍선, 알림 페이지, 읽은 알림 삭제, STOMP 실시간 푸시 + 연결이 끊겼을 때만 30초 폴링), 매칭별 채팅(채팅 화면에서 REST로 보내고 STOMP 사용자 큐로 받기, 읽음 표시, 종료 후 읽기 전용), 링크 기반 공연정보 자동 입력(제목·공연장·공연 기간, 회차 시각 제외). **미구현**: 교환 이력 조회 API·마이페이지 '교환 이력' 화면, 7일 경과 알림, 차단·신고, 관리자 페이지(공연 수정 제안·티켓 인증 확인). 다음 마이그레이션 번호는 V12부터. 상세 수치는 [STATS.md](STATS.md), 이력은 [HISTORY.md](HISTORY.md).
 
 ## 제품·교환 규칙 (확정)
 
@@ -94,10 +94,12 @@ DB는 Flyway V1~V11, 14개 테이블(users·performance·performance_session·ti
 - **공연은 등록 후 아무도 수정·삭제하지 못한다**(제목·공연장·회차 포함, 무분별한 수정 방지). 수정은 추후 **관리자 페이지의 '수정 제안'** 으로만 한다. 공연 API는 등록·목록·상세·lookup뿐이고 상세 화면은 읽기 전용이다.
 - 등록 화면은 3단계: ①티켓팅 링크(중복 확인) ②공연 정보(제목·공연장 이름·회차, 지금은 직접 입력) ③확인·등록.
 
-### 링크 기반 공연정보 자동 입력 (미구현)
-- 링크 입력 시 사이트별 어댑터가 공개 페이지(JSON-LD·og 태그)에서 **제목·공연장·회차**를 읽어 다음 단계에 미리 채우고 "이 정보가 맞나요?"를 묻는다. 아니면 직접 수정하고 등록하며, 자동 등록은 하지 않고 직접 입력은 항상 가능하다.
-- 대상은 공개 접근이 허용된 멜론·YES24·티켓링크(멜론은 Ajax 내부 API라 읽는 방법은 설계 시 확인). 인터파크는 robots.txt 때문에 제외. 로그인·캡차 우회와 내부 API 조사는 하지 않는다.
-- 요청·어댑터(SSRF 방어 포함)는 Spring Boot 백엔드에 새로 만든다. 이전 safe_fetch 구현은 태그 `archive/seatmap-track-20261007`에서 참고한다.
+### 링크 기반 공연정보 자동 입력 (구현됨, DB 변경 없음)
+- 등록 1단계에서 중복 확인 뒤 `GET /api/performances/preview?sourceUrl=`로 링크 페이지의 공개 HTML에서 **제목·공연장·공연 기간**을 읽어 2단계에 제목·공연장을 미리 채우고 "링크에서 읽은 정보예요. 맞는지 확인해 주세요"를 보여준다(제목·공연장 입력이 모두 비어 있을 때만 채움). 자동 등록은 없고 직접 입력은 항상 가능하며, 읽기에 실패해도 등록은 막히지 않는다.
+- **회차 시각은 읽지 못한다**: 세 사이트 모두 회차 목록은 Ajax로만 온다. 그래서 회차는 자동으로 채우지 않고 공연 기간만 안내 문구로 보여준다(회차 일시는 직접 입력).
+- 대상은 YES24(`/Perf/{id}`)·티켓링크(`/product/{id}`)는 JSON-LD `Event`, 멜론(`prodId`)은 본문 HTML. 인터파크는 robots.txt 때문에 제외(UNSUPPORTED_SITE). 로그인·캡차 우회와 내부 API 호출은 하지 않는다.
+- **SSRF 방어 = 사용자 URL을 요청하지 않는다**: `SourceKeyResolver` 키가 `yes24|ticketlink|melon:{숫자id}`일 때만 고정 템플릿으로 URL을 만들어 요청한다. 리다이렉트 불가, 공인 IP만, https, 본문 2 MiB·10초 제한, 사용자당 분당 10회(429 `PREVIEW_RATE_LIMITED`)·사이트당 분당 30회·동시 4개·10분 캐시. 연결 IP 고정(pinning)은 하지 않는다(대상이 고정 공개 도메인 3개라는 전제).
+- 구현은 `service/linkinfo/`(PageFetcher·LinkInfoParsers·PerformancePreviewService). 상세는 [wiki/decisions/link-autofill-design.md](wiki/decisions/link-autofill-design.md).
 
 ### 채팅 (구현됨, V11 `chat_message`·`chat_read_state`)
 - 매칭 한 건마다 참여자 둘이 나누는 텍스트 채팅이다. 참여자가 아니면 404. 채팅은 매칭 상태(CHATTING·RESERVED·COMPLETED·CANCELED)와 무관하게 매칭 단위로 열린다.
@@ -131,6 +133,7 @@ DB는 Flyway V1~V11, 14개 테이블(users·performance·performance_session·ti
 - 채팅 전송은 트랜잭션 첫 쿼리로 `exchange_match`만 FOR UPDATE로 잠그고, 커밋 뒤에 STOMP로 전파한다(전파 실패해도 저장은 유지).
 - 읽음 포인터 advance는 매칭·users 잠금을 잡은 트랜잭션 안에서 호출하지 않는다(자기 대기·갭 잠금 교착).
 - 메시지 조회 쿼리는 `FORCE INDEX (idx_chat_message_match)`를 유지한다(옵티마이저가 PRIMARY 역방향·filesort를 고르는 문제).
+- 링크 자동 입력은 사용자가 준 URL을 요청하지 않고 `SourceKeyResolver`로 뽑은 사이트·숫자 ID로 고정 템플릿 URL만 만들어 요청한다(SSRF 방어의 핵심). 새 사이트를 추가할 때도 이 규칙과 호스트 고정을 유지한다.
 - 소스코드 수정분 전달은 `MMDD-순번_수정내역영문.zip`, 문서(계획서/요구사항정의서 등)는 압축 없이 단일 파일.
 
 ## 기술 스택·범위 제외
@@ -159,7 +162,7 @@ DB는 Flyway V1~V11, 14개 테이블(users·performance·performance_session·ti
 
 ## 후속 작업 목록
 
-①링크 기반 공연 정보 자동 입력(제목·공연장·회차) ②관리자 페이지(공연 수정 제안 처리, 티켓 인증 확인) ③교환 이력 조회 API·마이페이지 '교환 이력' 화면 ④신고·차단. 로고 변경, 알림 3종, 채팅, 실시간 알림 푸시는 완료.
+①관리자 페이지(공연 수정 제안 처리, 티켓 인증 확인) ②교환 이력 조회 API·마이페이지 '교환 이력' 화면 ③신고·차단. 로고 변경, 알림 3종, 채팅, 실시간 알림 푸시, 링크 자동 입력은 완료.
 
 ## 확인 필요 (열린 질문만)
 

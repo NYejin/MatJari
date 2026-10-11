@@ -9,7 +9,7 @@ import { usePagedList } from "../hooks/usePagedList";
 import type { ExchangeMatch, MatchRole, MatchStatus } from "../types/exchange";
 
 // FR-04 내 매칭 목록 (보호 라우트 /exchange/matches): 보낸(내가 제안)/받은 탭, 상태 배지, 예약하기·예약 취소·거절·채팅 종료.
-// 예약 중에는 '교환 수락'(2단계 확인)을 누를 수 있고, 양쪽이 모두 수락하면 교환 완료가 된다. 채팅 메시지는 아직 없다.
+// 예약 중에는 '교환 수락'(2단계 확인)을 누를 수 있고, 양쪽이 모두 수락하면 교환 완료가 된다. 각 카드의 '채팅' 링크로 채팅 화면(ChatPage)에 들어간다.
 // 동작(예약·예약 취소·교환 수락·거절·종료) 뒤에는 제자리 패치 대신 첫 페이지부터 다시 불러온다 (서버가 updated_at 순으로 정렬해 더 보기 목록이 어긋날 수 있음).
 
 const STATUS_LABEL: Record<MatchStatus, string> = {

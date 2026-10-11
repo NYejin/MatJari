@@ -1,7 +1,7 @@
 # SeatSwap Backend (Spring Boot)
 
 ## 패키지 구조
-- domain       — JPA 엔티티 (User·Performance·PerformanceSession·Ticket, 교환 희망 쪽 ExchangeRequest·ExchangeWantRange·ExchangeWantSession, 매칭 ExchangeMatch, 교환 이력 ExchangeHistory(V9))와 enum·값 객체 (UserRole·TicketStatus·ExtraType·ExchangeRequestStatus·ExchangeMatchStatus·ExchangeMatchAction·SeatKey). 예약 잠금(exchange_ticket_lock)은 엔티티 없이 `ExchangeTicketLockRepository`(JdbcTemplate)가 다룬다. 공연장은 Performance.venueName 텍스트(V2에서 venue 테이블 삭제). 펼친 희망 좌석(exchange_want_seat)은 엔티티 없이 `ExchangeWantSeatRepository`(JdbcTemplate)가 다룬다
+- domain       — JPA 엔티티 (User·Performance·PerformanceSession·Ticket, 교환 희망 쪽 ExchangeRequest·ExchangeWantRange·ExchangeWantSession, 매칭 ExchangeMatch, 교환 이력 ExchangeHistory(V9), 알림 Notification(V10))와 enum·값 객체 (UserRole·TicketStatus·ExtraType·ExchangeRequestStatus·ExchangeMatchStatus·ExchangeMatchAction·SeatKey). 예약 잠금(exchange_ticket_lock)은 엔티티 없이 `ExchangeTicketLockRepository`(JdbcTemplate)가 다룬다. 공연장은 Performance.venueName 텍스트(V2에서 venue 테이블 삭제). 펼친 희망 좌석(exchange_want_seat)은 엔티티 없이 `ExchangeWantSeatRepository`(JdbcTemplate)가 다룬다
 - repository   — JpaRepository
 - service      — 비즈니스 로직
 - controller   — REST API + WebSocket(STOMP)
@@ -12,7 +12,7 @@
 
 ## 현재 상태
 - 2026-10-07 방향 전환으로 좌석표 트랙 코드와 교환·채팅·후기 등 빈 스켈레톤(컨트롤러·서비스·저장소)을 삭제했다. 좌석표 코드는 git 태그 `archive/seatmap-track-20261007`에 보관되어 있다.
-- 엔티티는 User·Performance·PerformanceSession·Ticket과 교환 도메인 ExchangeRequest·ExchangeWantRange·ExchangeWantSession·ExchangeMatch·ExchangeHistory(V9) 9종이다(예약 잠금·펼친 희망 좌석은 JdbcTemplate 저장소). Ticket은 구역·열·번(표시용 label + 정규화 key)·상태(ACTIVE/INACTIVE/EXCHANGED; `EXCHANGED`는 교환 완료 때 기존 티켓에 붙는다, V9)를 가지며 티켓 등록·조회·내리기 API가 있다(FR-03).
+- 엔티티는 User·Performance·PerformanceSession·Ticket과 교환 도메인 ExchangeRequest·ExchangeWantRange·ExchangeWantSession·ExchangeMatch·ExchangeHistory(V9)·Notification(V10) 10종이다(예약 잠금·펼친 희망 좌석은 JdbcTemplate 저장소). Ticket은 구역·열·번(표시용 label + 정규화 key)·상태(ACTIVE/INACTIVE/EXCHANGED; `EXCHANGED`는 교환 완료 때 기존 티켓에 붙는다, V9)를 가지며 티켓 등록·조회·내리기 API가 있다(FR-03).
 - **회원가입/로그인/JWT 인증(FR-01)은 구현 완료**:
   - `security/JwtTokenProvider` — access/refresh 토큰 발급·검증 (jjwt 0.12.5)
   - `security/JwtAuthenticationFilter` — Authorization 헤더 검증 후 SecurityContext 설정
@@ -24,8 +24,9 @@
 - 남은 스켈레톤: `config/WebSocketConfig`는 클래스 선언과 `TODO: registerStompEndpoints(), configureMessageBroker()`만 있다 (채팅용, 미구현).
 - **티켓 등록(FR-03)은 구현 완료** (`TicketController`, `TicketService`, `SeatKeyNormalizer`). 좌석 1개를 텍스트(구역 필수, 열·번은 숫자 또는 문자)로 등록한다. 같은 회차·구역·열·번의 활성 티켓은 1개(DB `uk_ticket_active_seat`), 사용자당 활성 티켓 20개 상한(`users` 행 FOR UPDATE로 직렬화), 회차 당일 끝(다음날 0시 KST)까지만 등록할 수 있다. 교환 희망 범위·매칭·예약은 아래 교환 항목 참고. 내릴 때 예약 잠금이면 `TicketService.ensureCanDeactivate`가 409 `TICKET_RESERVED`로 막는다.
 - **교환 희망 조건 등록(FR-04 교환 요청)은 구현 완료** (`ExchangeRequestController`, `ExchangeRequestService`, `WantSeatExpander`, Flyway V4). 티켓 하나에 미삭제 요청 1개(범위별 추가금 유형·희망 회차 우선순위·희망 좌석 범위)를 등록·조회·수정·소프트 삭제한다. 범위는 (구역, 열 from~to, 번 from~to)로 입력하면 개별 좌석으로 펼쳐 `exchange_want_seat`에 저장한다. **매칭 후보 조회**(`GET /api/exchange/requests/{id}/candidates`, 읽기 전용)는 구현됐다. 티켓을 내리면(`DELETE /api/tickets/{id}`) 그 티켓의 교환 요청은 CLOSED로 바뀐다.
-- **매칭 생성·예약(FR-04 교환 흐름 일부)은 구현 완료** (`ExchangeMatchController`, `ExchangeMatchService`, Flyway V5). 후보를 골라 매칭(채팅 단계, CHATTING)을 만들고, 둘 중 한 명이 예약하면 RESERVED가 되어 두 티켓이 잠기고, 누구든 예약을 취소해 CHATTING으로 되돌릴 수 있다(`reserve`/`unreserve`, Flyway V8). 채팅 종료(취소)·거절은 CHATTING에서만 가능하다. **교환 완료는 구현 완료(2026-10-11, V9)**: 양쪽 '교환 수락'(`complete`)으로 COMPLETED, 기존 티켓 EXCHANGED + 새 티켓, `exchange_history` 기록(아래 '교환 완료' 절). **아직 없는 것**: 채팅 메시지·방, 교환 이력 조회 API·마이페이지 화면(기록은 구현, 조회는 다음 브랜치), 알림, 사용자 차단. 후보 '예약 중' 뱃지는 폐기(후보 목록은 예약 잠긴 티켓을 계속 제외). (내 매칭 조회 `GET /api/exchange/matches/me`·`/{id}`는 구현됨) 아래 '매칭 API' 참고.
-- 테스트 수치(2026-10-11 기준, `feature/exchange-complete`): 기본 `./gradlew test`는 전체 499건 중 99건을 건너뛰고 0 실패(실행 400건)다. 임시 MySQL을 붙인 전체 실행은 516건 모두 통과한다. 실제 MySQL이 필요한 `ExchangeCandidateQueryTest`·`ExchangeMatchMysqlTest`·`ExchangeMatchQueryMysqlTest`·`ExchangeCompleteMysqlTest`·마이그레이션 테스트(V9 `MigrationV9MysqlTest` 포함)는 `SEATSWAP_IT_JDBC_URL`이 없으면 통째로 건너뛰며 리포트에 `[SKIPPED ...]` 메시지가 남는다. `SEATSWAP_IT_REQUIRED=true`와 `SEATSWAP_IT_*`를 주면 516건 모두 실행·0 실패(건너뜀 0)다. `SEATSWAP_IT_REQUIRED=true`(또는 `CI` 환경변수가 있으면)는 건너뛰지 않고 실패한다. 주의: Gradle은 환경변수를 입력으로 보지 않아 이전 결과를 재사용하므로 환경을 바꿔 다시 돌릴 때는 `./gradlew cleanTest test`를 쓴다. 아래 '매칭 후보 조회 검증' 참고.
+- **매칭 생성·예약(FR-04 교환 흐름 일부)은 구현 완료** (`ExchangeMatchController`, `ExchangeMatchService`, Flyway V5). 후보를 골라 매칭(채팅 단계, CHATTING)을 만들고, 둘 중 한 명이 예약하면 RESERVED가 되어 두 티켓이 잠기고, 누구든 예약을 취소해 CHATTING으로 되돌릴 수 있다(`reserve`/`unreserve`, Flyway V8). 채팅 종료(취소)·거절은 CHATTING에서만 가능하다. **교환 완료는 구현 완료(2026-10-11, V9)**: 양쪽 '교환 수락'(`complete`)으로 COMPLETED, 기존 티켓 EXCHANGED + 새 티켓, `exchange_history` 기록(아래 '교환 완료' 절). **아직 없는 것**: 채팅 메시지·방, 교환 이력 조회 API·마이페이지 화면(기록은 구현, 조회는 다음 브랜치), 알림 실시간 푸시(STOMP, 다음 브랜치), 사용자 차단. 후보 '예약 중' 뱃지는 폐기(후보 목록은 예약 잠긴 티켓을 계속 제외). (내 매칭 조회 `GET /api/exchange/matches/me`·`/{id}`는 구현됨) 아래 '매칭 API' 참고.
+- **알림 3종(R1-3) 구현 완료(2026-10-11, `feature/notifications`, V10)**: 새 제안·상대 예약·상대 예약 취소를 `notification`에 쌓고, 조회·안 읽은 개수·읽음·모두 읽음·읽은 알림 삭제 API 5개를 제공한다. 자세한 규칙은 아래 '알림 (V10)' 절. 실시간 푸시(STOMP)는 다음 브랜치다.
+- 테스트 수치(2026-10-11 기준, `feature/notifications`): 기본 `./gradlew test`는 전체 527건 중 114건을 건너뛰고 0 실패(실행 413건)다. 임시 MySQL을 붙인 전체 실행은 543건 이상 통과한다(알림 교착 스트레스 포함). 실제 MySQL이 필요한 `ExchangeCandidateQueryTest`·`ExchangeMatchMysqlTest`·`ExchangeMatchQueryMysqlTest`·`ExchangeCompleteMysqlTest`·`NotificationApiMysqlTest`·마이그레이션 테스트(V9 `MigrationV9MysqlTest` 포함)는 `SEATSWAP_IT_JDBC_URL`이 없으면 통째로 건너뛰며 리포트에 `[SKIPPED ...]` 메시지가 남는다. `SEATSWAP_IT_REQUIRED=true`와 `SEATSWAP_IT_*`를 주면 543건 이상 실행·0 실패(건너뜀 0)다. `SEATSWAP_IT_REQUIRED=true`(또는 `CI` 환경변수가 있으면)는 건너뛰지 않고 실패한다. 주의: Gradle은 환경변수를 입력으로 보지 않아 이전 결과를 재사용하므로 환경을 바꿔 다시 돌릴 때는 `./gradlew cleanTest test`를 쓴다. 아래 '매칭 후보 조회 검증' 참고.
 
 ## 인증 API
 
@@ -257,7 +258,7 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 
 ## DB 마이그레이션 (Flyway)
 
-- 마이그레이션 파일: `src/main/resources/db/migration/V{n}__{snake_description}.sql` (V1 = 새 기준선 5개 테이블, V2 = `venue` 삭제·`performance.venue_name` 추가, V3 = `ticket` 좌석(구역·열·번)·상태 컬럼과 활성 좌석 유일 제약, V4 = 교환 희망 쪽 테이블 4개, V5 = 매칭·예약 잠금 테이블 2개, V6 = 추가금을 요청에서 희망 범위로 이동, V7 = 요청 소프트 삭제, V8 = 예약 방식 변경(`reserved_by_id`·`reserved_at`), V9 = 교환 완료·교환 이력(`ticket.status` EXCHANGED, `exchange_history`), 한국어 주석)
+- 마이그레이션 파일: `src/main/resources/db/migration/V{n}__{snake_description}.sql` (V1 = 새 기준선 5개 테이블, V2 = `venue` 삭제·`performance.venue_name` 추가, V3 = `ticket` 좌석(구역·열·번)·상태 컬럼과 활성 좌석 유일 제약, V4 = 교환 희망 쪽 테이블 4개, V5 = 매칭·예약 잠금 테이블 2개, V6 = 추가금을 요청에서 희망 범위로 이동, V7 = 요청 소프트 삭제, V8 = 예약 방식 변경(`reserved_by_id`·`reserved_at`), V9 = 교환 완료·교환 이력(`ticket.status` EXCHANGED, `exchange_history`), V10 = 알림(`notification`), 한국어 주석)
 - 적용 이력: `SELECT * FROM flyway_schema_history;` (docker: `docker exec seatswap-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" seatswap -e "SELECT * FROM flyway_schema_history"'`)
 - 규칙: 스키마 변경은 새 V 파일로만, 적용된 파일 수정 금지, `ddl-auto: validate`, 엔티티 변경과 마이그레이션을 함께 작성
 - 앱 기동 시 자동 적용된다.
@@ -278,7 +279,8 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 - **V8 적용 안내 (한 명 예약 방식, `V8__exchange_match_single_reserve.sql`, 2026-10-10)**: `exchange_match`에 `reserved_by_id`(FK users, 예약한 사람)·`reserved_at`을 추가한다. 기존 RESERVED 행은 `a/b_reserved_at` 중 이른 쪽 사용자(동시이면 a측)를 예약자로, 그 시각을 `reserved_at`으로 백필하고 시각이 둘 다 NULL인 비정상 행은 `updated_at`을 쓴다. 구 모델의 반쪽 동의(CHATTING인데 한쪽만 `a/b_reserved_at`)는 변환하지 않고 `reserved_*`를 NULL로 둔다(승격하면 동의 없이 상대 티켓이 잠긴다; 화면의 반쪽 동의 표시는 사라진다). `a/b_reserved_at`는 삭제하지 않고 미사용 레거시(COMMENT `DEPRECATED(V8)`)로 둔다. CHECK 3개: `ck_exchange_match_reserved`(RESERVED <=> `reserved_*` NOT NULL), `ck_exchange_match_reserved_by_party`(예약자는 참여자), `ck_exchange_match_completed`(CHATTING이면 `a/b_completed_at` NULL, COMPLETED이면 둘 다 NOT NULL; README L7 해소. 교환 완료 설계가 다르면 새 V 파일로 교체). FK 전용 인덱스 `idx_exchange_match_reserved_by`는 단일 컬럼이다. 재실행 가능(프로시저 가드), 완료 시각이 상태와 맞지 않는 행이 있으면 아무것도 바꾸기 전에 SIGNAL로 실패한다. 구 코드(`accept`)와는 호환되지 않으므로 마이그레이션과 앱을 함께 배포한다. 요구 MySQL 8.0.16 이상.
   - 검증(2026-10-10, 임시 MySQL 8.0.46): `MigrationV8MysqlTest`(별도 DB `*_mig_it`)가 7가지 매칭 행(CHATTING 무예약, CHATTING 반쪽 동의, RESERVED(a가 이른·b가 이른·동시·시각 NULL), CANCELED에 옛 시각)의 백필 값, 레거시 컬럼·잠금 행 불변, 새 FK·인덱스·CHECK, history 삭제 후 재적용(재실행), 중간 실패 이어서 적용, 가드 실패 후 repair, 제약 위반 거부를 자동으로 검증한다.
 - **V9 적용 안내 (교환 완료·교환 이력, `V9__exchange_complete_history.sql`, 2026-10-11)**: `ticket.status`의 `ck_ticket_status`를 ACTIVE/INACTIVE/EXCHANGED로 확장한다(옛 정의에 EXCHANGED가 없을 때만 DROP 후 ADD). 새 테이블 `exchange_history`(append-only, 매칭 1건 완료 시 사용자별 1행씩 2행)를 만든다: `match_id`·`user_id`·`old_ticket_id`·`new_ticket_id`·`performance_id` FK(ON DELETE/UPDATE 동작 없음), 스냅샷 `performance_title`·`venue_name`·`old_starts_at`/`new_starts_at`·`old_`/`new_` 구역·열·번 label, `created_at`. UK `uk_exchange_history_old_ticket`·`uk_exchange_history_new_ticket`(한 티켓은 한 번만 교환), 단일 컬럼 KEY `idx_exchange_history_match`·`_user`·`_performance`, CHECK `ck_exchange_history_tickets`(old <> new). 기존 데이터 이관과 파괴적 단계는 없고, V2·V6~V8과 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하다. 되돌리기는 롤포워드(이력 삭제 후 EXCHANGED 행 정리, CHECK 축소)로 한다. 요구 MySQL 8.0.16 이상. 검증: `MigrationV9MysqlTest`(실제 MySQL, 별도 DB `*_mig_it`, `SEATSWAP_IT_*`가 있을 때만 실행).
-- 차단(`user_block`)·채팅(`chat_message`)·알림(`notification`)은 **V10 이후**다(V8은 예약 방식 변경, V9는 교환 완료·교환 이력에 사용됨)(예전 문서의 'V6 이후'는 V6/V7이 추가금·소프트 삭제에 쓰이면서 밀렸다).
+- **V10 적용 안내 (알림, `V10__notification.sql`, 2026-10-11)**: 새 테이블 `notification`만 만든다. 기존 테이블 변경·데이터 이관·파괴적 단계는 없다. 컬럼: `id`, `user_id`(FK users, 수신자), `type`(VARCHAR(40), CHECK로 3종만), `match_id`(FK exchange_match, NOT NULL, CHECK `ck_notification_match_required`), `dedup_key`(VARCHAR(100) NULL, UNIQUE `uk_notification_dedup`), `read_at`(NULL = 안 읽음), `created_at`, 생성 컬럼 `unread_user_id`(STORED, 안 읽었으면 user_id, 안 읽은 개수 인덱스 `idx_notification_unread`, FK 아님). FK 인덱스 `idx_notification_user`·`idx_notification_match`는 단일 컬럼이고 FK에 ON DELETE/UPDATE 동작을 두지 않는다. 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하다. 되돌리기는 롤포워드(알림 삭제 뒤 테이블 정리). 요구 MySQL 8.0.16 이상. 마이그레이션 전용 테스트는 없고, 실제 MySQL의 `NotificationApiMysqlTest`가 V10이 적용된 DB에서 생성·읽음·삭제를 검증한다. 설계 가안의 `(user_id, type, match_id)` 유니크는 쓰지 않는다(재예약 때 위반으로 예약이 롤백되므로, 한 번만 생기는 제안 알림만 `dedup_key`로 막는다).
+- 차단(`user_block`)·채팅(`chat_message`)은 **V11 이후**다(V8은 예약 방식 변경, V9는 교환 완료·교환 이력, V10은 알림에 사용됨)(예전 문서의 'V6 이후'는 V6/V7이 추가금·소프트 삭제에 쓰이면서 밀렸다).
 - **V3 적용 안내 (`ticket` 좌석 컬럼)**: `zone_label/zone_key`, `row_key`, `col_key`, `status`, `created_at/updated_at`, 생성 컬럼 `active_flag`, `uk_ticket_active_seat`(회차·구역·열·번·active_flag), `idx_ticket_user_status`를 추가하고 `row_label`/`col_label`을 NOT NULL VARCHAR(20)으로 바꾼다.
   - 가드: `ticket`에 행이 있으면 아무것도 바꾸기 전에 SIGNAL로 실패한다(새 NOT NULL 구역 컬럼에 채울 값이 없음). 적용 전 `SELECT COUNT(*) FROM ticket;`가 0인지 확인한다. 행이 있어 실패했다면 테스트 행을 지우고 `flyway repair`(실패 기록 삭제) 후 다시 적용한다. 임시 프로시저 `v3_guard_ticket_empty`가 남을 수 있으나 재실행 시 먼저 DROP 한다.
   - 주의: `./gradlew bootRun`은 `backend/.env`를 읽어 `SPRING_DATASOURCE_URL`을 덮어쓴다. 임시 DB로 검증하려면 `bootRun`이 아니라 `bootJar` 후 `java -jar`로 환경변수를 지정해 실행한다.
@@ -357,9 +359,60 @@ AND NOT EXISTS (SELECT 1 FROM exchange_ticket_lock l WHERE l.ticket_id = tb.id)
 - (해소) 요청 삭제가 소프트 삭제(V7)가 되어 매칭 행은 지워지지 않고 상대의 취소 기록이 남는다. 삭제된 요청 쪽은 응답의 `myRequestDeleted`/`counterpartRequestDeleted`로 표시한다.
 - **차단·신고 전에는 낯선 사용자의 제안(CHATTING)이 b측 요청의 수정·삭제를 막는다.** 열린 매칭이 있는 요청은 409이므로, 아무 후보나 제안해 놓으면 상대가 먼저 취소/거절(reject)해야 자기 요청을 고칠 수 있다. 차단(`user_block`)·신고가 들어오면 완화한다(정책은 사용자 결정 사항이라 동작은 유지).
 - (L2) `TicketService.deactivate`의 CHATTING 매칭 시스템 취소 UPDATE(`ticket_a_id=? and status=CHATTING`)는 REPEATABLE READ에서 `idx_exchange_match_ticket_a/b` 구간을 status 필터 전에 next-key로 잠가, 과거 CANCELED/COMPLETED 행과 인접 gap까지 잠글 수 있다(이웃 티켓 id의 INSERT가 잠시 지연될 수 있으나 교착은 아님). 규모가 커지면 `SELECT id ... FOR UPDATE`로 id를 뽑아 PK로 갱신하는 방식으로 바꾼다.
-- (L3) 한 요청에 열린 매칭이 여러 개일 때 하나가 RESERVED가 되어도 나머지 CHATTING 매칭은 그대로 남는다(자동 취소 없음: 새 제안·새 예약만 막는다). 사용자가 직접 취소해야 하며, 교환 완료로 기존 티켓이 EXCHANGED가 되어도 자동 취소하지 않고 버튼 비활성+"이미 교환된 좌석이에요" 안내로 처리한다. 다른 매칭에서 티켓이 잠긴 상태의 reserve는 409(`TICKET_ALREADY_RESERVED`)이고 이때 아무 흔적(`reserved_*`)도 남기지 않는다(어느 쪽 티켓이 잠겼는지는 응답에 싣지 않는다). 후보 카드의 '예약 중' 뱃지는 폐기(2026-10-11)해 후보 SQL은 바꾸지 않는다(예약 잠긴 티켓은 계속 제외). 알림(새 제안·상대가 예약·예약 취소)도 후속이다.
+- (L3) 한 요청에 열린 매칭이 여러 개일 때 하나가 RESERVED가 되어도 나머지 CHATTING 매칭은 그대로 남는다(자동 취소 없음: 새 제안·새 예약만 막는다). 사용자가 직접 취소해야 하며, 교환 완료로 기존 티켓이 EXCHANGED가 되어도 자동 취소하지 않고 버튼 비활성+"이미 교환된 좌석이에요" 안내로 처리한다. 다른 매칭에서 티켓이 잠긴 상태의 reserve는 409(`TICKET_ALREADY_RESERVED`)이고 이때 아무 흔적(`reserved_*`)도 남기지 않는다(어느 쪽 티켓이 잠겼는지는 응답에 싣지 않는다). 후보 카드의 '예약 중' 뱃지는 폐기(2026-10-11)해 후보 SQL은 바꾸지 않는다(예약 잠긴 티켓은 계속 제외). 알림 3종은 V10으로 구현 완료(2026-10-11, 실시간 푸시는 후속).
 - (L7, 해소) V5의 `ck_exchange_match_canceled`는 CANCELED의 `canceled_at` 필수와 열린 상태의 `canceled_*` NULL만 강제했다. V8이 `ck_exchange_match_reserved`(RESERVED <=> `reserved_*`)와 `ck_exchange_match_completed`(CHATTING이면 수락 표시 NULL, COMPLETED이면 둘 다 NOT NULL)로 상태별 시각 일관성을 DB가 강제하게 보강했다. 교환 완료(V9) 구현 때 이 CHECK와 COMPLETED 전이가 맞는지 확인했다(`ExchangeCompleteMysqlTest` 통과). 남은 것: 레거시 `a/b_reserved_at` 삭제는 충분히 뒤로 미룬다(백필 재계산 근거).
 - (L8, 해소) 응답 변환이 닉네임을 위해 `userRepository.findById`를 따로 호출하던 문제는 조인 한 번(`ExchangeMatchQueryRepository`)으로 바꿔 해소했다. 내 매칭 목록·단건 조회 API도 구현됐다. 회차 마감 후 잠금이 남은 티켓의 자동 비활성(스케줄러)은 아직 없다.
+
+## 알림 (V10, 2026-10-11, `feature/notifications`)
+
+알림 3종(R1-3)의 쓰기 경로와 조회·읽음·삭제 API다. 실시간 푸시(STOMP)·토스트는 다음 브랜치(`feature/notifications-realtime`)다.
+
+- 엔티티·저장소: `domain/Notification`(`notification` 테이블; `readAt`은 조회용 매핑이고 갱신은 벌크 쿼리로 한다), `domain/NotificationType`(PROPOSAL_RECEIVED / MATCH_RESERVED / RESERVATION_CANCELED), `NotificationRepository`(저장·읽음·삭제), `NotificationQueryRepository`(목록·개수 조회). 서비스 `NotificationService`, 컨트롤러 `NotificationController`(`/api/notifications`), 응답 `NotificationResponse`·`UnreadCountResponse`.
+
+### 알림 API
+
+모두 로그인(Bearer)이 필요하고 본인 알림만 다룬다. 남의 알림과 없는 알림은 똑같이 404 `알림을 찾을 수 없습니다.`다(존재 비노출). 생성 API는 없다(제안·예약·예약 취소 트랜잭션 안에서만 만든다).
+
+| Method | Path | 설명 |
+|---|---|---|
+| GET | /api/notifications?page=0&size=20&unreadOnly=false | 내 알림 목록, id 내림차순. size 기본 20, 100 초과는 100으로 보정. page 음수·size 1 미만·잘못된 값은 400. 닫힌 매칭의 알림도 포함 |
+| GET | /api/notifications/unread-count | `{total, byType}`. byType에는 3종 키가 항상 있다(0 포함). 닫힌 매칭 알림도 센다 |
+| POST | /api/notifications/{id}/read | 단건 읽음 (204, 이미 읽었어도 멱등) |
+| POST | /api/notifications/read-all?type= | 일괄 읽음 (204). type을 생략하면 전체, 잘못된 type은 400 |
+| DELETE | /api/notifications/read | 읽은 알림 삭제 (200, `{"deleted": n}`). 안 읽은 알림과 남의 알림은 지우지 않는다. **알림이 사라지는 유일한 경로**다 |
+
+unread-count 예시: `{"total":3,"byType":{"PROPOSAL_RECEIVED":2,"MATCH_RESERVED":1,"RESERVATION_CANCELED":0}}`
+
+목록 항목(`NotificationResponse`): `id, type, matchId, read, readAt, createdAt, matchStatus, matchClosed, role(SENT|RECEIVED), counterpartNickname, performanceTitle, mySeat{zone,row,col}, counterpartSeat{zone,row,col}`.
+- `role`은 매칭 기준이다(SENT = 내가 제안자 a측, RECEIVED = b측). `matchClosed`는 CANCELED·COMPLETED일 때 true다.
+- 좌석은 매칭 행의 자리이므로 항상 교환 전 자리다. 닉네임·공연 제목은 조회 때 조인하고, 이메일 등 개인정보는 응답에 없다.
+
+### 생성 규칙 (쓰기 경로)
+
+`ExchangeMatchService`의 `propose`·`reserve`·`unreserve`가 **상태를 실제로 바꾼 경우에만**, 트랜잭션의 맨 끝에서 `NotificationService.notify`(MANDATORY, saveAndFlush)로 수신자당 1건을 쓴다. 멱등 경로와 오류 경로에서는 쓰지 않으며, 트랜잭션이 롤백되면 알림도 함께 사라진다.
+
+| type | 생성 시점 | 수신자 | dedup_key |
+|---|---|---|---|
+| PROPOSAL_RECEIVED | 제안으로 CHATTING 매칭이 생성됨 | 제안받은 쪽(b측) | `PROPOSAL_RECEIVED:{matchId}` (같은 제안은 한 번만) |
+| MATCH_RESERVED | 한쪽이 예약함 (CHATTING -> RESERVED) | 호출자의 반대편 | NULL (예약마다 1건) |
+| RESERVATION_CANCELED | 한쪽이 예약을 취소함 (RESERVED -> CHATTING) | 호출자의 반대편 | NULL (취소마다 1건) |
+
+- **dedup_key 규칙**: 한 번만 생기는 알림(제안)만 `dedup_key`로 막는다(`uk_notification_dedup` 단일 유니크, NULL은 중복 허용). 예약·예약 취소는 같은 매칭에서 반복되므로 키를 두지 않고 반복마다 1건을 쌓는다. 설계 가안이던 `(user_id, type, match_id)` 유니크는 쓰지 않는다. 재예약 때 그 유니크가 위반되어 예약 트랜잭션이 통째로 롤백되기 때문이다.
+- **잠금 순서**: 티켓 id↑ -> 요청 id↑ -> 매칭 -> users(S, FK 검사) -> notification. **notification 행을 잠근 뒤에는 티켓·요청·매칭을 잠그지 않는다.** 알림 쓰기는 항상 트랜잭션의 마지막이다.
+- **읽음·삭제 규칙**: 잠금 없는 SELECT로 id를 모은 뒤 500개씩 `WHERE id IN (...)`으로만 갱신·삭제한다. 범위 UPDATE/DELETE는 쓰지 않는다(갭·넥스트키 잠금이 동시에 들어오는 알림 INSERT와 교착하는 것을 피하기 위해서다). 읽음 처리는 수집 이후 들어온 새 알림을 건드리지 않는다.
+- **닫힌 매칭**: 취소·완료된 매칭의 알림도 개수·목록에서 빼지 않는다(`matchClosed`만 표시). 알림을 자동으로 읽음 처리하지도 않는다(요구사항 §7 Q-6 확정).
+- **인덱스**: `idx_notification_user`·`idx_notification_match`는 FK용 단일 컬럼이다. 안 읽은 개수는 `unread_user_id` 생성 컬럼 인덱스로 센다. FK 인덱스에 `read_at` 같은 갱신 컬럼을 넣지 않는다(위 '동시성' 규칙).
+
+### 테스트
+
+- `NotificationControllerSliceTest` 7건: 전 엔드포인트 로그인 요구, 목록 응답 형태(개인정보 없음), 파라미터 전달과 잘못된 값 400, unread-count의 3종 키 상시 포함, 읽음 204와 남의 알림 404.
+- `NotificationApiMysqlTest` 10건(실제 MySQL, `SEATSWAP_IT_*` 필요, 없으면 건너뜀): 목록의 수신자 기준 조인과 개인정보 없음, id 내림차순·unreadOnly·페이지·size 100 보정, 닫힌 매칭 알림 포함, 읽음 멱등과 404, 전체 읽음의 type 필터·수집 이후 알림 보존·대량 배치, 읽은 알림 삭제(안 읽은 것과 남의 것 보존), 교환 완료 매칭 알림의 교환 전 자리 유지, 그리고 **교착 스트레스**(한 수신자에게 제안·예약·취소가 동시에 몰리는 동안 수신자의 읽음·삭제와 본인 티켓 등록 경합을 돌려도 1213 교착이 없고 알림 개수가 맞는다).
+
+### 미구현 (알림)
+
+- 실시간 푸시(STOMP, `WebSocketConfig`는 아직 TODO)와 토스트: 다음 브랜치 `feature/notifications-realtime`.
+- 거절·채팅 종료·7일 경과·교환 완료 알림: 생성하지 않는다(`NotificationType` 확장으로 추가할 수 있다).
+- 알림 보존 기간·자동 정리 정책: 없다(사용자의 '읽은 알림 삭제'만 있다).
 
 ## 수동 검증 시나리오 (임시 MySQL, 재현용)
 
@@ -491,7 +544,7 @@ docker rm -f seatswap-tmp-match
 - 교환 이력 조회 API(`GET` 이력)와 마이페이지 화면은 다음 브랜치다.
 
 ## 다음 단계
-1. 교환 도메인 구현 계속: (완료) V4 희망 범위·희망 좌석·희망 회차, 매칭 후보 조회, V5 매칭 생성·예약·거절·취소·예약 잠금, V6 추가금 범위 단위, V7 요청 소프트 삭제, V8 한 명 예약·예약 취소, V9 교환 완료(COMPLETED, 기존 티켓 EXCHANGED + 새 티켓)·교환 이력 기록 / 남음: 교환 이력 조회 API·마이페이지 화면, 채팅, 차단(`user_block`, V10 이후)과 후보 제외 조건(위 후속 메모) (설계안 `산출물/08_ERD/exchange-schema-design.md`)
+1. 교환 도메인 구현 계속: (완료) V4 희망 범위·희망 좌석·희망 회차, 매칭 후보 조회, V5 매칭 생성·예약·거절·취소·예약 잠금, V6 추가금 범위 단위, V7 요청 소프트 삭제, V8 한 명 예약·예약 취소, V9 교환 완료(COMPLETED, 기존 티켓 EXCHANGED + 새 티켓)·교환 이력 기록, V10 알림 3종(조회·읽음·삭제 API 포함, 2026-10-11) / 남음: 교환 이력 조회 API·마이페이지 화면, 채팅, 차단(`user_block`, V11 이후), 알림 실시간 푸시(다음 브랜치)과 후보 제외 조건(위 후속 메모) (설계안 `산출물/08_ERD/exchange-schema-design.md`)
 2. 티켓 자동 비활성(회차 당일 끝 경과, 스케줄러)과 '내 티켓 인증'
 3. (완료) 후보 제시 -> 매칭 생성 -> 한 명 예약/예약 취소 -> 양쪽 '교환 수락'으로 교환 완료(V9, 2026-10-11)
 4. 채팅(WebSocketConfig 구현), 사용자 차단·신고 (후기 기능은 없음)

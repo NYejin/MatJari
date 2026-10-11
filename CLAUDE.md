@@ -36,7 +36,7 @@
 
 ## 현재 구현 현황
 
-DB는 Flyway V1~V12, 16개 테이블(performance_edit_proposal·seat_claim 포함, users·performance·performance_session·ticket·exchange_request·exchange_want_range·exchange_want_seat·exchange_want_session·exchange_match·exchange_ticket_lock·exchange_history·notification·chat_message·chat_read_state). **구현 완료**: 가입·로그인(JWT), 공연 등록·목록·상세(등록 후 수정 불가), 티켓 등록·내리기, 교환 희망 조건(범위별 추가금·소프트 삭제), 후보 조회, 제안·거절·채팅 종료, 한 명 예약·예약 취소, 교환 수락→교환 완료(기존 티켓 EXCHANGED+새 티켓, 교환 이력 기록, 교환된 좌석 안내), 내 매칭 조회, 교환 화면 5개(티켓 등록·내 티켓·희망 조건 폼·후보 목록·내 매칭), 알림 3종(새 제안·상대 예약·상대 예약 취소: 헤더 벨 말풍선, 알림 페이지, 읽은 알림 삭제, STOMP 실시간 푸시 + 연결이 끊겼을 때만 30초 폴링), 매칭별 채팅(채팅 화면에서 REST로 보내고 STOMP 사용자 큐로 받기, 읽음 표시, 종료 후 읽기 전용), 링크 기반 공연정보 자동 입력(제목·공연장·공연 기간, 회차 시각 제외), 관리자 페이지(공연 수정 제안 처리·내 티켓 인증 확인). **미구현**: 교환 이력 조회 API·마이페이지 '교환 이력' 화면, 7일 경과 알림, 차단·신고. 다음 마이그레이션 번호는 V13부터(차단 `user_block`). 상세 수치는 [STATS.md](STATS.md), 이력은 [HISTORY.md](HISTORY.md).
+DB는 Flyway V1~V12, 16개 테이블(performance_edit_proposal·seat_claim 포함, users·performance·performance_session·ticket·exchange_request·exchange_want_range·exchange_want_seat·exchange_want_session·exchange_match·exchange_ticket_lock·exchange_history·notification·chat_message·chat_read_state). **구현 완료**: 가입·로그인(JWT), 공연 등록·목록·상세(등록 후 수정 불가), 티켓 등록·내리기, 교환 희망 조건(범위별 추가금·소프트 삭제), 후보 조회, 제안·거절·채팅 종료, 한 명 예약·예약 취소, 교환 수락→교환 완료(기존 티켓 EXCHANGED+새 티켓, 교환 이력 기록, 교환된 좌석 안내), 내 매칭 조회, 교환 화면 5개(티켓 등록·내 티켓·희망 조건 폼·후보 목록·내 매칭), 알림 3종(새 제안·상대 예약·상대 예약 취소: 헤더 벨 말풍선, 알림 페이지, 읽은 알림 삭제, STOMP 실시간 푸시 + 연결이 끊겼을 때만 30초 폴링), 매칭별 채팅(채팅 화면에서 REST로 보내고 STOMP 사용자 큐로 받기, 읽음 표시, 종료 후 읽기 전용), 링크 기반 공연정보 자동 입력(제목·공연장·공연 기간, 회차 시각 제외), 관리자 페이지(공연 수정 제안 처리·내 티켓 인증 확인), 교환 이력 조회(`GET /api/exchange/history`, 마이페이지 '교환 이력' 화면 `/exchange/history`: 본인 이력만 최신순, 교환 당시 스냅샷, 읽기 전용). **미구현**: 7일 경과 알림, 차단·신고. 다음 마이그레이션 번호는 V13부터(차단 `user_block`). 상세 수치는 [STATS.md](STATS.md), 이력은 [HISTORY.md](HISTORY.md).
 
 ## 제품·교환 규칙 (확정)
 
@@ -81,7 +81,7 @@ DB는 Flyway V1~V12, 16개 테이블(performance_edit_proposal·seat_claim 포�
 
 ### 교환 수락·교환 완료
 - 화면 버튼은 **'교환 수락'**, 상태·뱃지·이력 라벨은 **'교환 완료'**를 쓴다(내부 값·API `complete`·컬럼 `a/b_completed_at`은 그대로). 티켓팅 사이트에서 실제 양도까지 끝낸 뒤 각자 누르며(화면에서는 확인 단계를 한 번 거친다), 첫 수락은 수락 시각만 기록하고 **양쪽이 모두 누르는 순간 한 트랜잭션에서** 매칭이 COMPLETED가 된다.
-- 같은 트랜잭션에서 **기존 두 티켓을 `EXCHANGED`로 바꾸고 각자 새 자리 티켓을 INSERT**한다(소유자 그대로, 회차·구역·열·번은 상대의 기존 티켓 값). 교환 완료된 매칭은 취소할 수 없다. 매칭 행의 좌석은 **항상 교환 전 자리**이고 교환 후 자리는 새 티켓·교환 이력(`exchange_history`의 old_ticket_id/new_ticket_id)에서 본다. 이력은 `(기존 자리) -> (바꾼 자리)` 스냅샷으로 `exchange_history`에 쌓이며, 마이페이지 조회 화면은 후속이다. 완료 카드는 교환 전 자리와 받은 자리를 보여준다.
+- 같은 트랜잭션에서 **기존 두 티켓을 `EXCHANGED`로 바꾸고 각자 새 자리 티켓을 INSERT**한다(소유자 그대로, 회차·구역·열·번은 상대의 기존 티켓 값). 교환 완료된 매칭은 취소할 수 없다. 매칭 행의 좌석은 **항상 교환 전 자리**이고 교환 후 자리는 새 티켓·교환 이력(`exchange_history`의 old_ticket_id/new_ticket_id)에서 본다. 이력은 `(기존 자리) -> (바꾼 자리)` 스냅샷으로 `exchange_history`에 쌓이며, 마이페이지 '교환 이력' 화면(`/exchange/history`)에서 최신순으로 본다(읽기 전용, 상대 정보 없음, 채팅 기록 보기 링크). 완료 카드는 교환 전 자리와 받은 자리를 보여준다.
 - 교환이 완료된 기존 티켓은 내 자리가 아니므로 **그 티켓의 교환 요청은 같은 트랜잭션에서 CLOSED로 닫는다.** 그 티켓에 걸려 있던 **다른 채팅 매칭은 자동 취소하지 않는다.** 그 매칭 카드에서 예약·교환 수락·교환 완료 버튼을 비활성화하고 카드 아래에 "이미 교환된 좌석이에요" 메시지를 **본인과 상대방 모두에게** 보여준다('교환됨' 여부는 티켓 상태 EXCHANGED로 판단).
 
 ### 교환 요청 (희망 조건) 수정·삭제
@@ -169,7 +169,7 @@ DB는 Flyway V1~V12, 16개 테이블(performance_edit_proposal·seat_claim 포�
 
 ## 후속 작업 목록
 
-①교환 이력 조회 API·마이페이지 '교환 이력' 화면 ②신고·차단. 로고 변경, 알림 3종, 채팅, 실시간 알림 푸시, 링크 자동 입력, 관리자 페이지는 완료.
+①신고·차단. 로고 변경, 알림 3종, 채팅, 실시간 알림 푸시, 링크 자동 입력, 관리자 페이지, 교환 이력 조회는 완료.
 
 ## 확인 필요 (열린 질문만)
 

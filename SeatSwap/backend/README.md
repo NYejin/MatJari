@@ -21,12 +21,13 @@
   - `service/AuthService`, `controller/AuthController` — POST /api/auth/signup, /login, /refresh
   - 요청 DTO는 `jakarta.validation`으로 기본 검증(이메일 형식, 비밀번호 8자 이상) 적용
 - **공연·회차 등록/조회(FR-02)는 구현 완료** (`PerformanceController`, `PerformanceService`). 공연은 회차와 함께 등록하며, 등록 후에는 아무도 제목·공연장·회차를 수정하거나 공연·회차를 삭제할 수 없다(수정은 추후 관리자 수정 제안으로만, 후속). 공연장은 공연의 텍스트 속성 `venueName`(필수, 1~100자)이다.
+- **링크 기반 공연 정보 미리보기(2026-10-12, `feature/link-autofill`)는 구현 완료**(`GET /api/performances/preview`, DB 변경 없음). 자세한 규칙은 아래 '링크 공연정보 미리보기' 절.
 - STOMP 스켈레톤(`config/WebSocketConfig`의 TODO)은 채팅 구현(V11, 2026-10-11)으로 대체됐다. 아래 '채팅 (V11)' 절 참고.
 - **티켓 등록(FR-03)은 구현 완료** (`TicketController`, `TicketService`, `SeatKeyNormalizer`). 좌석 1개를 텍스트(구역 필수, 열·번은 숫자 또는 문자)로 등록한다. 같은 회차·구역·열·번의 활성 티켓은 1개(DB `uk_ticket_active_seat`), 사용자당 활성 티켓 20개 상한(`users` 행 FOR UPDATE로 직렬화), 회차 당일 끝(다음날 0시 KST)까지만 등록할 수 있다. 교환 희망 범위·매칭·예약은 아래 교환 항목 참고. 내릴 때 예약 잠금이면 `TicketService.ensureCanDeactivate`가 409 `TICKET_RESERVED`로 막는다.
 - **교환 희망 조건 등록(FR-04 교환 요청)은 구현 완료** (`ExchangeRequestController`, `ExchangeRequestService`, `WantSeatExpander`, Flyway V4). 티켓 하나에 미삭제 요청 1개(범위별 추가금 유형·희망 회차 우선순위·희망 좌석 범위)를 등록·조회·수정·소프트 삭제한다. 범위는 (구역, 열 from~to, 번 from~to)로 입력하면 개별 좌석으로 펼쳐 `exchange_want_seat`에 저장한다. **매칭 후보 조회**(`GET /api/exchange/requests/{id}/candidates`, 읽기 전용)는 구현됐다. 티켓을 내리면(`DELETE /api/tickets/{id}`) 그 티켓의 교환 요청은 CLOSED로 바뀐다.
 - **매칭 생성·예약(FR-04 교환 흐름 일부)은 구현 완료** (`ExchangeMatchController`, `ExchangeMatchService`, Flyway V5). 후보를 골라 매칭(채팅 단계, CHATTING)을 만들고, 둘 중 한 명이 예약하면 RESERVED가 되어 두 티켓이 잠기고, 누구든 예약을 취소해 CHATTING으로 되돌릴 수 있다(`reserve`/`unreserve`, Flyway V8). 채팅 종료(취소)·거절은 CHATTING에서만 가능하다. **교환 완료는 구현 완료(2026-10-11, V9)**: 양쪽 '교환 수락'(`complete`)으로 COMPLETED, 기존 티켓 EXCHANGED + 새 티켓, `exchange_history` 기록(아래 '교환 완료' 절). **아직 없는 것**: 교환 이력 조회 API·마이페이지 화면(기록은 구현, 조회는 다음 브랜치), 알림 실시간 푸시(STOMP, 다음 브랜치), 사용자 차단(`user_block`, V12 예정). 후보 '예약 중' 뱃지는 폐기(후보 목록은 예약 잠긴 티켓을 계속 제외). (내 매칭 조회 `GET /api/exchange/matches/me`·`/{id}`는 구현됨) 아래 '매칭 API' 참고.
 - **알림 3종(R1-3) 구현 완료(2026-10-11, `feature/notifications`, V10)**: 새 제안·상대 예약·상대 예약 취소를 `notification`에 쌓고, 조회·안 읽은 개수·읽음·모두 읽음·읽은 알림 삭제 API 5개를 제공한다. 자세한 규칙은 아래 '알림 (V10)' 절. 실시간 푸시(STOMP 신호)는 2026-10-11 `feature/notifications-realtime`에서 구현됐다(아래 '알림 실시간 푸시' 절). 토스트는 만들지 않았다.
-- 테스트 수치(2026-10-11 기준, `feature/chat`): 기본 `./gradlew test`는 전체 595건 중 140건을 건너뛰고 0 실패(실행 455건)다. 임시 MySQL을 붙인 전체 실행은 612건 통과한다(채팅 전송·읽음·STOMP IT 포함). 실제 MySQL이 필요한 `ExchangeCandidateQueryTest`·`ExchangeMatchMysqlTest`·`ExchangeMatchQueryMysqlTest`·`ExchangeCompleteMysqlTest`·`NotificationApiMysqlTest`·`ChatServiceMysqlTest`·`ChatSchemaMysqlTest`·`StompChatMysqlIT`·마이그레이션 테스트(V9 `MigrationV9MysqlTest` 포함)는 `SEATSWAP_IT_JDBC_URL`이 없으면 통째로 건너뛰며 리포트에 `[SKIPPED ...]` 메시지가 남는다. `SEATSWAP_IT_REQUIRED=true`와 `SEATSWAP_IT_*`를 주면 612건 실행·0 실패(건너뜀 0)다. `SEATSWAP_IT_REQUIRED=true`(또는 `CI` 환경변수가 있으면)는 건너뛰지 않고 실패한다. 주의: Gradle은 환경변수를 입력으로 보지 않아 이전 결과를 재사용하므로 환경을 바꿔 다시 돌릴 때는 `./gradlew cleanTest test`를 쓴다. 아래 '매칭 후보 조회 검증' 참고.
+- 테스트 수치(2026-10-12 기준, `feature/link-autofill`): 기본 `./gradlew test`는 632건 통과·0 실패, MySQL IT 141건은 건너뛴다(링크 자동 입력 신규 32건 포함: 파서 10, PageFetcher 9, 서비스 8, 컨트롤러 슬라이스 5). 직전 기준(2026-10-11, `feature/chat`)은 기본 595건 통과, IT 포함 612건 통과였다. 실제 MySQL이 필요한 `ExchangeCandidateQueryTest`·`ExchangeMatchMysqlTest`·`ExchangeMatchQueryMysqlTest`·`ExchangeCompleteMysqlTest`·`NotificationApiMysqlTest`·`ChatServiceMysqlTest`·`ChatSchemaMysqlTest`·`StompChatMysqlIT`·마이그레이션 테스트(V9 `MigrationV9MysqlTest` 포함)는 `SEATSWAP_IT_JDBC_URL`이 없으면 통째로 건너뛰며 리포트에 `[SKIPPED ...]` 메시지가 남는다. `SEATSWAP_IT_REQUIRED=true`와 `SEATSWAP_IT_*`를 주면 IT 포함 전체 실행이 된다(2026-10-12 IT 포함 실행은 재확인하지 않았다). `SEATSWAP_IT_REQUIRED=true`(또는 `CI` 환경변수가 있으면)는 건너뛰지 않고 실패한다. 주의: Gradle은 환경변수를 입력으로 보지 않아 이전 결과를 재사용하므로 환경을 바꿔 다시 돌릴 때는 `./gradlew cleanTest test`를 쓴다. 아래 '매칭 후보 조회 검증' 참고.
 
 ## 인증 API
 
@@ -45,8 +46,40 @@
 | GET | /api/users/me | 내 정보 조회 |
 | GET | /api/performances | 공연 목록 (제목 검색 query, page, size, asOf) |
 | GET | /api/performances/lookup | 링크(sourceUrl)로 기존 공연 조회 ({exists, performanceId}) |
+| GET | /api/performances/preview?sourceUrl= | 링크 공개 페이지에서 제목·공연장·공연 기간을 읽어 미리 채울 값을 돌려준다(저장하지 않음). 200 항상 `{status, site, title, venueName, periodStart, periodEnd}`. 자세한 규칙은 '링크 공연정보 미리보기' 절 |
 | GET | /api/performances/{id} | 공연 상세 |
 | POST | /api/performances | 공연 등록 (201, 같은 링크가 있으면 409 + performanceId) |
+
+## 링크 공연정보 미리보기 (2026-10-12, `feature/link-autofill`)
+
+공연 등록 1단계에서 링크를 넣으면 그 링크의 공개 페이지에서 제목·공연장·공연 기간을 읽어 2단계에 미리 채울 값을 돌려준다. **저장하지 않으며 자동 등록도 하지 않는다**(사용자가 확인·수정한 뒤 등록). DB 변경은 없다(V12 아님).
+
+- **대상 사이트**: YES24(`https://ticket.yes24.com/Perf/{id}`), 티켓링크(`https://www.ticketlink.co.kr/product/{id}`), 멜론(`https://ticket.melon.com/performance/index.htm?prodId={id}`). 인터파크는 robots.txt 때문에 제외(`UNSUPPORTED_SITE`). 로그인·캡차 우회, 내부 API(Ajax) 호출은 하지 않는다.
+- **읽는 방법(실측, 2026-10-12, 실제 공개 페이지 raw HTML)**: YES24·티켓링크는 JSON-LD `Event`의 name, location.name, startDate/endDate(날짜만)를 읽는다. 멜론은 JSON-LD·og:title이 없어 본문 `.box_consert_txt p.tit`(제목), `dt.tit_info`가 공연장인 `dd`(비어 있는 상품도 있음), `#periodInfo`(기간)를 읽는다.
+- **회차 시각은 읽지 않는다**: 세 사이트 모두 회차 목록·시각이 공개 HTML에 없고 Ajax(예매 달력)로만 온다. 그래서 회차는 채우지 않고, 기간이 있으면 회차 입력 근처에 기간만 안내한다(시작=끝이면 날짜 하나).
+- **robots.txt 해석**: ticket.yes24.com·ticket.melon.com의 robots.txt는 규칙 대신 오류 페이지를 돌려줘 규칙이 없는 것으로 해석했다. 티켓링크는 상품 상세를 허용하고 `/reserve`·`/my`·`/ids`·`/facility`·`/search`는 금지한다.
+
+### API
+
+| Method | Path | 설명 |
+|---|---|---|
+| GET | /api/performances/preview?sourceUrl= | 로그인 필요. 200 항상 `{status, site, title, venueName, periodStart, periodEnd}`. `status`는 OK·UNSUPPORTED_SITE·NO_INFO·FETCH_FAILED, `site`는 yes24·ticketlink·melon·null |
+
+- 링크 형식 오류는 400(기존 `SourceKeyResolver` 검증). 사용자당 분당 10회를 넘으면 429 `PREVIEW_RATE_LIMITED`와 `Retry-After`를 준다(형식 오류 400도 횟수에 센다). 사이트별 분당 30회·동시 실행 4개를 넘으면 429가 아니라 즉시 `FETCH_FAILED`다.
+- 읽은 문자열은 태그를 지우고 공백을 정리하며 제어 문자를 뺀다. 제목 200자, 공연장 100자를 넘으면 그 필드만 null이다.
+- 결과 캐시: 키 `site:id`, 10분, 최대 200개(LRU). OK·NO_INFO만 저장하고 FETCH_FAILED는 저장하지 않는다.
+
+### SSRF 방어
+
+- 사용자가 준 URL은 요청하지 않는다. `SourceKeyResolver.resolve`의 키가 `yes24:{숫자 id}`·`ticketlink:{id}`·`melon:{id}`일 때만 진행하고, 고정 템플릿 3종으로 URL을 직접 만든다. 그 밖(`url:` 일반 키, 인터파크, 잘못된 id)은 UNSUPPORTED_SITE이며 요청하지 않는다.
+- `PageFetcher`(JDK HttpClient): https만 허용하고 리다이렉트를 따라가지 않는다(3xx는 FETCH_FAILED). 응답 전에 DNS 해석 주소가 모두 공인 IP인지 확인한다(루프백·사설·링크로컬·CGNAT·멀티캐스트·IPv6 ULA·IPv4-mapped 차단). 연결 5초, 전체 10초, 본문 2 MiB 상한, Content-Type `text/html`, `Accept-Encoding: identity`, User-Agent `SeatSwapBot/0.1 (+portfolio project; contact: ...)`, 쿠키·인증 없음.
+- 알려진 한계: 검증한 IP로 연결을 고정(pinning)하지 않는다. 대상이 코드에 고정된 공개 도메인 3개라 DNS를 공격자가 바꿀 수 없다는 전제에 기댄다.
+
+### 구조와 테스트
+
+- 구조: `service/linkinfo/PageFetcher`, `LinkInfoParsers`(사이트별 파서 3종과 `ParsedInfo`), `PerformancePreviewService`(속도 제한 → resolve → 키 판별 → 캐시 → 세마포어 → fetch → parse), `dto/response/PerformancePreviewResponse`. 설정은 `seatswap.linkinfo.*`(application.yml). 컨트롤러는 `PerformanceController`의 `/preview`, 429 핸들러는 `GlobalExceptionHandler`.
+- 테스트 신규 32건: 파서 10, PageFetcher 9, 서비스 8, 컨트롤러 슬라이스 5. 외부 인터넷 접속 테스트는 없다(파서는 실측 구조를 줄인 fixture로 검증).
+- 알려진 한계: 사이트 HTML이 바뀌면 NO_INFO가 된다(어댑터 취약성). 속도 제한·캐시·세마포어는 단일 인스턴스 메모리다. 티켓링크·멜론 상품 페이지는 공연장이 비어 있을 수 있다.
 
 ## 티켓 API
 
@@ -511,7 +544,7 @@ unread-count 예시: `{"total":3,"byType":{"PROPOSAL_RECEIVED":2,"MATCH_RESERVED
 - 토스트는 만들지 않았다. 필요해지면 후속으로 다시 정한다.
 
 ### 다음 작업
-- 링크 기반 공연정보 자동 입력 → 관리자 페이지 → 교환 이력 조회(API·마이페이지 화면) → 차단·신고(`user_block`, V12) 순서다.
+- 관리자 페이지 → 교환 이력 조회(API·마이페이지 화면) → 차단·신고(`user_block`, V12) 순서다. (링크 자동 입력은 2026-10-12 구현 완료.)
 - 7일 경과 알림은 여전히 미구현이다.
 
 ## 수동 검증 시나리오 (임시 MySQL, 재현용)

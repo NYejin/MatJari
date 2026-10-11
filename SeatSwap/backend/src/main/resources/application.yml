@@ -49,3 +49,13 @@ seatswap:
     # 토큰 만료·CONNECT 하지 않은 세션을 닫는 주기와 CONNECT 대기 시한
     sweep-interval-ms: ${SEATSWAP_WS_SWEEP_INTERVAL_MS:30000}
     connect-timeout-ms: ${SEATSWAP_WS_CONNECT_TIMEOUT_MS:10000}
+  linkinfo:
+    # 링크 기반 공연 정보 읽기(공개 HTML). 요청 대상은 코드에 고정된 3개 사이트의 고정 템플릿 URL뿐이다.
+    connect-timeout-ms: ${SEATSWAP_LINKINFO_CONNECT_TIMEOUT_MS:5000}
+    request-timeout-ms: ${SEATSWAP_LINKINFO_REQUEST_TIMEOUT_MS:10000}
+    max-bytes: ${SEATSWAP_LINKINFO_MAX_BYTES:2097152}
+    cache-ttl-seconds: ${SEATSWAP_LINKINFO_CACHE_TTL_SECONDS:600}
+    cache-max-entries: ${SEATSWAP_LINKINFO_CACHE_MAX_ENTRIES:200}
+    user-per-minute: ${SEATSWAP_LINKINFO_USER_PER_MINUTE:10}
+    site-per-minute: ${SEATSWAP_LINKINFO_SITE_PER_MINUTE:30}
+    max-concurrent: ${SEATSWAP_LINKINFO_MAX_CONCURRENT:4}

@@ -1,6 +1,7 @@
 package com.seatswap.exception;
 
 import com.seatswap.service.ChatRateLimiter;
+import com.seatswap.service.linkinfo.PerformancePreviewService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.PessimisticLockingFailureException;
@@ -62,6 +63,18 @@ public class GlobalExceptionHandler {
     // 429 — 채팅 전송 속도 제한: {"code":"CHAT_RATE_LIMITED","message":..,"retryAfterSeconds":n} + Retry-After 헤더
     @ExceptionHandler(ChatRateLimiter.ChatRateLimitedException.class)
     public ResponseEntity<Map<String, Object>> handleChatRateLimited(ChatRateLimiter.ChatRateLimitedException e) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("code", e.getCode());
+        body.put("message", e.getMessage());
+        body.put("retryAfterSeconds", e.getRetryAfterSeconds());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", String.valueOf(e.getRetryAfterSeconds())).body(body);
+    }
+
+    // 429 — 링크 미리보기 속도 제한: {"code":"PREVIEW_RATE_LIMITED","message":..,"retryAfterSeconds":n} + Retry-After 헤더
+    @ExceptionHandler(PerformancePreviewService.PreviewRateLimitedException.class)
+    public ResponseEntity<Map<String, Object>> handlePreviewRateLimited(
+            PerformancePreviewService.PreviewRateLimitedException e) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("code", e.getCode());
         body.put("message", e.getMessage());

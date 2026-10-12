@@ -1,6 +1,7 @@
 package com.seatswap.service.social;
 
 import com.seatswap.domain.SocialProvider;
+import com.seatswap.exception.AccountSuspendedException;
 import com.seatswap.service.social.SocialStubServer.Reply;
 import com.seatswap.testsupport.RealMysqlSupport;
 import org.junit.jupiter.api.AfterAll;
@@ -30,8 +31,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 소셜 계정 연결·해제 실제 MySQL 통합 테스트(제공자는 JDK HttpServer 스텁). SEATSWAP_IT_* 환경변수가 있을 때만 실행한다.
- * 동시 해제 vs 해제(마지막 로그인 수단 보호), 동시 연결 중복(ALREADY_LINKED), 서로 다른 사용자의 같은 제공자 계정 동시 연결(ALREADY_LINKED_OTHER),
- * 연결 후 그 소셜 계정으로 로그인이 같은 사용자로 되는지를 검증한다.
+ * 연결은 2단계다: 콜백이 연결 확정 코드를 발급하고(DB 저장 없음), 인증된 본인이 confirm 으로 확정할 때만 저장한다.
+ * 동시 해제 vs 해제(마지막 로그인 수단 보호), 동시 확정 중복(SOCIAL_ALREADY_LINKED), 서로 다른 사용자의 같은 제공자 계정 동시 확정(SOCIAL_LINKED_OTHER),
+ * 확정 후 그 소셜 계정으로 로그인이 같은 사용자로 되는지, 콜백만으로는 저장되지 않는지, 남의 코드로 확정할 수 없는지를 검증한다.
  */
 @ExtendWith(RealMysqlSupport.Condition.class)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
@@ -118,6 +120,28 @@ class SocialLinkMysqlTest {
         return new String[]{param(a.location(), "state"), a.setCookie().substring("ss_oauth=".length(), a.setCookie().indexOf(';'))};
     }
 
+    private static final String LINK_CODE = "#linkCode=";
+
+    /** 콜백 결과 location 에서 연결 확정 코드를 꺼낸다. */
+    private static String linkCode(String location) {
+        assertThat(location).startsWith("http://localhost:5173/me#linkCode=");
+        return location.substring(location.indexOf(LINK_CODE) + LINK_CODE.length());
+    }
+
+    /** 연결 모드 authorize·콜백까지 진행해 연결 확정 코드를 돌려준다(저장은 하지 않는다). */
+    private String callbackForCode(long userId, SocialProvider provider) {
+        String[] c = prepareLink(userId, provider);
+        return linkCode(socialAuthService.callback(provider.getPath(), "code", c[0], null, c[1]).location());
+    }
+
+    private String confirm(long userId, String code) {
+        try {
+            return socialAccountService.confirm(userId, code).provider();
+        } catch (SocialAuthException e) {
+            return e.getCode();
+        }
+    }
+
     private List<String> runConcurrently(List<Callable<String>> tasks) throws Exception {
         ExecutorService pool = Executors.newFixedThreadPool(tasks.size());
         try {
@@ -143,12 +167,12 @@ class SocialLinkMysqlTest {
     // ------------------------------------------------------------------
 
     @Test
-    void 연결_후_그_소셜_계정으로_로그인하면_같은_사용자이고_새_계정을_만들지_않는다() {
+    void 콜백은_저장하지_않고_확정해야_연결되며_그_소셜_계정으로_로그인하면_같은_사용자다() {
         long userId = insertUser("me@example.com", true);
         STUB.on("/userinfo", Reply.json(SocialStubServer.userinfo(SocialProvider.GOOGLE, "sub-link", "different@example.com", true, "구글닉")));
-        String[] c = prepareLink(userId, SocialProvider.GOOGLE);
-        String location = socialAuthService.callback("google", "code", c[0], null, c[1]).location();
-        assertThat(location).isEqualTo("http://localhost:5173/me?socialLinked=google");
+        String code = callbackForCode(userId, SocialProvider.GOOGLE);
+        assertThat(count("social_account")).isZero(); // 콜백만으로는 저장되지 않는다
+        assertThat(socialAccountService.confirm(userId, code).provider()).isEqualTo("google");
         assertThat(count("social_account")).isEqualTo(1);
         assertThat(count("users")).isEqualTo(1);
 
@@ -158,6 +182,18 @@ class SocialLinkMysqlTest {
                 a.setCookie().substring("ss_oauth=".length(), a.setCookie().indexOf(';'))).location();
         assertThat(loc).contains("/auth/callback#code=");
         assertThat(count("users")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT user_id FROM social_account", Long.class)).isEqualTo(userId);
+    }
+
+    @Test
+    void 남의_코드로_확정하면_400이고_코드는_소진되며_저장되지_않는다_피해자_계정에_붙지_않는다() {
+        long attacker = insertUser("attacker@example.com", true);
+        long victim = insertUser("victim@example.com", true);
+        STUB.on("/userinfo", Reply.json(SocialStubServer.userinfo(SocialProvider.GOOGLE, "victim-sub", null, true, "피해자")));
+        String code = callbackForCode(attacker, SocialProvider.GOOGLE); // 공격자 티켓으로 시작한 연결(제공자 계정은 피해자 것)
+        assertThat(confirm(victim, code)).isEqualTo("INVALID_LINK_CODE"); // 피해자 세션에서 확정 시도
+        assertThat(confirm(attacker, code)).isEqualTo("INVALID_LINK_CODE"); // 이미 소진
+        assertThat(count("social_account")).isZero();
     }
 
     @Test
@@ -202,55 +238,68 @@ class SocialLinkMysqlTest {
     }
 
     @Test
-    void 같은_사용자가_같은_소셜_계정을_동시에_연결하면_하나만_성공하고_나머지는_ALREADY_LINKED() throws Exception {
+    void 같은_사용자가_같은_소셜_계정을_동시에_확정하면_하나만_성공하고_나머지는_SOCIAL_ALREADY_LINKED() throws Exception {
         int threads = 6;
         for (int round = 0; round < 5; round++) {
             jdbc.update("DELETE FROM social_account");
             jdbc.update("DELETE FROM users");
             long userId = insertUser("dup" + round + "@example.com", true);
             STUB.on("/userinfo", Reply.json(SocialStubServer.userinfo(SocialProvider.GOOGLE, "dup-" + round, null, true, "구글닉")));
-            List<String[]> prepared = new ArrayList<>();
+            List<String> codes = new ArrayList<>();
             for (int i = 0; i < threads; i++) {
-                prepared.add(prepareLink(userId, SocialProvider.GOOGLE));
+                codes.add(callbackForCode(userId, SocialProvider.GOOGLE));
             }
             List<Callable<String>> tasks = new ArrayList<>();
-            for (String[] p : prepared) {
-                tasks.add(() -> socialAuthService.callback("google", "c", p[0], null, p[1]).location());
+            for (String code : codes) {
+                tasks.add(() -> confirm(userId, code));
             }
             List<String> results = runConcurrently(tasks);
-            assertThat(results.stream().filter(l -> l.endsWith("/me?socialLinked=google")).count()).isEqualTo(1);
-            assertThat(results.stream().filter(l -> l.endsWith("/me?socialLinkError=ALREADY_LINKED")).count()).isEqualTo(threads - 1);
+            assertThat(results.stream().filter(r -> r.equals("google")).count()).isEqualTo(1);
+            assertThat(results.stream().filter(r -> r.equals("SOCIAL_ALREADY_LINKED")).count()).isEqualTo(threads - 1);
             assertThat(count("social_account")).isEqualTo(1);
         }
     }
 
     @Test
-    void 서로_다른_사용자가_같은_소셜_계정을_동시에_연결하면_하나만_성공하고_나머지는_ALREADY_LINKED_OTHER() throws Exception {
+    void 서로_다른_사용자가_같은_소셜_계정을_동시에_확정하면_하나만_성공하고_나머지는_SOCIAL_LINKED_OTHER() throws Exception {
         for (int round = 0; round < 5; round++) {
             jdbc.update("DELETE FROM social_account");
             jdbc.update("DELETE FROM users");
             long u1 = insertUser("a" + round + "@example.com", true);
             long u2 = insertUser("b" + round + "@example.com", true);
-            STUB.on("/userinfo", Reply.json(SocialStubServer.userinfo(SocialProvider.KAKAO, "shared-" + round, null, true, "카카오닉")));
-            String[] c1 = prepareLink(u1, SocialProvider.KAKAO);
-            String[] c2 = prepareLink(u2, SocialProvider.KAKAO);
-            List<String> results = runConcurrently(List.of(
-                    () -> socialAuthService.callback("kakao", "c", c1[0], null, c1[1]).location(),
-                    () -> socialAuthService.callback("kakao", "c", c2[0], null, c2[1]).location()));
-            assertThat(results).anyMatch(l -> l.endsWith("/me?socialLinked=kakao"));
-            assertThat(results).anyMatch(l -> l.endsWith("/me?socialLinkError=ALREADY_LINKED_OTHER"));
+            // 카카오 userinfo 의 id 는 JSON 숫자여야 한다(스텁이 따옴표 없이 넣으므로 숫자 문자열을 쓴다)
+            STUB.on("/userinfo", Reply.json(SocialStubServer.userinfo(SocialProvider.KAKAO, String.valueOf(9000 + round), null, true, "카카오닉")));
+            String c1 = callbackForCode(u1, SocialProvider.KAKAO);
+            String c2 = callbackForCode(u2, SocialProvider.KAKAO);
+            List<String> results = runConcurrently(List.of(() -> confirm(u1, c1), () -> confirm(u2, c2)));
+            assertThat(results).containsExactlyInAnyOrder("kakao", "SOCIAL_LINKED_OTHER");
             assertThat(count("social_account")).isEqualTo(1);
         }
     }
 
     @Test
+    void 확정은_이미_다른_사용자에_연결된_제공자_계정이면_SOCIAL_LINKED_OTHER_내가_이미_가진_제공자면_SOCIAL_ALREADY_LINKED() {
+        long u1 = insertUser("x@example.com", true);
+        long u2 = insertUser("y@example.com", true);
+        insertAccount(u1, SocialProvider.GOOGLE, "taken");
+        STUB.on("/userinfo", Reply.json(SocialStubServer.userinfo(SocialProvider.GOOGLE, "taken", null, true, "닉")));
+        assertThat(confirm(u2, callbackForCode(u2, SocialProvider.GOOGLE))).isEqualTo("SOCIAL_LINKED_OTHER");
+        STUB.on("/userinfo", Reply.json(SocialStubServer.userinfo(SocialProvider.GOOGLE, "another", null, true, "닉")));
+        String code = callbackForCode(u2, SocialProvider.GOOGLE); // 이 시점에는 u2 가 구글을 갖고 있지 않다
+        insertAccount(u2, SocialProvider.GOOGLE, "already-mine");
+        assertThat(confirm(u2, code)).isEqualTo("SOCIAL_ALREADY_LINKED");
+        assertThat(count("social_account")).isEqualTo(2);
+    }
+
+    @Test
     void 정지된_사용자의_연결은_거부되고_행이_늘지_않는다() {
         long userId = insertUser("sus@example.com", true);
-        jdbc.update("INSERT INTO user_sanction (user_id, type, note, starts_at, ends_at, created_by_id, created_at) VALUES (?, 'SUSPEND', '테스트', NOW(6) - INTERVAL 1 HOUR, NULL, ?, NOW(6))", userId, userId);
+        long adminId = insertUser("admin@example.com", true);
+        jdbc.update("UPDATE users SET role = 'ADMIN' WHERE id = ?", adminId);
         STUB.on("/userinfo", Reply.json(SocialStubServer.userinfo(SocialProvider.GOOGLE, "sus-1", null, true, "닉")));
-        String[] c = prepareLink(userId, SocialProvider.GOOGLE);
-        String location = socialAuthService.callback("google", "c", c[0], null, c[1]).location();
-        assertThat(location).startsWith("http://localhost:5173/me?socialLinkError=ACCOUNT_SUSPENDED");
+        String code = callbackForCode(userId, SocialProvider.GOOGLE); // 정지 전에 받은 확정 코드
+        jdbc.update("INSERT INTO user_sanction (user_id, type, note, starts_at, ends_at, created_by_id, created_at) VALUES (?, 'SUSPEND', '테스트', NOW(6) - INTERVAL 1 HOUR, NULL, ?, NOW(6))", userId, adminId);
+        assertThatThrownBy(() -> socialAccountService.confirm(userId, code)).isInstanceOf(AccountSuspendedException.class);
         assertThat(count("social_account")).isZero();
     }
 }

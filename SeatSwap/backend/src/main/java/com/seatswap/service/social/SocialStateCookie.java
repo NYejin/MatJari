@@ -102,6 +102,24 @@ public class SocialStateCookie {
         return Optional.of(new Verified(parts[1], parts[2], linkUserId));
     }
 
+    /**
+     * 서명 검증 없이 쿠키 값의 'linkUserId 칸(5칸 중 4번째)이 양의 정수인가'만 본다. 실패 리다이렉트 목적지(/me 또는 /login)를
+     * 고르는 용도일 뿐 보안 판단에 쓰지 않는다(목적지는 둘 다 설정으로 고정된 경로).
+     */
+    public static boolean looksLikeLinkMode(String cookieValue) {
+        if (cookieValue == null || cookieValue.isEmpty() || cookieValue.length() > MAX_VALUE_LENGTH) {
+            return false;
+        }
+        try {
+            int dot = cookieValue.indexOf('.');
+            String encoded = dot < 0 ? cookieValue : cookieValue.substring(0, dot);
+            String[] parts = new String(Base64.getUrlDecoder().decode(encoded), StandardCharsets.UTF_8).split("\\|", -1);
+            return parts.length == 5 && !parts[3].isEmpty() && Long.parseLong(parts[3]) > 0;
+        } catch (IllegalArgumentException e) { // Base64 오류·NumberFormatException
+            return false;
+        }
+    }
+
     /** 두 문자열을 상수시간으로 비교한다(null 이면 false). */
     public static boolean constantTimeEquals(String a, String b) {
         if (a == null || b == null) {

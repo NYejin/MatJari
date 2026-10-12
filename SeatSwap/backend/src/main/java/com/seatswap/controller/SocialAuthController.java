@@ -59,10 +59,11 @@ public class SocialAuthController {
                                          @RequestParam(required = false) String state,
                                          @RequestParam(required = false) String error,
                                          HttpServletRequest request) {
+        String cookie = cookieValue(request);
         SocialAuthService.CallbackResult result =
                 socialAuthService.callbackRateLimited(request.getRemoteAddr())
-                        ? socialAuthService.busyResult()
-                        : socialAuthService.callback(provider, code, state, error, cookieValue(request));
+                        ? socialAuthService.busyResult(cookie)
+                        : socialAuthService.callback(provider, code, state, error, cookie);
         return ResponseEntity.status(302)
                 .location(URI.create(result.location()))
                 .header(HttpHeaders.SET_COOKIE, result.clearCookie())

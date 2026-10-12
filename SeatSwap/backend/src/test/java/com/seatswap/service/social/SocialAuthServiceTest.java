@@ -48,7 +48,7 @@ class SocialAuthServiceTest {
     private UserRepository userRepository;
     private AccountSuspensionChecker suspensionChecker;
     private SocialLinkTicketStore linkTicketStore;
-    private SocialAccountLinker accountLinker;
+    private SocialLinkConfirmStore confirmStore;
     private SocialAuthService service;
 
     @BeforeEach
@@ -64,13 +64,13 @@ class SocialAuthServiceTest {
         loginService = mock(SocialLoginService.class);
         codeStore = new SocialLoginCodeStore(clock, props);
         linkTicketStore = new SocialLinkTicketStore(clock, props);
-        accountLinker = mock(SocialAccountLinker.class);
+        confirmStore = new SocialLinkConfirmStore(clock, props);
         authService = mock(AuthService.class);
         userRepository = mock(UserRepository.class);
         suspensionChecker = mock(AccountSuspensionChecker.class);
         service = new SocialAuthService(props, stateCookie, providerClient, loginService, codeStore,
                 new SocialRateLimiter(clock, props), authService, userRepository, suspensionChecker,
-                linkTicketStore, accountLinker);
+                linkTicketStore, confirmStore);
     }
 
     private static Map<String, String> query(String location) {
@@ -231,15 +231,15 @@ class SocialAuthServiceTest {
     @Test
     void 성공하면_프래그먼트로_일회용_코드를_보내고_쿠키를_지우며_토큰을_싣지_않는다() {
         String cookie = validCookie(SocialProvider.GOOGLE, "st");
-        when(providerClient.exchangeCode(SocialProvider.GOOGLE, "the-code", "verifier-1", "st")).thenReturn("AT");
+        when(providerClient.exchangeCode(SocialProvider.GOOGLE, "the-code", "verifier-1", "st")).thenReturn("access-token-SECRET");
         SocialProfile profile = new SocialProfile("sub-1", "a@b.com", "닉");
-        when(providerClient.fetchProfile(SocialProvider.GOOGLE, "AT")).thenReturn(profile);
+        when(providerClient.fetchProfile(SocialProvider.GOOGLE, "access-token-SECRET")).thenReturn(profile);
         when(loginService.loginOrSignup(SocialProvider.GOOGLE, profile)).thenReturn(42L);
 
         SocialAuthService.CallbackResult r = service.callback("google", "the-code", "st", null, cookie);
 
         assertThat(r.location()).startsWith("http://localhost:5173/auth/callback#code=");
-        assertThat(r.location()).doesNotContain("the-code").doesNotContain("AT").doesNotContain("?");
+        assertThat(r.location()).doesNotContain("the-code").doesNotContain("access-token-SECRET").doesNotContain("?");
         assertThat(r.clearCookie()).contains("Max-Age=0");
         String loginCode = r.location().substring(r.location().indexOf("#code=") + 6);
         assertThat(codeStore.consume(loginCode)).contains(42L);
@@ -308,14 +308,14 @@ class SocialAuthServiceTest {
 
     @Test
     void link_authorize는_티켓을_소비하고_쿠키에_linkUserId를_서명해_담는다() {
-        String ticket = linkTicketStore.issue(42L);
+        String ticket = linkTicketStore.issue(42L, SocialProvider.GOOGLE);
         SocialAuthService.AuthorizeResult r = service.authorize("google", IP, ticket);
         assertThat(r.location()).startsWith("https://accounts.google.com/o/oauth2/v2/auth?");
         assertThat(r.location()).doesNotContain(ticket);
         SocialStateCookie.Verified v = stateCookie.verify(cookieValueOf(r.setCookie()), SocialProvider.GOOGLE).orElseThrow();
         assertThat(v.linkUserId()).isEqualTo(42L);
         assertThat(query(r.location()).get("state")).isEqualTo(v.state());
-        assertThat(linkTicketStore.consume(ticket)).isEmpty(); // 1회용
+        assertThat(linkTicketStore.consume(ticket, SocialProvider.GOOGLE)).isEmpty(); // 1회용
         // 같은 티켓을 다시 쓰면 제공자로 보내지 않고 /me 로 돌려보낸다
         SocialAuthService.AuthorizeResult again = service.authorize("google", IP, ticket);
         assertThat(again.location()).isEqualTo("http://localhost:5173/me?socialLinkError=INVALID_LINK");
@@ -329,102 +329,127 @@ class SocialAuthServiceTest {
             assertThat(r.location()).isEqualTo("http://localhost:5173/me?socialLinkError=INVALID_LINK");
             assertThat(r.setCookie()).isNull();
         }
-        String ticket = linkTicketStore.issue(1L);
+        String ticket = linkTicketStore.issue(1L, SocialProvider.GOOGLE);
         clock.advance(61_000);
         assertThat(service.authorize("google", IP, ticket).location()).endsWith("socialLinkError=INVALID_LINK");
     }
 
     @Test
-    void link_authorize는_비활성_제공자면_404이고_티켓을_태우지_않는다() {
-        props.getKakao().setClientId("");
-        String ticket = linkTicketStore.issue(1L);
-        assertThatThrownBy(() -> service.authorize("kakao", IP, ticket)).isInstanceOf(SocialAuthException.class);
-        assertThat(linkTicketStore.consume(ticket)).contains(1L);
+    void link_티켓은_발급된_제공자에서만_쓸_수_있고_다른_제공자면_INVALID_LINK이며_소진된다() {
+        String ticket = linkTicketStore.issue(42L, SocialProvider.GOOGLE);
+        SocialAuthService.AuthorizeResult r = service.authorize("kakao", IP, ticket);
+        assertThat(r.location()).isEqualTo("http://localhost:5173/me?socialLinkError=INVALID_LINK");
+        assertThat(r.setCookie()).isNull();
+        assertThat(linkTicketStore.consume(ticket, SocialProvider.GOOGLE)).isEmpty();
     }
 
     @Test
-    void link_콜백_성공은_로그인_코드_없이_me로_302하고_연결만_저장한다() {
+    void link_authorize는_비활성_제공자면_JSON이_아니라_me로_PROVIDER_DISABLED_302이고_티켓을_태우지_않는다() {
+        props.getKakao().setClientId("");
+        String ticket = linkTicketStore.issue(1L, SocialProvider.KAKAO);
+        for (String p : new String[]{"kakao", "facebook"}) {
+            SocialAuthService.AuthorizeResult r = service.authorize(p, IP, ticket);
+            assertThat(r.location()).isEqualTo("http://localhost:5173/me?socialLinkError=PROVIDER_DISABLED");
+            assertThat(r.setCookie()).isNull();
+        }
+        assertThat(linkTicketStore.consume(ticket, SocialProvider.KAKAO)).contains(1L);
+        // 로그인 모드는 기존 그대로 404
+        assertThatThrownBy(() -> service.authorize("kakao", IP)).isInstanceOf(SocialAuthException.class);
+    }
+
+    @Test
+    void link_authorize의_IP_속도_제한_초과는_me로_SERVER_BUSY_302이고_로그인_모드는_429() {
+        for (int i = 0; i < 30; i++) {
+            service.authorize("google", IP);
+        }
+        String ticket = linkTicketStore.issue(1L, SocialProvider.GOOGLE);
+        SocialAuthService.AuthorizeResult r = service.authorize("google", IP, ticket);
+        assertThat(r.location()).isEqualTo("http://localhost:5173/me?socialLinkError=SERVER_BUSY");
+        assertThat(r.setCookie()).isNull();
+        assertThat(linkTicketStore.consume(ticket, SocialProvider.GOOGLE)).contains(1L);
+        assertThatThrownBy(() -> service.authorize("google", IP)).isInstanceOf(SocialAuthException.class)
+                .satisfies(e -> assertThat(((SocialAuthException) e).getCode()).isEqualTo("SOCIAL_RATE_LIMITED"));
+    }
+
+    @Test
+    void link_콜백_성공은_저장하지_않고_연결_확정_코드를_프래그먼트로_보낸다() {
         stubProfile("sub-77");
         SocialAuthService.CallbackResult r = service.callback("google", "the-code", "st", null, linkCookie(SocialProvider.GOOGLE, "st", 42L));
-        assertThat(r.location()).isEqualTo("http://localhost:5173/me?socialLinked=google");
+        assertThat(r.location()).startsWith("http://localhost:5173/me#linkCode=");
+        assertThat(r.location()).doesNotContain("?").doesNotContain("sub-77").doesNotContain("the-code");
         assertThat(r.clearCookie()).contains("Max-Age=0");
-        verify(accountLinker).link(42L, SocialProvider.GOOGLE, "sub-77");
         verifyNoInteractions(loginService); // 로그인·가입 경로를 타지 않는다(이메일 일치 여부도 보지 않는다)
         assertThat(codeStore.size()).isZero();
+        String code = r.location().substring(r.location().indexOf("#linkCode=") + "#linkCode=".length());
+        assertThat(code).hasSize(43);
+        SocialLinkConfirmStore.Payload payload = confirmStore.consume(code).orElseThrow();
+        assertThat(payload.userId()).isEqualTo(42L);
+        assertThat(payload.provider()).isEqualTo(SocialProvider.GOOGLE);
+        assertThat(payload.providerUserId()).isEqualTo("sub-77");
+        assertThat(confirmStore.consume(code)).isEmpty();
     }
 
     @Test
-    void link_콜백_ALREADY_LINKED_OTHER와_ALREADY_LINKED_INVALID_LINK는_me로_돌려보낸다() {
+    void link_콜백의_확정_코드_보관이_가득이면_me로_SERVER_BUSY() {
         stubProfile("sub-77");
-        doThrow(new SocialLoginFailure(SocialError.ALREADY_LINKED_OTHER)).when(accountLinker).link(any(), any(), any());
-        assertLinkFailure(service.callback("google", "c", "st1", null, linkCookie(SocialProvider.GOOGLE, "st1", 42L)), SocialError.ALREADY_LINKED_OTHER);
-        doThrow(new SocialLoginFailure(SocialError.ALREADY_LINKED)).when(accountLinker).link(any(), any(), any());
-        assertLinkFailure(service.callback("google", "c", "st2", null, linkCookie(SocialProvider.GOOGLE, "st2", 42L)), SocialError.ALREADY_LINKED);
-        doThrow(new SocialLoginFailure(SocialError.INVALID_LINK)).when(accountLinker).link(any(), any(), any());
-        assertLinkFailure(service.callback("google", "c", "st3", null, linkCookie(SocialProvider.GOOGLE, "st3", 42L)), SocialError.INVALID_LINK);
-    }
-
-    @Test
-    void link_콜백_정지_사용자는_me로_ACCOUNT_SUSPENDED와_until() {
-        stubProfile("sub-77");
-        doThrow(new AccountSuspendedException(LocalDateTime.of(2026, 12, 25, 10, 30, 5))).when(accountLinker).link(any(), any(), any());
-        SocialAuthService.CallbackResult r = service.callback("naver", "c", "st", null, linkCookie(SocialProvider.NAVER, "st", 42L));
-        assertThat(r.location()).isEqualTo("http://localhost:5173/me?socialLinkError=ACCOUNT_SUSPENDED&until=2026-12-25T10%3A30%3A05");
-    }
-
-    @Test
-    void link_콜백_동시_중복은_제약_이름으로_ALREADY_LINKED와_OTHER를_구분한다() {
-        stubProfile("sub-77");
-        doThrow(new org.springframework.dao.DataIntegrityViolationException(
-                "could not execute statement; Duplicate entry '1-GOOGLE' for key 'social_account.uk_social_account_user_provider'"))
-                .when(accountLinker).link(any(), any(), any());
-        assertLinkFailure(service.callback("google", "c", "st1", null, linkCookie(SocialProvider.GOOGLE, "st1", 42L)), SocialError.ALREADY_LINKED);
-        doThrow(new org.springframework.dao.DataIntegrityViolationException(
-                "could not execute statement; Duplicate entry 'GOOGLE-sub-77' for key 'social_account.uk_social_account_provider_user'"))
-                .when(accountLinker).link(any(), any(), any());
-        assertLinkFailure(service.callback("google", "c", "st2", null, linkCookie(SocialProvider.GOOGLE, "st2", 42L)), SocialError.ALREADY_LINKED_OTHER);
-        // Hibernate ConstraintViolationException 의 constraintName 으로도 구분한다
-        var cve = new org.hibernate.exception.ConstraintViolationException("dup", new java.sql.SQLException("x", "23000", 1062),
-                "social_account.uk_social_account_user_provider");
-        doThrow(new org.springframework.dao.DataIntegrityViolationException("boom", cve)).when(accountLinker).link(any(), any(), any());
-        assertLinkFailure(service.callback("google", "c", "st3", null, linkCookie(SocialProvider.GOOGLE, "st3", 42L)), SocialError.ALREADY_LINKED);
-    }
-
-    @Test
-    void link_콜백의_분류_못한_오류는_me로_SERVER_BUSY() {
-        stubProfile("sub-77");
-        doThrow(new IllegalStateException("db down")).when(accountLinker).link(any(), any(), any());
+        props.setLoginCodeMax(0);
         assertLinkFailure(service.callback("google", "c", "st", null, linkCookie(SocialProvider.GOOGLE, "st", 42L)), SocialError.SERVER_BUSY);
     }
 
     @Test
-    void link_콜백도_동의거부_제공자오류는_me로_돌려보내고_state_불일치는_쿠키_검증_전이라_login으로_간다() {
+    void link_콜백의_분류_못한_오류는_me로_SERVER_BUSY() {
+        when(providerClient.exchangeCode(any(), anyString(), anyString(), anyString())).thenThrow(new IllegalStateException("boom"));
+        assertLinkFailure(service.callback("google", "c", "st", null, linkCookie(SocialProvider.GOOGLE, "st", 42L)), SocialError.SERVER_BUSY);
+    }
+
+    @Test
+    void link_콜백_동의거부_제공자오류는_me로_돌려보낸다() {
         String cookie = linkCookie(SocialProvider.GOOGLE, "st", 42L);
-        assertThat(service.callback("google", "c", "other", null, cookie).location())
-                .isEqualTo("http://localhost:5173/login?socialError=INVALID_STATE"); // 쿠키 검증 전에는 모드를 알 수 없다
         assertLinkFailure(service.callback("google", null, "st", "access_denied", cookie), SocialError.ACCESS_DENIED);
         when(providerClient.exchangeCode(any(), anyString(), anyString(), anyString()))
                 .thenThrow(new SocialProviderClient.ProviderException("status-400"));
         assertLinkFailure(service.callback("google", "c", "st2", null, linkCookie(SocialProvider.GOOGLE, "st2", 42L)), SocialError.PROVIDER_ERROR);
-        verify(accountLinker, never()).link(any(), any(), any());
+        assertThat(confirmStore.size()).isZero();
+    }
+
+    @Test
+    void 쿠키_검증_전_실패도_쿠키가_link_모드처럼_보이면_me로_보낸다_서명_검증은_하지_않는다() {
+        String good = linkCookie(SocialProvider.GOOGLE, "st", 42L);
+        // state 불일치 / 쿠키 만료 / provider 불일치 / 변조(서명 틀림, 본문은 link 모양)
+        assertLinkFailure(service.callback("google", "c", "other", null, good), SocialError.INVALID_STATE);
+        assertLinkFailure(service.callback("kakao", "c", "st", null, good), SocialError.INVALID_STATE);
+        String tampered = good.substring(0, good.length() - 2) + (good.endsWith("AA") ? "BB" : "AA");
+        assertLinkFailure(service.callback("google", "c", "st", null, tampered), SocialError.INVALID_STATE);
+        clock.advance(601_000);
+        assertLinkFailure(service.callback("google", "c", "st", null, good), SocialError.INVALID_STATE);
+        // 쿠키 없음·쓰레기·로그인 모드 쿠키는 /login
+        for (String c : new String[]{null, "garbage", stateCookie.sign(SocialProvider.GOOGLE, "st", "v")}) {
+            assertThat(service.callback("google", "c", "other", null, c).location()).isEqualTo("http://localhost:5173/login?socialError=INVALID_STATE");
+        }
+        // 속도 제한 busyResult 도 같은 규칙
+        assertThat(service.busyResult(good).location()).isEqualTo("http://localhost:5173/me?socialLinkError=SERVER_BUSY");
+        assertThat(service.busyResult(null).location()).isEqualTo("http://localhost:5173/login?socialError=SERVER_BUSY");
+        assertThat(service.busyResult(good).clearCookie()).contains("Max-Age=0");
+        verifyNoInteractions(providerClient);
     }
 
     @Test
     void link_콜백도_state는_한_번만_받는다() {
         stubProfile("sub-77");
         String cookie = linkCookie(SocialProvider.GOOGLE, "st", 42L);
-        assertThat(service.callback("google", "c", "st", null, cookie).location()).endsWith("/me?socialLinked=google");
+        assertThat(service.callback("google", "c", "st", null, cookie).location()).contains("/me#linkCode=");
         assertThat(service.callback("google", "c", "st", null, cookie).location()).endsWith("/me?socialLinkError=INVALID_STATE");
-        verify(accountLinker, times(1)).link(any(), any(), any());
+        verify(providerClient, times(1)).exchangeCode(any(), anyString(), anyString(), anyString());
+        assertThat(confirmStore.size()).isEqualTo(1);
     }
 
     @Test
-    void 로그인_모드_쿠키는_연결_경로를_타지_않는다() {
+    void 로그인_모드_쿠키는_연결_코드를_발급하지_않는다() {
         stubProfile("sub-1");
         when(loginService.loginOrSignup(any(), any())).thenReturn(5L);
         String cookie = stateCookie.sign(SocialProvider.GOOGLE, "st", "verifier-1"); // linkUserId 없음
         assertThat(service.callback("google", "c", "st", null, cookie).location()).contains("/auth/callback#code=");
-        verify(accountLinker, never()).link(any(), any(), any());
+        assertThat(confirmStore.size()).isZero();
     }
 
     // ---------------- exchange ----------------

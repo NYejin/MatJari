@@ -4,7 +4,7 @@ import { SOCIAL_PROVIDER_ORDER, type SocialProvider } from "./socialAuth";
 import { suspensionMessage } from "./suspension";
 
 // 마이페이지 소셜 계정 연결·해제 (인증 필요 — apiClient가 토큰을 붙인다).
-// 연결은 link API로 일회용 ticket이 담긴 authorizeUrl을 받아 브라우저를 보내고, 결과는 /me?socialLinked=·socialLinkError= 로 돌아온다.
+// 연결은 link API로 일회용 ticket이 담긴 authorizeUrl을 받아 브라우저를 보내고, 성공하면 /me#linkCode= 로 돌아와 confirm으로 확정하고, 실패는 /me?socialLinkError= 로 돌아온다.
 
 export interface LinkedSocialAccount {
   provider: SocialProvider;
@@ -68,15 +68,36 @@ export const PROVIDER_LABELS: Record<SocialProvider, string> = {
   naver: "네이버",
 };
 
+/**
+ * POST /api/users/me/social/confirm {code} — 콜백이 `/me#linkCode=`로 넘긴 일회용 코드로 연결을 확정한다.
+ * 코드는 1회용이라 호출부가 중복 호출하지 않도록 한다. 성공 시 서버가 provider를 주면 돌려준다.
+ */
+export async function confirmSocialLink(code: string): Promise<SocialProvider | null> {
+  const res = await apiClient.post<{ provider?: unknown } | undefined>("/users/me/social/confirm", { code });
+  const provider = res.data?.provider;
+  return isSocialProvider(provider) ? provider : null;
+}
+
 const LINK_ERROR_MESSAGES: Record<string, string> = {
+  // 호환용: 예전 콜백 쿼리 코드
   ALREADY_LINKED_OTHER: "이미 다른 계정에 연결된 소셜 계정이에요.",
   ALREADY_LINKED: "이미 연결된 제공자예요.",
   ACCESS_DENIED: "연결을 취소했어요.",
+  // confirm 오류 코드
+  INVALID_LINK_CODE: "연결 요청이 만료되었거나 올바르지 않아요. 다시 시도해 주세요.",
+  SOCIAL_ALREADY_LINKED: "이미 연결된 제공자예요.",
+  SOCIAL_LINKED_OTHER: "이미 다른 계정에 연결된 소셜 계정이에요.",
 };
 const LINK_GENERIC_ERROR = "소셜 계정을 연결하지 못했어요. 잠시 뒤 다시 시도해 주세요.";
 
-/** `?socialLinkError=` 코드 → 한국어 안내. ACCOUNT_SUSPENDED는 기존 정지 안내 문구 */
-export function socialLinkErrorMessage(code: string): string {
-  if (code === "ACCOUNT_SUSPENDED") return suspensionMessage({ until: null });
+/**
+ * `?socialLinkError=` 코드 → 한국어 안내. ACCOUNT_SUSPENDED는 기존 정지 안내 문구.
+ * until은 쿼리라 위조될 수 있어 서버 형식(yyyy-MM-ddTHH:mm...)만 반영하고 그 밖의 값은 무시한다.
+ */
+export function socialLinkErrorMessage(code: string, until?: string | null): string {
+  if (code === "ACCOUNT_SUSPENDED") {
+    const valid = !!until && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(until);
+    return suspensionMessage({ until: valid ? until : null });
+  }
   return Object.prototype.hasOwnProperty.call(LINK_ERROR_MESSAGES, code) ? LINK_ERROR_MESSAGES[code] : LINK_GENERIC_ERROR;
 }

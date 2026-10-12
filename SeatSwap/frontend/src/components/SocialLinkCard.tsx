@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { getErrorCode, parseApiError } from "../api/errors";
+import { parseSuspension, suspensionMessage } from "../api/suspension";
 import {
   PROVIDER_LABELS,
+  confirmSocialLink,
   fetchSocialLinks,
   isSocialProvider,
   requestSocialLink,
@@ -14,9 +16,59 @@ import type { SocialProvider } from "../api/socialAuth";
 import { button, ui } from "./ui";
 
 // 마이페이지 '소셜 계정 연결' 카드. 활성 제공자가 없으면 숨긴다.
-// 연결: link API → authorizeUrl로 이동 → 돌아오면 /me?socialLinked=·socialLinkError= 를 읽어 결과를 보여 주고 쿼리를 지운다.
+// 연결: link API → authorizeUrl로 이동 → 성공하면 /me#linkCode= 를 confirm API로 확정, 실패는 /me?socialLinkError= 를 읽어 보여 주고 지운다.
 
 const UNLINK_BLOCKED_HINT = "로그인 수단이 하나뿐이라 해제할 수 없어요.";
+
+interface ConfirmResult {
+  kind: "ok" | "error";
+  text: string;
+  /** 오류여도 목록을 다시 불러올지(이미 연결됨 등) */
+  reload?: boolean;
+}
+
+// 일회용 코드는 한 번만 확정해야 하므로 확정 요청은 모듈 수준 Promise 하나를 공유한다(StrictMode 이중 effect 대비).
+let confirmInflight: Promise<ConfirmResult> | null = null;
+
+/** 현재 주소의 `#linkCode=`를 읽고 즉시 주소에서 지운다 */
+function takeLinkCodeFromHash(): string | null {
+  const hash = window.location.hash;
+  if (!hash) return null;
+  const code = new URLSearchParams(hash.replace(/^#/, "")).get("linkCode");
+  if (code === null) return null;
+  window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
+  return code.trim() || "";
+}
+
+async function runConfirm(code: string): Promise<ConfirmResult> {
+  if (!code) return { kind: "error", text: socialLinkErrorMessage("INVALID_LINK_CODE") };
+  try {
+    const provider = await confirmSocialLink(code);
+    return { kind: "ok", text: provider ? `${PROVIDER_LABELS[provider]} 계정을 연결했어요.` : "소셜 계정을 연결했어요." };
+  } catch (err) {
+    const suspension = parseSuspension(err);
+    if (suspension) return { kind: "error", text: suspensionMessage(suspension) };
+    const errCode = getErrorCode(err);
+    if (errCode && Object.prototype.hasOwnProperty.call(CONFIRM_CODES, errCode)) {
+      return { kind: "error", text: socialLinkErrorMessage(errCode), reload: errCode !== "INVALID_LINK_CODE" };
+    }
+    return { kind: "error", text: parseApiError(err, socialLinkErrorMessage("")).message };
+  }
+}
+
+const CONFIRM_CODES = { INVALID_LINK_CODE: 1, SOCIAL_ALREADY_LINKED: 1, SOCIAL_LINKED_OTHER: 1 };
+
+/** 코드가 있으면 확정을 시작하고(이미 진행 중이면 같은 Promise 공유), 없으면 null */
+function startConfirm(): Promise<ConfirmResult> | null {
+  if (confirmInflight) return confirmInflight;
+  const code = takeLinkCodeFromHash();
+  if (code === null) return null;
+  const p = runConfirm(code).finally(() => {
+    if (confirmInflight === p) confirmInflight = null;
+  });
+  confirmInflight = p;
+  return p;
+}
 
 function linkedDate(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
@@ -32,23 +84,6 @@ export default function SocialLinkCard() {
   const [confirming, setConfirming] = useState<SocialProvider | null>(null);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
 
-  // 연결 결과 쿼리를 한 번 읽고 지운다 (replace — 뒤로 가기에 남기지 않음)
-  const linkedParam = params.get("socialLinked");
-  const errorParam = params.get("socialLinkError");
-  useEffect(() => {
-    if (linkedParam === null && errorParam === null) return;
-    if (errorParam !== null) {
-      setMessage({ kind: "error", text: socialLinkErrorMessage(errorParam) });
-    } else if (isSocialProvider(linkedParam)) {
-      setMessage({ kind: "ok", text: `${PROVIDER_LABELS[linkedParam]} 계정을 연결했어요.` });
-    }
-    const next = new URLSearchParams(params);
-    next.delete("socialLinked");
-    next.delete("socialLinkError");
-    const search = next.toString();
-    navigate({ search: search ? `?${search}` : "" }, { replace: true });
-  }, [linkedParam, errorParam, params, navigate]);
-
   const load = useCallback(async () => {
     try {
       setStatus(await fetchSocialLinks());
@@ -61,6 +96,40 @@ export default function SocialLinkCard() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // 성공 콜백: /me#linkCode= 를 읽어 바로 지우고 confirm으로 확정한다. 요청은 모듈 수준 Promise로 1번만 나간다.
+  useEffect(() => {
+    let active = true;
+    const p = startConfirm();
+    if (!p) return;
+    void p.then((result) => {
+      if (!active) return;
+      setMessage(result);
+      if (result.kind === "ok" || result.reload) void load();
+    });
+    return () => {
+      active = false;
+    };
+  }, [load]);
+
+  // 실패 콜백 쿼리를 한 번 읽고 지운다 (replace — 뒤로 가기에 남기지 않음). socialLinked·ALREADY_LINKED(_OTHER)는 호환용으로 무시 가능하게 둔다.
+  const linkedParam = params.get("socialLinked");
+  const errorParam = params.get("socialLinkError");
+  const untilParam = params.get("until");
+  useEffect(() => {
+    if (linkedParam === null && errorParam === null) return;
+    if (errorParam !== null) {
+      setMessage({ kind: "error", text: socialLinkErrorMessage(errorParam, untilParam) });
+    } else if (isSocialProvider(linkedParam)) {
+      setMessage({ kind: "ok", text: `${PROVIDER_LABELS[linkedParam]} 계정을 연결했어요.` });
+    }
+    const next = new URLSearchParams(params);
+    next.delete("socialLinked");
+    next.delete("socialLinkError");
+    next.delete("until");
+    const search = next.toString();
+    navigate({ search: search ? `?${search}` : "" }, { replace: true });
+  }, [linkedParam, errorParam, untilParam, params, navigate]);
 
   const handleLink = async (provider: SocialProvider) => {
     if (busy) return;

@@ -1,9 +1,12 @@
 package com.seatswap.controller;
 
+import com.seatswap.dto.request.SocialConfirmRequest;
 import com.seatswap.dto.response.SocialAccountsResponse;
+import com.seatswap.dto.response.SocialConfirmResponse;
 import com.seatswap.dto.response.SocialLinkResponse;
 import com.seatswap.security.AuthUserPrincipal;
 import com.seatswap.service.social.SocialAccountService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
@@ -12,6 +15,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -39,6 +43,14 @@ public class UserSocialController {
                                                    @PathVariable String provider) {
         return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, NO_STORE)
                 .body(socialAccountService.startLink(principal.userId(), provider));
+    }
+
+    /** 연결 확정: 콜백이 프래그먼트로 넘긴 일회용 코드를 로그인한 본인이 제출한다(없음·만료·다른 사용자 400 INVALID_LINK_CODE). */
+    @PostMapping("/confirm")
+    public ResponseEntity<SocialConfirmResponse> confirm(@AuthenticationPrincipal AuthUserPrincipal principal,
+                                                         @Valid @RequestBody SocialConfirmRequest body) {
+        return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, NO_STORE)
+                .body(socialAccountService.confirm(principal.userId(), body.code()));
     }
 
     @DeleteMapping("/{provider}")

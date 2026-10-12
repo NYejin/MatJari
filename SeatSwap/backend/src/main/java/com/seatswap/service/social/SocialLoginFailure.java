@@ -10,7 +10,7 @@ public class SocialLoginFailure extends RuntimeException {
     public enum SocialError {
         INVALID_STATE, ACCESS_DENIED, PROVIDER_ERROR, EMAIL_EXISTS, ACCOUNT_SUSPENDED, SERVER_BUSY,
         // 계정 연결(link) 모드 전용: 프런트 /me?socialLinkError= 값
-        ALREADY_LINKED, ALREADY_LINKED_OTHER, INVALID_LINK
+        INVALID_LINK, PROVIDER_DISABLED
     }
 
     private final SocialError error;

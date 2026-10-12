@@ -2,6 +2,7 @@ package com.seatswap.controller;
 
 import com.seatswap.config.SecurityConfig;
 import com.seatswap.dto.response.SocialAccountsResponse;
+import com.seatswap.dto.response.SocialConfirmResponse;
 import com.seatswap.dto.response.SocialLinkResponse;
 import com.seatswap.security.AuthUserPrincipal;
 import com.seatswap.security.CustomUserDetailsService;
@@ -158,6 +159,53 @@ class UserSocialControllerSliceTest {
         when(socialAccountService.startLink(1L, "naver")).thenThrow(SocialAuthException.rateLimited(9));
         mockMvc.perform(post("/api/users/me/social/naver/link").header("Authorization", AUTH))
                 .andExpect(status().isTooManyRequests()).andExpect(header().string("Retry-After", "9"));
+    }
+
+    // ---------------- POST /api/users/me/social/confirm ----------------
+
+    @Test
+    void 연결_확정은_인증_주체의_userId로_서비스를_부르고_provider와_no_store를_돌려준다() throws Exception {
+        when(socialAccountService.confirm(1L, "CODE")).thenReturn(new SocialConfirmResponse("google"));
+        mockMvc.perform(post("/api/users/me/social/confirm").header("Authorization", AUTH)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"code\":\"CODE\"}"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.provider").value("google"));
+    }
+
+    @Test
+    void 연결_확정의_오류는_400_409_429이고_코드가_비었으면_400() throws Exception {
+        when(socialAccountService.confirm(1L, "BAD")).thenThrow(SocialAuthException.invalidLinkCode());
+        mockMvc.perform(post("/api/users/me/social/confirm").header("Authorization", AUTH)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"code\":\"BAD\"}"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_LINK_CODE"));
+        when(socialAccountService.confirm(1L, "DUP")).thenThrow(SocialAuthException.linkedOther());
+        mockMvc.perform(post("/api/users/me/social/confirm").header("Authorization", AUTH)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"code\":\"DUP\"}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("SOCIAL_LINKED_OTHER"));
+        when(socialAccountService.confirm(1L, "MINE")).thenThrow(SocialAuthException.alreadyLinked());
+        mockMvc.perform(post("/api/users/me/social/confirm").header("Authorization", AUTH)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"code\":\"MINE\"}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("SOCIAL_ALREADY_LINKED"));
+        when(socialAccountService.confirm(1L, "RATE")).thenThrow(SocialAuthException.rateLimited(7));
+        mockMvc.perform(post("/api/users/me/social/confirm").header("Authorization", AUTH)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"code\":\"RATE\"}"))
+                .andExpect(status().isTooManyRequests()).andExpect(header().string("Retry-After", "7"));
+        for (String body : new String[]{"{}", "{\"code\":\"  \"}"}) {
+            mockMvc.perform(post("/api/users/me/social/confirm").header("Authorization", AUTH)
+                            .contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isBadRequest());
+        }
+    }
+
+    @Test
+    void 연결_확정은_인증_없이는_401_정지_사용자는_403() throws Exception {
+        mockMvc.perform(post("/api/users/me/social/confirm").contentType(MediaType.APPLICATION_JSON).content("{\"code\":\"C\"}"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/users/me/social/confirm").header("Authorization", "Bearer sus")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"code\":\"C\"}"))
+                .andExpect(status().isForbidden());
+        verify(socialAccountService, never()).confirm(any(), any());
     }
 
     // ---------------- DELETE /api/users/me/social/{provider} ----------------

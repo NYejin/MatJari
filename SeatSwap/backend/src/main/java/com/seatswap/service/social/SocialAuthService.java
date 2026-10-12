@@ -10,7 +10,6 @@ import com.seatswap.service.AuthService;
 import com.seatswap.service.social.SocialLoginFailure.SocialError;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.net.URLEncoder;
@@ -51,7 +50,7 @@ public class SocialAuthService {
     private final UserRepository userRepository;
     private final AccountSuspensionChecker suspensionChecker;
     private final SocialLinkTicketStore linkTicketStore;
-    private final SocialAccountLinker accountLinker;
+    private final SocialLinkConfirmStore linkConfirmStore;
     private final SecureRandom random = new SecureRandom();
     /** 제공자 token·userinfo 호출 동시 실행 상한(초과는 기다리지 않고 SERVER_BUSY). */
     private final Semaphore providerCalls = new Semaphore(8);
@@ -72,17 +71,34 @@ public class SocialAuthService {
 
     /**
      * 1단계(계정 연결 모드 포함). linkTicket 이 null 이 아니면 연결 모드다: 티켓을 소비해 사용자 id 를 얻고 서명 쿠키에 담는다.
-     * 티켓이 비었거나 없거나 만료면 제공자로 보내지 않고 {frontend}/me?socialLinkError=INVALID_LINK 로 302(쿠키 없음, setCookie=null).
+     * 티켓이 비었거나 없거나 만료거나 발급 때의 제공자와 다르면 제공자로 보내지 않고 {frontend}/me?socialLinkError=INVALID_LINK 로 302(쿠키 없음, setCookie=null).
+     * 연결 모드의 IP 속도 제한 초과·비활성 제공자도 JSON 이 아니라 /me?socialLinkError=SERVER_BUSY|PROVIDER_DISABLED 로 302(쿠키 없음).
      * 티켓은 활성 제공자 확인 뒤에 소비한다(비활성 제공자에서 티켓을 헛되이 태우지 않는다).
      */
     public AuthorizeResult authorize(String providerPath, String clientIp, String linkTicket) {
-        rateLimiter.acquire("a:" + clientIp);
-        SocialProvider provider = enabledProvider(providerPath);
+        boolean linkMode = linkTicket != null;
+        try {
+            rateLimiter.acquire("a:" + clientIp);
+        } catch (SocialAuthException e) {
+            if (!linkMode) {
+                throw e;
+            }
+            return new AuthorizeResult(failureLocation(SocialError.SERVER_BUSY, null, true), null);
+        }
+        SocialProvider provider;
+        try {
+            provider = enabledProvider(providerPath);
+        } catch (SocialAuthException e) {
+            if (!linkMode) {
+                throw e;
+            }
+            return new AuthorizeResult(failureLocation(SocialError.PROVIDER_DISABLED, null, true), null);
+        }
         SocialProperties.Provider cfg = properties.of(provider);
 
         Long linkUserId = null;
-        if (linkTicket != null) {
-            linkUserId = linkTicketStore.consume(linkTicket).orElse(null);
+        if (linkMode) {
+            linkUserId = linkTicketStore.consume(linkTicket, provider).orElse(null);
             if (linkUserId == null) {
                 return new AuthorizeResult(failureLocation(SocialError.INVALID_LINK, null, true), null);
             }
@@ -126,14 +142,17 @@ public class SocialAuthService {
         }
     }
 
-    public CallbackResult busyResult() {
-        return new CallbackResult(failureLocation(SocialError.SERVER_BUSY, null, false), stateCookie.clearCookieHeader());
+    /** 속도 제한 초과 응답. 쿠키 값은 서명 검증 없이 목적지(/me 또는 /login) 선택에만 쓴다. */
+    public CallbackResult busyResult(String cookieValue) {
+        return new CallbackResult(failureLocation(SocialError.SERVER_BUSY, null, SocialStateCookie.looksLikeLinkMode(cookieValue)),
+                stateCookie.clearCookieHeader());
     }
 
     public CallbackResult callback(String providerPath, String code, String state, String error, String cookieValue) {
         SocialProvider provider = enabledProvider(providerPath);
         String clear = stateCookie.clearCookieHeader();
-        // 쿠키 검증을 통과한 뒤에야 알 수 있다: 연결(link) 모드면 실패도 /me?socialLinkError= 로 돌려보낸다
+        // 실패 목적지 선택용: 쿠키가 연결(link) 모드처럼 보이면 실패도 /me?socialLinkError= 로 보낸다(서명 검증 전이라 보안 판단에는 쓰지 않는다)
+        boolean linkDestination = SocialStateCookie.looksLikeLinkMode(cookieValue);
         Long linkUserId = null;
         try {
             // 1) 쿠키 검증(서명·만료·provider)과 state 상수시간 비교. 실패하면 코드 교환을 시도하지 않는다
@@ -166,58 +185,27 @@ public class SocialAuthService {
             } finally {
                 providerCalls.release();
             }
-            // 4-link) 연결 모드: 로그인·가입·로그인 코드 발급 없이 social_account 만 저장한다(이메일 일치 여부는 보지 않는다)
+            // 4-link) 연결 모드: DB 에 저장하지 않는다. 연결 확정 코드를 발급해 프래그먼트로 넘기고, 로그인한 본인이 확정 API 로 저장한다
             if (linkUserId != null) {
-                accountLinker.link(linkUserId, provider, profile.providerUserId());
-                return new CallbackResult(properties.frontendBase() + "/me?socialLinked=" + provider.getPath(), clear);
+                String confirmCode = linkConfirmStore.issue(linkUserId, provider, profile.providerUserId());
+                return new CallbackResult(properties.frontendBase() + "/me#linkCode=" + confirmCode, clear);
             }
             // 4) 사용자 결정 + 일회용 로그인 코드
             Long userId = loginService.loginOrSignup(provider, profile);
             String loginCode = codeStore.issue(userId);
             return new CallbackResult(properties.frontendBase() + "/auth/callback#code=" + loginCode, clear);
         } catch (SocialLoginFailure f) {
-            log.info("Social {} failed (provider: {}, error: {})", linkUserId != null ? "link" : "login", provider, f.getError());
-            return new CallbackResult(failureLocation(f.getError(), null, linkUserId != null), clear);
+            log.info("Social {} failed (provider: {}, error: {})", linkDestination ? "link" : "login", provider, f.getError());
+            return new CallbackResult(failureLocation(f.getError(), null, linkDestination), clear);
         } catch (AccountSuspendedException e) {
             Object until = e.toBody().get("until");
             return new CallbackResult(failureLocation(SocialError.ACCOUNT_SUSPENDED, until == null ? "" : until.toString(),
-                    linkUserId != null), clear);
-        } catch (DataIntegrityViolationException e) {
-            if (linkUserId != null) {
-                // 동시 연결 경합: 어느 유니크 제약인지로 구분한다(로그에는 제약 이름 종류만, 값은 남기지 않는다)
-                SocialError conflict = linkConflict(e);
-                log.info("Social link conflict (provider: {}, error: {})", provider, conflict);
-                return new CallbackResult(failureLocation(conflict, null, true), clear);
-            }
-            log.warn("Social login callback failed (provider: {}, type: {})", provider, e.getClass().getSimpleName());
-            return new CallbackResult(failureLocation(SocialError.SERVER_BUSY, null, false), clear);
+                    linkDestination), clear);
         } catch (RuntimeException e) {
-            // 분류하지 못한 오류(DB 장애·무결성 위반 등)도 JSON 이 아니라 로그인(또는 마이페이지) 화면으로 돌려보내고 쿠키를 지운다. 값은 로그에 남기지 않는다
+            // 분류하지 못한 오류(DB 장애·보관 한도 등)도 JSON 이 아니라 로그인(또는 마이페이지) 화면으로 돌려보내고 쿠키를 지운다. 값은 로그에 남기지 않는다
             log.warn("Social callback failed (provider: {}, type: {})", provider, e.getClass().getSimpleName());
-            return new CallbackResult(failureLocation(SocialError.SERVER_BUSY, null, linkUserId != null), clear);
+            return new CallbackResult(failureLocation(SocialError.SERVER_BUSY, null, linkDestination), clear);
         }
-    }
-
-    /**
-     * 연결 INSERT 의 UNIQUE 위반을 제약 이름으로 구분한다: (user_id, provider) 위반 = 내가 이미 보유/동시 중복 → ALREADY_LINKED,
-     * (provider, provider_user_id) 위반 = 그 제공자 계정이 이미 다른(또는 같은) 사용자에 연결 → ALREADY_LINKED_OTHER.
-     * 이름을 알 수 없으면 ALREADY_LINKED_OTHER 로 본다(어느 쪽이든 연결은 거절되고 DB 에는 아무것도 남지 않는다).
-     */
-    static SocialError linkConflict(DataIntegrityViolationException e) {
-        for (Throwable t = e; t != null; t = t.getCause()) {
-            String name = t instanceof org.hibernate.exception.ConstraintViolationException cve ? cve.getConstraintName() : null;
-            String msg = t.getMessage() == null ? "" : t.getMessage();
-            if ((name != null && name.contains("uk_social_account_user_provider")) || msg.contains("uk_social_account_user_provider")) {
-                return SocialError.ALREADY_LINKED;
-            }
-            if ((name != null && name.contains("uk_social_account_provider_user")) || msg.contains("uk_social_account_provider_user")) {
-                return SocialError.ALREADY_LINKED_OTHER;
-            }
-            if (t.getCause() == t) {
-                break;
-            }
-        }
-        return SocialError.ALREADY_LINKED_OTHER;
     }
 
     private void markStateUsed(String state) {

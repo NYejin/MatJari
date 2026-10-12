@@ -4,12 +4,12 @@ import com.seatswap.domain.SocialAccount;
 import com.seatswap.domain.SocialProvider;
 import com.seatswap.domain.User;
 import com.seatswap.dto.response.SocialAccountsResponse;
+import com.seatswap.dto.response.SocialConfirmResponse;
 import com.seatswap.dto.response.SocialLinkResponse;
 import com.seatswap.exception.AccountSuspendedException;
 import com.seatswap.repository.SocialAccountRepository;
 import com.seatswap.repository.UserRepository;
 import com.seatswap.security.AccountSuspensionChecker;
-import com.seatswap.service.social.SocialLoginFailure.SocialError;
 import com.seatswap.service.social.SocialTestSupport.MutableClock;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,6 +38,7 @@ class SocialAccountServiceTest {
     private SocialAccountRepository accountRepository;
     private UserRepository userRepository;
     private SocialLinkTicketStore ticketStore;
+    private SocialLinkConfirmStore confirmStore;
     private SocialAccountService service;
     private AccountSuspensionChecker suspensionChecker;
     private SocialAccountLinker linker;
@@ -51,9 +52,11 @@ class SocialAccountServiceTest {
         accountRepository = mock(SocialAccountRepository.class);
         userRepository = mock(UserRepository.class);
         ticketStore = new SocialLinkTicketStore(clock, props);
+        confirmStore = new SocialLinkConfirmStore(clock, props);
         suspensionChecker = mock(AccountSuspensionChecker.class);
-        service = new SocialAccountService(props, accountRepository, userRepository, ticketStore, new SocialRateLimiter(clock, props));
         linker = new SocialAccountLinker(userRepository, accountRepository, suspensionChecker);
+        service = new SocialAccountService(props, accountRepository, userRepository, ticketStore, confirmStore, linker,
+                new SocialRateLimiter(clock, props));
     }
 
     private static SocialAccount account(long userId, SocialProvider provider, String puid) {
@@ -116,7 +119,7 @@ class SocialAccountServiceTest {
         assertThat(r.authorizeUrl()).startsWith("/api/auth/social/google/authorize?link=");
         String ticket = r.authorizeUrl().substring(r.authorizeUrl().indexOf("link=") + 5);
         assertThat(ticket).hasSize(43).matches("[A-Za-z0-9_-]+");
-        assertThat(ticketStore.consume(ticket)).contains(1L);
+        assertThat(ticketStore.consume(ticket, SocialProvider.GOOGLE)).contains(1L);
         assertThat(r.toString()).doesNotContain(ticket); // 로그에 티켓이 남지 않는다
     }
 
@@ -216,35 +219,35 @@ class SocialAccountServiceTest {
     }
 
     @Test
-    void 그_제공자_계정이_다른_사용자에_연결돼_있으면_ALREADY_LINKED_OTHER() {
+    void 그_제공자_계정이_다른_사용자에_연결돼_있으면_SOCIAL_LINKED_OTHER() {
         when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user(true)));
         when(accountRepository.findByProviderAndProviderUserId(SocialProvider.GOOGLE, "sub-1"))
                 .thenReturn(Optional.of(account(2L, SocialProvider.GOOGLE, "sub-1")));
-        assertThatThrownBy(() -> linker.link(1L, SocialProvider.GOOGLE, "sub-1")).isInstanceOf(SocialLoginFailure.class)
-                .extracting(e -> ((SocialLoginFailure) e).getError()).isEqualTo(SocialError.ALREADY_LINKED_OTHER);
+        assertThatThrownBy(() -> linker.link(1L, SocialProvider.GOOGLE, "sub-1")).isInstanceOf(SocialAuthException.class)
+                .extracting(e -> ((SocialAuthException) e).getCode()).isEqualTo("SOCIAL_LINKED_OTHER");
         verify(accountRepository, never()).saveAndFlush(any());
     }
 
     @Test
-    void 내가_이미_그_제공자를_가졌으면_ALREADY_LINKED() {
+    void 내가_이미_그_제공자를_가졌으면_SOCIAL_ALREADY_LINKED() {
         when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user(true)));
         when(accountRepository.findByProviderAndProviderUserId(SocialProvider.GOOGLE, "sub-1"))
                 .thenReturn(Optional.of(account(1L, SocialProvider.GOOGLE, "sub-1")));
-        assertThatThrownBy(() -> linker.link(1L, SocialProvider.GOOGLE, "sub-1")).extracting(e -> ((SocialLoginFailure) e).getError())
-                .isEqualTo(SocialError.ALREADY_LINKED);
+        assertThatThrownBy(() -> linker.link(1L, SocialProvider.GOOGLE, "sub-1")).extracting(e -> ((SocialAuthException) e).getCode())
+                .isEqualTo("SOCIAL_ALREADY_LINKED");
 
         // 다른 제공자 계정 id 로 같은 제공자를 또 연결하려는 경우
         when(accountRepository.findByProviderAndProviderUserId(SocialProvider.GOOGLE, "sub-2")).thenReturn(Optional.empty());
         when(accountRepository.existsByUserIdAndProvider(1L, SocialProvider.GOOGLE)).thenReturn(true);
-        assertThatThrownBy(() -> linker.link(1L, SocialProvider.GOOGLE, "sub-2")).extracting(e -> ((SocialLoginFailure) e).getError())
-                .isEqualTo(SocialError.ALREADY_LINKED);
+        assertThatThrownBy(() -> linker.link(1L, SocialProvider.GOOGLE, "sub-2")).extracting(e -> ((SocialAuthException) e).getCode())
+                .isEqualTo("SOCIAL_ALREADY_LINKED");
     }
 
     @Test
-    void 사용자가_없으면_INVALID_LINK_정지면_AccountSuspendedException() {
+    void 사용자가_없으면_INVALID_LINK_CODE_정지면_AccountSuspendedException() {
         when(userRepository.findByIdForUpdate(5L)).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> linker.link(5L, SocialProvider.GOOGLE, "s")).extracting(e -> ((SocialLoginFailure) e).getError())
-                .isEqualTo(SocialError.INVALID_LINK);
+        assertThatThrownBy(() -> linker.link(5L, SocialProvider.GOOGLE, "s")).extracting(e -> ((SocialAuthException) e).getCode())
+                .isEqualTo("INVALID_LINK_CODE");
         verifyNoInteractions(suspensionChecker);
 
         when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user(true)));
@@ -261,9 +264,103 @@ class SocialAccountServiceTest {
                 "Duplicate entry for key 'social_account.uk_social_account_user_provider'");
         when(accountRepository.saveAndFlush(any(SocialAccount.class))).thenThrow(dup);
         assertThatThrownBy(() -> linker.link(1L, SocialProvider.GOOGLE, "s")).isSameAs(dup);
-        assertThat(SocialAuthService.linkConflict(dup)).isEqualTo(SocialError.ALREADY_LINKED);
-        assertThat(SocialAuthService.linkConflict(new DataIntegrityViolationException(
-                "Duplicate entry for key 'social_account.uk_social_account_provider_user'"))).isEqualTo(SocialError.ALREADY_LINKED_OTHER);
-        assertThat(SocialAuthService.linkConflict(new DataIntegrityViolationException("unknown"))).isEqualTo(SocialError.ALREADY_LINKED_OTHER);
+        assertThat(SocialAccountService.linkConflict(dup).getCode()).isEqualTo("SOCIAL_ALREADY_LINKED");
+        assertThat(SocialAccountService.linkConflict(new DataIntegrityViolationException(
+                "Duplicate entry for key 'social_account.uk_social_account_provider_user'")).getCode()).isEqualTo("SOCIAL_LINKED_OTHER");
+        assertThat(SocialAccountService.linkConflict(new DataIntegrityViolationException("unknown")).getCode()).isEqualTo("SOCIAL_LINKED_OTHER");
+        var cve = new org.hibernate.exception.ConstraintViolationException("dup", new java.sql.SQLException("x", "23000", 1062),
+                "social_account.uk_social_account_user_provider");
+        assertThat(SocialAccountService.linkConflict(new DataIntegrityViolationException("boom", cve)).getCode()).isEqualTo("SOCIAL_ALREADY_LINKED");
+    }
+
+    // ---------------- 연결 확정(confirm) ----------------
+
+    private void stubLinkable() {
+        when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user(true)));
+        when(accountRepository.findByProviderAndProviderUserId(any(), any())).thenReturn(Optional.empty());
+    }
+
+    @Test
+    void 확정은_코드의_사용자와_인증_주체가_같을_때만_저장하고_provider를_돌려준다() {
+        stubLinkable();
+        String code = confirmStore.issue(1L, SocialProvider.KAKAO, "pu-1");
+        SocialConfirmResponse r = service.confirm(1L, code);
+        assertThat(r.provider()).isEqualTo("kakao");
+        verify(accountRepository).saveAndFlush(any(SocialAccount.class));
+        // 1회용
+        assertThatThrownBy(() -> service.confirm(1L, code)).isInstanceOfSatisfying(SocialAuthException.class,
+                e -> assertThat(e.getCode()).isEqualTo("INVALID_LINK_CODE"));
+    }
+
+    @Test
+    void 다른_사용자의_코드는_400_INVALID_LINK_CODE이고_코드는_소진되며_저장하지_않는다() {
+        stubLinkable();
+        String code = confirmStore.issue(2L, SocialProvider.GOOGLE, "pu-1");
+        assertThatThrownBy(() -> service.confirm(1L, code)).isInstanceOfSatisfying(SocialAuthException.class, e -> {
+            assertThat(e.getStatus().value()).isEqualTo(400);
+            assertThat(e.getCode()).isEqualTo("INVALID_LINK_CODE");
+        });
+        assertThat(confirmStore.consume(code)).isEmpty(); // 불일치여도 소진
+        verify(accountRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void 없는_코드와_만료된_코드도_같은_400_INVALID_LINK_CODE() {
+        for (String bad : new String[]{"never-issued", "", "  "}) {
+            assertThatThrownBy(() -> service.confirm(1L, bad)).isInstanceOfSatisfying(SocialAuthException.class,
+                    e -> assertThat(e.getCode()).isEqualTo("INVALID_LINK_CODE"));
+        }
+        String code = confirmStore.issue(1L, SocialProvider.GOOGLE, "pu");
+        clock.advance(60_000);
+        assertThatThrownBy(() -> service.confirm(1L, code)).isInstanceOfSatisfying(SocialAuthException.class,
+                e -> assertThat(e.getCode()).isEqualTo("INVALID_LINK_CODE"));
+        verify(accountRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void 확정에서_이미_연결과_다른_사용자_연결은_409_정지는_AccountSuspendedException() {
+        when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user(true)));
+        when(accountRepository.findByProviderAndProviderUserId(SocialProvider.GOOGLE, "mine")).thenReturn(Optional.empty());
+        when(accountRepository.existsByUserIdAndProvider(1L, SocialProvider.GOOGLE)).thenReturn(true);
+        String c1 = confirmStore.issue(1L, SocialProvider.GOOGLE, "mine");
+        assertThatThrownBy(() -> service.confirm(1L, c1)).isInstanceOfSatisfying(SocialAuthException.class, e -> {
+            assertThat(e.getStatus().value()).isEqualTo(409);
+            assertThat(e.getCode()).isEqualTo("SOCIAL_ALREADY_LINKED");
+        });
+        when(accountRepository.findByProviderAndProviderUserId(SocialProvider.GOOGLE, "other"))
+                .thenReturn(Optional.of(account(2L, SocialProvider.GOOGLE, "other")));
+        String c2 = confirmStore.issue(1L, SocialProvider.GOOGLE, "other");
+        assertThatThrownBy(() -> service.confirm(1L, c2)).isInstanceOfSatisfying(SocialAuthException.class,
+                e -> assertThat(e.getCode()).isEqualTo("SOCIAL_LINKED_OTHER"));
+        doThrow(new AccountSuspendedException(null)).when(suspensionChecker).assertNotSuspended(1L);
+        String c3 = confirmStore.issue(1L, SocialProvider.GOOGLE, "x");
+        assertThatThrownBy(() -> service.confirm(1L, c3)).isInstanceOf(AccountSuspendedException.class);
+    }
+
+    @Test
+    void 확정의_동시_UNIQUE_위반은_제약_이름으로_구분해_409로_바꾼다() {
+        stubLinkable();
+        when(accountRepository.saveAndFlush(any(SocialAccount.class))).thenThrow(new DataIntegrityViolationException(
+                "Duplicate entry for key 'social_account.uk_social_account_provider_user'"));
+        String code = confirmStore.issue(1L, SocialProvider.GOOGLE, "pu");
+        assertThatThrownBy(() -> service.confirm(1L, code)).isInstanceOfSatisfying(SocialAuthException.class,
+                e -> assertThat(e.getCode()).isEqualTo("SOCIAL_LINKED_OTHER"));
+    }
+
+    @Test
+    void 확정은_사용자당_분당_link_per_minute_회로_제한된다() {
+        props.setLinkPerMinute(2);
+        for (int i = 0; i < 2; i++) {
+            assertThatThrownBy(() -> service.confirm(1L, "bad")).isInstanceOfSatisfying(SocialAuthException.class,
+                    e -> assertThat(e.getCode()).isEqualTo("INVALID_LINK_CODE"));
+        }
+        String valid = confirmStore.issue(1L, SocialProvider.GOOGLE, "pu");
+        assertThatThrownBy(() -> service.confirm(1L, valid)).isInstanceOfSatisfying(SocialAuthException.class, e -> {
+            assertThat(e.getStatus().value()).isEqualTo(429);
+            assertThat(e.getCode()).isEqualTo("SOCIAL_RATE_LIMITED");
+        });
+        assertThat(confirmStore.consume(valid)).isPresent(); // 제한에 걸리면 코드를 소비하지 않는다
+        assertThatThrownBy(() -> service.confirm(2L, "bad")).isInstanceOfSatisfying(SocialAuthException.class, // 다른 사용자 버킷은 별개
+                e -> assertThat(e.getCode()).isEqualTo("INVALID_LINK_CODE"));
     }
 }

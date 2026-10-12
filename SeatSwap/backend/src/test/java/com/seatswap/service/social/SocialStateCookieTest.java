@@ -122,4 +122,19 @@ class SocialStateCookieTest {
         assertThat(SocialStateCookie.constantTimeEquals(null, "b")).isFalse();
         assertThat(SocialStateCookie.constantTimeEquals("a", null)).isFalse();
     }
+
+    @Test
+    void looksLikeLinkMode는_서명과_무관하게_5칸_중_linkUserId_칸이_양의_정수인지만_본다() {
+        assertThat(SocialStateCookie.looksLikeLinkMode(cookie.sign(SocialProvider.GOOGLE, "st", "ver", 42L))).isTrue();
+        assertThat(SocialStateCookie.looksLikeLinkMode(cookie.sign(SocialProvider.GOOGLE, "st", "ver"))).isFalse();
+        // 서명이 틀려도 본문 모양만 본다
+        String v = cookie.sign(SocialProvider.GOOGLE, "st", "ver", 42L);
+        assertThat(SocialStateCookie.looksLikeLinkMode(v.substring(0, v.indexOf('.')) + ".bad")).isTrue();
+        String zero = Base64.getUrlEncoder().withoutPadding().encodeToString("GOOGLE|a|b|0|1".getBytes(StandardCharsets.UTF_8));
+        String four = Base64.getUrlEncoder().withoutPadding().encodeToString("GOOGLE|a|b|7".getBytes(StandardCharsets.UTF_8));
+        String nan = Base64.getUrlEncoder().withoutPadding().encodeToString("GOOGLE|a|b|x|1".getBytes(StandardCharsets.UTF_8));
+        for (String bad : new String[]{null, "", "garbage", "!!!.x", zero + ".x", four + ".x", nan + ".x", "A".repeat(2000)}) {
+            assertThat(SocialStateCookie.looksLikeLinkMode(bad)).isFalse();
+        }
+    }
 }

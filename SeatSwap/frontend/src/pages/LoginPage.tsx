@@ -13,6 +13,8 @@ import {
 } from "../api/authValidation";
 import TextField from "../components/TextField";
 import { authFormClasses as ui } from "../components/authFormClasses";
+import SocialLoginButtons from "../components/SocialLoginButtons";
+import { socialErrorMessage } from "../api/socialAuth";
 
 // FR-01 회원가입/로그인 — 로그인 화면
 
@@ -34,6 +36,13 @@ export default function LoginPage() {
   const [notice] = useState(stateNotice);
   // 이용 정지로 로그아웃된 경우의 안내(전역 인터셉터가 저장). 다음 로그인 시도 때 지운다
   const [suspendedNotice, setSuspendedNotice] = useState<string | null>(peekSuspensionNotice);
+  // 소셜 로그인 실패 안내(?socialError=&until=). 최초 진입 시 state로 옮기고 쿼리는 지운다
+  const [socialNotice] = useState<string | null>(() => {
+    const params = new URLSearchParams(location.search);
+    const code = params.get("socialError");
+    return code ? socialErrorMessage(code, params.get("until")) : null;
+  });
+  const hasSocialQuery = new URLSearchParams(location.search).has("socialError");
   const [email, setEmail] = useState(prefillEmail ?? "");
   const [password, setPassword] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -51,6 +60,18 @@ export default function LoginPage() {
     );
     // forwardState는 렌더마다 새 객체이므로 의존성에서 제외 (일회성 값이 있을 때만 1회 실행)
   }, [hasOneTimeState, isAuthenticated, navigate, location.pathname, location.search, location.hash]);
+
+  useEffect(() => {
+    if (!hasSocialQuery || isAuthenticated) return;
+    const params = new URLSearchParams(location.search);
+    params.delete("socialError");
+    params.delete("until");
+    const search = params.toString();
+    navigate(
+      { pathname: location.pathname, search: search ? `?${search}` : "", hash: location.hash },
+      { replace: true, state: location.state }
+    );
+  }, [hasSocialQuery, isAuthenticated, navigate, location.pathname, location.search, location.hash, location.state]);
 
   // 이미 로그인 상태(또는 방금 로그인 성공)면 원래 경로로 이동
   if (isAuthenticated) return <Navigate to={redirectTo} replace />;
@@ -107,6 +128,12 @@ export default function LoginPage() {
           </p>
         )}
 
+        {socialNotice && (
+          <p className={`${ui.formError} mb-4`} role="alert">
+            {socialNotice}
+          </p>
+        )}
+
         <form className={ui.form} onSubmit={handleSubmit} noValidate>
           <TextField
             id="login-email"
@@ -144,6 +171,8 @@ export default function LoginPage() {
             {submitting ? "로그인 중..." : "로그인"}
           </button>
         </form>
+
+        <SocialLoginButtons />
 
         <p className={ui.footer}>
           아직 계정이 없나요?{" "}

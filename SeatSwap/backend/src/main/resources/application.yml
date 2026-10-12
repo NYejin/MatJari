@@ -59,6 +59,23 @@ seatswap:
     # 토큰 만료·CONNECT 하지 않은 세션을 닫는 주기와 CONNECT 대기 시한
     sweep-interval-ms: ${SEATSWAP_WS_SWEEP_INTERVAL_MS:30000}
     connect-timeout-ms: ${SEATSWAP_WS_CONNECT_TIMEOUT_MS:10000}
+  social:
+    # 소셜 로그인(카카오·구글·네이버). client-id 가 비어 있는 제공자는 비활성(기본). 제공자 엔드포인트는 코드의 실제 값이 기본이다.
+    # 하나라도 활성이면 기동 시 검증: frontend-base-url 이 seatswap.websocket.allowed-origins 에 포함, state-secret 32바이트 이상
+    backend-base-url: ${SEATSWAP_SOCIAL_BACKEND_BASE_URL:http://localhost:8080}
+    frontend-base-url: ${SEATSWAP_SOCIAL_FRONTEND_BASE_URL:http://localhost:5173}
+    # 운영에서는 반드시 새 값으로 덮어쓴다(예: openssl rand -base64 48)
+    state-secret: ${SEATSWAP_SOCIAL_STATE_SECRET:dev-only-insecure-social-state-secret-please-override-0123456789}
+    cookie-secure: ${SEATSWAP_SOCIAL_COOKIE_SECURE:false}
+    google:
+      client-id: ${SEATSWAP_SOCIAL_GOOGLE_CLIENT_ID:}
+      client-secret: ${SEATSWAP_SOCIAL_GOOGLE_CLIENT_SECRET:}
+    kakao:
+      client-id: ${SEATSWAP_SOCIAL_KAKAO_CLIENT_ID:}
+      client-secret: ${SEATSWAP_SOCIAL_KAKAO_CLIENT_SECRET:}
+    naver:
+      client-id: ${SEATSWAP_SOCIAL_NAVER_CLIENT_ID:}
+      client-secret: ${SEATSWAP_SOCIAL_NAVER_CLIENT_SECRET:}
   linkinfo:
     # 링크 기반 공연 정보 읽기(공개 HTML). 요청 대상은 코드에 고정된 3개 사이트의 고정 템플릿 URL뿐이다.
     connect-timeout-ms: ${SEATSWAP_LINKINFO_CONNECT_TIMEOUT_MS:5000}

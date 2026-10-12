@@ -36,7 +36,7 @@
 
 ## 현재 구현 현황
 
-DB는 Flyway V1~V13, 19개 테이블(performance_edit_proposal·seat_claim·user_block·abuse_report·user_sanction 포함, users·performance·performance_session·ticket·exchange_request·exchange_want_range·exchange_want_seat·exchange_want_session·exchange_match·exchange_ticket_lock·exchange_history·notification·chat_message·chat_read_state). **구현 완료**: 가입·로그인(JWT), 공연 등록·목록·상세(등록 후 수정 불가), 티켓 등록·내리기, 교환 희망 조건(범위별 추가금·소프트 삭제), 후보 조회, 제안·거절·채팅 종료, 한 명 예약·예약 취소, 교환 수락→교환 완료(기존 티켓 EXCHANGED+새 티켓, 교환 이력 기록, 교환된 좌석 안내), 내 매칭 조회, 교환 화면 5개(티켓 등록·내 티켓·희망 조건 폼·후보 목록·내 매칭), 알림 3종(새 제안·상대 예약·상대 예약 취소: 헤더 벨 말풍선, 알림 페이지, 읽은 알림 삭제, STOMP 실시간 푸시 + 연결이 끊겼을 때만 30초 폴링), 매칭별 채팅(채팅 화면에서 REST로 보내고 STOMP 사용자 큐로 받기, 읽음 표시, 종료 후 읽기 전용), 링크 기반 공연정보 자동 입력(제목·공연장·공연 기간, 회차 시각 제외), 관리자 페이지(공연 수정 제안 처리·내 티켓 인증 확인), 교환 이력 조회(`GET /api/exchange/history`, 마이페이지 '교환 이력' 화면 `/exchange/history`: 본인 이력만 최신순, 교환 당시 스냅샷, 읽기 전용). 차단·신고·이용 정지와 관리자 신고 관리. **미구현**: 7일 경과 알림. 다음 마이그레이션 번호는 V14부터. 상세 수치는 [STATS.md](STATS.md), 이력은 [HISTORY.md](HISTORY.md).
+DB는 Flyway V1~V14, 20개 테이블(social_account·performance_edit_proposal·seat_claim·user_block·abuse_report·user_sanction 포함, users·performance·performance_session·ticket·exchange_request·exchange_want_range·exchange_want_seat·exchange_want_session·exchange_match·exchange_ticket_lock·exchange_history·notification·chat_message·chat_read_state). **구현 완료**: 가입·로그인(JWT, 소셜 로그인 카카오·구글·네이버 V14), 공연 등록·목록·상세(등록 후 수정 불가), 티켓 등록·내리기, 교환 희망 조건(범위별 추가금·소프트 삭제), 후보 조회, 제안·거절·채팅 종료, 한 명 예약·예약 취소, 교환 수락→교환 완료(기존 티켓 EXCHANGED+새 티켓, 교환 이력 기록, 교환된 좌석 안내), 내 매칭 조회, 교환 화면 5개(티켓 등록·내 티켓·희망 조건 폼·후보 목록·내 매칭), 알림 3종(새 제안·상대 예약·상대 예약 취소: 헤더 벨 말풍선, 알림 페이지, 읽은 알림 삭제, STOMP 실시간 푸시 + 연결이 끊겼을 때만 30초 폴링), 매칭별 채팅(채팅 화면에서 REST로 보내고 STOMP 사용자 큐로 받기, 읽음 표시, 종료 후 읽기 전용), 링크 기반 공연정보 자동 입력(제목·공연장·공연 기간, 회차 시각 제외), 관리자 페이지(공연 수정 제안 처리·내 티켓 인증 확인), 교환 이력 조회(`GET /api/exchange/history`, 마이페이지 '교환 이력' 화면 `/exchange/history`: 본인 이력만 최신순, 교환 당시 스냅샷, 읽기 전용). 차단·신고·이용 정지와 관리자 신고 관리. **미구현**: 7일 경과 알림. 다음 마이그레이션 번호는 V15부터. 상세 수치는 [STATS.md](STATS.md), 이력은 [HISTORY.md](HISTORY.md).
 
 ## 제품·교환 규칙 (확정)
 
@@ -97,7 +97,7 @@ DB는 Flyway V1~V13, 19개 테이블(performance_edit_proposal·seat_claim·user
 ### 링크 기반 공연정보 자동 입력 (구현됨, DB 변경 없음)
 - 등록 1단계에서 중복 확인 뒤 `GET /api/performances/preview?sourceUrl=`로 링크 페이지의 공개 HTML에서 **제목·공연장·공연 기간**을 읽어 2단계에 제목·공연장을 미리 채우고 "링크에서 읽은 정보예요. 맞는지 확인해 주세요"를 보여준다(제목·공연장 입력이 모두 비어 있을 때만 채움). 자동 등록은 없고 직접 입력은 항상 가능하며, 읽기에 실패해도 등록은 막히지 않는다.
 - **회차 시각은 읽지 못한다**: 세 사이트 모두 회차 목록은 Ajax로만 온다. 그래서 회차는 자동으로 채우지 않고 공연 기간만 안내 문구로 보여준다(회차 일시는 직접 입력).
-- 대상은 YES24(`/Perf/{id}`)·티켓링크(`/product/{id}`)는 JSON-LD `Event`, 멜론(`prodId`)은 본문 HTML. 인터파크는 robots.txt 때문에 제외(UNSUPPORTED_SITE). 로그인·캡차 우회와 내부 API 호출은 하지 않는다.
+- 대상은 YES24(`ticket.yes24.com/Perf/{id}`, 모바일 `m.ticket.yes24.com/Perf/{id}`와 `PerfInfo.aspx?IdPerf={id}`도 같은 공연으로 인식)·티켓링크(`/product/{id}`)는 JSON-LD `Event`, 멜론 PC(`prodId`)는 본문 HTML이다. 멜론 모바일 주소는 404라 미지원이다. 인터파크는 robots.txt 때문에 제외(UNSUPPORTED_SITE)하며, 안내 문구에서도 지원 사이트를 'YES24·티켓링크·멜론티켓'으로만 밝힌다. 로그인·캡차 우회와 내부 API 호출은 하지 않는다.
 - **SSRF 방어 = 사용자 URL을 요청하지 않는다**: `SourceKeyResolver` 키가 `yes24|ticketlink|melon:{숫자id}`일 때만 고정 템플릿으로 URL을 만들어 요청한다. 리다이렉트 불가, 공인 IP만, https, 본문 2 MiB·10초 제한, 사용자당 분당 10회(429 `PREVIEW_RATE_LIMITED`)·사이트당 분당 30회·동시 4개·10분 캐시. 연결 IP 고정(pinning)은 하지 않는다(대상이 고정 공개 도메인 3개라는 전제).
 - 구현은 `service/linkinfo/`(PageFetcher·LinkInfoParsers·PerformancePreviewService). 상세는 [wiki/decisions/link-autofill-design.md](wiki/decisions/link-autofill-design.md).
 
@@ -135,6 +135,17 @@ DB는 Flyway V1~V13, 19개 테이블(performance_edit_proposal·seat_claim·user
 - **이용 정지**: 정지 중인 사용자는 모든 인증 API·로그인·토큰 재발급이 403 `ACCOUNT_SUSPENDED`(`{message, code, until}`), STOMP CONNECT 거부와 열려 있는 연결 종료(커밋 뒤), 후보에서 제외, 정지 순간 열린 매칭 전부 시스템 취소. 로그아웃은 가능하다. 기간은 조회 시 `ends_at > now`로 판단한다(스케줄러 없음). 강제는 `CustomUserDetailsService.loadUserById`(요청마다 DB 조회) 한 곳에서 한다.
 - 상세는 [wiki/decisions/block-report-design.md](wiki/decisions/block-report-design.md).
 
+### 소셜 로그인 (구현됨, V14 `social_account`)
+- 제공자는 **카카오·구글·네이버 3종**이다. 백엔드가 Authorization Code를 직접 처리한다(Spring oauth2-client 미사용, 무상태 JWT 유지). 구글·카카오는 PKCE(S256)를 쓰고, 네이버는 PKCE를 지원하지 않아 state 쿠키로 CSRF를 막는다. 흐름: `GET /api/auth/social/{provider}/authorize`(302) → 제공자 → `GET .../callback` → 프런트 `/auth/callback#code=…` → `POST /api/auth/social/exchange {code}` → 기존 `TokenResponse`. `GET /api/auth/social/providers`는 client-id가 설정된 제공자만 돌려주며 버튼 표시에 쓴다.
+- **자동 연결 안 함**: `social_account(provider, provider_user_id)`가 있으면 그 사용자로 로그인한다. 없으면 가입하되, 제공자가 준 **검증된** 이메일이 이미 `users`에 있으면 가입을 막고 `EMAIL_EXISTS`(기존 방식으로 로그인 안내)를 돌려준다. 기존 계정에 소셜을 붙이는 연결 UI는 없다.
+- **자리표시 이메일**: 이메일이 없거나 검증되지 않았으면 `{provider}.{providerUserId}@social.seatswap.invalid`를 쓴다(예약 `.invalid` 도메인. 일반 가입은 `.invalid` 이메일을 거부한다. 식별자가 영숫자·`-_`가 아니면 SHA-256 앞 16자 hex로 대체). 비밀번호는 무작위 32바이트의 BCrypt 해시라 비밀번호 로그인은 불가능하다. 정지·차단·신고 규칙은 일반 사용자와 같다(callback·exchange·요청마다 검사).
+- **일회용 코드, 프래그먼트 전달**: 콜백은 토큰을 URL에 싣지 않고, 32바이트 랜덤 **일회용 로그인 코드**(서버 메모리, TTL 60초, 1회 사용, 보관 상한 1만 건을 넘으면 `SERVER_BUSY`)를 `#code=` 프래그먼트로 넘긴다. 프래그먼트라 서버 로그·Referer에 남지 않는다. exchange 때 정지 여부를 다시 검사하며, 틀리거나 만료된 코드는 400 `INVALID_LOGIN_CODE`다. 서버 재시작 때 코드가 사라지는 것은 허용한다.
+- **쿠키·state 규칙**: authorize는 state와 PKCE verifier를 HMAC 서명한 HttpOnly 쿠키 `ss_oauth`(Path=`/api/auth/social`, SameSite=Lax, Max-Age 600초)에 담는다. 콜백은 서명·만료·provider 일치와 state 상수시간 비교를 통과해야만 코드 교환을 시도하고, state는 1회용이며, 쿠키는 콜백에서 항상 삭제한다. 실패는 `302 {frontend-base-url}/login?socialError=…`로 보낸다(INVALID_STATE·ACCESS_DENIED(동의 거부)·PROVIDER_ERROR·EMAIL_EXISTS·ACCOUNT_SUSPENDED(&until)·SERVER_BUSY).
+- **제공자별 scope**: 구글 `openid email profile`(email_verified일 때만 이메일 사용), 카카오 `profile_nickname account_email`(is_email_valid·is_email_verified가 모두 true일 때만 이메일 사용), 네이버 scope 없음·state 필수.
+- **설정**: `seatswap.social.*` — `{google|kakao|naver}.client-id/client-secret`(환경변수 `SEATSWAP_SOCIAL_*`), `backend-base-url`(리다이렉트 URI = `{backend-base-url}/api/auth/social/{provider}/callback`, 각 개발자 콘솔에 등록), `frontend-base-url`(`seatswap.websocket.allowed-origins`에 포함돼야 하며 기동 시 검증), `state-secret`, `cookie-secure`. client-id가 비어 있는 제공자는 비활성이다(authorize 404 `SOCIAL_PROVIDER_DISABLED`). 운영(https·비루프백 백엔드)에서는 개발용 state-secret을 거부하고 cookie-secure=true를 요구한다.
+- authorize·callback·exchange는 IP당 분당 30회로 제한한다(버킷 분리, `getRemoteAddr()` 기준, 초과 429 `SOCIAL_RATE_LIMITED`). 로그에는 토큰·code·client_secret·이메일을 남기지 않는다.
+- 실제 카카오·구글·네이버 키로는 아직 검증하지 않았다. 스텁 제공자 테스트와 브라우저 스텁 점검만 했다.
+
 ## 개발 규칙 (앞으로도 지킨다)
 
 근거와 사례는 [wiki/gotchas/lock-order-and-index-pitfalls.md](wiki/gotchas/lock-order-and-index-pitfalls.md).
@@ -147,6 +158,7 @@ DB는 Flyway V1~V13, 19개 테이블(performance_edit_proposal·seat_claim·user
 - 읽음 포인터 advance는 매칭·users 잠금을 잡은 트랜잭션 안에서 호출하지 않는다(자기 대기·갭 잠금 교착).
 - 메시지 조회 쿼리는 `FORCE INDEX (idx_chat_message_match)`를 유지한다(옵티마이저가 PRIMARY 역방향·filesort를 고르는 문제).
 - 링크 자동 입력은 사용자가 준 URL을 요청하지 않고 `SourceKeyResolver`로 뽑은 사이트·숫자 ID로 고정 템플릿 URL만 만들어 요청한다(SSRF 방어의 핵심). 새 사이트를 추가할 때도 이 규칙과 호스트 고정을 유지한다.
+- 소셜 제공자 엔드포인트(authorize·token·userinfo)는 설정으로 고정하고 사용자 입력 URL은 요청하지 않는다. 리다이렉트 목적지도 설정 `frontend-base-url`로만 정한다. 소셜 콜백은 미분류 예외를 포함해 항상 302로 응답하고 JSON을 내지 않는다.
 - 좌석 소유 인증 승인처럼 좌석 키(보조 유니크 인덱스)로 티켓을 잠가야 할 때는 `FOR UPDATE`를 키로 걸지 말고 id를 잠금 없이 읽은 뒤 PK로 잠그고 상태를 다시 판단한다(`deactivate`와 교착). 상태 전이로 바뀌는 값을 유니크로 쓸 때는 생성 컬럼 UNIQUE(PENDING만 유니크)를 쓴다.
 - 열린 매칭 시스템 취소(`OpenMatchCanceller`)는 티켓 id↑ → 매칭 id↑ 순서로 잠그고 호출 트랜잭션을 READ_COMMITTED로 연다. 후보 SQL의 차단 제외는 `NOT EXISTS` 두 개로 나눠 쓴다(OR는 전체 인덱스 스캔).
 - 소스코드 수정분 전달은 `MMDD-순번_수정내역영문.zip`, 문서(계획서/요구사항정의서 등)는 압축 없이 단일 파일.
@@ -177,7 +189,9 @@ DB는 Flyway V1~V13, 19개 테이블(performance_edit_proposal·seat_claim·user
 
 ## 후속 작업 목록
 
-사용자가 정한 6개 기능(채팅, 실시간 알림 푸시, 링크 자동 입력, 관리자 페이지, 교환 이력 조회, 차단·신고)은 모두 완료됐다. 남은 것: 7일 경과 알림(미구현), 브라우저 수동 점검, `trust_score` 컬럼 정리 여부 결정.
+사용자가 정한 6개 기능(채팅, 실시간 알림 푸시, 링크 자동 입력, 관리자 페이지, 교환 이력 조회, 차단·신고)은 모두 완료됐다. 소셜 로그인(카카오·구글·네이버, V14)도 구현했다(미병합). 남은 것: 7일 경과 알림(미구현), 브라우저 수동 점검, `trust_score` 컬럼 정리 여부 결정, 실제 제공자 키 연동 검증.
+
+- **요청됨·미착수(사용자 요청)**: 예약 방식 변경. 예약 버튼은 채팅 화면에서만 보이고, 예약도 교환 수락처럼 '예약 제안 → 상대 수락'이어야 RESERVED가 된다(V15 필요). 구현 때 '예약' 절과 '폐기된 안'을 함께 바꾼다(지금은 바꾸지 않는다). 그 뒤 7일 경과 알림.
 
 ## 확인 필요 (열린 질문만)
 

@@ -3,6 +3,7 @@ import AppLayout from "./components/AppLayout";
 import ProtectedRoute from "./components/ProtectedRoute";
 import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
+import SocialCallbackPage from "./pages/SocialCallbackPage";
 import HomePage from "./pages/HomePage";
 import PerformanceDetailPage from "./pages/PerformanceDetailPage";
 import PerformanceRegisterPage from "./pages/PerformanceRegisterPage";
@@ -38,6 +39,7 @@ export default function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
+          <Route path="/auth/callback" element={<SocialCallbackPage />} />
 
           <Route element={<ProtectedRoute />}>
             {/* 공연 API는 모두 로그인 필요 → 상세도 보호 라우트 (비로그인 진입 시 로그인 후 복귀) */}

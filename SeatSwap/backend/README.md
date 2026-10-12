@@ -1,7 +1,7 @@
 # SeatSwap Backend (Spring Boot)
 
 ## 패키지 구조
-- domain       — JPA 엔티티 (User·Performance·PerformanceSession·Ticket, 교환 희망 쪽 ExchangeRequest·ExchangeWantRange·ExchangeWantSession, 매칭 ExchangeMatch, 교환 이력 ExchangeHistory(V9), 알림 Notification(V10), 채팅 메시지 ChatMessage(V11), 차단 UserBlock(V13), 신고 AbuseReport(V13), 이용 정지 UserSanction(V13))와 enum·값 객체 (UserRole·TicketStatus·ExtraType·ExchangeRequestStatus·ExchangeMatchStatus·ExchangeMatchAction·SeatKey). 예약 잠금(exchange_ticket_lock)은 엔티티 없이 `ExchangeTicketLockRepository`(JdbcTemplate)가 다룬다. 공연장은 Performance.venueName 텍스트(V2에서 venue 테이블 삭제). 펼친 희망 좌석(exchange_want_seat)은 엔티티 없이 `ExchangeWantSeatRepository`(JdbcTemplate)가 다룬다. 채팅 읽음 포인터(chat_read_state)는 `ChatReadStateRepository`(JdbcTemplate)가 다룬다
+- domain       — JPA 엔티티 (User·Performance·PerformanceSession·Ticket, 교환 희망 쪽 ExchangeRequest·ExchangeWantRange·ExchangeWantSession, 매칭 ExchangeMatch, 교환 이력 ExchangeHistory(V9), 알림 Notification(V10), 채팅 메시지 ChatMessage(V11), 차단 UserBlock(V13), 신고 AbuseReport(V13), 이용 정지 UserSanction(V13), 소셜 계정 SocialAccount(V14))와 enum·값 객체 (UserRole·TicketStatus·ExtraType·ExchangeRequestStatus·ExchangeMatchStatus·ExchangeMatchAction·SeatKey). 예약 잠금(exchange_ticket_lock)은 엔티티 없이 `ExchangeTicketLockRepository`(JdbcTemplate)가 다룬다. 공연장은 Performance.venueName 텍스트(V2에서 venue 테이블 삭제). 펼친 희망 좌석(exchange_want_seat)은 엔티티 없이 `ExchangeWantSeatRepository`(JdbcTemplate)가 다룬다. 채팅 읽음 포인터(chat_read_state)는 `ChatReadStateRepository`(JdbcTemplate)가 다룬다
 - repository   — JpaRepository
 - service      — 비즈니스 로직
 - controller   — REST API + WebSocket(STOMP)
@@ -12,7 +12,7 @@
 
 ## 현재 상태
 - 2026-10-07 방향 전환으로 좌석표 트랙 코드와 교환·채팅·후기 등 빈 스켈레톤(컨트롤러·서비스·저장소)을 삭제했다. 좌석표 코드는 git 태그 `archive/seatmap-track-20261007`에 보관되어 있다.
-- 엔티티는 User·Performance·PerformanceSession·Ticket과 교환 도메인 ExchangeRequest·ExchangeWantRange·ExchangeWantSession·ExchangeMatch·ExchangeHistory(V9)·Notification(V10)·ChatMessage(V11)·PerformanceEditProposal(V12)·SeatClaim(V12)·UserBlock(V13)·AbuseReport(V13)·UserSanction(V13) 16종이다(예약 잠금·펼친 희망 좌석·채팅 읽음 포인터는 JdbcTemplate 저장소). Ticket은 구역·열·번(표시용 label + 정규화 key)·상태(ACTIVE/INACTIVE/EXCHANGED; `EXCHANGED`는 교환 완료 때 기존 티켓에 붙는다, V9)를 가지며 티켓 등록·조회·내리기 API가 있다(FR-03).
+- 엔티티는 User·Performance·PerformanceSession·Ticket과 교환 도메인 ExchangeRequest·ExchangeWantRange·ExchangeWantSession·ExchangeMatch·ExchangeHistory(V9)·Notification(V10)·ChatMessage(V11)·PerformanceEditProposal(V12)·SeatClaim(V12)·UserBlock(V13)·AbuseReport(V13)·UserSanction(V13)·SocialAccount(V14) 17종이다(예약 잠금·펼친 희망 좌석·채팅 읽음 포인터는 JdbcTemplate 저장소). Ticket은 구역·열·번(표시용 label + 정규화 key)·상태(ACTIVE/INACTIVE/EXCHANGED; `EXCHANGED`는 교환 완료 때 기존 티켓에 붙는다, V9)를 가지며 티켓 등록·조회·내리기 API가 있다(FR-03).
 - **회원가입/로그인/JWT 인증(FR-01)은 구현 완료**:
   - `security/JwtTokenProvider` — access/refresh 토큰 발급·검증 (jjwt 0.12.5)
   - `security/JwtAuthenticationFilter` — Authorization 헤더 검증 후 SecurityContext 설정
@@ -21,6 +21,7 @@
   - `service/AuthService`, `controller/AuthController` — POST /api/auth/signup, /login, /refresh
   - 요청 DTO는 `jakarta.validation`으로 기본 검증(이메일 형식, 비밀번호 8자 이상) 적용
 - **공연·회차 등록/조회(FR-02)는 구현 완료** (`PerformanceController`, `PerformanceService`). 공연은 회차와 함께 등록하며, 등록 후에는 아무도 제목·공연장·회차를 수정하거나 공연·회차를 삭제할 수 없다(수정은 관리자 수정 제안 승인으로만 바뀌며 2026-10-12 구현, 아래 '관리자 API' 절). 공연장은 공연의 텍스트 속성 `venueName`(필수, 1~100자)이다.
+- **소셜 로그인(2026-10-12, `feature/social-login`, V14)은 구현 완료**: 카카오·구글·네이버, `/api/auth/social/**`(`SocialAuthController`, `service/social/`). 자세한 규칙은 아래 '소셜 로그인 (V14)' 절.
 - **링크 기반 공연 정보 미리보기(2026-10-12, `feature/link-autofill`)는 구현 완료**(`GET /api/performances/preview`, DB 변경 없음). 자세한 규칙은 아래 '링크 공연정보 미리보기' 절.
 - STOMP 스켈레톤(`config/WebSocketConfig`의 TODO)은 채팅 구현(V11, 2026-10-11)으로 대체됐다. 아래 '채팅 (V11)' 절 참고.
 - **티켓 등록(FR-03)은 구현 완료** (`TicketController`, `TicketService`, `SeatKeyNormalizer`). 좌석 1개를 텍스트(구역 필수, 열·번은 숫자 또는 문자)로 등록한다. 같은 회차·구역·열·번의 활성 티켓은 1개(DB `uk_ticket_active_seat`), 사용자당 활성 티켓 20개 상한(`users` 행 FOR UPDATE로 직렬화), 회차 당일 끝(다음날 0시 KST)까지만 등록할 수 있다. 교환 희망 범위·매칭·예약은 아래 교환 항목 참고. 내릴 때 예약 잠금이면 `TicketService.ensureCanDeactivate`가 409 `TICKET_RESERVED`로 막는다.
@@ -39,6 +40,10 @@
 | POST | /api/auth/signup | 회원가입 (email, password, nickname) → 생성된 사용자 정보 반환 |
 | POST | /api/auth/login | 로그인 (email, password) → accessToken, refreshToken 반환 |
 | POST | /api/auth/refresh | refreshToken으로 accessToken 재발급 |
+| GET | /api/auth/social/providers | 활성 소셜 제공자 목록 `{providers:[...]}`(client-id가 설정된 제공자만, 인증 불필요) |
+| GET | /api/auth/social/{provider}/authorize | 제공자 인증 화면으로 302(provider = google·kakao·naver). state 쿠키 `ss_oauth` 발급. 비활성이면 404 `SOCIAL_PROVIDER_DISABLED` |
+| GET | /api/auth/social/{provider}/callback | 제공자 콜백. 성공·실패 모두 302(성공 `{frontend}/auth/callback#code=`, 실패 `{frontend}/login?socialError=`) |
+| POST | /api/auth/social/exchange | `{code}` → TokenResponse. 일회용 코드 60초, 틀리거나 만료되면 400 `INVALID_LOGIN_CODE`, 정지면 403 `ACCOUNT_SUSPENDED` |
 
 ## 공연·공연장·회차·내 정보 API
 
@@ -319,6 +324,7 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 - **V11 적용 안내 (채팅, `V11__chat_message.sql`, 2026-10-11)**: 새 테이블 2개만 만든다. 기존 테이블 변경·데이터 이관·파괴적 단계는 없다. `chat_message`(append-only, 만든 뒤 수정·삭제하지 않음): `match_id`·`sender_id` FK(ON DELETE/UPDATE 동작 없음), `content` VARCHAR(1000)(코드 포인트 기준은 앱에서 검사), `client_message_id` VARCHAR(36) ascii_bin(대소문자 구분), UNIQUE `uk_chat_message_client(client_message_id, sender_id)`, 단일 컬럼 KEY `idx_chat_message_match`·`idx_chat_message_sender`, CHECK 2개(본문 공백 아님, id 길이 8~36). `chat_read_state`: PK(`match_id`, `user_id`), `last_read_message_id` BIGINT(FK 아님, 0 = 아무것도 안 읽음, CHECK >= 0), `updated_at`, FK 2개와 `idx_chat_read_state_user`. 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하다. 되돌리기는 롤포워드(두 테이블 삭제). 요구 MySQL 8.0.16 이상. 검증: `ChatSchemaMysqlTest`(실제 MySQL, `SEATSWAP_IT_*`가 있을 때만).
 - **V12 적용 안내 (관리자 처리 대상, `V12__admin_edit_proposal_seat_claim.sql`, 2026-10-12)**: 새 테이블 2개만 만든다(`performance_edit_proposal`, `seat_claim`). 기존 테이블 변경·데이터 이관·파괴적 단계는 없다. 두 테이블 모두 상태 `PENDING/APPROVED/REJECTED`(CHECK)이고, 'PENDING은 사용자(·좌석)당 1건'을 생성 컬럼 `pending_proposer_id`·`pending_claimant_id`(PENDING일 때만 사용자 id, 아니면 NULL)와 UNIQUE로 강제한다. 처리되면 NULL이 되어 유니크에서 빠지므로 다시 제안·요청할 수 있다. FK 인덱스는 모두 단일 컬럼이고 FK에 ON DELETE/UPDATE 동작을 두지 않는다. `seat_claim.image_key`는 소문자 UUID(UNIQUE, CHECK 정규식), `image_content_type`은 jpeg/png/webp, `image_size`는 1~5242880(5 MiB), `resolved_ticket_id`는 FK가 아니다(승인 때 내려진 티켓 id 기록용). 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하다. 되돌리기는 롤포워드(두 테이블 삭제). 요구 MySQL 8.0.16 이상. 검증: `AdminSchemaMysqlTest`(실제 MySQL, `SEATSWAP_IT_*`가 있을 때만).
 - **V13 적용 안내 (차단·신고·이용 정지, `V13__block_report_sanction.sql`, 2026-10-12)**: 새 테이블 3개만 만든다. 기존 테이블(`users` 포함) 변경·데이터 이관·파괴적 단계는 없다. `user_block`: `blocker_id`·`blocked_id` FK(ON DELETE/UPDATE 동작 없음), UNIQUE `uk_user_block_pair(blocker_id, blocked_id)`가 blocker FK 인덱스를 겸하고 KEY `blocked_id` 단일 컬럼, CHECK 자기 차단 금지. `abuse_report`: reason 5종(`ABUSE`/`FRAUD`/`NO_SHOW`/`FAKE_SEAT`/`OTHER`)과 status(`OPEN`/`RESOLVED`/`DISMISSED`) CHECK, 'OPEN은 (신고자, 매칭)당 1건'을 생성 컬럼 `open_reporter_id`(status가 OPEN일 때만 신고자 id, 아니면 NULL)와 UNIQUE(`open_reporter_id`, `match_id`)로 강제, `sanction_id`는 순환 FK를 피하려고 FK가 아니다, 처리 상태별 CHECK(처리됐으면 `handled_*` 필수), OTHER면 `detail` 필수, reporter ≠ reported CHECK. 관리자 목록용 status 인덱스와 대상별 누적 조회용 `reported_id` 단일 인덱스를 둔다. `user_sanction`: `user_id`·`report_id`(NULL 가능)·`created_by_id`·`revoked_by_id` FK, type `SUSPEND` CHECK, `ends_at` NULL = 무기한, `revoked_at`(해제 시각, 있으면 `revoked_by_id` 필수), CHECK `ends_at > starts_at`·자기 제재 금지. '사용자당 활성 제재 1건'은 DB 제약이 없고 서비스가 대상 `users` 행을 FOR UPDATE로 잠근 뒤 검사한다. 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하다. 되돌리기는 롤포워드(세 테이블 삭제). 요구 MySQL 8.0.16 이상. 검증: `BlockReportSchemaMysqlTest` 7건(실제 MySQL, `SEATSWAP_IT_*`가 있을 때만).
+- **V14 적용 안내 (소셜 로그인, `V14__social_account.sql`, 2026-10-12)**: 새 테이블 `social_account` 하나만 만든다. 기존 테이블(`users` 포함) 변경·데이터 이관·파괴적 단계는 없다. 컬럼: `id`, `user_id`(FK users, 단일 컬럼 KEY), `provider` VARCHAR(20) utf8mb4_bin(GOOGLE/KAKAO/NAVER CHECK), `provider_user_id` VARCHAR(100) utf8mb4_bin(빈 값 CHECK), `created_at`. UNIQUE(provider, provider_user_id). 재실행 가능한 프로시저 패턴. 다음 마이그레이션은 V15.
 - 차단·신고·이용 정지(`user_block`, `abuse_report`, `user_sanction`)는 **V13에서 구현됐다**(V8은 예약 방식 변경, V9는 교환 완료·교환 이력, V10은 알림, V11은 채팅, V12는 관리자 처리 대상 두 테이블에 사용됨)(예전 문서의 'V6 이후'는 V6/V7이 추가금·소프트 삭제에 쓰이면서 밀렸다).
 - **V3 적용 안내 (`ticket` 좌석 컬럼)**: `zone_label/zone_key`, `row_key`, `col_key`, `status`, `created_at/updated_at`, 생성 컬럼 `active_flag`, `uk_ticket_active_seat`(회차·구역·열·번·active_flag), `idx_ticket_user_status`를 추가하고 `row_label`/`col_label`을 NOT NULL VARCHAR(20)으로 바꾼다.
   - 가드: `ticket`에 행이 있으면 아무것도 바꾸기 전에 SIGNAL로 실패한다(새 NOT NULL 구역 컬럼에 채울 값이 없음). 적용 전 `SELECT COUNT(*) FROM ticket;`가 0인지 확인한다. 행이 있어 실패했다면 테스트 행을 지우고 `flyway repair`(실패 기록 삭제) 후 다시 적용한다. 임시 프로시저 `v3_guard_ticket_empty`가 남을 수 있으나 재실행 시 먼저 DROP 한다.
@@ -484,6 +490,76 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 - 채팅 DTO의 상대 숫자 id(`senderId`)는 그대로 노출한다(`mine` 플래그로 바꾸지 않음).
 - `OpenMatchCanceller` 주입은 `ObjectProvider`를 쓴다.
 
+## 소셜 로그인 (V14, 2026-10-12, `feature/social-login`)
+
+카카오·구글·네이버 로그인을 백엔드가 직접 처리한다(Authorization Code, Spring oauth2-client 미사용). 확정 규칙 요약은 CLAUDE.md '소셜 로그인 (구현됨, V14)' 절이다. 이 절은 구현 세부를 적는다.
+
+### 구성
+- `controller/SocialAuthController`(`/api/auth/social/**`, 인증 API 표 참고). 엔드포인트는 `SecurityConfig`의 `/api/auth/**` permitAll 아래에 있다.
+- `service/social/`: `SocialLoginService`(사용자 결정 규칙), `SocialUserRegistrar`(가입·자리표시 이메일·비밀번호 해시), `SocialProviderClient`(token·userinfo 호출), `SocialProfileParser`(제공자별 응답 → 식별자·검증된 이메일·닉네임), `SocialPkce`, `SocialStateCookie`(HMAC 서명 쿠키), `SocialLoginCodeStore`(일회용 코드), `SocialRateLimiter`, `SocialPropertiesValidator`(기동 검증), `SocialProperties`, `SocialLoginFailure`·`SocialAuthException`(콜백 실패 코드).
+- `domain/SocialAccount`(엔티티, INSERT만), `domain/SocialProvider`(enum), `repository/SocialAccountRepository`, `dto/request/SocialExchangeRequest`.
+- 토큰 발급은 `AuthService.issueTokens`를 재사용한다. 오류 매핑은 `GlobalExceptionHandler`.
+
+### 흐름
+1. FE가 `GET /api/auth/social/{provider}/authorize`로 이동한다. 서버는 state(32바이트)와 PKCE verifier(32바이트, 구글·카카오만)를 만들고, 서명한 쿠키 `ss_oauth`(HttpOnly, Path=`/api/auth/social`, SameSite=Lax, Max-Age 600초, Secure는 `cookie-secure`)에 `provider|state|verifier|만료`를 담아 제공자 authorize URL로 302한다.
+2. 제공자가 `{backend-base-url}/api/auth/social/{provider}/callback?code&state`로 돌려보낸다. 콜백은 쿠키 서명·만료·provider 일치·state 상수시간 비교를 먼저 본다. 실패하면 코드 교환을 하지 않는다. 쿠키는 항상 삭제(Max-Age=0)한다. `error` 파라미터는 ACCESS_DENIED다.
+3. code를 token 엔드포인트로 교환하고(form: grant_type, code, redirect_uri, client_id, client_secret, code_verifier; 네이버는 state 포함) access_token으로 userinfo를 호출한다.
+4. 사용자 결정 후 일회용 로그인 코드를 발급해 `302 {frontend-base-url}/auth/callback#code={code}`로 보낸다.
+5. FE `/auth/callback`이 프래그먼트를 읽고 URL을 정리한 뒤 `POST /api/auth/social/exchange {code}`를 한 번만 호출한다(StrictMode 이중 실행 방지). 응답은 기존 `TokenResponse`다.
+
+### 제공자별 규칙
+
+| 제공자 | scope | 이메일 사용 조건 | 식별자 | PKCE |
+|---|---|---|---|---|
+| 구글 | `openid email profile` | `email_verified`가 true | `sub` | S256 |
+| 카카오 | `profile_nickname account_email` | `is_email_valid`·`is_email_verified` 둘 다 true (동의 안 하면 이메일 없음) | `id`(숫자) | S256 |
+| 네이버 | 없음(앱 설정으로 결정) | 네이버가 주는 이메일은 검증된 것 | `response.id` | 미지원(state 쿠키 검증으로 CSRF 방어) |
+
+엔드포인트는 코드에 고정되어 있다. 구글 authorize `https://accounts.google.com/o/oauth2/v2/auth`, token `https://oauth2.googleapis.com/token`, userinfo `https://openidconnect.googleapis.com/v1/userinfo`. 카카오 `https://kauth.kakao.com/oauth/authorize`, `https://kauth.kakao.com/oauth/token`, `https://kapi.kakao.com/v2/user/me`. 네이버 `https://nid.naver.com/oauth2.0/authorize`, `https://nid.naver.com/oauth2.0/token`, `https://openapi.naver.com/v1/nid/me`. 설정으로 덮어쓸 수 있으나 https만 허용하고, 루프백 http만 테스트용으로 허용한다.
+
+### 사용자 결정 규칙 (`SocialLoginService`)
+1. `social_account(provider, provider_user_id)`가 있으면 그 사용자로 로그인한다(정지 검사). 이메일이 바뀌었는지는 보지 않는다.
+2. 없으면 가입한다. 검증된 이메일이 `users`에 있으면 가입하지 않고 `EMAIL_EXISTS`(자동 연결 없음)다. 이메일이 없거나 미검증이면 `{provider}.{providerUserId}@social.seatswap.invalid`를 쓴다(`.invalid` 예약 도메인. 식별자가 영숫자·`-_`가 아니면 SHA-256 앞 16자 hex로 대체). 비밀번호는 무작위 32바이트의 BCrypt 해시라 비밀번호 로그인은 불가다. 비밀번호 로그인 경로(`AuthService.login`)는 그대로 둔다.
+3. 닉네임은 `AuthInputNormalizer.normalizeNickname`으로 정리하고 보이지 않는 문자를 뺀 뒤 2~20자(코드 포인트)로 자른다. 2자 미만이면 `{제공자 한글명}사용자` + 숫자 4자리 랜덤.
+4. `User.create`(role USER)와 `social_account` 1행을 한 트랜잭션에서 만든다. 같은 소셜 계정의 동시 첫 로그인이 UNIQUE에 걸리면 다시 조회해 기존 사용자로 진행한다(1회 재시도). 이메일 UNIQUE 경합은 `EMAIL_EXISTS`다.
+5. 가입 후 정지·차단·신고 규칙은 일반 사용자와 같다. 정지 검사는 callback·exchange·요청마다 한다.
+
+### 오류 코드
+- socialError(302 쿼리, 프런트 매핑 키): `INVALID_STATE`, `ACCESS_DENIED`, `PROVIDER_ERROR`, `EMAIL_EXISTS`, `ACCOUNT_SUSPENDED`(+`until`), `SERVER_BUSY`(일회용 코드 보관 상한 1만 건 초과).
+- REST 직접 호출: `SOCIAL_PROVIDER_DISABLED`(404), `INVALID_LOGIN_CODE`(400), `SOCIAL_RATE_LIMITED`(429), 정지 403 `ACCOUNT_SUSPENDED`.
+- 콜백은 미분류 예외를 포함해 JSON을 내지 않고 항상 로그인 화면 302와 쿠키 삭제로 끝난다.
+
+### 설정 (`seatswap.social.*`)
+- `{google|kakao|naver}.client-id`·`client-secret`(환경변수 `SEATSWAP_SOCIAL_GOOGLE_CLIENT_ID`·`..._SECRET`, `..._KAKAO_...`, `..._NAVER_...`), `authorize-uri`·`token-uri`·`userinfo-uri`(기본값은 위 고정 주소).
+- `backend-base-url`(`SEATSWAP_SOCIAL_BACKEND_BASE_URL`, 기본 `http://localhost:8080`): 리다이렉트 URI = `{backend-base-url}/api/auth/social/{provider}/callback`을 각 개발자 콘솔에 등록한다.
+- `frontend-base-url`(`SEATSWAP_SOCIAL_FRONTEND_BASE_URL`, 기본 `http://localhost:5173`): `seatswap.websocket.allowed-origins`에 포함돼야 하며 기동 때 검증한다(위반이면 기동 실패).
+- `state-secret`(`SEATSWAP_SOCIAL_STATE_SECRET`, 32바이트 이상. 기본값은 개발용이라 운영에서는 거부), `cookie-secure`(`SEATSWAP_SOCIAL_COOKIE_SECURE`, 기본 false, 운영 true 요구).
+- client-id가 비어 있으면 그 제공자는 비활성이다. 모두 비면 소셜 기능과 기동 검증이 꺼진다.
+- `.env.example`·`docker-compose.yml`에 `SOCIAL_*` 변수를 추가했다(값이 비면 비활성).
+- 프록시 뒤에 배포하면 `server.forward-headers-strategy` 설정이 필요하다. 속도 제한은 `getRemoteAddr()`만 믿는다.
+
+### 보안 요구와 구현
+- `Cache-Control: no-store`를 authorize·callback·exchange 응답에 붙인다.
+- 아웃바운드 HTTP: 연결 3초·응답 5초, 리다이렉트 비추종, 본문 64 KiB 상한, Content-Encoding 거부, 동시 8개 상한. 사용자 입력 URL은 요청하지 않는다. 실패(타임아웃·4xx·5xx·JSON 파싱 불가)는 `PROVIDER_ERROR`로 리다이렉트한다.
+- 로그에는 제공자·오류 종류만 남긴다. secret·토큰·code·이메일은 남기지 않는다.
+- 리다이렉트 목적지는 설정 `frontend-base-url` 고정이다. 요청 파라미터로 목적지를 받지 않는다(오픈 리다이렉트 금지).
+- 일회용 코드는 32바이트 랜덤, 서버 메모리, TTL 60초, 꺼내면 즉시 삭제, 보관 상한 1만 건. exchange 때 정지를 다시 검사한다.
+- 속도 제한: authorize·callback·exchange 버킷을 나눠 IP당 분당 30회(슬라이딩 윈도우, 메모리). 초과는 429 `SOCIAL_RATE_LIMITED`.
+- Fable 검증 결과: 높음 없음. 중간 4건(콜백 예외 JSON 노출, state 쿠키 재사용·콜백 무제한, 프런트 `__proto__` 오류 코드 크래시, 프록시 IP 공유)과 낮은 등급 일부는 수정했다.
+
+### 테스트
+- 제공자 스텁: JDK `com.sun.net.httpserver.HttpServer`(무작위 포트)로 token·userinfo를 흉내 낸다(성공, 4xx, 잘못된 JSON, 느린 응답). 설정으로 엔드포인트를 스텁 URL로 덮어쓴다. authorize는 302 Location의 state·code_challenge(S256)·redirect_uri·scope·client_id를 검증한다.
+- 케이스: 신규 가입(이메일 있음·없음·미검증), 재로그인(이메일이 바뀌어도), EMAIL_EXISTS(사용자·social_account 증가 0), 정지 사용자(callback·exchange), state 쿠키 누락·변조·만료·provider 불일치, 코드 재사용·만료, 비활성 제공자, `error=access_denied`, 동시 첫 로그인 경합, 비밀번호 로그인 불가, 오픈 리다이렉트 불가, 속도 제한, 로그·응답에 secret 미노출.
+- MySQL IT는 임시 컨테이너(고유 이름·포트, DB 이름 `_it`)에서만 돌렸다. 개발 DB와 `bootRun`은 쓰지 않았다.
+- 브라우저(Playwright, 스텁 제공자): 신규 가입, 재로그인, EMAIL_EXISTS, 이메일 없음, 정지 계정, 위조 콜백, 코드 없는 `/auth/callback`.
+
+### 알려진 한계
+- 실제 카카오·구글·네이버 키로 검증하지 못했다. 카카오 PKCE·`is_email_verified`, 네이버 client_secret 필수 여부 등은 실연동 때 확인한다. 네이버 client_secret 필수 검증은 없다(런타임 PROVIDER_ERROR).
+- 로그인 코드·속도 제한·사용된 state는 메모리다(서버 한 대 기준). 재시작하면 코드가 사라진다(허용).
+- `__Host-` 쿠키 접두를 쓰지 않는다(Path 설계 때문).
+- 일반 가입에 이메일 인증이 없어 타인 이메일을 먼저 쓰면 그 사람의 소셜 로그인이 EMAIL_EXISTS로 막힌다(기존 한계). 자리표시 이메일 계정은 헤더에 가짜 이메일이 보인다.
+- 기존 계정에 소셜을 붙이는 연결 UI가 없다. 본문 정체 워치독 테스트가 없다.
+
 ## 로컬 환경변수 (.env)
 
 `./gradlew bootRun`으로 로컬 실행 시, `backend/.env` 파일이 있으면 `build.gradle`의
@@ -497,6 +573,7 @@ cp .env.example .env
 ```
 
 `.env`는 `.gitignore`에 등록되어 있어 커밋되지 않는다.
+소셜 로그인 설정은 `.env.example`의 `SOCIAL_*` 변수로 주입한다(client-id가 비어 있으면 그 제공자는 비활성).
 
 ## 후속 메모 (티켓 등록)
 - V4 후보 조회·스케줄러에서 회차 마감(당일 끝)이 지난 회차의 티켓은 제외하거나 비활성 처리한다.
@@ -839,3 +916,4 @@ docker rm -f seatswap-tmp-match
 4. (완료, 2026-10-12) 사용자 차단·신고·관리자 신고 처리·이용 정지(V13). 후기 기능은 없음; 채팅은 2026-10-11 구현 완료
 5. 배포 시 SecurityConfig의 CORS allowed-origin을 실제 프론트 도메인으로 교체
 6. 브라우저 수동 점검(차단·신고·정지 화면 포함), trust_score 컬럼 정리 여부 결정, 7일 경과 알림(미구현)
+7. (완료, 2026-10-12, 미병합) 소셜 로그인(V14). 다음 요청(미착수): 예약 방식 변경(예약 버튼은 채팅 화면에서만, 예약도 '예약 제안 → 상대 수락'이어야 RESERVED, V15 필요). 그 뒤 7일 경과 알림.

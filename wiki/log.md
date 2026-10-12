@@ -40,3 +40,6 @@ llm-wiki 스킬, researcher·wiki-curator 에이전트, `scripts/lint-wiki.mjs`�
 
 ## [2026-10-12] ingest | 차단·신고·이용 정지 반영
 차단·신고·관리자 신고 처리·이용 정지(V13, 브랜치 `feature/block-report`, 미병합) 구현 사실을 반영했다. 결정 페이지 `block-report-design.md`를 추가하고, 함정 페이지에 12절(차단 NOT EXISTS 분리, READ_COMMITTED 제재 중복 직렬화, users 잠금 금지)을, 용어집에 차단·신고 절을 더했다. 채팅 설계·STOMP 조사·관리자 설계의 "차단은 범위 밖/훅 필요" 서술을 갱신했다. 테스트 수치는 구현 세션 기록이며 confidence는 medium이다.
+
+## [2026-10-12] ingest | 소셜 로그인 반영
+소셜 로그인(V14, 브랜치 `feature/social-login`, 미병합) 구현 사실을 반영했다. 결정 페이지 `social-login-design.md`와 함정 페이지 `frontend-react-pitfalls.md`(StrictMode 중단 요청 가드, `__proto__` 키 조회)를 추가했다. 실제 제공자 키로는 검증하지 못해 confidence는 medium이다.

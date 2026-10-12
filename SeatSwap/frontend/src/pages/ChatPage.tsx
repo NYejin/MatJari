@@ -107,6 +107,8 @@ export default function ChatPage() {
   const [reserveConfirm, setReserveConfirm] = useState<ReserveConfirm | null>(null);
   const [reserveError, setReserveError] = useState<string | null>(null);
   const [reserveNotice, setReserveNotice] = useState("");
+  /** 결과 문구를 보여 준 시점의 매칭 상태. 상대 때문에 상태가 바뀌면 낡은 문구는 숨긴다 */
+  const [reserveNoticeKey, setReserveNoticeKey] = useState("");
 
   const headingRef = useRef<HTMLHeadingElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -161,6 +163,7 @@ export default function ChatPage() {
     setReserveConfirm(null);
     setReserveError(null);
     setReserveNotice("");
+    setReserveNoticeKey("");
   }, [matchId]);
 
   // ---- 매칭(상태 배너용): 진입·포커스·탭 복귀·재연결·409 때 다시 읽는다 ----
@@ -428,6 +431,7 @@ export default function ChatPage() {
       matchLoadedRef.current = true;
       setMatch(res);
       setReserveConfirm(null);
+      setReserveNoticeKey(`${res.status}|${res.reservationProposal}`);
       setReserveNotice(
         action === "propose"
           ? `${name}님에게 예약을 제안했어요. 상대가 수락하면 예약돼요.`
@@ -454,6 +458,8 @@ export default function ChatPage() {
   };
 
   // ---- 보내기 ----
+  const shownReserveNotice =
+    match !== null && reserveNotice !== "" && reserveNoticeKey === `${match.status}|${match.reservationProposal}` ? reserveNotice : "";
   const closedChat = match !== null && (match.status === "CANCELED" || match.status === "COMPLETED");
 
   const sendMessage = async (content: string, clientMessageId: string) => {
@@ -584,7 +590,7 @@ export default function ChatPage() {
                       </button>
                     )}
                     {proposal === "THEIRS" && !seatExchanged && (
-                      <button type="button" className={button.solid} onClick={() => setReserveConfirm("accept")} disabled={reserveBusy !== null}>
+                      <button type="button" className={button.solid} onClick={() => setReserveConfirm("accept")} disabled={reserveBusy !== null || match.myTicketReservedElsewhere || match.counterpartTicketReservedElsewhere}>
                         예약 수락
                       </button>
                     )}
@@ -632,8 +638,8 @@ export default function ChatPage() {
                 )}
               </div>
             )}
-            <p role="status" className={liveRegionClass(reserveNotice, ui.status)}>
-              {reserveNotice}
+            <p role="status" className={liveRegionClass(shownReserveNotice, ui.status)}>
+              {shownReserveNotice}
             </p>
           </div>
         )}

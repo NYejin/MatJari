@@ -70,15 +70,17 @@ enum TicketingSite {
     /**
      * YES24 티켓.
      * [확인] http://ticket.yes24.com/Perf/49876
-     * [추정] https://m.ticket.yes24.com/Perf/Detail/PerfInfo.aspx?IdPerf=49876 (모바일 — 이 경로일 때만 IdPerf 인정)
+     * [확인] https://m.ticket.yes24.com/Perf/Detail/PerfInfo.aspx?IdPerf=49876 (모바일 — 이 경로일 때만 IdPerf 인정)
+     * [확인] https://m.ticket.yes24.com/Perf/49876 (모바일 짧은 형식)
      */
     YES24("yes24", Set.of("ticket.yes24.com", "m.ticket.yes24.com")) {
         private final Pattern perfPath = Pattern.compile("^/Perf/(\\d{1,20})/?$", Pattern.CASE_INSENSITIVE);
 
         @Override
         Optional<String> extractProductId(String host, String path, Map<String, String> query) {
-            if ("ticket.yes24.com".equals(host)) {
-                return group(perfPath, path);
+            Optional<String> fromPath = group(perfPath, path);
+            if (fromPath.isPresent()) {
+                return fromPath;
             }
             if ("/Perf/Detail/PerfInfo.aspx".equalsIgnoreCase(path)) {
                 return numericParam(query, "IdPerf");

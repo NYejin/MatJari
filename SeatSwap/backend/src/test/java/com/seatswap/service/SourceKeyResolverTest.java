@@ -28,6 +28,8 @@ class SourceKeyResolverTest {
             "http://ticket.yes24.com/Perf/49876, yes24:49876",
             "https://ticket.yes24.com/perf/49876/, yes24:49876",
             "https://m.ticket.yes24.com/Perf/Detail/PerfInfo.aspx?IdPerf=49876, yes24:49876",
+            "https://m.ticket.yes24.com/Perf/49876, yes24:49876",
+            "https://ticket.yes24.com/Perf/Detail/PerfInfo.aspx?IdPerf=49876, yes24:49876",
             // 티켓링크
             "https://www.ticketlink.co.kr/product/45678, ticketlink:45678",
             "https://ticketlink.co.kr/product/45678, ticketlink:45678",

@@ -11,9 +11,9 @@ const BASE =
   FOCUS_RING;
 
 const PROVIDERS: Record<SocialProvider, { label: string; className: string }> = {
-  google: { label: "Google로 계속하기", className: `${BASE} border border-gray-300 bg-white text-gray-900` },
-  naver: { label: "네이버로 계속하기", className: `${BASE} border border-[#03C75A] bg-[#03C75A] text-white` },
   kakao: { label: "카카오로 계속하기", className: `${BASE} border border-[#FEE500] bg-[#FEE500] text-black` },
+  naver: { label: "네이버로 계속하기", className: `${BASE} border border-[#03C75A] bg-[#03C75A] text-white` },
+  google: { label: "Google로 계속하기", className: `${BASE} border border-gray-300 bg-white text-gray-900` },
 };
 
 export default function SocialLoginButtons() {

@@ -55,7 +55,7 @@ public class SocialUserRegistrar {
         String unknownPassword = passwordEncoder.encode(Base64.getEncoder().encodeToString(secret));
 
         // flush 까지 즉시 수행해 UNIQUE 위반을 이 메서드 안(트랜잭션 롤백)에서 드러낸다. 예외는 삼키지 않고 던진다.
-        User user = userRepository.saveAndFlush(User.create(email, unknownPassword, nicknameFor(provider, profile.nickname())));
+        User user = userRepository.saveAndFlush(User.createSocial(email, unknownPassword, nicknameFor(provider, profile.nickname())));
         socialAccountRepository.saveAndFlush(SocialAccount.create(user.getId(), provider, profile.providerUserId()));
         return user.getId();
     }

@@ -210,6 +210,14 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
   // 프로필이 바뀌는 기능을 만들면 성공 후 reloadProfile()을 호출해야 화면(헤더·마이페이지)이 갱신된다.
   const reloadProfile = useCallback(() => setProfileReloadKey((k) => k + 1), []);
 
+  const applyProfile = useCallback(
+    (next: User) => {
+      if (userId === null || next.id !== userId) return;
+      setProfileState({ userId, status: "success", profile: next, error: null });
+    },
+    [userId]
+  );
+
   const user = session?.user ?? null;
   // 렌더 시점에도 현재 세션 사용자의 것만 노출 (상태 갱신 전 한 프레임의 이전 사용자 정보 방지)
   const current = profileState && user && profileState.userId === user.id ? profileState : null;
@@ -226,10 +234,11 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
       profileStatus,
       profileError,
       reloadProfile,
+      applyProfile,
       login,
       logout,
     }),
-    [user, isInitializing, profile, profileStatus, profileError, reloadProfile, login, logout]
+    [user, isInitializing, profile, profileStatus, profileError, reloadProfile, applyProfile, login, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

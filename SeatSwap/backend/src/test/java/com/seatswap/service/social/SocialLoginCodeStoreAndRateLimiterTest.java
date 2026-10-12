@@ -1,5 +1,6 @@
 package com.seatswap.service.social;
 
+import com.seatswap.domain.SocialProvider;
 import com.seatswap.service.social.SocialTestSupport.MutableClock;
 import org.junit.jupiter.api.Test;
 
@@ -117,5 +118,86 @@ class SocialLoginCodeStoreAndRateLimiterTest {
         }
         clock.advance(10_001); // 첫 기록 + 60초 지남
         limiter.acquire("ip");
+    }
+
+
+    // ---------------- 계정 연결 티켓 저장소 / 사용자별 속도 제한 ----------------
+
+    @Test
+    void 링크_티켓은_한_번만_쓸_수_있고_userId에_묶인다() {
+        SocialLinkTicketStore store = new SocialLinkTicketStore(clock, props);
+        String ticket = store.issue(7L, SocialProvider.GOOGLE);
+        assertThat(ticket).hasSize(43).matches("[A-Za-z0-9_-]+");
+        assertThat(store.consume(ticket, SocialProvider.GOOGLE)).contains(7L);
+        assertThat(store.consume(ticket, SocialProvider.GOOGLE)).isEmpty();
+        assertThat(store.consume(null, SocialProvider.GOOGLE)).isEmpty();
+        assertThat(store.consume("", SocialProvider.GOOGLE)).isEmpty();
+        assertThat(store.consume("nope", SocialProvider.GOOGLE)).isEmpty();
+    }
+
+    @Test
+    void 링크_티켓은_발급_때의_제공자와_다르면_거부되고_소진된다() {
+        SocialLinkTicketStore store = new SocialLinkTicketStore(clock, props);
+        String ticket = store.issue(7L, SocialProvider.GOOGLE);
+        assertThat(store.consume(ticket, SocialProvider.KAKAO)).isEmpty();
+        assertThat(store.consume(ticket, SocialProvider.GOOGLE)).isEmpty();
+    }
+
+    @Test
+    void 링크_티켓은_60초에_만료되고_로그인_코드_저장소와_섞이지_않는다() {
+        SocialLinkTicketStore tickets = new SocialLinkTicketStore(clock, props);
+        SocialLoginCodeStore codes = new SocialLoginCodeStore(clock, props);
+        String ticket = tickets.issue(7L, SocialProvider.GOOGLE);
+        String code = codes.issue(8L);
+        assertThat(codes.consume(ticket)).isEmpty(); // 티켓은 로그인 코드로 쓸 수 없다
+        assertThat(tickets.consume(code, SocialProvider.GOOGLE)).isEmpty(); // 로그인 코드는 링크 티켓으로 쓸 수 없다
+        clock.advance(60_000);
+        assertThat(tickets.consume(ticket, SocialProvider.GOOGLE)).isEmpty();
+        assertThat(tickets.size()).isZero();
+    }
+
+    @Test
+    void 링크_티켓_보관_상한이_차면_503_SERVER_BUSY() {
+        props.setLoginCodeMax(2);
+        SocialLinkTicketStore store = new SocialLinkTicketStore(clock, props);
+        store.issue(1L, SocialProvider.GOOGLE);
+        store.issue(2L, SocialProvider.GOOGLE);
+        assertThatThrownBy(() -> store.issue(3L, SocialProvider.GOOGLE)).isInstanceOf(SocialAuthException.class)
+                .satisfies(e -> {
+                    assertThat(((SocialAuthException) e).getStatus().value()).isEqualTo(503);
+                    assertThat(((SocialAuthException) e).getCode()).isEqualTo("SERVER_BUSY");
+                });
+        clock.advance(61_000);
+        assertThat(store.issue(4L, SocialProvider.GOOGLE)).isNotBlank();
+    }
+
+    @Test
+    void 연결_확정_코드는_한_번만_쓰이고_60초에_만료되며_상한이_차면_503() {
+        SocialLinkConfirmStore store = new SocialLinkConfirmStore(clock, props);
+        String code = store.issue(7L, SocialProvider.KAKAO, "pu-1");
+        assertThat(code).hasSize(43).matches("[A-Za-z0-9_-]+");
+        SocialLinkConfirmStore.Payload p = store.consume(code).orElseThrow();
+        assertThat(p.userId()).isEqualTo(7L);
+        assertThat(p.provider()).isEqualTo(SocialProvider.KAKAO);
+        assertThat(p.providerUserId()).isEqualTo("pu-1");
+        assertThat(p.toString()).doesNotContain("pu-1");
+        assertThat(store.consume(code)).isEmpty();
+        assertThat(store.consume(null)).isEmpty();
+        String expiring = store.issue(7L, SocialProvider.KAKAO, "pu-2");
+        clock.advance(60_000);
+        assertThat(store.consume(expiring)).isEmpty();
+        props.setLoginCodeMax(1);
+        store.issue(1L, SocialProvider.GOOGLE, "a");
+        assertThatThrownBy(() -> store.issue(2L, SocialProvider.GOOGLE, "b")).isInstanceOf(SocialAuthException.class);
+    }
+
+    @Test
+    void 키별_한도를_직접_정할_수_있다() {
+        SocialRateLimiter limiter = new SocialRateLimiter(clock, props);
+        for (int i = 0; i < 10; i++) {
+            limiter.acquire("l:5", props.getLinkPerMinute());
+        }
+        assertThatThrownBy(() -> limiter.acquire("l:5", props.getLinkPerMinute())).isInstanceOf(SocialAuthException.class);
+        limiter.acquire("l:6", props.getLinkPerMinute());
     }
 }

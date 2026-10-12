@@ -26,6 +26,13 @@ public class User {
     @Column(nullable = false)
     private String password;
 
+    /**
+     * 비밀번호로 로그인할 수 있는 계정인가(V16). 일반 가입 true, 소셜 가입 false(비밀번호는 무작위 해시라 쓸 수 없다).
+     * 소셜 연결 해제 때 '마지막 로그인 수단' 판단에 쓴다.
+     */
+    @Column(name = "password_login_enabled", nullable = false)
+    private boolean passwordLoginEnabled = true;
+
     @Column(nullable = false)
     private String nickname;
 
@@ -52,8 +59,21 @@ public class User {
         user.email = email;
         user.password = encodedPassword;
         user.nickname = nickname;
+        user.passwordLoginEnabled = true; // 일반 가입
         user.trustScore = 0.0;
         user.role = UserRole.USER; // 가입은 항상 USER
         return user;
+    }
+
+    /** 소셜 가입용 팩토리. 비밀번호는 아무도 모르는 무작위 해시이므로 비밀번호 로그인은 불가(passwordLoginEnabled=false). */
+    public static User createSocial(String email, String unknownEncodedPassword, String nickname) {
+        User user = create(email, unknownEncodedPassword, nickname);
+        user.passwordLoginEnabled = false;
+        return user;
+    }
+
+    /** 닉네임 변경. 검증·정규화는 호출 쪽(UserService)이 한다. */
+    public void changeNickname(String nickname) {
+        this.nickname = nickname;
     }
 }

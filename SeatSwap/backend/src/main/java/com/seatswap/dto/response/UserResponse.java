@@ -4,8 +4,15 @@ import com.seatswap.domain.User;
 import com.seatswap.domain.UserRole;
 
 // role은 UI 분기용 표시값이다. 서버의 권한 판단은 항상 DB(매 요청 로드한 role) 기준이다.
-public record UserResponse(Long id, String email, String nickname, Double trustScore, UserRole role) {
+// 소셜 가입의 자리표시 이메일(@social.seatswap.invalid)은 원문을 내리지 않고 email=null, emailPlaceholder=true 로 알린다.
+public record UserResponse(Long id, String email, String nickname, Double trustScore, UserRole role,
+                           boolean emailPlaceholder, boolean passwordLoginEnabled) {
+
+    private static final String PLACEHOLDER_SUFFIX = "@social.seatswap.invalid";
+
     public static UserResponse from(User user) {
-        return new UserResponse(user.getId(), user.getEmail(), user.getNickname(), user.getTrustScore(), user.getRole());
+        boolean placeholder = user.getEmail() != null && user.getEmail().endsWith(PLACEHOLDER_SUFFIX);
+        return new UserResponse(user.getId(), placeholder ? null : user.getEmail(), user.getNickname(),
+                user.getTrustScore(), user.getRole(), placeholder, user.isPasswordLoginEnabled());
     }
 }

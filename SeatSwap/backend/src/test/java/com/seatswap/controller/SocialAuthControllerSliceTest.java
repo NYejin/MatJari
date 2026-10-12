@@ -77,6 +77,29 @@ class SocialAuthControllerSliceTest {
     }
 
     @Test
+    void authorize의_link_파라미터는_연결_모드로_서비스에_넘기고_쿠키를_심는다() throws Exception {
+        when(socialAuthService.authorize(eq("google"), any(), eq("TICKET")))
+                .thenReturn(new SocialAuthService.AuthorizeResult("https://accounts.example/auth?x=1", "ss_oauth=V; Max-Age=600; Path=/api/auth/social; HttpOnly; SameSite=Lax"));
+        mockMvc.perform(get("/api/auth/social/google/authorize").param("link", "TICKET"))
+                .andExpect(status().isFound())
+                .andExpect(header().string("Location", "https://accounts.example/auth?x=1"))
+                .andExpect(header().string("Set-Cookie", org.hamcrest.Matchers.startsWith("ss_oauth=V;")))
+                .andExpect(header().string("Cache-Control", "no-store"));
+        verify(socialAuthService).authorize("google", "127.0.0.1", "TICKET");
+    }
+
+    @Test
+    void 유효하지_않은_링크_티켓은_쿠키_없이_me로_302() throws Exception {
+        when(socialAuthService.authorize(eq("google"), any(), eq("BAD")))
+                .thenReturn(new SocialAuthService.AuthorizeResult("http://localhost:5173/me?socialLinkError=INVALID_LINK", null));
+        mockMvc.perform(get("/api/auth/social/google/authorize").param("link", "BAD"))
+                .andExpect(status().isFound())
+                .andExpect(header().string("Location", "http://localhost:5173/me?socialLinkError=INVALID_LINK"))
+                .andExpect(header().doesNotExist("Set-Cookie"))
+                .andExpect(header().string("Cache-Control", "no-store"));
+    }
+
+    @Test
     void 비활성_제공자는_404_JSON() throws Exception {
         when(socialAuthService.authorize(eq("kakao"), any())).thenThrow(SocialAuthException.providerDisabled());
         mockMvc.perform(get("/api/auth/social/kakao/authorize"))

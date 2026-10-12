@@ -8,4 +8,10 @@ export const usersApi = {
     const { data } = await apiClient.get<User>("/users/me");
     return data;
   },
+
+  /** PATCH /api/users/me {nickname} — 닉네임 수정. 같은 값이면 멱등 200. 400은 필드 오류({nickname: 메시지}) */
+  async updateNickname(nickname: string): Promise<User> {
+    const { data } = await apiClient.patch<User>("/users/me", { nickname });
+    return data;
+  },
 };

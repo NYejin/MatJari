@@ -65,6 +65,51 @@ class SocialStateCookieTest {
     }
 
     @Test
+    void 연결_모드_쿠키는_linkUserId를_담고_로그인_모드는_null이다() {
+        String link = cookie.sign(SocialProvider.GOOGLE, "st", "ver", 42L);
+        assertThat(cookie.verify(link, SocialProvider.GOOGLE)).contains(new SocialStateCookie.Verified("st", "ver", 42L));
+        String login = cookie.sign(SocialProvider.GOOGLE, "st", "ver");
+        assertThat(cookie.verify(login, SocialProvider.GOOGLE).orElseThrow().linkUserId()).isNull();
+        assertThat(cookie.verify(link, SocialProvider.KAKAO)).isEmpty();
+        clock.advance(601_000);
+        assertThat(cookie.verify(link, SocialProvider.GOOGLE)).isEmpty();
+    }
+
+    @Test
+    void linkUserId를_바꾸거나_떼어_내면_서명이_맞지_않아_거부한다() {
+        String v = cookie.sign(SocialProvider.NAVER, "st", "ver", 42L);
+        String[] parts = v.split("\\.");
+        String payload = new String(Base64.getUrlDecoder().decode(parts[0]), StandardCharsets.UTF_8);
+        for (String forged : new String[]{payload.replace("|42|", "|7|"), payload.replace("|42|", "||")}) {
+            String enc = Base64.getUrlEncoder().withoutPadding().encodeToString(forged.getBytes(StandardCharsets.UTF_8));
+            assertThat(cookie.verify(enc + "." + parts[1], SocialProvider.NAVER)).isEmpty();
+        }
+    }
+
+    @Test
+    void 서명이_맞아도_4칸_구_포맷이나_잘못된_linkUserId는_무효이다() {
+        // 같은 비밀키로 서명했지만 칸 수가 다른(구 포맷) 쿠키
+        long exp = clock.millis() + 60_000;
+        assertThat(cookie.verify(signedRaw("GOOGLE|st|ver|" + exp), SocialProvider.GOOGLE)).isEmpty();
+        assertThat(cookie.verify(signedRaw("GOOGLE|st|ver|abc|" + exp), SocialProvider.GOOGLE)).isEmpty();
+        assertThat(cookie.verify(signedRaw("GOOGLE|st|ver|-5|" + exp), SocialProvider.GOOGLE)).isEmpty();
+        assertThat(cookie.verify(signedRaw("GOOGLE|st|ver|0|" + exp), SocialProvider.GOOGLE)).isEmpty();
+        assertThat(cookie.verify(signedRaw("GOOGLE|st|ver||" + exp), SocialProvider.GOOGLE)).isPresent();
+    }
+
+    /** 테스트용: 임의 payload 를 같은 비밀키로 서명한다. */
+    private String signedRaw(String payload) {
+        try {
+            String enc = Base64.getUrlEncoder().withoutPadding().encodeToString(payload.getBytes(StandardCharsets.UTF_8));
+            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+            mac.init(new javax.crypto.spec.SecretKeySpec(SocialTestSupport.SECRET.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            return enc + "." + Base64.getUrlEncoder().withoutPadding().encodeToString(mac.doFinal(enc.getBytes(StandardCharsets.UTF_8)));
+        } catch (java.security.GeneralSecurityException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    @Test
     void 쿠키_헤더_속성과_상수시간_비교() {
         String h = cookie.setCookieHeader("VAL");
         assertThat(h).startsWith("ss_oauth=VAL").contains("HttpOnly", "SameSite=Lax", "Path=/api/auth/social", "Max-Age=600")

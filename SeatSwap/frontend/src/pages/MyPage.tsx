@@ -1,7 +1,9 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { getDisplayName, useAuth } from "../hooks/useAuth";
+import { getDisplayName, getVisibleEmail, useAuth } from "../hooks/useAuth";
 import { useLogout } from "../hooks/useLogout";
+import NicknameEditor from "../components/NicknameEditor";
+import SocialLinkCard from "../components/SocialLinkCard";
 import { FOCUS_RING } from "../components/ui";
 
 // FR-01 회원 — 마이페이지 (보호 라우트 /me). 내 정보(/api/users/me) 표시 + 로그아웃.
@@ -94,6 +96,7 @@ export default function MyPage() {
   if (!user) return null;
 
   const displayName = getDisplayName(user, profile);
+  const visibleEmail = getVisibleEmail(user, profile);
   const statusText = profileStatus === "loading" ? "내 정보를 불러오는 중..." : "";
 
   let profileBody: ReactNode = null;
@@ -101,12 +104,14 @@ export default function MyPage() {
     // 성공 또는 재조회 중·재조회 실패(이전 값 유지)
     profileBody = (
       <>
-        <p className={cls.nickname} title={displayName}>
-          {displayName}
-        </p>
-        <p className={cls.email} title={profile.email}>
-          {profile.email}
-        </p>
+        <NicknameEditor nickname={displayName} />
+        {visibleEmail ? (
+          <p className={cls.email} title={visibleEmail}>
+            {visibleEmail}
+          </p>
+        ) : (
+          <p className={cls.email}>소셜 계정으로 가입해 이메일이 없어요</p>
+        )}
         <div className={cls.scoreRow}>
           <span className={cls.scoreLabel}>신뢰도 점수</span>
           <span className={cls.scoreValue}>{formatTrustScore(profile.trustScore)}</span>
@@ -144,6 +149,8 @@ export default function MyPage() {
             </>
           )}
         </section>
+
+        <SocialLinkCard />
 
         <section className={cls.card} aria-labelledby="mypage-coming-soon">
           <h2 id="mypage-coming-soon" className={cls.sectionTitle}>

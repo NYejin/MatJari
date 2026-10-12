@@ -10,6 +10,7 @@ import com.seatswap.service.AuthService;
 import com.seatswap.service.social.SocialLoginFailure.SocialError;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.net.URLEncoder;
@@ -49,6 +50,8 @@ public class SocialAuthService {
     private final AuthService authService;
     private final UserRepository userRepository;
     private final AccountSuspensionChecker suspensionChecker;
+    private final SocialLinkTicketStore linkTicketStore;
+    private final SocialAccountLinker accountLinker;
     private final SecureRandom random = new SecureRandom();
     /** 제공자 token·userinfo 호출 동시 실행 상한(초과는 기다리지 않고 SERVER_BUSY). */
     private final Semaphore providerCalls = new Semaphore(8);
@@ -64,9 +67,26 @@ public class SocialAuthService {
 
     /** 1단계: state·PKCE verifier 를 만들어 서명 쿠키에 담고 제공자 authorize URL 을 돌려준다. */
     public AuthorizeResult authorize(String providerPath, String clientIp) {
+        return authorize(providerPath, clientIp, null);
+    }
+
+    /**
+     * 1단계(계정 연결 모드 포함). linkTicket 이 null 이 아니면 연결 모드다: 티켓을 소비해 사용자 id 를 얻고 서명 쿠키에 담는다.
+     * 티켓이 비었거나 없거나 만료면 제공자로 보내지 않고 {frontend}/me?socialLinkError=INVALID_LINK 로 302(쿠키 없음, setCookie=null).
+     * 티켓은 활성 제공자 확인 뒤에 소비한다(비활성 제공자에서 티켓을 헛되이 태우지 않는다).
+     */
+    public AuthorizeResult authorize(String providerPath, String clientIp, String linkTicket) {
         rateLimiter.acquire("a:" + clientIp);
         SocialProvider provider = enabledProvider(providerPath);
         SocialProperties.Provider cfg = properties.of(provider);
+
+        Long linkUserId = null;
+        if (linkTicket != null) {
+            linkUserId = linkTicketStore.consume(linkTicket).orElse(null);
+            if (linkUserId == null) {
+                return new AuthorizeResult(failureLocation(SocialError.INVALID_LINK, null, true), null);
+            }
+        }
 
         String state = randomToken();
         String verifier = randomToken();
@@ -89,7 +109,7 @@ public class SocialAuthService {
         }
         String base = cfg.getAuthorizeUri();
         String location = base + (base.contains("?") ? "&" : "?") + encode(params);
-        return new AuthorizeResult(location, stateCookie.setCookieHeader(stateCookie.sign(provider, state, verifier)));
+        return new AuthorizeResult(location, stateCookie.setCookieHeader(stateCookie.sign(provider, state, verifier, linkUserId)));
     }
 
     /**
@@ -107,12 +127,14 @@ public class SocialAuthService {
     }
 
     public CallbackResult busyResult() {
-        return new CallbackResult(failureLocation(SocialError.SERVER_BUSY, null), stateCookie.clearCookieHeader());
+        return new CallbackResult(failureLocation(SocialError.SERVER_BUSY, null, false), stateCookie.clearCookieHeader());
     }
 
     public CallbackResult callback(String providerPath, String code, String state, String error, String cookieValue) {
         SocialProvider provider = enabledProvider(providerPath);
         String clear = stateCookie.clearCookieHeader();
+        // 쿠키 검증을 통과한 뒤에야 알 수 있다: 연결(link) 모드면 실패도 /me?socialLinkError= 로 돌려보낸다
+        Long linkUserId = null;
         try {
             // 1) 쿠키 검증(서명·만료·provider)과 state 상수시간 비교. 실패하면 코드 교환을 시도하지 않는다
             SocialStateCookie.Verified verified = stateCookie.verify(cookieValue, provider)
@@ -120,6 +142,7 @@ public class SocialAuthService {
             if (!SocialStateCookie.constantTimeEquals(verified.state(), state)) {
                 throw new SocialLoginFailure(SocialError.INVALID_STATE);
             }
+            linkUserId = verified.linkUserId();
             // 같은 state 는 한 번만(쿠키를 훔쳐 코드 교환을 반복 유발하는 것을 막는다)
             markStateUsed(verified.state());
             // 2) 사용자가 동의를 거부하는 등 제공자가 error 를 돌려준 경우
@@ -143,21 +166,58 @@ public class SocialAuthService {
             } finally {
                 providerCalls.release();
             }
+            // 4-link) 연결 모드: 로그인·가입·로그인 코드 발급 없이 social_account 만 저장한다(이메일 일치 여부는 보지 않는다)
+            if (linkUserId != null) {
+                accountLinker.link(linkUserId, provider, profile.providerUserId());
+                return new CallbackResult(properties.frontendBase() + "/me?socialLinked=" + provider.getPath(), clear);
+            }
             // 4) 사용자 결정 + 일회용 로그인 코드
             Long userId = loginService.loginOrSignup(provider, profile);
             String loginCode = codeStore.issue(userId);
             return new CallbackResult(properties.frontendBase() + "/auth/callback#code=" + loginCode, clear);
         } catch (SocialLoginFailure f) {
-            log.info("Social login failed (provider: {}, error: {})", provider, f.getError());
-            return new CallbackResult(failureLocation(f.getError(), null), clear);
+            log.info("Social {} failed (provider: {}, error: {})", linkUserId != null ? "link" : "login", provider, f.getError());
+            return new CallbackResult(failureLocation(f.getError(), null, linkUserId != null), clear);
         } catch (AccountSuspendedException e) {
             Object until = e.toBody().get("until");
-            return new CallbackResult(failureLocation(SocialError.ACCOUNT_SUSPENDED, until == null ? "" : until.toString()), clear);
-        } catch (RuntimeException e) {
-            // 분류하지 못한 오류(DB 장애·무결성 위반 등)도 JSON 이 아니라 로그인 화면으로 돌려보내고 쿠키를 지운다. 값은 로그에 남기지 않는다
+            return new CallbackResult(failureLocation(SocialError.ACCOUNT_SUSPENDED, until == null ? "" : until.toString(),
+                    linkUserId != null), clear);
+        } catch (DataIntegrityViolationException e) {
+            if (linkUserId != null) {
+                // 동시 연결 경합: 어느 유니크 제약인지로 구분한다(로그에는 제약 이름 종류만, 값은 남기지 않는다)
+                SocialError conflict = linkConflict(e);
+                log.info("Social link conflict (provider: {}, error: {})", provider, conflict);
+                return new CallbackResult(failureLocation(conflict, null, true), clear);
+            }
             log.warn("Social login callback failed (provider: {}, type: {})", provider, e.getClass().getSimpleName());
-            return new CallbackResult(failureLocation(SocialError.SERVER_BUSY, null), clear);
+            return new CallbackResult(failureLocation(SocialError.SERVER_BUSY, null, false), clear);
+        } catch (RuntimeException e) {
+            // 분류하지 못한 오류(DB 장애·무결성 위반 등)도 JSON 이 아니라 로그인(또는 마이페이지) 화면으로 돌려보내고 쿠키를 지운다. 값은 로그에 남기지 않는다
+            log.warn("Social callback failed (provider: {}, type: {})", provider, e.getClass().getSimpleName());
+            return new CallbackResult(failureLocation(SocialError.SERVER_BUSY, null, linkUserId != null), clear);
         }
+    }
+
+    /**
+     * 연결 INSERT 의 UNIQUE 위반을 제약 이름으로 구분한다: (user_id, provider) 위반 = 내가 이미 보유/동시 중복 → ALREADY_LINKED,
+     * (provider, provider_user_id) 위반 = 그 제공자 계정이 이미 다른(또는 같은) 사용자에 연결 → ALREADY_LINKED_OTHER.
+     * 이름을 알 수 없으면 ALREADY_LINKED_OTHER 로 본다(어느 쪽이든 연결은 거절되고 DB 에는 아무것도 남지 않는다).
+     */
+    static SocialError linkConflict(DataIntegrityViolationException e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            String name = t instanceof org.hibernate.exception.ConstraintViolationException cve ? cve.getConstraintName() : null;
+            String msg = t.getMessage() == null ? "" : t.getMessage();
+            if ((name != null && name.contains("uk_social_account_user_provider")) || msg.contains("uk_social_account_user_provider")) {
+                return SocialError.ALREADY_LINKED;
+            }
+            if ((name != null && name.contains("uk_social_account_provider_user")) || msg.contains("uk_social_account_provider_user")) {
+                return SocialError.ALREADY_LINKED_OTHER;
+            }
+            if (t.getCause() == t) {
+                break;
+            }
+        }
+        return SocialError.ALREADY_LINKED_OTHER;
     }
 
     private void markStateUsed(String state) {
@@ -190,8 +250,10 @@ public class SocialAuthService {
         return provider;
     }
 
-    private String failureLocation(SocialError error, String until) {
-        String location = properties.frontendBase() + "/login?socialError=" + error.name();
+    /** 로그인 모드는 /login?socialError=, 연결 모드는 /me?socialLinkError= 로 보낸다. */
+    private String failureLocation(SocialError error, String until, boolean linkMode) {
+        String location = properties.frontendBase()
+                + (linkMode ? "/me?socialLinkError=" : "/login?socialError=") + error.name();
         if (until != null) {
             location += "&until=" + URLEncoder.encode(until, StandardCharsets.UTF_8);
         }

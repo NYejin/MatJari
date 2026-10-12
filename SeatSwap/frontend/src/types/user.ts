@@ -1,6 +1,11 @@
 export interface User {
   id: number;
-  email: string;
+  /** 소셜 가입자의 자리표시 이메일은 서버가 null로 내린다(emailPlaceholder=true). 항상 null 가능성을 처리할 것 */
+  email: string | null;
+  /** 이메일이 자리표시(소셜 가입, 이메일 없음)인가. 서버가 안 주면 false로 간주 */
+  emailPlaceholder?: boolean;
+  /** 비밀번호로 로그인할 수 있는 계정인가. 서버가 안 주면 true로 간주 */
+  passwordLoginEnabled?: boolean;
   nickname: string;
   /** 신뢰도 점수. 백엔드 Double이라 null일 수 있음 (신규 회원은 기본값 0.0 — 기획 결정, 화면도 0.0 그대로 표시) */
   trustScore: number | null;

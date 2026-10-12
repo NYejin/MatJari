@@ -37,14 +37,20 @@ public class SocialAuthController {
     }
 
     @GetMapping("/{provider}/authorize")
-    public ResponseEntity<Void> authorize(@PathVariable String provider, HttpServletRequest request) {
-        // X-Forwarded-For 는 위조할 수 있어 신뢰하지 않는다
-        SocialAuthService.AuthorizeResult result = socialAuthService.authorize(provider, request.getRemoteAddr());
-        return ResponseEntity.status(302)
+    public ResponseEntity<Void> authorize(@PathVariable String provider,
+                                          @RequestParam(required = false) String link,
+                                          HttpServletRequest request) {
+        // X-Forwarded-For 는 위조할 수 있어 신뢰하지 않는다. link 가 있으면 계정 연결 모드(일회용 링크 티켓)
+        SocialAuthService.AuthorizeResult result = link == null
+                ? socialAuthService.authorize(provider, request.getRemoteAddr())
+                : socialAuthService.authorize(provider, request.getRemoteAddr(), link);
+        ResponseEntity.BodyBuilder builder = ResponseEntity.status(302)
                 .header(HttpHeaders.LOCATION, result.location())
-                .header(HttpHeaders.SET_COOKIE, result.setCookie())
-                .header(HttpHeaders.CACHE_CONTROL, NO_STORE)
-                .build();
+                .header(HttpHeaders.CACHE_CONTROL, NO_STORE);
+        if (result.setCookie() != null) { // 유효하지 않은 링크 티켓이면 쿠키 없이 프런트로 돌려보낸다
+            builder.header(HttpHeaders.SET_COOKIE, result.setCookie());
+        }
+        return builder.build();
     }
 
     @GetMapping("/{provider}/callback")

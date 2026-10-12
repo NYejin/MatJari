@@ -36,6 +36,11 @@ public class SocialRateLimiter {
 
     /** 1건을 시도한다. 한도를 넘으면 429 SOCIAL_RATE_LIMITED. */
     public void acquire(String key) {
+        acquire(key, properties.getIpPerMinute());
+    }
+
+    /** 키별 한도를 직접 정해 1건을 시도한다(계정 연결 시작처럼 사용자 단위 버킷에 쓴다). */
+    public void acquire(String key, int limitPerMinute) {
         long now = clock.millis();
         sweepIfNeeded(now);
         Window w = windows.computeIfAbsent(key == null ? "" : key, k -> new Window());
@@ -43,7 +48,7 @@ public class SocialRateLimiter {
             while (!w.hits.isEmpty() && now - w.hits.peekFirst() >= WINDOW_MILLIS) {
                 w.hits.pollFirst();
             }
-            if (w.hits.size() >= properties.getIpPerMinute()) {
+            if (w.hits.size() >= limitPerMinute) {
                 long wait = w.hits.peekFirst() + WINDOW_MILLIS - now;
                 throw SocialAuthException.rateLimited(Math.max(1, (wait + 999) / 1000));
             }

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
-import { getDisplayName, useAuth } from "../hooks/useAuth";
+import { getDisplayName, getVisibleEmail, useAuth } from "../hooks/useAuth";
 import { useAuthRedirect, type AuthRouteState } from "../hooks/useAuthRedirect";
 import { useLogout } from "../hooks/useLogout";
 import NotificationBell from "./NotificationBell";
@@ -192,11 +192,12 @@ export default function Header() {
     const name = getDisplayName(user, profile);
     // 닉네임이 있을 때만 email을 덧붙인다 (email로 대체 표시 중이면 두 번 보이지 않게)
     const hasNickname = !!profile?.nickname;
+    const visibleEmail = getVisibleEmail(user, profile);
     authArea = (
       <div className={cls.auth}>
-        <span className={`${cls.userName} ${isAdmin ? cls.userNameAdmin : ""}`} title={hasNickname ? `${name} (${user.email})` : name}>
+        <span className={`${cls.userName} ${isAdmin ? cls.userNameAdmin : ""}`} title={hasNickname && visibleEmail ? `${name} (${visibleEmail})` : name}>
           <span className={cls.userNameMain}>{name}</span>
-          {hasNickname && <span className={cls.userEmail}>{user.email}</span>}
+          {hasNickname && visibleEmail && <span className={cls.userEmail}>{visibleEmail}</span>}
         </span>
         <div className={cls.accountActions}>
           <NavLink to="/me" className={accountNavClass} onClick={closeMenu}>

@@ -36,6 +36,8 @@ public class SocialProperties {
     private int ipPerMinute = 30;
     private long loginCodeTtlSeconds = 60;
     private int loginCodeMax = 10_000;
+    /** 계정 연결 시작(POST /api/users/me/social/{provider}/link)의 사용자당 분당 한도. */
+    private int linkPerMinute = 10;
 
     private Provider google = new Provider("https://accounts.google.com/o/oauth2/v2/auth",
             "https://oauth2.googleapis.com/token", "https://openidconnect.googleapis.com/v1/userinfo");

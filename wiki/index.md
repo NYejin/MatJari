@@ -26,7 +26,11 @@ SeatSwap 프로젝트의 결정 근거, 함정, 조사 결과, 용어를 모은 
 
 - [차단·신고·이용 정지 설계 근거](decisions/block-report-design.md): 차단 효과 양방향·비통지, 신고 자동 제재 없음, Q-21 확정 범위, 정지 강제를 loadUserById 한 곳에서 한 이유와 STOMP 한계, 열린 매칭 시스템 취소 설계, 택하지 않은 대안, 한계.
 
+- [소셜 로그인 설계 근거](decisions/social-login-design.md): oauth2-client 대신 직접 구현한 이유, 자동 연결 안 함, 쿠키 state·일회용 코드·프래그먼트 전달, 자리표시 이메일, 검증 지적과 수정, 실제 제공자 키 미검증 등 한계.
+
 ## 함정
+
+- [프런트 함정](gotchas/frontend-react-pitfalls.md): StrictMode에서 중단된 요청이 가드를 풀지 못해 로딩에 머무는 문제(신고 상세·소셜 콜백), 객체 키 조회의 `__proto__` 함정.
 
 - [링크 가져오기 함정](gotchas/link-fetch-pitfalls.md): 티켓팅 사이트 robots.txt가 오류 페이지를 돌려주는 경우, Java HttpClient는 IP 고정이 안 되는 점.
 

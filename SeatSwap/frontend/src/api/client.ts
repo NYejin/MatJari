@@ -2,6 +2,7 @@ import axios from "axios";
 import { API_BASE_URL } from "./authClient";
 import { createAuthRefreshHandler } from "./authInterceptor";
 import { refreshSession } from "./session";
+import { parseSuspension, saveSuspensionNotice } from "./suspension";
 import { tokenStorage } from "./tokenStorage";
 
 // JWT 인터셉터는 여기 한 곳에서만 처리한다 (react-conventions 스킬 참고)
@@ -27,3 +28,14 @@ apiClient.interceptors.response.use(
     clearTokens: tokenStorage.clear,
   })
 );
+
+// 이용 정지(403 ACCOUNT_SUSPENDED): 재발급·재시도 없이 토큰을 지워 로그아웃 상태로 돌리고(보호 라우트가 /login으로 보낸다),
+// 안내 문구는 로그인 화면이 보여 준다. 401이 아니라서 위 재발급 핸들러는 건드리지 않는다.
+apiClient.interceptors.response.use(undefined, (error: unknown) => {
+  const suspension = parseSuspension(error);
+  if (suspension) {
+    saveSuspensionNotice(suspension);
+    tokenStorage.clear();
+  }
+  return Promise.reject(error);
+});

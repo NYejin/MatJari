@@ -22,6 +22,12 @@ import AdminSeatClaimsPage from "./pages/AdminSeatClaimsPage";
 import AdminDashboardPage from "./pages/AdminDashboardPage";
 import AdminEditProposalsPage from "./pages/AdminEditProposalsPage";
 import MyEditProposalsPage from "./pages/MyEditProposalsPage";
+import MyBlocksPage from "./pages/MyBlocksPage";
+import MyReportsPage from "./pages/MyReportsPage";
+import AdminReportsPage from "./pages/AdminReportsPage";
+import AdminReportDetailPage from "./pages/AdminReportDetailPage";
+import AdminSanctionsPage from "./pages/AdminSanctionsPage";
+import AdminBlocksPage from "./pages/AdminBlocksPage";
 
 export default function App() {
   return (
@@ -50,12 +56,18 @@ export default function App() {
             <Route path="/seat-claims/new" element={<SeatClaimNewPage />} />
             <Route path="/my/seat-claims" element={<MySeatClaimsPage />} />
             <Route path="/my/edit-proposals" element={<MyEditProposalsPage />} />
+            <Route path="/my/blocks" element={<MyBlocksPage />} />
+            <Route path="/my/reports" element={<MyReportsPage />} />
 
             {/* 관리자 전용 (UI 가드 — 최종 권한은 서버) */}
             <Route element={<AdminRoute />}>
               <Route path="/admin" element={<AdminDashboardPage />} />
               <Route path="/admin/performance-edit-proposals" element={<AdminEditProposalsPage />} />
               <Route path="/admin/seat-claims" element={<AdminSeatClaimsPage />} />
+              <Route path="/admin/reports" element={<AdminReportsPage />} />
+              <Route path="/admin/reports/:id" element={<AdminReportDetailPage />} />
+              <Route path="/admin/sanctions" element={<AdminSanctionsPage />} />
+              <Route path="/admin/blocks" element={<AdminBlocksPage />} />
             </Route>
           </Route>
         </Route>

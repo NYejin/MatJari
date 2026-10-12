@@ -5,6 +5,7 @@ import { formatKstDateTime } from "../api/dateTime";
 import { exchangeApi } from "../api/exchange";
 import { exchangeErrorMessage } from "../api/exchangeMessages";
 import { formatSeat } from "../api/seat";
+import ChatSafetyActions from "../components/ChatSafetyActions";
 import { button, FOCUS_RING, input, linkButton, liveRegionClass, ui } from "../components/ui";
 import { useAuth } from "../hooks/useAuth";
 import { useChatSocket } from "../hooks/useChatSocket";
@@ -439,6 +440,8 @@ export default function ChatPage() {
             내 매칭으로
           </Link>
         </div>
+
+        {match && <ChatSafetyActions matchId={matchId} counterpartName={match.counterpartNickname} />}
 
         {fatal && (
           <p className={ui.errorBox} role="alert">

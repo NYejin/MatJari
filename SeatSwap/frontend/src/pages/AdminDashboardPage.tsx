@@ -5,6 +5,9 @@ import { FOCUS_RING, ui } from "../components/ui";
 const MENUS = [
   { to: "/admin/performance-edit-proposals", title: "공연 수정 제안", desc: "제목·공연장 수정 제안을 검토해요." },
   { to: "/admin/seat-claims", title: "좌석 인증 요청", desc: "예매내역 사진으로 좌석 소유를 확인해요." },
+  { to: "/admin/reports", title: "신고 처리", desc: "사용자 신고와 채팅 근거를 확인하고 처리해요." },
+  { to: "/admin/sanctions", title: "이용 정지 관리", desc: "이용 정지 중인 사용자를 확인하고 해제해요." },
+  { to: "/admin/blocks", title: "차단 현황", desc: "사용자 간 차단 현황을 확인해요." },
 ] as const;
 
 export default function AdminDashboardPage() {

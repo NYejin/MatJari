@@ -29,7 +29,7 @@ class ExchangeCandidateSqlGuardTest {
         assertThat(fragment).startsWith("\n").endsWith("\n");
         assertThat(fragment.strip()).startsWith("AND");
         assertThat(fragment).doesNotContain("?").contains("exchange_match").contains("open_flag = 1")
-                .contains("exchange_ticket_lock").doesNotContain("user_block");
+                .contains("exchange_ticket_lock").contains("user_block");
         // 목록과 COUNT 양쪽에 같은 조각이 붙는다
         assertThat(ExchangeCandidateRepository.candidateSql()).contains(fragment.strip());
         assertThat(ExchangeCandidateRepository.countSql()).contains(fragment.strip());

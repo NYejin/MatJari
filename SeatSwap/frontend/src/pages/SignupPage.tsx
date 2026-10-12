@@ -20,6 +20,7 @@ import {
 } from "../api/authValidation";
 import TextField from "../components/TextField";
 import { authFormClasses as ui } from "../components/authFormClasses";
+import SocialLoginButtons from "../components/SocialLoginButtons";
 
 // FR-01 회원가입/로그인 — 회원가입 화면
 
@@ -165,6 +166,8 @@ export default function SignupPage() {
             {submitting ? "가입 중..." : "회원가입"}
           </button>
         </form>
+
+        <SocialLoginButtons />
 
         <p className={ui.footer}>
           이미 계정이 있나요?{" "}

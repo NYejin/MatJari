@@ -71,6 +71,20 @@ public class GlobalExceptionHandler {
                 .header("Retry-After", String.valueOf(e.getRetryAfterSeconds())).body(body);
     }
 
+    // 소셜 로그인 REST 오류: 404 SOCIAL_PROVIDER_DISABLED / 400 INVALID_LOGIN_CODE / 429 SOCIAL_RATE_LIMITED(+Retry-After)
+    @ExceptionHandler(com.seatswap.service.social.SocialAuthException.class)
+    public ResponseEntity<Map<String, Object>> handleSocialAuth(com.seatswap.service.social.SocialAuthException e) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("code", e.getCode());
+        body.put("message", e.getMessage());
+        ResponseEntity.BodyBuilder builder = ResponseEntity.status(e.getStatus());
+        if (e.getRetryAfterSeconds() > 0) {
+            body.put("retryAfterSeconds", e.getRetryAfterSeconds());
+            builder.header("Retry-After", String.valueOf(e.getRetryAfterSeconds()));
+        }
+        return builder.body(body);
+    }
+
     // 429 — 링크 미리보기 속도 제한: {"code":"PREVIEW_RATE_LIMITED","message":..,"retryAfterSeconds":n} + Retry-After 헤더
     @ExceptionHandler(PerformancePreviewService.PreviewRateLimitedException.class)
     public ResponseEntity<Map<String, Object>> handlePreviewRateLimited(

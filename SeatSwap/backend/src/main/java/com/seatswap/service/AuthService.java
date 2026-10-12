@@ -77,6 +77,10 @@ public class AuthService {
         if (exceedsBcryptLimit(password)) {
             throw new FieldValidationException("password", PASSWORD_BYTES_MESSAGE);
         }
+        // `.invalid` 는 예약된 가짜 도메인(소셜 가입의 자리표시 이메일이 쓴다) — 일반 가입으로 선점하지 못하게 한다
+        if (email.endsWith(".invalid")) {
+            throw new FieldValidationException("email", "올바른 이메일 형식이 아닙니다.");
+        }
         if (userRepository.existsByEmail(email)) {
             throw new FieldValidationException("email", DUPLICATE_EMAIL_MESSAGE);
         }
@@ -168,7 +172,8 @@ public class AuthService {
         return sqlMessage != null && sqlMessage.contains("Duplicate entry '" + email + "'");
     }
 
-    private TokenResponse issueTokens(User user) {
+    /** JWT 발급. 소셜 로그인 코드 교환(SocialAuthService)도 같은 발급 경로를 쓴다. */
+    public TokenResponse issueTokens(User user) {
         String accessToken = jwtTokenProvider.generateAccessToken(user.getId(), user.getEmail());
         String refreshToken = jwtTokenProvider.generateRefreshToken(user.getId(), user.getEmail());
         return TokenResponse.of(accessToken, refreshToken);

@@ -65,6 +65,13 @@ class AuthServiceTest {
     }
 
     @Test
+    void invalidTldEmailIsRejectedBecauseSocialPlaceholdersUseIt() {
+        assertThatThrownBy(() -> authService.signup(new SignupRequest("kakao.123@social.seatswap.invalid", "password123", "닉네임")))
+                .isInstanceOfSatisfying(FieldValidationException.class, e -> assertThat(e.getField()).isEqualTo("email"));
+        verify(userRepository, never()).saveAndFlush(any(User.class));
+    }
+
+    @Test
     void namedEmailConstraintAlsoMapsToEmailFieldError() {
         when(userRepository.saveAndFlush(any(User.class))).thenThrow(mysqlViolation(
                 "Duplicate entry 'x' for key 'users.uk_users_email'", 1062,

@@ -185,7 +185,9 @@ final class LinkInfoParsers {
         for (Element dt : doc.select("dt.tit_info")) {
             if ("공연장".equals(dt.text().strip())) {
                 Element dd = dt.nextElementSibling();
-                String v = dd == null ? null : clean(dd.text(), VENUE_MAX);
+                // 공연장이 링크로 감싸진 페이지는 .place 안에 이름만 있고 ".ico_more"(바로가기) 문구가 형제로 붙는다
+                Element place = dd == null ? null : dd.selectFirst(".place");
+                String v = dd == null ? null : clean((place != null ? place : dd).text(), VENUE_MAX);
                 venue = "-".equals(v) ? null : v;
                 break;
             }

@@ -5,10 +5,10 @@ import type { TokenResponse } from "../types/auth";
 // 소셜 로그인(카카오·구글·네이버). 백엔드가 OAuth 흐름을 처리하고, 프런트는 버튼 이동과 일회용 코드 교환만 한다.
 // 인터셉터가 없는 authClient를 쓴다 (토큰을 붙이지 않고, 403 정지는 호출부가 직접 처리).
 
-export type SocialProvider = "kakao" | "google" | "naver";
+export type SocialProvider = "google" | "naver" | "kakao";
 
 /** 화면 표시 순서(백엔드가 준 활성 제공자만 이 순서로 보여 준다) */
-export const SOCIAL_PROVIDER_ORDER: readonly SocialProvider[] = ["kakao", "naver", "google"];
+export const SOCIAL_PROVIDER_ORDER: readonly SocialProvider[] = ["google", "naver", "kakao"];
 
 /** GET /api/auth/social/providers — 활성 제공자만. 알 수 없는 값은 버린다 */
 export async function fetchSocialProviders(): Promise<SocialProvider[]> {

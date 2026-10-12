@@ -161,6 +161,9 @@ public class AdminModerationService {
             Long targetId = report.getReportedId();
             User target = userRepository.findById(targetId)
                     .orElseThrow(() -> new NotFoundException("대상 사용자를 찾을 수 없습니다."));
+            if (target.isWithdrawn()) {
+                throw new ConflictException("탈퇴한 사용자는 제재할 수 없습니다.", Map.of("code", "TARGET_WITHDRAWN"));
+            }
             if (target.getRole() == UserRole.ADMIN || targetId.equals(adminId)) {
                 throw new ConflictException("관리자 계정은 제재할 수 없습니다.", Map.of("code", "CANNOT_SANCTION_ADMIN"));
             }

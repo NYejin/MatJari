@@ -14,6 +14,7 @@ const CODE_MESSAGES: Record<string, string> = {
   RESERVATION_PROPOSAL_PENDING: "상대가 이미 예약을 제안했어요. 수락하거나 거절해 주세요.",
   RESERVATION_PROPOSAL_NOT_FOUND: "수락할 예약 제안이 없어요. 상대가 철회했거나 이미 처리됐을 수 있어요.",
   RESERVATION_PROPOSAL_OWN: "내가 한 제안은 상대만 수락할 수 있어요. 철회하려면 '제안 철회'를 눌러 주세요.",
+  RESERVATION_PROPOSAL_NOT_OWN: "상대가 낸 예약 제안은 철회할 수 없어요. 거절하거나 수락해 주세요.",
   // MATCH_STATE_CONFLICT는 서버 message를 그대로 쓴다 (예약 중 채팅 종료, 예약 전 교환 수락 등 상황별 문구)
   ACTIVE_MATCH_EXISTS: "예약된 교환이 있어 변경할 수 없어요. 먼저 예약을 취소해주세요.",
   TICKET_NOT_ACTIVE: "내린 티켓이거나 닫힌 교환 요청이에요.",

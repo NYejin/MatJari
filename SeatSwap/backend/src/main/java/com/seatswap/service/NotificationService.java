@@ -69,7 +69,7 @@ public class NotificationService {
         return new PageResponse<>(content, page, pageSize, total, totalPages);
     }
 
-    /** 안 읽은 개수 (닫힌 매칭 알림 포함, 종류 3개 키는 항상 있다). */
+    /** 안 읽은 개수 (닫힌 매칭 알림 포함, 종류 6개 키는 항상 있다). */
     @Transactional(readOnly = true)
     public UnreadCountResponse unreadCount(Long userId) {
         Map<String, Long> byType = new LinkedHashMap<>();
@@ -121,7 +121,7 @@ public class NotificationService {
         try {
             return NotificationType.valueOf(type.trim());
         } catch (IllegalArgumentException e) {
-            throw new FieldValidationException("type", "type은 PROPOSAL_RECEIVED, MATCH_RESERVED, RESERVATION_CANCELED 중 하나여야 합니다.");
+            throw new FieldValidationException("type", "type은 PROPOSAL_RECEIVED, RESERVATION_PROPOSED, MATCH_RESERVED, RESERVATION_REJECTED, RESERVATION_CANCELED, CHAT_MESSAGE 중 하나여야 합니다.");
         }
     }
 
@@ -132,16 +132,50 @@ public class NotificationService {
     @Transactional(propagation = Propagation.MANDATORY)
     public Notification notify(Long recipientUserId, NotificationType type, Long matchId, String dedupKey) {
         Notification saved = notificationRepository.saveAndFlush(Notification.of(recipientUserId, type, matchId, dedupKey));
-        pushAfterCommit(saved);
+        registerPush(saved.getUserId(), saved.getId(), saved.getType(), saved.getMatchId());
         return saved;
     }
 
+    /**
+     * 새 채팅 메시지 알림(V15): (수신자, 매칭)당 행 1개를 만들거나(INSERT ... ON DUPLICATE KEY UPDATE) 되살린다(PK UPDATE)(안 읽은 채팅 알림은 매칭당 최대 1건).
+     * 채팅 전송 트랜잭션의 맨 끝(매칭 FOR UPDATE 뒤, 메시지 저장 성공 뒤)에서만 호출한다. 같은 매칭의 전송은 매칭 행 잠금으로 직렬화되어
+     * 같은 키의 동시 upsert 가 없다. 푸시는 다른 알림처럼 커밋 뒤 신호 1건이다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void notifyChatMessage(Long recipientUserId, Long matchId) {
+        String key = chatDedupKey(matchId, recipientUserId);
+        LocalDateTime now = LocalDateTime.now(clock);
+        // 먼저 잠금 없는 점조회로 기존 행을 찾아 PK 로 되살린다(읽은 알림 삭제와 같은 잠금 순서: PK 먼저). 행이 없을 때만 INSERT(upsert).
+        Long id = notificationRepository.findIdsByDedupKey(key).stream().findFirst().orElse(null);
+        if (id == null || notificationRepository.reviveChatMessage(id, now) == 0) {
+            notificationRepository.upsertChatMessage(recipientUserId, matchId, key, now);
+            id = notificationRepository.findIdsByDedupKey(key).stream().findFirst().orElse(null);
+        }
+        if (id == null) {
+            throw new IllegalStateException("채팅 알림 upsert 뒤 행을 찾을 수 없습니다: " + key);
+        }
+        registerPush(recipientUserId, id, NotificationType.CHAT_MESSAGE, matchId);
+    }
+
+    /**
+     * 채팅 읽음 연동: 읽음 포인터가 앞으로 움직였을 때 호출한다. 그 (수신자, 매칭)의 CHAT_MESSAGE 알림을 읽음 처리한다(안 읽은 것만).
+     * 유니크 키로 id 를 잠금 없이 찾은 뒤 PK 로 한 행만 갱신한다. 매칭·users 잠금을 잡은 트랜잭션 안에서 호출하지 않는다(독립 트랜잭션).
+     * 아주 드물게 읽음 처리와 새 메시지 upsert 가 겹치면 새 메시지 알림이 읽음이 될 수 있으나, 그 메시지가 열린 채팅 화면에 전달되어 다시 읽음 처리된다.
+     */
+    @Transactional
+    public void markChatRead(Long userId, Long matchId) {
+        for (Long id : notificationRepository.findIdsByDedupKey(chatDedupKey(matchId, userId))) {
+            notificationRepository.markRead(id, userId, LocalDateTime.now(clock));
+        }
+    }
+
+    /** 채팅 알림의 dedup 키(DB ck_notification_chat_dedup 형식 그대로). */
+    public static String chatDedupKey(Long matchId, Long recipientId) {
+        return NotificationType.CHAT_MESSAGE.name() + ":" + matchId + ":" + recipientId;
+    }
+
     /** 커밋된 뒤에만 실시간 신호를 보낸다(롤백되면 보내지 않는다). 전파가 실패해도 저장·응답에는 영향이 없다(폴링이 보완). */
-    private void pushAfterCommit(Notification saved) {
-        Long recipient = saved.getUserId();
-        Long id = saved.getId();
-        NotificationType type = saved.getType();
-        Long matchId = saved.getMatchId();
+    private void registerPush(Long recipient, Long id, NotificationType type, Long matchId) {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {

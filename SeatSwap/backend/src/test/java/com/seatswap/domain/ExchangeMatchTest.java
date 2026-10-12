@@ -20,13 +20,23 @@ class ExchangeMatchTest {
                 new com.seatswap.domain.WantExtra(com.seatswap.domain.ExtraType.POS, 3000));
     }
 
-    /** 상태 4종 x 동작 6종 = 24 조합 전부. 서비스 Javadoc의 전이 표와 같아야 한다(멱등 200 은 서비스가 먼저 걸러낸다). */
+    /** 제안 -> 수락으로 RESERVED 를 만든다(reserved_by_id = 제안자). */
+    private static void reserve(ExchangeMatch m, Long proposer, LocalDateTime at) {
+        m.proposeReservation(proposer, at);
+        m.acceptReservation(at);
+    }
+
+    /** 상태 4종 x 동작 8종 = 32 조합 전부. 서비스 Javadoc의 전이 표와 같아야 한다(멱등 200 은 서비스가 먼저 걸러낸다). */
     @ParameterizedTest(name = "{0} + {1} -> {2}")
     @CsvSource({
-            "CHATTING,PROPOSE,false", "CHATTING,RESERVE,true", "CHATTING,UNRESERVE,true", "CHATTING,REJECT,true", "CHATTING,CANCEL,true", "CHATTING,COMPLETE,false",
-            "RESERVED,PROPOSE,false", "RESERVED,RESERVE,true", "RESERVED,UNRESERVE,true", "RESERVED,REJECT,false", "RESERVED,CANCEL,false", "RESERVED,COMPLETE,true",
-            "COMPLETED,PROPOSE,true", "COMPLETED,RESERVE,false", "COMPLETED,UNRESERVE,false", "COMPLETED,REJECT,false", "COMPLETED,CANCEL,false", "COMPLETED,COMPLETE,false",
-            "CANCELED,PROPOSE,true", "CANCELED,RESERVE,false", "CANCELED,UNRESERVE,false", "CANCELED,REJECT,false", "CANCELED,CANCEL,false", "CANCELED,COMPLETE,false"
+            "CHATTING,PROPOSE,false", "CHATTING,RESERVE,true", "CHATTING,RESERVE_ACCEPT,true", "CHATTING,RESERVE_DECLINE,true", "CHATTING,RESERVE_WITHDRAW,true",
+            "CHATTING,UNRESERVE,true", "CHATTING,REJECT,true", "CHATTING,CANCEL,true", "CHATTING,COMPLETE,false",
+            "RESERVED,PROPOSE,false", "RESERVED,RESERVE,false", "RESERVED,RESERVE_ACCEPT,false", "RESERVED,RESERVE_DECLINE,true", "RESERVED,RESERVE_WITHDRAW,true",
+            "RESERVED,UNRESERVE,true", "RESERVED,REJECT,false", "RESERVED,CANCEL,false", "RESERVED,COMPLETE,true",
+            "COMPLETED,PROPOSE,true", "COMPLETED,RESERVE,false", "COMPLETED,RESERVE_ACCEPT,false", "COMPLETED,RESERVE_DECLINE,false", "COMPLETED,RESERVE_WITHDRAW,false",
+            "COMPLETED,UNRESERVE,false", "COMPLETED,REJECT,false", "COMPLETED,CANCEL,false", "COMPLETED,COMPLETE,false",
+            "CANCELED,PROPOSE,true", "CANCELED,RESERVE,false", "CANCELED,RESERVE_ACCEPT,false", "CANCELED,RESERVE_DECLINE,false", "CANCELED,RESERVE_WITHDRAW,false",
+            "CANCELED,UNRESERVE,false", "CANCELED,REJECT,false", "CANCELED,CANCEL,false", "CANCELED,COMPLETE,false"
     })
     void transitionTable(ExchangeMatchStatus status, ExchangeMatchAction action, boolean allowed) {
         assertThat(ExchangeMatch.isAllowed(status, action)).isEqualTo(allowed);
@@ -54,29 +64,63 @@ class ExchangeMatchTest {
     }
 
     @Test
-    void oneSideReservingMakesItReservedImmediately() {
+    void proposalThenAcceptMakesItReservedWithProposerAsReservedBy() {
         ExchangeMatch m = match();
 
-        m.reserve(2L, NOW);
+        m.proposeReservation(2L, NOW);
+        assertThat(m.getStatus()).isEqualTo(ExchangeMatchStatus.CHATTING);
+        assertThat(m.getReserveProposedById()).isEqualTo(2L);
+        assertThat(m.getReserveProposedAt()).isEqualTo(NOW);
+        assertThat(m.getReservedById()).isNull();
+
+        m.acceptReservation(NOW.plusMinutes(1));
 
         assertThat(m.getStatus()).isEqualTo(ExchangeMatchStatus.RESERVED);
-        assertThat(m.getReservedById()).isEqualTo(2L);
-        assertThat(m.getReservedAt()).isEqualTo(NOW);
+        assertThat(m.getReservedById()).as("reserved_by_id = 제안자").isEqualTo(2L);
+        assertThat(m.getReservedAt()).as("reserved_at = 수락 시각").isEqualTo(NOW.plusMinutes(1));
+        assertThat(m.getReserveProposedById()).isNull();
+        assertThat(m.getReserveProposedAt()).isNull();
         assertThat(m.isOpen()).isTrue();
     }
 
     @Test
-    void reserveRequiresChattingAndParticipant() {
+    void proposeReservationRequiresChattingParticipantAndNoExistingProposal() {
         ExchangeMatch m = match();
-        assertThatThrownBy(() -> m.reserve(3L, NOW)).isInstanceOf(IllegalArgumentException.class);
-        m.reserve(1L, NOW);
-        assertThatThrownBy(() -> m.reserve(2L, NOW)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> m.proposeReservation(3L, NOW)).isInstanceOf(IllegalArgumentException.class);
+        m.proposeReservation(1L, NOW);
+        assertThatThrownBy(() -> m.proposeReservation(2L, NOW)).isInstanceOf(IllegalStateException.class);
+        m.acceptReservation(NOW);
+        assertThatThrownBy(() -> m.proposeReservation(2L, NOW)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void acceptWithoutProposalOrOutsideChattingFails() {
+        ExchangeMatch m = match();
+        assertThatThrownBy(() -> m.acceptReservation(NOW)).isInstanceOf(IllegalStateException.class);
+        m.proposeReservation(1L, NOW);
+        m.cancel(2L, NOW);
+        assertThatThrownBy(() -> m.acceptReservation(NOW)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void clearProposalKeepsStatusAndCancelClearsProposal() {
+        ExchangeMatch m = match();
+        m.proposeReservation(1L, NOW);
+        m.clearReservationProposal();
+        assertThat(m.hasReservationProposal()).isFalse();
+        assertThat(m.getStatus()).isEqualTo(ExchangeMatchStatus.CHATTING);
+
+        m.proposeReservation(2L, NOW);
+        m.cancel(null, NOW);   // 제안이 걸린 채 취소: 같은 UPDATE 에서 제안 컬럼을 비운다(CHECK)
+        assertThat(m.getStatus()).isEqualTo(ExchangeMatchStatus.CANCELED);
+        assertThat(m.getReserveProposedById()).isNull();
+        assertThat(m.getReserveProposedAt()).isNull();
     }
 
     @Test
     void unreserveReturnsToChattingAndClearsReservationAndAcceptMarks() {
         ExchangeMatch m = match();
-        m.reserve(1L, NOW);
+        reserve(m, 1L, NOW);
         org.springframework.test.util.ReflectionTestUtils.setField(m, "aCompletedAt", NOW);
 
         m.unreserve();
@@ -88,7 +132,7 @@ class ExchangeMatchTest {
         assertThat(m.getBCompletedAt()).isNull();
         assertThat(m.hasAccepted(Side.A)).isFalse();
         // 같은 쌍이 다시 예약할 수 있다
-        m.reserve(2L, NOW.plusMinutes(1));
+        reserve(m, 2L, NOW.plusMinutes(1));
         assertThat(m.getReservedById()).isEqualTo(2L);
         assertThatThrownBy(match()::unreserve).isInstanceOf(IllegalStateException.class);
     }
@@ -96,7 +140,7 @@ class ExchangeMatchTest {
     @Test
     void reservedMatchCannotBeCanceledDirectly() {
         ExchangeMatch m = match();
-        m.reserve(1L, NOW);
+        reserve(m, 1L, NOW);
 
         assertThatThrownBy(() -> m.cancel(1L, NOW)).isInstanceOf(IllegalStateException.class);
     }
@@ -127,7 +171,7 @@ class ExchangeMatchTest {
     @Test
     void markAcceptedRecordsOnlyCallersSideAndIsIdempotent() {
         ExchangeMatch m = match();
-        m.reserve(1L, NOW);
+        reserve(m, 1L, NOW);
 
         m.markAccepted(Side.A, NOW.plusMinutes(1));
         m.markAccepted(Side.A, NOW.plusMinutes(9));   // 두 번째는 시각을 덮어쓰지 않는다
@@ -145,14 +189,14 @@ class ExchangeMatchTest {
         ExchangeMatch chatting = match();
         assertThatThrownBy(() -> chatting.markAccepted(Side.A, NOW)).isInstanceOf(IllegalStateException.class);
         ExchangeMatch reserved = match();
-        reserved.reserve(1L, NOW);
+        reserve(reserved, 1L, NOW);
         assertThatThrownBy(() -> reserved.markAccepted(null, NOW)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     void completeClearsReservedColumnsAndKeepsBothAcceptMarks() {
         ExchangeMatch m = match();
-        m.reserve(1L, NOW);
+        reserve(m, 1L, NOW);
         m.markAccepted(Side.A, NOW.plusMinutes(1));
         m.markAccepted(Side.B, NOW.plusMinutes(2));
 
@@ -174,7 +218,7 @@ class ExchangeMatchTest {
         ExchangeMatch chatting = match();
         assertThatThrownBy(() -> chatting.complete(NOW)).isInstanceOf(IllegalStateException.class);
         ExchangeMatch oneAccepted = match();
-        oneAccepted.reserve(1L, NOW);
+        reserve(oneAccepted, 1L, NOW);
         oneAccepted.markAccepted(Side.A, NOW);
         assertThatThrownBy(() -> oneAccepted.complete(NOW)).isInstanceOf(IllegalStateException.class);
     }

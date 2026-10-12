@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 /**
- * 매칭 생성·예약·예약 취소·거절·취소 API (FR-04 교환 흐름: 후보 선택 -> 채팅 -> 예약). 모두 로그인 필요.
+ * 매칭 생성·예약 제안/수락/거절/철회·예약 취소·거절·취소 API (FR-04 교환 흐름: 후보 선택 -> 채팅 -> 예약). 모두 로그인 필요.
  * 상태 전이 표와 오류 코드는 {@link ExchangeMatchService} Javadoc 참고. 교환 수락(complete)으로 COMPLETED 가 되며, 채팅·이력 조회 API 는 후속이다.
  */
 @RestController
@@ -61,10 +61,31 @@ public class ExchangeMatchController {
                 .body(matchService.propose(principal.userId(), id, request.targetRequestId()));
     }
 
-    /** 예약 -> 200. 둘 중 한 명이 누르면 RESERVED(두 티켓 잠금). 이미 RESERVED 면 누가 눌렀든 멱등 200. */
+    /**
+     * 예약 제안 -> 200 (상태는 CHATTING 그대로, reservationProposal = MINE). 내가 이미 제안했으면 멱등 200, 상대 제안이 있으면 409 RESERVATION_PROPOSAL_PENDING,
+     * 티켓이 이미 다른 매칭에서 예약됐으면 409 TICKET_ALREADY_RESERVED. 상대가 수락해야 RESERVED 가 된다.
+     */
     @PostMapping("/matches/{id}/reserve")
     public ExchangeMatchResponse reserve(@PathVariable Long id, @AuthenticationPrincipal AuthUserPrincipal principal) {
         return matchService.reserve(principal.userId(), id);
+    }
+
+    /** 예약 수락(제안받은 쪽) -> 200 + RESERVED(두 티켓 잠금). 제안 없음 409 RESERVATION_PROPOSAL_NOT_FOUND, 내 제안 409 RESERVATION_PROPOSAL_OWN. */
+    @PostMapping("/matches/{id}/reserve/accept")
+    public ExchangeMatchResponse reserveAccept(@PathVariable Long id, @AuthenticationPrincipal AuthUserPrincipal principal) {
+        return matchService.reserveAccept(principal.userId(), id);
+    }
+
+    /** 예약 거절(제안받은 쪽) -> 200, 제안만 지우고 CHATTING 유지. 제안이 없으면 멱등 200. */
+    @PostMapping("/matches/{id}/reserve/decline")
+    public ExchangeMatchResponse reserveDecline(@PathVariable Long id, @AuthenticationPrincipal AuthUserPrincipal principal) {
+        return matchService.reserveDecline(principal.userId(), id);
+    }
+
+    /** 예약 제안 철회(제안자) -> 200. 제안이 없으면 멱등 200. */
+    @PostMapping("/matches/{id}/reserve/withdraw")
+    public ExchangeMatchResponse reserveWithdraw(@PathVariable Long id, @AuthenticationPrincipal AuthUserPrincipal principal) {
+        return matchService.reserveWithdraw(principal.userId(), id);
     }
 
     /** 예약 취소 -> 200 + CHATTING 복귀(잠금 해제, 수락 표시 초기화). 두 참여자 누구나, CHATTING 이면 멱등 200. */

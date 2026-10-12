@@ -44,4 +44,28 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
 
     /** 단건 읽음에서 '이미 읽음(멱등 204)'과 '없음/남의 것(404)'을 가르는 잠금 없는 점조회. */
     boolean existsByIdAndUserId(Long id, Long userId);
+
+    /**
+     * 채팅 알림 되살리기: 이미 있는 (수신자, 매칭) 채팅 알림 행을 PK 로 갱신한다(read_at NULL, created_at 갱신). 읽은 알림 삭제(deleteRead)가
+     * PK 행을 먼저 잡고 모든 보조 인덱스(uk_notification_dedup 포함)를 잠그므로, 같은 행을 dedup 유니크 인덱스부터 잠그는 INSERT ... ON DUPLICATE KEY UPDATE 는
+     * 삭제와 교착한다(실제 MySQL 테스트로 확인). PK 로 먼저 갱신하면 잠금 순서가 같아 교착이 없다.
+     */
+    @Modifying(flushAutomatically = true)
+    @Query(nativeQuery = true, value = "UPDATE notification SET read_at = NULL, created_at = :now WHERE id = :id")
+    int reviveChatMessage(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+    /**
+     * 채팅 알림 upsert (V15): (수신자, 매칭)당 행 1개(dedup_key = CHAT_MESSAGE:{matchId}:{recipientId}, ck_notification_chat_dedup)를
+     * 만들거나 되살린다. 행이 없을 때(처음이거나 읽은 알림 삭제 뒤)만 쓰는 최후 경로이며, 같은 키의 동시 삽입은 매칭 행 잠금이 직렬화한다.
+     */
+    @Modifying(flushAutomatically = true)
+    @Query(nativeQuery = true, value = "INSERT INTO notification (user_id, type, match_id, dedup_key, created_at) "
+            + "VALUES (:userId, 'CHAT_MESSAGE', :matchId, :dedupKey, :now) "
+            + "ON DUPLICATE KEY UPDATE read_at = NULL, created_at = :now")
+    int upsertChatMessage(@Param("userId") Long userId, @Param("matchId") Long matchId,
+                          @Param("dedupKey") String dedupKey, @Param("now") LocalDateTime now);
+
+    /** dedup_key 로 알림 id 를 찾는다(유니크 키 점조회, 잠금 없음). 채팅 알림 푸시·읽음 처리에 쓴다. */
+    @Query("select n.id from Notification n where n.dedupKey = :dedupKey")
+    List<Long> findIdsByDedupKey(@Param("dedupKey") String dedupKey);
 }

@@ -104,7 +104,7 @@ class ExchangeCompleteMysqlTest {
 
         assertThatThrownBy(() -> matchService.complete(p.userId, m)).as("예약 전")
                 .isInstanceOfSatisfying(ConflictException.class, e -> assertThat(e.getMessage()).isEqualTo("예약한 뒤에 교환 수락할 수 있어요."));
-        matchService.reserve(q.userId, m);
+        reserveFlow(q.userId, m);
 
         ExchangeMatchResponse first = matchService.complete(p.userId, m);
         assertThat(first.status()).isEqualTo("RESERVED");
@@ -195,7 +195,7 @@ class ExchangeCompleteMysqlTest {
         Party q = party(2, "Z1");
         mutual(p, q);
         long m = matchService.propose(p.userId, p.requestId, q.requestId).id();
-        matchService.reserve(p.userId, m);
+        reserveFlow(p.userId, m);
         matchService.complete(p.userId, m);
 
         ExchangeMatchResponse back = matchService.unreserve(q.userId, m);
@@ -206,7 +206,7 @@ class ExchangeCompleteMysqlTest {
         assertThat(count("SELECT COUNT(*) FROM exchange_match WHERE id = " + m + " AND a_completed_at IS NULL AND b_completed_at IS NULL")).isEqualTo(1);
         assertThatThrownBy(() -> matchService.complete(q.userId, m)).isInstanceOf(ConflictException.class);
 
-        matchService.reserve(q.userId, m);
+        reserveFlow(q.userId, m);
         matchService.complete(q.userId, m);
         assertThat(matchService.complete(p.userId, m).status()).isEqualTo("COMPLETED");
         assertThat(count("SELECT COUNT(*) FROM exchange_history WHERE match_id = " + m)).isEqualTo(2);
@@ -219,7 +219,7 @@ class ExchangeCompleteMysqlTest {
         Party q = party(2, "Z1");
         mutual(p, q);
         long m = matchService.propose(p.userId, p.requestId, q.requestId).id();
-        matchService.reserve(p.userId, m);
+        reserveFlow(p.userId, m);
         // 회차 당일이 지났다(등록 마감 후). 이미 시작한 채팅에는 마감 검사를 하지 않는다.
         jdbc.update("UPDATE performance_session SET starts_at = ? WHERE id = ?", LocalDateTime.now().minusDays(10).withNano(0), session1);
 
@@ -239,7 +239,7 @@ class ExchangeCompleteMysqlTest {
             Party q = party(2, "Z" + zoneSeq);
             mutual(p, q);
             long m = matchService.propose(p.userId, p.requestId, q.requestId).id();
-            matchService.reserve(p.userId, m);
+            reserveFlow(p.userId, m);
 
             List<Object> results = runConcurrently(new ArrayList<>(List.of(
                     () -> matchService.complete(p.userId, m),
@@ -264,7 +264,7 @@ class ExchangeCompleteMysqlTest {
             Party q = party(2, "Z" + zoneSeq);
             mutual(p, q);
             long m = matchService.propose(p.userId, p.requestId, q.requestId).id();
-            matchService.reserve(p.userId, m);
+            reserveFlow(p.userId, m);
 
             List<Object> results = runConcurrently(new ArrayList<>(List.of(
                     () -> matchService.complete(p.userId, m),
@@ -292,7 +292,7 @@ class ExchangeCompleteMysqlTest {
             wants(r, p);
             long m1 = matchService.propose(p.userId, p.requestId, q.requestId).id();
             long m2 = matchService.propose(r.userId, r.requestId, p.requestId).id();
-            matchService.reserve(p.userId, m1);
+            reserveFlow(p.userId, m1);
             matchService.complete(p.userId, m1);
 
             // M1 이 RESERVED 인 동안 M2 카드(r 화면)에는 상대(p) 티켓이 다른 매칭에서 예약 중이라고 보인다
@@ -303,7 +303,7 @@ class ExchangeCompleteMysqlTest {
 
             List<Object> results = runConcurrently(new ArrayList<>(List.of(
                     () -> matchService.complete(q.userId, m1),
-                    () -> matchService.reserve(r.userId, m2))));
+                    () -> reserveFlow(r.userId, m2))));
 
             Object m2Result = results.get(1);
             assertThat(m2Result).as("round " + round + " " + results).isInstanceOfSatisfying(ConflictException.class,
@@ -317,7 +317,7 @@ class ExchangeCompleteMysqlTest {
             assertThat(after.counterpartTicketExchanged()).isTrue();
             assertThat(after.myTicketExchanged()).isFalse();
             assertThat(queryService.findOne(p.userId, m2).myTicketExchanged()).as("p 화면에서도 보인다").isTrue();
-            assertThatThrownBy(() -> matchService.reserve(r.userId, m2)).isInstanceOfSatisfying(ConflictException.class,
+            assertThatThrownBy(() -> reserveFlow(r.userId, m2)).isInstanceOfSatisfying(ConflictException.class,
                     e -> assertThat(e.getDetails()).containsEntry("code", "TICKET_EXCHANGED"));
             assertThat(matchService.cancel(r.userId, m2).status()).isEqualTo("CANCELED");
             assertInvariants();
@@ -331,7 +331,7 @@ class ExchangeCompleteMysqlTest {
             Party q = party(2, "Z" + zoneSeq);
             mutual(p, q);
             long m = matchService.propose(p.userId, p.requestId, q.requestId).id();
-            matchService.reserve(p.userId, m);
+            reserveFlow(p.userId, m);
             matchService.complete(p.userId, m);
 
             List<Callable<Object>> calls = new ArrayList<>(List.of(
@@ -512,5 +512,10 @@ class ExchangeCompleteMysqlTest {
     private void mutual(Party a, Party b) {
         wants(a, b);
         wants(b, a);
+    }
+
+    /** 예약 제안 -> 상대 수락으로 RESERVED 를 만든다(V15). */
+    private com.seatswap.dto.response.ExchangeMatchResponse reserveFlow(long proposerId, long matchId) {
+        return com.seatswap.testsupport.ReserveFlow.reserve(matchService, jdbc, proposerId, matchId);
     }
 }

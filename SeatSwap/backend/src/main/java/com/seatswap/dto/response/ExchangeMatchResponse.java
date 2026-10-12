@@ -12,8 +12,9 @@ import java.time.LocalDateTime;
  * myExtraType/Amount, counterpartExtraType/Amount 는 매칭이 만들어질 때 저장한 추가금 스냅샷(유형 X/ANY/POS/NEG + 참고용 금액)이다. 내 쪽은
  * 내 희망 범위 중 상대 좌석을 포함한 범위의 값, 상대 쪽은 상대 범위 중 내 좌석을 포함한 범위의 값이며 이후 요청이 바뀌어도 변하지 않는다(매칭 판정에 금액은 쓰이지 않는다).
  * myRequestDeleted / counterpartRequestDeleted 는 그 쪽 교환 요청이 삭제(DELETED)됐는지다(삭제돼도 매칭 기록은 남는다).
- * reservedBy 는 RESERVED 일 때 예약한 사람: ME / COUNTERPART (그 외 상태는 null), reservedAt 은 그 시각(RESERVED 일 때만 값).
- * 예약은 둘 중 한 명이 하고 누구든 취소할 수 있다(8차 답변). myAccepted / counterpartAccepted 는 '교환 수락'(a/b_completed_at) 표시이며
+ * reservedBy 는 RESERVED 일 때 예약을 '제안한' 사람: ME / COUNTERPART (그 외 상태는 null), reservedAt 은 상대가 수락한 시각(RESERVED 일 때만 값).
+ * 예약은 한 명이 제안하고 상대가 수락해야 성립하며(V15) 성립 뒤에는 누구나 취소할 수 있다. reservationProposal 은 CHATTING 의 예약 제안 상태를 호출자 기준으로
+ * NONE(제안 없음; RESERVED·종료 매칭은 항상 NONE) / MINE(내가 제안, 상대 수락 대기) / THEIRS(상대가 제안, 내가 수락·거절)로 알린다. myAccepted / counterpartAccepted 는 '교환 수락'(a/b_completed_at) 표시이며
  * 예약 취소 시 초기화된다. 둘 다 true 가 되는 순간 매칭이 COMPLETED 가 된다.
  * myTicketExchanged / counterpartTicketExchanged 는 그 쪽 티켓이 교환 완료(status = EXCHANGED)로 닫혔는지다(다른 매칭의 완료로 EXCHANGED 가 된 좌석이 걸린
  * CHATTING 매칭 카드에서 "이미 교환된 좌석이에요"를 보여주는 근거. COMPLETED 매칭 자신의 두 티켓도 true 다).
@@ -56,7 +57,8 @@ public record ExchangeMatchResponse(
         LocalDateTime createdAt,
         @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = DateTimeFormats.SECOND)
         LocalDateTime updatedAt,
-        int unreadChatCount
+        int unreadChatCount,
+        String reservationProposal
 ) {
     /** 좌석 한 곳: 표시용 구역·열·번 + 회차 id·시작 시각. */
     public record Seat(

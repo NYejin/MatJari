@@ -195,7 +195,7 @@ class SeatClaimMysqlTest {
         Seat partner = holder("A", 2);
         wantEachOther(owner, partner);
         long matchId = matchService.propose(partner.userId, partner.requestId, owner.requestId).id();
-        matchService.reserve(partner.userId, matchId);
+        reserveFlow(partner.userId, matchId);
         long claimId = claim(claimant, "A", "1", "1").id();
 
         assertThatThrownBy(() -> claimService.approve(admin, claimId))
@@ -332,7 +332,7 @@ class SeatClaimMysqlTest {
                     () -> claimService.approve(admin, claimId),
                     () -> { ticketService.deactivate(owner.userId, owner.ticketId); return "down"; },
                     () -> matchService.propose(third.userId, third.requestId, owner.requestId),
-                    () -> matchService.reserve(partner.userId, matchId)));
+                    () -> reserveFlow(partner.userId, matchId)));
 
             for (Object o : results) {
                 if (o instanceof Exception e) {
@@ -436,5 +436,10 @@ class SeatClaimMysqlTest {
         } finally {
             pool.shutdownNow();
         }
+    }
+
+    /** 예약 제안 -> 상대 수락으로 RESERVED 를 만든다(V15). */
+    private com.seatswap.dto.response.ExchangeMatchResponse reserveFlow(long proposerId, long matchId) {
+        return com.seatswap.testsupport.ReserveFlow.reserve(matchService, jdbc, proposerId, matchId);
     }
 }

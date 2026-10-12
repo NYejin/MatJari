@@ -52,6 +52,7 @@ class ChatServiceTest {
     private ChatReadStateRepository readStateRepository;
     private ChatPushPublisher publisher;
     private ChatRateLimiter rateLimiter;
+    private NotificationService notificationService;
     private ChatService service;
     private ExchangeMatch match;
 
@@ -63,10 +64,11 @@ class ChatServiceTest {
         readStateRepository = mock(ChatReadStateRepository.class);
         publisher = mock(ChatPushPublisher.class);
         rateLimiter = mock(ChatRateLimiter.class);
+        notificationService = mock(NotificationService.class);
         ObjectProvider<ChatPushPublisher> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable(any(Supplier.class))).thenReturn(publisher);
         Clock clock = Clock.fixed(Instant.parse("2026-10-11T03:00:00Z"), ZoneId.of("Asia/Seoul"));
-        service = new ChatService(matchRepository, messageRepository, readStateRepository, rateLimiter, provider, clock,
+        service = new ChatService(matchRepository, messageRepository, readStateRepository, rateLimiter, notificationService, provider, clock,
                 PerformanceFixtures.noopTransactionManager());
 
         match = new ExchangeMatch();
@@ -105,10 +107,11 @@ class ChatServiceTest {
         assertThat(r.message().id()).isEqualTo(700L);
         assertThat(r.message().content()).isEqualTo("안녕하세요\n반가워요");
         assertThat(r.message().senderId()).isEqualTo(ME);
-        InOrder order = inOrder(matchRepository, messageRepository, publisher);
+        InOrder order = inOrder(matchRepository, messageRepository, notificationService, publisher);
         order.verify(matchRepository).findById(MATCH);
         order.verify(matchRepository).findByIdForUpdate(MATCH);
         order.verify(messageRepository).saveAndFlush(any(ChatMessage.class));
+        order.verify(notificationService).notifyChatMessage(OTHER, MATCH);   // 저장 성공 뒤, 상대에게
         order.verify(publisher).publishMessage(eq(MATCH), eq(r.message()), eq(List.of(ME, OTHER)));
     }
 
@@ -151,6 +154,7 @@ class ChatServiceTest {
         assertThat(r.message().id()).isEqualTo(650L);
         assertThat(r.message().content()).isEqualTo("먼저 보낸 글");
         verify(messageRepository, never()).saveAndFlush(any());
+        verify(notificationService, never()).notifyChatMessage(anyLong(), anyLong());
         verifyNoInteractions(publisher);
     }
 
@@ -298,6 +302,7 @@ class ChatServiceTest {
 
         verify(readStateRepository).advance(eq(MATCH), eq(ME), eq(42L), any(LocalDateTime.class));
         verify(publisher).publishRead(MATCH, OTHER, 42L);
+        verify(notificationService).markChatRead(ME, MATCH);
     }
 
     @Test
@@ -310,6 +315,7 @@ class ChatServiceTest {
         service.markRead(ME, MATCH, 20L);
 
         verify(readStateRepository, never()).advance(anyLong(), anyLong(), anyLong(), any());
+        verify(notificationService, never()).markChatRead(anyLong(), anyLong());
         verifyNoInteractions(publisher);
     }
 

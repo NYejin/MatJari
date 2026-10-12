@@ -122,17 +122,22 @@ class NotificationApiMysqlTest {
         assertThat(n.counterpartSeat()).isEqualTo(new NotificationResponse.Seat("Z1", "1", "1"));
         assertThat(n.createdAt()).isNotNull();
 
-        // 제안한 쪽(p)은 알림이 없고, 예약하면 p 가 아니라 q 가 받는다(role 은 SENT/RECEIVED 가 수신자 기준)
+        // 제안한 쪽(p)은 알림이 없고, q 가 예약을 제안하면 p 가 RESERVATION_PROPOSED 를 받는다(role 은 SENT/RECEIVED 가 수신자 기준)
         assertThat(notificationService.list(p.userId, 0, 20, false).totalElements()).isZero();
         matchService.reserve(q.userId, m.id());
         PageResponse<NotificationResponse> forP = notificationService.list(p.userId, 0, 20, false);
         assertThat(forP.content()).hasSize(1);
         NotificationResponse reserved = forP.content().get(0);
-        assertThat(reserved.type()).isEqualTo("MATCH_RESERVED");
+        assertThat(reserved.type()).isEqualTo("RESERVATION_PROPOSED");
         assertThat(reserved.role()).isEqualTo("SENT");
         assertThat(reserved.counterpartNickname()).isEqualTo("user2");
         assertThat(reserved.mySeat()).isEqualTo(new NotificationResponse.Seat("Z1", "1", "1"));
         assertThat(reserved.counterpartSeat()).isEqualTo(new NotificationResponse.Seat("Z2", "1", "2"));
+
+        // p 가 수락하면 제안자 q 가 MATCH_RESERVED 를 받는다
+        matchService.reserveAccept(p.userId, m.id());
+        assertThat(notificationService.list(q.userId, 0, 20, false).content()).extracting(NotificationResponse::type)
+                .containsExactly("MATCH_RESERVED", "PROPOSAL_RECEIVED");
 
         String json = objectMapper.writeValueAsString(n);
         System.out.println("[알림 응답 예시] " + json);
@@ -174,24 +179,26 @@ class NotificationApiMysqlTest {
         Party q = party(2, "Z2");
         mutual(p, q);
         ExchangeMatchResponse m = matchService.propose(p.userId, p.requestId, q.requestId);
-        matchService.reserve(p.userId, m.id());
+        reserveFlow(p.userId, m.id());
         matchService.unreserve(p.userId, m.id());
         matchService.cancel(p.userId, m.id());   // CANCELED
 
         UnreadCountResponse count = notificationService.unreadCount(q.userId);
-        assertThat(count.total()).as("제안 + 예약 + 예약 취소 알림 모두 q 에게").isEqualTo(3);
-        assertThat(count.byType()).containsEntry("PROPOSAL_RECEIVED", 1L).containsEntry("MATCH_RESERVED", 1L)
-                .containsEntry("RESERVATION_CANCELED", 1L);
-        assertThat(count.byType().keySet()).containsExactly("PROPOSAL_RECEIVED", "MATCH_RESERVED", "RESERVATION_CANCELED");
+        assertThat(count.total()).as("새 제안 + 예약 제안 + 예약 취소 알림이 q 에게(수락 알림은 제안자 p 에게)").isEqualTo(3);
+        assertThat(count.byType()).containsEntry("PROPOSAL_RECEIVED", 1L).containsEntry("RESERVATION_PROPOSED", 1L)
+                .containsEntry("RESERVATION_CANCELED", 1L).containsEntry("MATCH_RESERVED", 0L);
+        assertThat(count.byType().keySet()).containsExactly("PROPOSAL_RECEIVED", "MATCH_RESERVED", "RESERVATION_CANCELED",
+                "RESERVATION_PROPOSED", "RESERVATION_REJECTED", "CHAT_MESSAGE");
         List<NotificationResponse> list = notificationService.list(q.userId, 0, 20, true).content();
         assertThat(list).hasSize(3);
         assertThat(list).allSatisfy(n -> {
             assertThat(n.matchStatus()).isEqualTo("CANCELED");
             assertThat(n.matchClosed()).isTrue();
         });
-        // 알림이 하나도 없는 사용자는 0 이고 키는 항상 3개
-        UnreadCountResponse none = notificationService.unreadCount(p.userId);
-        assertThat(none.total()).as("p 가 직접 한 제안·예약·예약 취소의 알림은 p 가 아니라 상대가 받는다").isZero();
+        // 키는 항상 6개. p 는 직접 한 제안·예약 제안·예약 취소의 알림은 받지 않고 q 의 수락 알림 1건만 받는다
+        UnreadCountResponse mine = notificationService.unreadCount(p.userId);
+        assertThat(mine.total()).isEqualTo(1);
+        assertThat(mine.byType()).containsEntry("MATCH_RESERVED", 1L).hasSize(6);
     }
 
     // ------------------------------------------------------------------ 읽음 / 인가
@@ -223,14 +230,14 @@ class NotificationApiMysqlTest {
         Party q = party(2, "Z2");
         mutual(p, q);
         ExchangeMatchResponse m = matchService.propose(p.userId, p.requestId, q.requestId);
-        matchService.reserve(p.userId, m.id());   // q 에게 PROPOSAL_RECEIVED + MATCH_RESERVED
+        reserveFlow(p.userId, m.id());   // q 에게 PROPOSAL_RECEIVED + RESERVATION_PROPOSED (수락 알림은 제안자 p 에게)
         assertThat(notificationService.unreadCount(q.userId).total()).isEqualTo(2);
 
         assertThatThrownBy(() -> notificationService.markAllRead(q.userId, "NOPE")).isInstanceOf(FieldValidationException.class);
-        assertThat(notificationService.markAllRead(q.userId, "MATCH_RESERVED")).isEqualTo(1);
+        assertThat(notificationService.markAllRead(q.userId, "RESERVATION_PROPOSED")).isEqualTo(1);
         UnreadCountResponse after = notificationService.unreadCount(q.userId);
         assertThat(after.total()).isEqualTo(1);
-        assertThat(after.byType()).containsEntry("PROPOSAL_RECEIVED", 1L).containsEntry("MATCH_RESERVED", 0L);
+        assertThat(after.byType()).containsEntry("PROPOSAL_RECEIVED", 1L).containsEntry("RESERVATION_PROPOSED", 0L);
 
         assertThat(notificationService.markAllRead(q.userId, null)).isEqualTo(1);
         assertThat(notificationService.unreadCount(q.userId).total()).isZero();
@@ -351,7 +358,7 @@ class NotificationApiMysqlTest {
                     final long matchId = m.id();
                     for (int k = 0; k < 3; k++) {
                         try {
-                            matchService.reserve(p.userId, matchId);
+                            reserveFlow(p.userId, matchId);
                         } catch (ConflictException | BusinessRuleException e) {
                             continue;   // 다른 매칭이 r 의 티켓을 예약 중이면 409(알림 없음)
                         }
@@ -373,7 +380,7 @@ class NotificationApiMysqlTest {
                             + "ORDER BY id DESC LIMIT 1", Long.class, r.userId);
                     if (!mine.isEmpty()) {
                         try {
-                            matchService.reserve(r.userId, mine.get(0));
+                            reserveFlow(r.userId, mine.get(0));
                             receiverReserveCycles.incrementAndGet();
                         } catch (ConflictException | BusinessRuleException e) {
                             // 다른 매칭이 먼저 잠갔다
@@ -422,7 +429,7 @@ class NotificationApiMysqlTest {
         // 마지막 정리: read-all 후에는 안 읽은 알림이 0
         notificationService.markAllRead(r.userId, null);
         assertThat(notificationService.unreadCount(r.userId).total()).isZero();
-        assertThat(NotificationType.values()).hasSize(3);
+        assertThat(NotificationType.values()).hasSize(6);
         } finally {
             jdbc.execute("DROP TRIGGER IF EXISTS trg_notification_audit_it");
             jdbc.execute("DROP TABLE IF EXISTS notification_audit_it");
@@ -437,7 +444,7 @@ class NotificationApiMysqlTest {
         Party q = party(2, "Z2");
         mutual(p, q);
         ExchangeMatchResponse m = matchService.propose(p.userId, p.requestId, q.requestId);
-        matchService.reserve(p.userId, m.id());
+        reserveFlow(p.userId, m.id());
         matchService.complete(p.userId, m.id());
         assertThat(matchService.complete(q.userId, m.id()).status()).isEqualTo("COMPLETED");
         assertThat(jdbc.queryForObject("SELECT status FROM ticket WHERE id = ?", String.class, p.ticketId)).isEqualTo("EXCHANGED");
@@ -529,5 +536,10 @@ class NotificationApiMysqlTest {
     private void mutual(Party a, Party b) {
         wants(a, b);
         wants(b, a);
+    }
+
+    /** 예약 제안 -> 상대 수락으로 RESERVED 를 만든다(V15). */
+    private com.seatswap.dto.response.ExchangeMatchResponse reserveFlow(long proposerId, long matchId) {
+        return com.seatswap.testsupport.ReserveFlow.reserve(matchService, jdbc, proposerId, matchId);
     }
 }

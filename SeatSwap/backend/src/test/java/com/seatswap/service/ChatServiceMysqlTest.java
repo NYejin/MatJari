@@ -225,8 +225,13 @@ class ChatServiceMysqlTest {
         assertThat(chatService.list(q.userId, m, null, null, null).myLastReadMessageId()).isEqualTo(latest.messages().get(5).id());
         assertThat(queryService.findOne(q.userId, m).unreadChatCount()).isZero();
         assertThat(count("SELECT COUNT(*) FROM chat_read_state WHERE match_id = " + m)).isEqualTo(1);
-        // 알림 행은 만들지 않는다(propose 의 새 제안 알림 1건뿐)
-        assertThat(count("SELECT COUNT(*) FROM notification")).isEqualTo(1);
+        // 알림: propose 의 새 제안 1건 + 채팅 알림은 (수신자, 매칭)당 1행(메시지 수와 무관, V15)
+        assertThat(count("SELECT COUNT(*) FROM notification WHERE type <> 'CHAT_MESSAGE'")).isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM notification WHERE type = 'CHAT_MESSAGE' AND match_id = " + m)).isEqualTo(2);
+        assertThat(count("SELECT COUNT(*) FROM notification WHERE type = 'CHAT_MESSAGE' AND user_id = " + q.userId + " AND read_at IS NOT NULL"))
+                .as("q 가 읽음 포인터를 올렸으므로 q 의 채팅 알림은 읽음").isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM notification WHERE type = 'CHAT_MESSAGE' AND user_id = " + p.userId + " AND read_at IS NULL"))
+                .as("p 는 읽음 포인터를 올리지 않았다").isEqualTo(1);
     }
 
     @Test
@@ -261,7 +266,7 @@ class ChatServiceMysqlTest {
         mutual(p, q);
         long m = matchService.propose(p.userId, p.requestId, q.requestId).id();
         chatService.send(p.userId, m, "예약 전", "before-reserve-1");
-        matchService.reserve(q.userId, m);
+        reserveFlow(q.userId, m);
         assertThat(chatService.send(q.userId, m, "예약했어요", "after-reserve-01").created()).isTrue();
         matchService.unreserve(p.userId, m);
         chatService.send(q.userId, m, "취소했네요", "after-unreserve-1");
@@ -291,7 +296,7 @@ class ChatServiceMysqlTest {
         Party s = party(4, "Z2");
         mutual(r, s);
         long m2 = matchService.propose(r.userId, r.requestId, s.requestId).id();
-        matchService.reserve(r.userId, m2);
+        reserveFlow(r.userId, m2);
         chatService.send(s.userId, m2, "완료 전 메시지", "before-complete-1");
         matchService.complete(r.userId, m2);
         matchService.complete(s.userId, m2);
@@ -452,7 +457,7 @@ class ChatServiceMysqlTest {
             Party q = party(2, "Z" + zoneSeq);
             mutual(p, q);
             long m = matchService.propose(p.userId, p.requestId, q.requestId).id();
-            matchService.reserve(p.userId, m);
+            reserveFlow(p.userId, m);
             matchService.complete(p.userId, m);
 
             long maxIdAtComplete = raceAgainstClose(m, p, q, () -> matchService.complete(q.userId, m));
@@ -606,7 +611,7 @@ class ChatServiceMysqlTest {
                     int n = 0;
                     while (!stop.get()) {
                         try {
-                            matchService.reserve(pair[n % 2].userId, m);
+                            reserveFlow(pair[n % 2].userId, m);
                             matchService.unreserve(pair[(n + 1) % 2].userId, m);
                         } catch (Exception e) {
                             classify.accept(e);
@@ -657,7 +662,7 @@ class ChatServiceMysqlTest {
                     go.await();
                     for (int attempt = 0; attempt < 3; attempt++) {
                         try {
-                            matchService.reserve(pair[0].userId, m);
+                            reserveFlow(pair[0].userId, m);
                             break;
                         } catch (Exception e) {
                             classify.accept(e);
@@ -796,5 +801,10 @@ class ChatServiceMysqlTest {
     private void mutual(Party a, Party b) {
         wants(a, b);
         wants(b, a);
+    }
+
+    /** 예약 제안 -> 상대 수락으로 RESERVED 를 만든다(V15). */
+    private com.seatswap.dto.response.ExchangeMatchResponse reserveFlow(long proposerId, long matchId) {
+        return com.seatswap.testsupport.ReserveFlow.reserve(matchService, jdbc, proposerId, matchId);
     }
 }

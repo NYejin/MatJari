@@ -63,9 +63,27 @@ export const exchangeApi = {
     return data;
   },
 
-  /** POST /api/exchange/matches/{id}/reserve — 예약하기. 둘 중 한 명이 누르면 RESERVED(두 티켓 잠금) */
+  /** POST /api/exchange/matches/{id}/reserve — 예약 제안(채팅 화면). 상대가 수락해야 RESERVED(두 티켓 잠금). 내가 이미 제안했으면 멱등 200 */
   async reserve(matchId: number): Promise<ExchangeMatch> {
     const { data } = await apiClient.post<ExchangeMatch>(`/exchange/matches/${matchId}/reserve`);
+    return data;
+  },
+
+  /** POST /api/exchange/matches/{id}/reserve/accept — 예약 수락(제안받은 쪽). 수락하면 RESERVED */
+  async acceptReservation(matchId: number): Promise<ExchangeMatch> {
+    const { data } = await apiClient.post<ExchangeMatch>(`/exchange/matches/${matchId}/reserve/accept`);
+    return data;
+  },
+
+  /** POST /api/exchange/matches/{id}/reserve/decline — 예약 거절(제안받은 쪽). 채팅은 유지 */
+  async declineReservation(matchId: number): Promise<ExchangeMatch> {
+    const { data } = await apiClient.post<ExchangeMatch>(`/exchange/matches/${matchId}/reserve/decline`);
+    return data;
+  },
+
+  /** POST /api/exchange/matches/{id}/reserve/withdraw — 제안 철회(제안한 쪽) */
+  async withdrawReservation(matchId: number): Promise<ExchangeMatch> {
+    const { data } = await apiClient.post<ExchangeMatch>(`/exchange/matches/${matchId}/reserve/withdraw`);
     return data;
   },
 

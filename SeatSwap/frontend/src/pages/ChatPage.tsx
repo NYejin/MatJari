@@ -4,6 +4,7 @@ import { CHAT_AFTER_SIZE, CHAT_MAX_LENGTH, CHAT_PAGE_SIZE, chatApi, countCodePoi
 import { formatKstDateTime } from "../api/dateTime";
 import { exchangeApi } from "../api/exchange";
 import { exchangeErrorMessage } from "../api/exchangeMessages";
+import { getRealtimeStatus, subscribeNotificationPush } from "../api/realtimeHub";
 import { formatSeat } from "../api/seat";
 import ChatSafetyActions from "../components/ChatSafetyActions";
 import { button, FOCUS_RING, input, linkButton, liveRegionClass, ui } from "../components/ui";
@@ -18,6 +19,12 @@ import type { ExchangeMatch } from "../types/exchange";
 
 const AT_BOTTOM_PX = 40;
 const READ_DEBOUNCE_MS = 600;
+/** 알림 신호(STOMP)를 놓치거나 연결이 끊긴 경우를 위한 매칭 상태 재조회 간격. 연결 중에는 10번에 한 번(5분)만 확인한다 */
+const MATCH_POLL_MS = 30_000;
+const MATCH_POLL_CONNECTED_EVERY = 10;
+
+type ReserveAction = "propose" | "accept" | "decline" | "withdraw" | "unreserve";
+type ReserveConfirm = "propose" | "accept" | "unreserve";
 const ELSEWHERE = "(다른 사용자와 예약 중인 좌석)";
 
 const CONNECTION_TEXT = {
@@ -96,6 +103,10 @@ export default function ChatPage() {
   const [announce, setAnnounce] = useState("");
   const [visible, setVisible] = useState(() => document.visibilityState === "visible");
   const [reloadKey, setReloadKey] = useState(0);
+  const [reserveBusy, setReserveBusy] = useState<ReserveAction | null>(null);
+  const [reserveConfirm, setReserveConfirm] = useState<ReserveConfirm | null>(null);
+  const [reserveError, setReserveError] = useState<string | null>(null);
+  const [reserveNotice, setReserveNotice] = useState("");
 
   const headingRef = useRef<HTMLHeadingElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -114,6 +125,9 @@ export default function ChatPage() {
   const matchLoadedRef = useRef(false);
   const focusedRef = useRef(false);
   const announceTimerRef = useRef<number | undefined>(undefined);
+  const reserveBusyRef = useRef(false);
+  const reserveBlockRef = useRef<HTMLDivElement>(null);
+  const reserveConfirmRef = useRef<HTMLDivElement>(null);
 
   const commit = useCallback((next: ChatMessage[]) => {
     messagesRef.current = next;
@@ -144,6 +158,9 @@ export default function ChatPage() {
     focusedRef.current = false;
     setMatch(null);
     setMatchError(null);
+    setReserveConfirm(null);
+    setReserveError(null);
+    setReserveNotice("");
   }, [matchId]);
 
   // ---- 매칭(상태 배너용): 진입·포커스·탭 복귀·재연결·409 때 다시 읽는다 ----
@@ -179,6 +196,25 @@ export default function ChatPage() {
       window.removeEventListener("focus", onFocus);
     };
   }, [refreshMatch]);
+
+  // 상대의 예약 제안·수락·거절·예약 취소는 알림 신호(공유 STOMP 연결)로 받아 다시 읽는다.
+  // 연결이 끊겨 있을 때만 화면이 보이면 30초마다 폴링한다(연결 중에는 5분 확인). 이 효과는 요청을 abort하지 않으므로 가드가 잠기지 않는다.
+  useEffect(() => {
+    if (matchId === null) return;
+    const offPush = subscribeNotificationPush((p) => {
+      if (p.matchId === matchId) void refreshMatch();
+    });
+    let tick = 0;
+    const timer = window.setInterval(() => {
+      tick++;
+      if (document.visibilityState !== "visible") return;
+      if (getRealtimeStatus() !== "connected" || tick % MATCH_POLL_CONNECTED_EVERY === 0) void refreshMatch();
+    }, MATCH_POLL_MS);
+    return () => {
+      offPush();
+      window.clearInterval(timer);
+    };
+  }, [matchId, refreshMatch]);
 
   // ---- 최초 메시지 로드 ----
   useEffect(() => {
@@ -362,6 +398,61 @@ export default function ChatPage() {
     }
   }, [loaded, match, matchError, loadError]);
 
+  // ---- 예약 제안·수락·거절·철회·취소 ----
+  const reserveState = match ? `${match.status}:${match.reservationProposal}` : "";
+  useEffect(() => {
+    // 상대 쪽 변화로 상태가 바뀌면 낡은 확인 영역을 닫는다
+    setReserveConfirm(null);
+  }, [reserveState]);
+  useEffect(() => {
+    if (reserveConfirm) reserveConfirmRef.current?.focus();
+  }, [reserveConfirm]);
+
+  const runReserve = async (action: ReserveAction) => {
+    if (matchId === null || reserveBusyRef.current) return;
+    reserveBusyRef.current = true;
+    setReserveBusy(action);
+    setReserveError(null);
+    try {
+      const name = match?.counterpartNickname ?? "상대";
+      const res =
+        action === "propose"
+          ? await exchangeApi.reserve(matchId)
+          : action === "accept"
+            ? await exchangeApi.acceptReservation(matchId)
+            : action === "decline"
+              ? await exchangeApi.declineReservation(matchId)
+              : action === "withdraw"
+                ? await exchangeApi.withdrawReservation(matchId)
+                : await exchangeApi.unreserve(matchId);
+      matchLoadedRef.current = true;
+      setMatch(res);
+      setReserveConfirm(null);
+      setReserveNotice(
+        action === "propose"
+          ? `${name}님에게 예약을 제안했어요. 상대가 수락하면 예약돼요.`
+          : action === "accept"
+            ? "예약을 수락했어요. 두 티켓이 예약 중으로 잠겼어요."
+            : action === "decline"
+              ? "예약 제안을 거절했어요. 채팅은 계속할 수 있어요."
+              : action === "withdraw"
+                ? "예약 제안을 철회했어요."
+                : "예약을 취소했어요. 채팅은 그대로 유지돼요."
+      );
+      // 누른 버튼이 사라지므로 예약 블록으로 포커스를 옮긴다
+      window.setTimeout(() => reserveBlockRef.current?.focus(), 0);
+    } catch (err) {
+      const parsed = exchangeErrorMessage(err, "처리하지 못했습니다.");
+      setReserveError(parsed.message);
+      setReserveConfirm(null);
+      // 상대와 동시에 눌렀거나 화면이 낡은 경우: 최신 상태로 맞춘다
+      if (parsed.code !== null) void refreshMatch();
+    } finally {
+      reserveBusyRef.current = false;
+      setReserveBusy(null);
+    }
+  };
+
   // ---- 보내기 ----
   const closedChat = match !== null && (match.status === "CANCELED" || match.status === "COMPLETED");
 
@@ -422,6 +513,20 @@ export default function ChatPage() {
 
   const backTo = `/exchange/matches?matchId=${matchId}`;
   const banners = match ? deriveBanners(match) : [];
+  const proposal = match && match.status === "CHATTING" ? match.reservationProposal : "NONE";
+  /** 종료(CANCELED·COMPLETED)된 채팅은 예약 블록을 보이지 않는다 */
+  const reservable = match !== null && (match.status === "CHATTING" || match.status === "RESERVED");
+  const seatExchanged = match !== null && (match.myTicketExchanged || match.counterpartTicketExchanged);
+  const reserveStateText =
+    match === null
+      ? ""
+      : match.status === "RESERVED"
+        ? "예약 중이에요. 두 티켓이 예약되어 다른 매칭에서는 쓸 수 없어요."
+        : proposal === "MINE"
+          ? "내가 예약을 제안했어요. 상대의 수락을 기다려요."
+          : proposal === "THEIRS"
+            ? `${match.counterpartNickname}님이 예약을 제안했어요. 수락하거나 거절해 주세요.`
+            : "";
   const readMarkerId = findReadMarkerId(messages, me, counterpartRead);
   const counterpartName = match?.counterpartNickname ?? "상대";
   const connectionText = connection === "connected" ? "" : CONNECTION_TEXT[connection];
@@ -459,6 +564,77 @@ export default function ChatPage() {
                 {b.text}
               </p>
             ))}
+            {reservable && (
+              <div ref={reserveBlockRef} tabIndex={-1} aria-label="예약" className="flex flex-col gap-2 rounded-[10px] bg-white p-3 outline-none">
+                {reserveStateText && <p className={proposal === "THEIRS" ? ui.warning : ui.notice}>{reserveStateText}</p>}
+                {reserveConfirm === null && (
+                  <div className="flex flex-wrap gap-2">
+                    {match.status === "CHATTING" && proposal === "NONE" && (
+                      seatExchanged ? (
+                        <p className={ui.muted}>이미 교환된 좌석이라 예약을 제안할 수 없어요.</p>
+                      ) : (
+                        <button type="button" className={button.solid} onClick={() => setReserveConfirm("propose")} disabled={reserveBusy !== null}>
+                          예약 제안하기
+                        </button>
+                      )
+                    )}
+                    {proposal === "MINE" && (
+                      <button type="button" className={button.outline} onClick={() => void runReserve("withdraw")} disabled={reserveBusy !== null} aria-busy={reserveBusy === "withdraw"}>
+                        {reserveBusy === "withdraw" ? "처리 중..." : "제안 철회"}
+                      </button>
+                    )}
+                    {proposal === "THEIRS" && !seatExchanged && (
+                      <button type="button" className={button.solid} onClick={() => setReserveConfirm("accept")} disabled={reserveBusy !== null}>
+                        예약 수락
+                      </button>
+                    )}
+                    {proposal === "THEIRS" && (
+                      <button type="button" className={button.outline} onClick={() => void runReserve("decline")} disabled={reserveBusy !== null} aria-busy={reserveBusy === "decline"}>
+                        {reserveBusy === "decline" ? "처리 중..." : "거절"}
+                      </button>
+                    )}
+                    {match.status === "RESERVED" && (
+                      <button type="button" className={button.outline} onClick={() => setReserveConfirm("unreserve")} disabled={reserveBusy !== null}>
+                        예약 취소
+                      </button>
+                    )}
+                  </div>
+                )}
+                {reserveConfirm !== null && (
+                  <div ref={reserveConfirmRef} tabIndex={-1} className="flex flex-col gap-3 outline-none">
+                    <p className={ui.warning}>
+                      {reserveConfirm === "propose"
+                        ? `${counterpartName}님에게 예약을 제안할까요? 상대가 수락하면 두 티켓이 예약 중으로 잠기고, 다른 매칭에서는 쓸 수 없어요.`
+                        : reserveConfirm === "accept"
+                          ? "예약을 수락할까요? 수락하면 두 티켓이 예약 중으로 잠겨 다른 매칭에서는 쓸 수 없어요."
+                          : `취소하면 예약이 풀리고 두 티켓을 다시 쓸 수 있어요.${match.myAccepted || match.counterpartAccepted ? " 교환 수락 표시도 초기화돼요." : ""} 예약을 취소할까요?`}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className={reserveConfirm === "unreserve" ? button.danger : button.solid}
+                        onClick={() => void runReserve(reserveConfirm)}
+                        disabled={reserveBusy !== null}
+                        aria-busy={reserveBusy !== null}
+                      >
+                        {reserveBusy !== null ? "처리 중..." : reserveConfirm === "propose" ? "제안할게요" : reserveConfirm === "accept" ? "수락할게요" : "예약 취소할게요"}
+                      </button>
+                      <button type="button" className={button.outline} onClick={() => setReserveConfirm(null)} disabled={reserveBusy !== null}>
+                        돌아가기
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {reserveError && (
+                  <p className={ui.errorBox} role="alert">
+                    {reserveError}
+                  </p>
+                )}
+              </div>
+            )}
+            <p role="status" className={liveRegionClass(reserveNotice, ui.status)}>
+              {reserveNotice}
+            </p>
           </div>
         )}
 

@@ -10,6 +10,7 @@ import com.seatswap.dto.response.UserResponse;
 import com.seatswap.exception.FieldValidationException;
 import com.seatswap.exception.SeatSwapException;
 import com.seatswap.repository.UserRepository;
+import com.seatswap.security.AccountSuspensionChecker;
 import com.seatswap.security.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -44,6 +45,7 @@ public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
+    private final AccountSuspensionChecker suspensionChecker;
 
     @Transactional
     public UserResponse signup(SignupRequest request) {
@@ -112,6 +114,8 @@ public class AuthService {
         if (!passwordEncoder.matches(password, user.getPassword())) {
             throw new SeatSwapException(LOGIN_FAIL_MESSAGE);
         }
+        // 비밀번호가 맞은 뒤에만 정지 여부를 알려 준다(정지 여부로 계정 존재를 추측하지 못하게). 403 ACCOUNT_SUSPENDED
+        suspensionChecker.assertNotSuspended(user.getId());
 
         return issueTokens(user);
     }
@@ -126,6 +130,7 @@ public class AuthService {
         Long userId = jwtTokenProvider.getUserId(token);
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new SeatSwapException("사용자를 찾을 수 없습니다."));
+        suspensionChecker.assertNotSuspended(user.getId());
 
         return issueTokens(user);
     }

@@ -148,6 +148,7 @@ export const ADMIN_REPORT_CODE_MESSAGES: Record<string, string> = {
   REPORT_ALREADY_HANDLED: "이미 처리된 신고예요. 화면을 새로 불러와 주세요.",
   CANNOT_SANCTION_ADMIN: "관리자 계정에는 이용 정지를 걸 수 없어요. 이용 정지 없이 처리하거나 기각해 주세요.",
   SANCTION_NOT_ACTIVE: "이미 해제됐거나 기간이 끝난 제재예요.",
+  SANCTION_ALREADY_ACTIVE: "이미 이용 정지 중인 사용자예요. 정지 없이 처리하거나 제재를 먼저 해제해 주세요.",
 };
 
 /** 제재 종료 시각 표기 (오프셋 없는 KST 문자열). null=무기한 */

@@ -104,6 +104,12 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.GONE).body(Map.of("code", e.getCode(), "message", e.getMessage()));
     }
 
+    // 403 — 이용 정지: {"message","code":"ACCOUNT_SUSPENDED","until"} (로그인·토큰 재발급 경로. 보안 필터 단계는 SecurityErrorResponseWriter 가 같은 본문)
+    @ExceptionHandler(AccountSuspendedException.class)
+    public ResponseEntity<Map<String, Object>> handleAccountSuspended(AccountSuspendedException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(e.toBody());
+    }
+
     // 403 — {"message": ...} (Security의 AccessDeniedHandler는 문구를 바꿀 수 없어 업무 규칙 위반은 이 예외로 처리)
     @ExceptionHandler(ForbiddenException.class)
     public ResponseEntity<Map<String, String>> handleForbiddenException(ForbiddenException e) {

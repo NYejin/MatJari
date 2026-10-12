@@ -1,6 +1,7 @@
 package com.seatswap.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.seatswap.exception.AccountSuspendedException;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -22,12 +23,21 @@ public class SecurityErrorResponseWriter {
     private final ObjectMapper objectMapper;
 
     public void write(HttpServletResponse response, int status, String message) throws IOException {
+        writeBody(response, status, Map.of("message", message));
+    }
+
+    /** 이용 정지: 403 {"message","code":"ACCOUNT_SUSPENDED","until"} — GlobalExceptionHandler 와 같은 본문. */
+    public void writeSuspended(HttpServletResponse response, AccountSuspendedException e) throws IOException {
+        writeBody(response, HttpServletResponse.SC_FORBIDDEN, e.toBody());
+    }
+
+    private void writeBody(HttpServletResponse response, int status, Map<String, ?> body) throws IOException {
         if (response.isCommitted()) {
             return;
         }
         response.setStatus(status);
         response.setCharacterEncoding("UTF-8");
         response.setContentType(CONTENT_TYPE);
-        objectMapper.writeValue(response.getWriter(), Map.of("message", message));
+        objectMapper.writeValue(response.getWriter(), body);
     }
 }

@@ -35,7 +35,7 @@ class JwtAuthenticationFilterTest {
     void setUp() {
         tokenProvider = mock(JwtTokenProvider.class);
         userDetailsService = mock(CustomUserDetailsService.class);
-        filter = new JwtAuthenticationFilter(tokenProvider, userDetailsService);
+        filter = new JwtAuthenticationFilter(tokenProvider, userDetailsService, mock(SecurityErrorResponseWriter.class));
         SecurityContextHolder.clearContext();
     }
 

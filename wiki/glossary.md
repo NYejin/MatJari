@@ -91,3 +91,10 @@ SeatSwap 고유 용어의 짧은 정의다. 확정 결정 본문은 [CLAUDE.md](
 - **신고** (`abuse_report`): 채팅 화면에서 접수하는 신고. 사유 5종, 상태 `OPEN`/`RESOLVED`/`DISMISSED`. 자동 제재는 없다.
 - **이용 정지** (`user_sanction`): 관리자가 신고 처리 때 거는 제재. 정지 중에는 인증 API가 403 `ACCOUNT_SUSPENDED`다. 기간 만료는 조회 시 판단하고 관리자가 해제할 수 있다.
 - **열린 매칭 시스템 취소** (`OpenMatchCanceller`): 차단·정지 때 CHATTING·RESERVED 매칭을 `canceled_by_id` NULL로 취소하고 예약 잠금을 푸는 공용 계약.
+
+## 소셜 연결·프로필
+
+- **자리표시 이메일**: 소셜 가입 때 제공자 이메일이 없거나 검증되지 않았을 때 넣는 `@social.seatswap.invalid` 주소. 응답에서 `email`은 null이고 `emailPlaceholder=true`다. 실제 메일은 가지 않는다.
+- **연결 확정 코드**: 소셜 연결 콜백이 발급하는 일회용 코드(60초, 서버 메모리). 프래그먼트 `#linkCode=`로 프런트에 넘어가며, 같은 사용자의 로그인 세션이 `POST /api/users/me/social/confirm`으로 제출해야 저장된다.
+- **마지막 로그인 수단**: 이것을 해제하면 로그인할 방법이 0개가 되는 상태(비밀번호 로그인 불가이고 연결이 하나뿐). 해제는 409 `LAST_LOGIN_METHOD`로 막는다.
+- **비밀번호 로그인 가능 여부**: `users.password_login_enabled`. 일반 가입은 true, 소셜 가입은 false다.

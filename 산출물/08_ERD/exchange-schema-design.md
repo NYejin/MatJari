@@ -1,6 +1,6 @@
-# 교환 도메인 스키마 설계안 (V3~V15 구현 완료; V8 한 명 예약 방식은 10절(V15로 '제안 -> 상대 수락'으로 대체), 알림 V10은 1.13절, 차단·신고·이용 정지 V13은 12절, 소셜 로그인 계정 V14는 13절, 예약 제안·알림 6종 V15는 14절)
+# 교환 도메인 스키마 설계안 (V3~V16 구현 완료; V8 한 명 예약 방식은 10절(V15로 '제안 -> 상대 수락'으로 대체), 알림 V10은 1.13절, 차단·신고·이용 정지 V13은 12절, 소셜 로그인 계정 V14는 13절, 예약 제안·알림 6종 V15는 14절, 비밀번호 로그인 가능 여부·사용자당 제공자 1개 V16은 15절)
 
-작성 2026-10-08 / 브랜치 `docs/exchange-schema-design` / 상태: **V3~V15 구현 완료**(설계 확정 2026-10-08 사용자 답변 반영, 남은 확인 필요는 6절 끝). 현재 DB는 V1~V15(20개 테이블)이고 **다음 마이그레이션은 V16**이다. V15는 예약 제안 2컬럼과 알림 type 6종(14절)이다. V12는 관리자 처리 대상 두 테이블(11절), V13은 차단·신고·이용 정지 세 테이블(12절), V14는 소셜 로그인 계정 `social_account`(13절)다. 교환 수락→교환 완료(`EXCHANGED`+새 티켓+`exchange_history`)는 V9로 구현 완료. `user_block`·`abuse_report`·`user_sanction`은 V13으로 구현 완료(1.6절, 12절). 채팅(`chat_message`·`chat_read_state`)은 V11로 구현 완료(1.9절). 알림(`notification`)은 V10으로 구현 완료(1.13절). 아래 인용문은 날짜순 구현 기록이며, 본문 중 '(대체됨)'·취소선·V4/V5 시점 표기는 이력이고 현행 기준은 9절(V6·V7)·10절(V8)·1.7절 표다.
+작성 2026-10-08 / 브랜치 `docs/exchange-schema-design` / 상태: **V3~V16 구현 완료**(설계 확정 2026-10-08 사용자 답변 반영, 남은 확인 필요는 6절 끝). 현재 DB는 V1~V16(20개 테이블)이고 **다음 마이그레이션은 V17**이다. V15는 예약 제안 2컬럼과 알림 type 6종(14절)이다. V16은 `users.password_login_enabled`와 `social_account`의 사용자당 제공자 1개 유니크(15절)다. V12는 관리자 처리 대상 두 테이블(11절), V13은 차단·신고·이용 정지 세 테이블(12절), V14는 소셜 로그인 계정 `social_account`(13절)다. 교환 수락→교환 완료(`EXCHANGED`+새 티켓+`exchange_history`)는 V9로 구현 완료. `user_block`·`abuse_report`·`user_sanction`은 V13으로 구현 완료(1.6절, 12절). 채팅(`chat_message`·`chat_read_state`)은 V11로 구현 완료(1.9절). 알림(`notification`)은 V10으로 구현 완료(1.13절). 아래 인용문은 날짜순 구현 기록이며, 본문 중 '(대체됨)'·취소선·V4/V5 시점 표기는 이력이고 현행 기준은 9절(V6·V7)·10절(V8)·1.7절 표다.
 
 > **구현 상태 (2026-10-08, 브랜치 `feature/ticket-register`, 미커밋)**: 1.1절 ticket 변경은 **V3로 구현 완료**(`V3__ticket_seat_columns.sql`, ticket 행이 있으면 SIGNAL 가드로 실패, 생성 컬럼 `active_flag`, `uk_ticket_active_seat`, `idx_ticket_user_status`; 정규화 키는 서비스 `SeatKeyNormalizer`가 NFKC·공백 제거·대문자·앞 0 제거·끝의 '열'/'번' 제거로 만든다). 티켓 등록 API(`POST /api/tickets`, `GET /api/tickets/me`, `DELETE /api/tickets/{id}`)도 구현됨. V4 희망 쪽은 아래 메모대로 구현 완료다.
 >
@@ -28,8 +28,9 @@
 > **구현 (2026-10-12, `feature/social-login`, V14)**: 소셜 로그인(구글·카카오·네이버) 계정 연결 테이블 `social_account`는 **V14(`V14__social_account.sql`)** 로 추가됐고 현재 DB는 V1~V14(20개 테이블)다. `users`는 바꾸지 않았다. 자세한 컬럼·제약·인덱스는 13절. 다음 마이그레이션은 V15다.
 
 > **구현 (2026-10-12, `feature/reserve-propose`, V15)**: 예약을 **'제안 -> 상대 수락'** 으로 바꿨다(V8의 '한 명이 예약하면 RESERVED'를 뒤집음, 상태값은 그대로 CHATTING -> RESERVED). **V15(`V15__reserve_proposal_chat_notification.sql`)** 가 `exchange_match`에 `reserve_proposed_by_id`(FK users)·`reserve_proposed_at`을 추가하고 `notification.ck_notification_type`을 6종(+`RESERVATION_PROPOSED`·`RESERVATION_REJECTED`·`CHAT_MESSAGE`)으로 넓혔다. 채팅 알림은 이전의 'Q-8: 채팅 알림 행 없음'을 뒤집어 (수신자, 매칭)당 1행을 재사용한다. 현재 DB는 V1~V15(20개 테이블, 테이블 수 불변). 상세는 14절. 다음 마이그레이션은 V16이다.
+> **구현 (2026-10-13, `feature/profile-edit`, V16)**: `users.password_login_enabled`(일반 가입 1, 소셜 가입 0, 백필 0)를 추가하고 `social_account`에 UNIQUE(user_id, provider)를 더했다. 테이블 수는 20 그대로다. 자세한 것은 15절. 다음 마이그레이션은 V17이다.
 
-설계 시점 기준선: V1+V2 (users, performance, performance_session, ticket 4개 테이블; 현재는 V1~V15, 20개 테이블). 이 문서의 SQL은 초안이며 마이그레이션 파일이 아니다(실제 SQL은 `SeatSwap/backend/src/main/resources/db/migration/`이 기준).
+설계 시점 기준선: V1+V2 (users, performance, performance_session, ticket 4개 테이블; 현재는 V1~V16, 20개 테이블). 이 문서의 SQL은 초안이며 마이그레이션 파일이 아니다(실제 SQL은 `SeatSwap/backend/src/main/resources/db/migration/`이 기준).
 좌석표(`SeatMapLayout`·`uid`·`section`)에 의존하지 않는다. 후기·신뢰도·신고 테이블은 만들지 않는다(신고는 8절에서 확장 여지만 언급).
 
 ---
@@ -389,7 +390,7 @@ LIMIT :size OFFSET :offset;                      -- 후속: keyset(priority, sta
 
 ## 4. Flyway 계획
 
-- (설계 시점 계획 — 실제로는 V3~V15로 나뉘어 구현됐고 **다음 번호는 V16**이다.) 당시 다음 번호는 V3. 파일은 둘로 나누는 것을 권장한다(MySQL DDL은 트랜잭션이 아니라 중간 실패 시 앞선 변경이 남으므로 실패 범위를 줄임).
+- (설계 시점 계획 — 실제로는 V3~V16로 나뉘어 구현됐고 **다음 번호는 V17**이다.) 당시 다음 번호는 V3. 파일은 둘로 나누는 것을 권장한다(MySQL DDL은 트랜잭션이 아니라 중간 실패 시 앞선 변경이 남으므로 실패 범위를 줄임).
   - `V3__ticket_seat_columns.sql`: 1.1의 ticket 변경.
   - `V4__exchange_domain.sql`: 1.2~1.10 신규 테이블(요청·희망·차단·매칭·잠금·채팅·이력). 신고 테이블 번호는 선점하지 않는다. (실제: V4 = 희망 4개, V5 = 매칭·잠금, V9 = exchange_history, V10 = notification, V11 = chat_message·chat_read_state, user_block은 V12 예정.)
 - **기존 ticket 행 이관·가드 필요 여부**
@@ -469,7 +470,7 @@ CREATE TABLE exchange_ticket_lock (
 ---
 
 ## 5. ERD 반영
-`산출물/08_ERD/erd.dot`은 현재 V1~V14의 20개 테이블(알림 `notification`은 V10, 채팅 `chat_message`·`chat_read_state`는 V11, `performance_edit_proposal`·`seat_claim`은 V12, `user_block`·`abuse_report`·`user_sanction`은 V13, `social_account`는 V14)을 파란 헤더(`#BDD7EE`)로 그린다. V13 세 테이블은 구현 완료라 예정 색(노란 배경 `#FFF2CC` / 주황 헤더 `#F4B183`)을 쓰지 않는다. 처음 작성 시에는 교환 테이블 전체가 예정 표기였고 구현되면서 현재 색으로 바뀌었다. `abuse_report.sanction_id`처럼 FK가 아닌 참조는 점선으로 그린다. 2026-10-12 V13 갱신도 dot이 없는 환경이라 PNG는 만들지 못했고 DOT 문법만 점검했다. `EXCHANGED`(ticket status)는 V9로 현재 색으로 표시한다. 이 환경에 graphviz `dot`이 없어 PNG 생성·렌더 확인은 못 했고 문법(따옴표, HTML 라벨 닫힘, 엣지 대상 노드 존재)만 점검했다. 한계: 레이아웃 겹침 여부는 `dot -Tpng erd.dot -o ERD.png` 실행 후 눈으로 확인해야 한다. chat_message와 잠금·이력 테이블까지 포함해 노드가 늘어 rankdir=LR에서 가로가 길어질 수 있다.
+`산출물/08_ERD/erd.dot`은 현재 V1~V16의 20개 테이블(알림 `notification`은 V10, 채팅 `chat_message`·`chat_read_state`는 V11, `performance_edit_proposal`·`seat_claim`은 V12, `user_block`·`abuse_report`·`user_sanction`은 V13, `social_account`는 V14, 사용자당 제공자 1개와 `password_login_enabled`는 V16)을 파란 헤더(`#BDD7EE`)로 그린다. V13 세 테이블은 구현 완료라 예정 색(노란 배경 `#FFF2CC` / 주황 헤더 `#F4B183`)을 쓰지 않는다. 처음 작성 시에는 교환 테이블 전체가 예정 표기였고 구현되면서 현재 색으로 바뀌었다. `abuse_report.sanction_id`처럼 FK가 아닌 참조는 점선으로 그린다. 2026-10-12 V13 갱신도 dot이 없는 환경이라 PNG는 만들지 못했고 DOT 문법만 점검했다. `EXCHANGED`(ticket status)는 V9로 현재 색으로 표시한다. 이 환경에 graphviz `dot`이 없어 PNG 생성·렌더 확인은 못 했고 문법(따옴표, HTML 라벨 닫힘, 엣지 대상 노드 존재)만 점검했다. 한계: 레이아웃 겹침 여부는 `dot -Tpng erd.dot -o ERD.png` 실행 후 눈으로 확인해야 한다. chat_message와 잠금·이력 테이블까지 포함해 노드가 늘어 rankdir=LR에서 가로가 길어질 수 있다.
 
 ---
 
@@ -983,7 +984,7 @@ DROP PROCEDURE v8_single_reserve;
 ### 11.5 되돌리기·검증
 - 되돌리기는 롤포워드(새 V 파일에서 두 테이블 삭제)다. V2·V6~V11과 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하다.
 - 요구 MySQL 8.0.16 이상(CHECK 강제). 검증: `AdminSchemaMysqlTest`(실제 MySQL, `SEATSWAP_IT_*`가 있을 때만) 6건.
-- 다음 마이그레이션은 V13이었다(V13은 12절, V14는 13절, V15는 14절, 현재 다음 번호는 V16).
+- 다음 마이그레이션은 V13이었다(V13은 12절, V14는 13절, V15는 14절, V16 적용 뒤 다음 번호는 V17).
 
 ## 12. V13 — 차단·신고·이용 정지 (구현 완료 2026-10-12, `V13__block_report_sanction.sql`, `feature/block-report`)
 
@@ -1070,7 +1071,7 @@ DROP PROCEDURE v8_single_reserve;
 ### 12.5 되돌리기·검증
 - 되돌리기는 롤포워드(새 V 파일에서 `user_sanction` → `abuse_report` → `user_block` 순으로 삭제)다. V2·V6~V12와 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하다. 파괴적 단계는 없다.
 - 요구 MySQL 8.0.16 이상(CHECK 강제). 검증: `BlockReportSchemaMysqlTest`(실제 MySQL, `SEATSWAP_IT_*`가 있을 때만) 7건.
-- 다음 마이그레이션은 V14였다(V14는 13절, 현재 다음 번호는 V16).
+- 다음 마이그레이션은 V14였다(V14는 13절, V16 적용 뒤 다음 번호는 V17).
 
 ## 13. V14 — 소셜 로그인 계정 연결 (2026-10-12, `V14__social_account.sql`, `feature/social-login`)
 
@@ -1089,16 +1090,16 @@ DROP PROCEDURE v8_single_reserve;
 | created_at | DATETIME(6) | NOT NULL, 기본 `CURRENT_TIMESTAMP(6)` |
 
 - `uk_social_account_provider_user (provider, provider_user_id)` UNIQUE: 한 소셜 계정은 한 사용자에만 연결된다. 동시 첫 로그인 경합의 최후 방어선이다(서비스는 위반 시 다시 조회해 기존 사용자로 진행, 재시도 1회).
-- `idx_social_account_user (user_id)`: 단일 컬럼 FK 인덱스. 이 테이블에는 갱신 컬럼이 없다(INSERT만).
+- `idx_social_account_user (user_id)`: 단일 컬럼 FK 인덱스. 이 테이블에는 갱신 컬럼이 없다(V16 이후 연결 때 INSERT, 해제 때 DELETE).
 - 제약 이름: `fk_social_account_user`, `ck_social_account_provider`, `ck_social_account_provider_user_id`.
-- `(user_id, provider)` 유니크는 두지 않는다. 연결 관리 UI가 없고 가입 때 1행만 만든다.
+- (V14 시점) `(user_id, provider)` 유니크는 두지 않았다. 연결 UI가 없었고 가입 때 1행만 만들었기 때문이다. 이 유니크는 V16(15절)에서 추가됐다.
 - `provider_user_id`는 바이트 비교(utf8mb4_bin)라 대소문자가 다른 식별자는 다른 계정이다.
 
 ### 13.2 잠금·되돌리기·검증
 - 가입은 `users` INSERT → `social_account` INSERT 한 트랜잭션이며 티켓·요청·매칭을 잠그지 않는다. 기존 잠금 순서와 겹치지 않는다.
 - 되돌리기는 롤포워드(새 V 파일에서 `social_account` 삭제)다. V2·V6~V13과 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하다.
 - 요구 MySQL 8.0.16 이상(CHECK 강제). 검증: `SocialAccountSchemaMysqlTest`(실제 MySQL, `SEATSWAP_IT_*`가 있을 때만) 4건 — 재실행 안전·제약/인덱스 이름, UNIQUE 위반, provider CHECK·FK 위반, 같은 사용자의 여러 provider 허용.
-- 다음 마이그레이션은 V15였다(14절, 현재 다음 번호는 V16).
+- 다음 마이그레이션은 V15였다(14절, V16 적용 뒤 다음 번호는 V17).
 
 ## 14. V15 — 예약 제안(제안 -> 상대 수락) + 알림 type 6종 (2026-10-12, `V15__reserve_proposal_chat_notification.sql`, `feature/reserve-propose`)
 
@@ -1146,4 +1147,33 @@ CHECK 3개 (V8 `ck_exchange_match_reserved`와 같은 안전망 성격, NULL 통
 ### 14.3 되돌리기·검증
 - 되돌리기는 롤포워드(새 V 파일에서 새 CHECK·FK·인덱스·컬럼을 DROP하고 `ck_notification_type`을 3종으로 되돌림; 그 전에 새 type 3종 행을 지우거나 바꿔야 한다). V2·V6~V14와 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하고 파괴적 단계가 없다.
 - 요구 MySQL 8.0.16 이상(CHECK 강제). 검증: `ReserveProposalSchemaMysqlTest`(실제 MySQL, `SEATSWAP_IT_*`가 있을 때만) 6건 — V14 데이터가 있는 DB에서 이관·재실행 안전·기존 데이터 불변, 중간 실패 뒤 재적용, 제안 CHECK 3개(한쪽만 NULL·CHATTING 외 상태·제3자 거부, 수락·취소는 같은 문장에서 비워야 통과), 제안자 FK, type 6종 허용·그 외 거부, CHAT_MESSAGE dedup 형식과 upsert 재사용.
-- 다음 마이그레이션은 V16이다.
+- 다음 마이그레이션은 V16이었다(V16은 15절, 그 뒤 다음 번호는 V17).
+
+## 15. V16 — 비밀번호 로그인 가능 여부와 사용자당 제공자 1개 (2026-10-13, `V16__user_password_login.sql`, `feature/profile-edit`)
+
+새 테이블은 없다(20개 그대로). 확정 사항: 소셜 가입자는 비밀번호를 알 수 없으므로 "비밀번호 로그인이 가능한가"를 DB에 명시 플래그로 둔다(해시 존재 여부로 판단하지 않는다. 소셜 가입자에게도 무작위 해시가 있기 때문이다). 연결 기능이 생겼으므로 사용자당 제공자 1개는 DB 유니크로 보장한다.
+
+### 15.1 변경
+
+| 대상 | 변경 | 제약·근거 |
+|---|---|---|
+| users.password_login_enabled | TINYINT(1) NOT NULL DEFAULT 1, `password` 뒤 | 일반 가입 1, 소셜 가입 0. 마지막 로그인 수단 판단에만 쓰므로 인덱스는 두지 않는다 |
+| social_account | UNIQUE `uk_social_account_user_provider (user_id, provider)` | 사용자당 제공자 1개. 기존 단일 컬럼 FK 인덱스 `idx_social_account_user`는 그대로 둔다 |
+
+### 15.2 백필과 가드
+
+- 백필: `social_account` 행이 있는 사용자는 `password_login_enabled = 0`. 근거: V14 이후 `social_account` 행은 소셜 가입으로만 생겼다(연결 UI 없음, 자동 연결 없음). 백필 UPDATE는 0으로만 바꾸는 멱등 문장이라 컬럼 추가 뒤 중단되어도 재실행으로 마저 채워진다.
+- 유니크 추가 전에 `(user_id, provider)` 중복이 있으면 SIGNAL로 중단한다.
+- 재실행 가능한 INFORMATION_SCHEMA 가드 프로시저, 파괴적 단계 없음. 되돌리기는 롤포워드(새 V 파일에서 두 변경을 DROP).
+- 요구 MySQL 8.0.16 이상.
+
+### 15.3 잠금과 쓰기 경로
+
+- 연결 확정(`POST /api/users/me/social/confirm`)과 해제(`DELETE /api/users/me/social/{provider}`)는 `users` 행을 FOR UPDATE로 먼저 잡고, 마지막 로그인 수단 판단과 `social_account` INSERT/DELETE를 한다. 티켓·요청·매칭은 잠그지 않는다.
+- `social_account`는 갱신 컬럼이 없고 INSERT·DELETE만 한다. 단일 컬럼 FK 인덱스 규칙과 충돌하지 않는다.
+- 사용자당 제공자 1개의 최후 방어선은 이 유니크다. 위반은 제약 이름으로 구분해 `SOCIAL_ALREADY_LINKED`(본인이 이미 보유)와 `SOCIAL_LINKED_OTHER`(다른 사용자 계정)로 응답한다.
+
+### 15.4 검증과 한계
+
+- 실제 MySQL IT `SocialLinkMysqlTest`(환경변수 `SEATSWAP_IT_*`가 있을 때만): 동시 해제 대 해제, 같은 사용자 동시 확정(1건만 성공), 서로 다른 사용자가 같은 계정을 확정(1건 성공, 나머지 `SOCIAL_LINKED_OTHER`), 다른 사용자의 코드를 확정하면 400.
+- 한계: 같은 제공자의 중복 행이 있는 기존 DB에서는 V16이 SIGNAL로 멈춘다. 마지막 로그인 수단 판단은 플래그와 연결 수에 기대므로, 플래그는 가입 경로에 따라 고정되어야 한다.

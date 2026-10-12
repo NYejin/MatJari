@@ -2,15 +2,15 @@
 title: 소셜 로그인 설계 근거
 type: decision
 tags: [소셜로그인, oauth, 보안, 인증, 설계]
-sources: [../../CLAUDE.md, block-report-design.md, link-autofill-design.md, ../gotchas/frontend-react-pitfalls.md, SeatSwap/backend/src/main/resources/db/migration/V14__social_account.sql]
-updated: 2026-10-12
+sources: [../../CLAUDE.md, block-report-design.md, link-autofill-design.md, ../gotchas/frontend-react-pitfalls.md, SeatSwap/backend/src/main/resources/db/migration/V14__social_account.sql, profile-edit-design.md]
+updated: 2026-10-13
 confidence: medium
 status: draft
 ---
 
 # 소셜 로그인 설계 근거
 
-카카오·구글·네이버 소셜 로그인(V14 `social_account`, 브랜치 `feature/social-login`, 2026-10-12 구현, 미병합)의 근거만 정리한다. 이 기능은 CLAUDE.md의 현재 구현 현황·규칙 절에 아직 반영되지 않았을 수 있고, 확정 규칙의 기준은 [CLAUDE.md](../../CLAUDE.md)다. 여기서 새 결정을 만들지 않는다. 정지·차단 규칙은 [차단·신고·이용 정지 설계](block-report-design.md), 외부 요청 방어의 같은 사고방식은 [링크 자동 입력 설계](link-autofill-design.md) 참고.
+카카오·구글·네이버 소셜 로그인(V14 `social_account`, 브랜치 `feature/social-login`, 2026-10-12 구현, 미병합)의 근거만 정리한다. 확정 규칙의 기준은 [CLAUDE.md](../../CLAUDE.md)다. 마이페이지의 소셜 계정 연결·해제(V16)는 [프로필 수정·소셜 계정 연결 설계 근거](profile-edit-design.md)에 있다. 여기서 새 결정을 만들지 않는다. 정지·차단 규칙은 [차단·신고·이용 정지 설계](block-report-design.md), 외부 요청 방어의 같은 사고방식은 [링크 자동 입력 설계](link-autofill-design.md) 참고.
 
 사용자가 정한 것은 두 가지다: 제공자 3개, 같은 이메일의 기존 계정이 있으면 자동 연결하지 않음. 나머지(방식, 일회용 코드 등)는 구현 세션에서 정했다.
 
@@ -37,14 +37,14 @@ status: draft
 제공자가 준 검증된 이메일이 이미 `users`에 있으면 가입을 막고 "기존 방식으로 로그인" 안내만 한다(`EMAIL_EXISTS`). 이는 사용자 결정이다. 근거로 확인된 것은 다음과 같다.
 
 - 일반 가입에는 이메일 인증이 없어, 이메일 일치만으로 합치면 타인이 선점한 계정에 소셜 로그인이 붙거나 반대로 계정이 탈취될 수 있다.
-- 합치려면 기존 계정의 소유 증명(비밀번호 로그인 후 연결)이 필요한데, 연결 UI는 이번 범위에 없다.
+- 합치려면 기존 계정의 소유 증명(비밀번호 로그인 후 연결)이 필요하다. 2026-10-13에 마이페이지 연결이 추가됐지만 이는 로그인한 본인의 명시적 연결이고, 같은 이메일로 자동 합치는 것은 여전히 하지 않는다.
 - 부작용(기존 한계): 타인이 남의 이메일로 먼저 일반 가입해 두면 그 이메일 주인의 소셜 가입이 `EMAIL_EXISTS`로 막힌다.
 
 ## 4. 자리표시 이메일과 계정 모델
 
 - `users.email`과 비밀번호는 NOT NULL을 유지하고 스키마를 바꾸지 않았다. 이메일이 없거나 미검증이면 `{provider}.{sha256 앞 16자 hex}@social.seatswap.invalid` 형태의 자리표시 이메일을 쓴다. `.invalid`는 예약된 도메인이라 실제 메일이 아니며, 일반 가입은 `.invalid` 이메일을 거부한다. 제공자 식별자를 직접 쓰지 않고 해시를 쓴 것은 식별자가 이메일 형태에 안전하지 않을 수 있어서다.
 - 비밀번호는 무작위 32바이트를 BCrypt로 해시해 저장한다. 아무도 모르는 값이라 소셜 전용 계정은 비밀번호 로그인이 불가능하다.
-- `social_account`는 (provider, provider_user_id) 유니크로 소셜 계정과 사용자를 잇고, 이메일·프로필은 저장하지 않는다(최소 수집). FK 인덱스는 단일 컬럼이라 [잠금·인덱스 규약](../gotchas/lock-order-and-index-pitfalls.md)과 충돌하지 않는다.
+- `social_account`는 (provider, provider_user_id) 유니크로 소셜 계정과 사용자를 잇고, 이메일·프로필은 저장하지 않는다(최소 수집). 사용자당 제공자 1개는 V16에서 (user_id, provider) 유니크로 보장한다. FK 인덱스는 단일 컬럼이라 [잠금·인덱스 규약](../gotchas/lock-order-and-index-pitfalls.md)과 충돌하지 않는다.
 - 이메일이 있어도 카카오는 `is_email_valid`와 `is_email_verified`가 둘 다 true일 때만, 구글은 `email_verified`일 때만 사용한다.
 
 ## 5. 검증에서 나온 지적과 수정
@@ -72,6 +72,6 @@ Fable 검증 결과는 높음 없음, 중간 4건이었고 모두 수정했다(�
 - `__Host-` 쿠키 접두를 쓰지 않았다(Path를 소셜 경로로 한정한 설계 때문).
 - 네이버 client_secret 필수 여부를 시작 때 검증하지 않아, 누락되면 런타임에 `PROVIDER_ERROR`가 난다.
 - 본문 전송이 멈추는 경우의 워치독 테스트가 없다.
-- 소셜 계정 연결 UI(기존 계정에 소셜 추가)가 없다. 자리표시 이메일 계정은 헤더에 가짜 이메일이 보인다.
+- 기존 계정에 소셜을 붙이는 연결은 마이페이지(V16)에서 본인이 명시적으로 할 때만 가능하다([프로필 설계](profile-edit-design.md)). 자동 연결은 없다.
 - **실제 카카오·구글·네이버 키로는 검증하지 못했다.** 카카오 PKCE와 `is_email_verified`, 네이버 client_secret 필수 여부 등은 스텁 기준 가정이며 실연동 때 확인이 필요하다. 그래서 confidence는 medium이다.
 - 테스트(스텁 제공자 기반 백엔드 테스트, MySQL IT, Playwright 스텁 시나리오)는 구현 세션 기록이며 이 위키에서 재실행하지 않았다.

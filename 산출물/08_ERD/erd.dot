@@ -1,8 +1,8 @@
-// SeatSwap ERD -- 현재 스키마: V1~V15 (users, performance, performance_session, ticket + 교환 희망 4개 + 매칭·잠금 2개 + 교환 이력 1개 + 알림 1개 + 채팅 2개 + 관리자 2개(V12) + 차단·신고·정지 3개(V13) + 소셜 계정 1개(V14) = 20개 테이블; V6·V7은 컬럼 변경만, V9는 ticket.status EXCHANGED 추가와 exchange_history 신설, V10은 notification 신설, V11은 chat_message·chat_read_state 신설, V12는 performance_edit_proposal·seat_claim 신설, V13은 user_block·abuse_report·user_sanction 신설, V14는 social_account 신설, V15는 exchange_match 예약 제안 2컬럼과 notification type 6종 확장(테이블 수 그대로))
+// SeatSwap ERD -- 현재 스키마: V1~V16 (users, performance, performance_session, ticket + 교환 희망 4개 + 매칭·잠금 2개 + 교환 이력 1개 + 알림 1개 + 채팅 2개 + 관리자 2개(V12) + 차단·신고·정지 3개(V13) + 소셜 계정 1개(V14) = 20개 테이블; V6·V7은 컬럼 변경만, V9는 ticket.status EXCHANGED 추가와 exchange_history 신설, V10은 notification 신설, V11은 chat_message·chat_read_state 신설, V12는 performance_edit_proposal·seat_claim 신설, V13은 user_block·abuse_report·user_sanction 신설, V14는 social_account 신설, V15는 exchange_match 예약 제안 2컬럼과 notification type 6종 확장(테이블 수 그대로), V16은 users.password_login_enabled 컬럼과 social_account (user_id, provider) 유니크 추가(테이블 수 그대로))
 // 생성: dot -Tpng erd.dot -o ERD.png   (한글 라벨: 나눔고딕 등 한글 폰트 필요)
 // 2026-10-07 방향 전환으로 좌석표 트랙(좌석표·수정 로그·신고·제재 테이블)과 후기 테이블을 제외하고 새로 작성. 이후 교환 테이블이 V4~V8로 구현되어 현재 색으로 추가됐다.
 // 이전 설계(12~16개 테이블)는 git 태그 archive/seatmap-track-20261007 에 보관되어 있다.
-// 기준: SeatSwap/backend/src/main/resources/db/migration/V1__init_schema.sql + V2__drop_venue_use_venue_name.sql + V3__ticket_seat_columns.sql + V4__exchange_want_tables.sql + V5__exchange_match_tables.sql + V6__exchange_extra_per_range.sql + V7__exchange_request_soft_delete.sql + V8__exchange_match_single_reserve.sql + V9__exchange_complete_history.sql + V10__notification.sql + V11__chat_message.sql + V12__admin_edit_proposal_seat_claim.sql + V13__block_report_sanction.sql + V14__social_account.sql + V15__reserve_proposal_chat_notification.sql
+// 기준: SeatSwap/backend/src/main/resources/db/migration/V1__init_schema.sql + V2__drop_venue_use_venue_name.sql + V3__ticket_seat_columns.sql + V4__exchange_want_tables.sql + V5__exchange_match_tables.sql + V6__exchange_extra_per_range.sql + V7__exchange_request_soft_delete.sql + V8__exchange_match_single_reserve.sql + V9__exchange_complete_history.sql + V10__notification.sql + V11__chat_message.sql + V12__admin_edit_proposal_seat_claim.sql + V13__block_report_sanction.sql + V14__social_account.sql + V15__reserve_proposal_chat_notification.sql + V16__user_password_login.sql
 // 2026-10-08: V3에서 ticket에 구역·열·번(label+key)·status·시각 추가(구현 완료).
 // 2026-10-08: V4(V4__exchange_want_tables.sql)로 exchange_request·exchange_want_range·exchange_want_seat·exchange_want_session 구현 완료(현재). (당시 메모) 차단·매칭·잠금·채팅·이력은 예정이었다 -> 현재: 매칭·잠금은 V5 구현, 차단·채팅·이력은 V9 이후
 // 2026-10-08: V5(V5__exchange_match_tables.sql)로 exchange_match·exchange_ticket_lock 구현 완료(현재). user_block·chat_message·exchange_history는 예정(V9 이후)
@@ -13,11 +13,12 @@
 // 2026-10-12: V13(V13__block_report_sanction.sql) 구현 완료(현재, feature/block-report) = user_block(차단: 방향은 하나, 효과는 양방향, uk_user_block_pair) · abuse_report(신고: 채팅 화면에서 상대 신고, OPEN은 (신고자, 매칭)당 1건을 생성 컬럼 유니크로, sanction_id는 FK 아님) · user_sanction(이용 정지: ends_at NULL = 무기한, 해제는 revoked_at). 다음 마이그레이션은 V14. 노랑·주황 예정 표기는 이후 없음
 // 2026-10-12: V14(V14__social_account.sql) 구현(현재, feature/social-login) = social_account(소셜 로그인 계정 연결: provider GOOGLE/KAKAO/NAVER CHECK, uk_social_account_provider_user(provider, provider_user_id), 이메일·프로필 미저장, users 스키마 변경 없음). 다음 마이그레이션은 V15
 // 2026-10-12: V15(V15__reserve_proposal_chat_notification.sql) 구현(현재, feature/reserve-propose) = 예약을 '제안 -> 상대 수락'으로 바꿈(V8의 한 명 예약을 뒤집음, 상태값은 그대로 CHATTING -> RESERVED). exchange_match에 reserve_proposed_by_id(FK users, NULL, idx_exchange_match_reserve_proposed_by 단일 컬럼)·reserve_proposed_at 추가, CHECK 3개(ck_exchange_match_reserve_proposal_pair·_status(CHATTING에서만)·ck_exchange_match_reserve_proposed_by_party). notification.ck_notification_type을 6종으로 확장(+RESERVATION_PROPOSED·RESERVATION_REJECTED·CHAT_MESSAGE), ck_notification_chat_dedup(CHAT_MESSAGE는 dedup_key = CHAT_MESSAGE:{matchId}:{userId}, (수신자, 매칭)당 1행 재사용). 테이블 수 20개 그대로. 다음 마이그레이션은 V16
+// 2026-10-13: V16(V16__user_password_login.sql) 구현(현재, feature/profile-edit) = users.password_login_enabled TINYINT(1) NOT NULL DEFAULT 1(일반 가입 1, 소셜 가입 0, 백필로 social_account 보유자 0), social_account에 uk_social_account_user_provider(user_id, provider) 추가(사용자당 제공자 1개). 테이블 수 그대로. 다음 마이그레이션은 V17
 // 2026-10-08: V2에서 venue 테이블 삭제, 공연장은 performance.venue_name 텍스트(등록 후 수정 불가)
 // 시각 컬럼(created_at, updated_at, starts_at 등)은 모두 KST(Asia/Seoul) 벽시계 시각
 digraph SeatSwapERD {
   graph [rankdir=LR, fontname="NanumGothic,Malgun Gothic", fontsize=12, labelloc=t, nodesep=0.5, ranksep=1.2, splines=true,
-         label=<<B>SeatSwap ERD - 현재 스키마 (V1~V15, 20개 테이블)</B><BR/>시각 컬럼은 모두 KST 기준 / 교환 희망 4개는 V4, 매칭·예약 잠금 2개는 V5, 범위별 추가금·요청 소프트 삭제는 V6·V7, 한 명 예약 방식은 V8 적용, 교환 완료·이력은 V9 적용, 알림은 V10 적용, 채팅은 V11 적용 / 관리자 두 테이블은 V12 적용 / 차단·신고·이용 정지 세 테이블은 V13 적용 / 소셜 로그인 계정은 V14 적용 / 예약 제안·알림 6종은 V15 적용>];
+         label=<<B>SeatSwap ERD - 현재 스키마 (V1~V16, 20개 테이블)</B><BR/>시각 컬럼은 모두 KST 기준 / 교환 희망 4개는 V4, 매칭·예약 잠금 2개는 V5, 범위별 추가금·요청 소프트 삭제는 V6·V7, 한 명 예약 방식은 V8 적용, 교환 완료·이력은 V9 적용, 알림은 V10 적용, 채팅은 V11 적용 / 관리자 두 테이블은 V12 적용 / 차단·신고·이용 정지 세 테이블은 V13 적용 / 소셜 로그인 계정은 V14 적용 / 예약 제안·알림 6종은 V15 적용 / 비밀번호 로그인 가능 여부·사용자당 제공자 1개는 V16 적용>];
   node  [shape=plain, fontname="NanumGothic,Malgun Gothic", fontsize=10];
   edge  [fontname="NanumGothic,Malgun Gothic", fontsize=9, dir=both, arrowtail=tee, arrowhead=crow];
 
@@ -25,7 +26,7 @@ digraph SeatSwapERD {
   legend [label=<
     <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3">
       <TR><TD COLSPAN="2" BGCOLOR="#DDDDDD"><B>범례</B></TD></TR>
-      <TR><TD BGCOLOR="#FFFFFF" WIDTH="18"> </TD><TD ALIGN="LEFT">현재 (V1~V15)</TD></TR>
+      <TR><TD BGCOLOR="#FFFFFF" WIDTH="18"> </TD><TD ALIGN="LEFT">현재 (V1~V16)</TD></TR>
       <TR><TD>PK/FK/UK</TD><TD ALIGN="LEFT">키 / 제약</TD></TR>
       <TR><TD>NN</TD><TD ALIGN="LEFT">NOT NULL</TD></TR>
       <TR><TD>점선</TD><TD ALIGN="LEFT">FK가 아닌 참조 (sanction_id, resolved_ticket_id)</TD></TR>
@@ -55,7 +56,7 @@ digraph SeatSwapERD {
       <TR><TD>UK</TD><TD ALIGN="LEFT">provider_user_id VARCHAR(100) NN (bin, 제공자 고유 식별자: 구글 sub / 카카오 id / 네이버 id, CHECK 공백 아님)</TD></TR>
       <TR><TD> </TD><TD ALIGN="LEFT">created_at DATETIME(6) NN (기본 CURRENT_TIMESTAMP(6))</TD></TR>
       <TR><TD COLSPAN="2" ALIGN="LEFT">uk_social_account_provider_user (provider, provider_user_id) / idx_social_account_user (user_id, 단일 컬럼 FK 인덱스)</TD></TR>
-      <TR><TD COLSPAN="2" ALIGN="LEFT">이메일·프로필 미저장, users 스키마 변경 없음, uk_social_account_user_provider (user_id, provider) V16 추가</TD></TR>
+      <TR><TD COLSPAN="2" ALIGN="LEFT">이메일·프로필 미저장, users 변경은 V16의 password_login_enabled뿐, uk_social_account_user_provider (user_id, provider) V16 추가</TD></TR>
     </TABLE>>];
 
   // ---------- 공연 / 회차 ----------
@@ -105,7 +106,7 @@ digraph SeatSwapERD {
 
   // ---------- 주석 노드 ----------
   note_scope [shape=note, fontsize=10, label="교환 범위는 공연(Performance) 단위 (2026-10-07):\l같은 공연의 다른 회차 티켓끼리도 교환 가능.\lticket은 회차만 참조하고 공연은 performance_session.performance로 얻는다.\l"];
-  note_design [shape=note, fontsize=10, label="전부 구현 완료 (교환 희망 4개는 V4, 매칭·잠금 2개는 V5, 범위별 추가금·소프트 삭제는 V6·V7, 한 명 예약 방식은 V8, 교환 완료·이력·EXCHANGED는 V9, 알림은 V10, 채팅은 V11, 공연 수정 제안·좌석 인증은 V12, 차단·신고·이용 정지는 V13, 소셜 로그인 계정은 V14, 예약 제안(제안 -> 상대 수락)·알림 6종은 V15)\l상세: 산출물/08_ERD/exchange-schema-design.md\l후기·신뢰도 테이블 없음. 신고는 교환 상대만 대상(채팅 화면), 자동 제재 없음.\l교환 완료 후 기존 티켓의 교환 요청은 CLOSED, 그 티켓의 다른 CHATTING 매칭은 자동 취소하지 않음(Q-15)\l"];
+  note_design [shape=note, fontsize=10, label="전부 구현 완료 (교환 희망 4개는 V4, 매칭·잠금 2개는 V5, 범위별 추가금·소프트 삭제는 V6·V7, 한 명 예약 방식은 V8, 교환 완료·이력·EXCHANGED는 V9, 알림은 V10, 채팅은 V11, 공연 수정 제안·좌석 인증은 V12, 차단·신고·이용 정지는 V13, 소셜 로그인 계정은 V14, 예약 제안(제안 -> 상대 수락)·알림 6종은 V15, 비밀번호 로그인 가능 여부·사용자당 제공자 1개는 V16)\l상세: 산출물/08_ERD/exchange-schema-design.md\l후기·신뢰도 테이블 없음. 신고는 교환 상대만 대상(채팅 화면), 자동 제재 없음.\l교환 완료 후 기존 티켓의 교환 요청은 CLOSED, 그 티켓의 다른 CHATTING 매칭은 자동 취소하지 않음(Q-15)\l"];
 
   // ---------- 교환 도메인: 희망 4개 테이블은 현재(V4), 매칭·잠금은 현재(V5), 교환 이력(V9)·채팅(V11)은 현재, 차단·신고·정지(V13)는 현재 ----------
   exchange_request [label=<

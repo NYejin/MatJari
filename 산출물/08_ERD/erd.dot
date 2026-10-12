@@ -39,6 +39,7 @@ digraph SeatSwapERD {
       <TR><TD>UK</TD><TD ALIGN="LEFT">email (255, NN)</TD></TR>
       <TR><TD> </TD><TD ALIGN="LEFT">nickname (255, NN)</TD></TR>
       <TR><TD> </TD><TD ALIGN="LEFT">password (255, NN, BCrypt)</TD></TR>
+      <TR><TD> </TD><TD ALIGN="LEFT">password_login_enabled TINYINT(1) NN 기본 1 (V16, 일반 가입 1 / 소셜 가입 0)</TD></TR>
       <TR><TD> </TD><TD ALIGN="LEFT">trust_score (DOUBLE)</TD></TR>
       <TR><TD> </TD><TD ALIGN="LEFT">created_at</TD></TR>
       <TR><TD> </TD><TD ALIGN="LEFT">role (USER/ADMIN, NN, 기본 USER, utf8mb4_bin + CHECK)</TD></TR>
@@ -54,7 +55,7 @@ digraph SeatSwapERD {
       <TR><TD>UK</TD><TD ALIGN="LEFT">provider_user_id VARCHAR(100) NN (bin, 제공자 고유 식별자: 구글 sub / 카카오 id / 네이버 id, CHECK 공백 아님)</TD></TR>
       <TR><TD> </TD><TD ALIGN="LEFT">created_at DATETIME(6) NN (기본 CURRENT_TIMESTAMP(6))</TD></TR>
       <TR><TD COLSPAN="2" ALIGN="LEFT">uk_social_account_provider_user (provider, provider_user_id) / idx_social_account_user (user_id, 단일 컬럼 FK 인덱스)</TD></TR>
-      <TR><TD COLSPAN="2" ALIGN="LEFT">이메일·프로필 미저장, users 스키마 변경 없음, (user_id, provider) 유니크 없음</TD></TR>
+      <TR><TD COLSPAN="2" ALIGN="LEFT">이메일·프로필 미저장, users 스키마 변경 없음, uk_social_account_user_provider (user_id, provider) V16 추가</TD></TR>
     </TABLE>>];
 
   // ---------- 공연 / 회차 ----------

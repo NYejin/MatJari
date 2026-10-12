@@ -32,4 +32,13 @@ public class AuthController {
     public ResponseEntity<TokenResponse> refresh(@Valid @RequestBody RefreshRequest request) {
         return ResponseEntity.ok(authService.refresh(request));
     }
+
+    /**
+     * 로그아웃. JWT 는 무상태라 서버가 지울 것이 없고 클라이언트가 토큰을 버린다. 이용 정지 중인 사용자도 호출할 수 있도록(JwtAuthenticationFilter 가
+     * 이 경로만 정지 검사를 건너뛴다) 항상 204 로 응답하는 자리만 둔다.
+     */
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout() {
+        return ResponseEntity.noContent().build();
+    }
 }

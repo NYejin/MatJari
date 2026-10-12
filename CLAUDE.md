@@ -36,7 +36,7 @@
 
 ## 현재 구현 현황
 
-DB는 Flyway V1~V12, 16개 테이블(performance_edit_proposal·seat_claim 포함, users·performance·performance_session·ticket·exchange_request·exchange_want_range·exchange_want_seat·exchange_want_session·exchange_match·exchange_ticket_lock·exchange_history·notification·chat_message·chat_read_state). **구현 완료**: 가입·로그인(JWT), 공연 등록·목록·상세(등록 후 수정 불가), 티켓 등록·내리기, 교환 희망 조건(범위별 추가금·소프트 삭제), 후보 조회, 제안·거절·채팅 종료, 한 명 예약·예약 취소, 교환 수락→교환 완료(기존 티켓 EXCHANGED+새 티켓, 교환 이력 기록, 교환된 좌석 안내), 내 매칭 조회, 교환 화면 5개(티켓 등록·내 티켓·희망 조건 폼·후보 목록·내 매칭), 알림 3종(새 제안·상대 예약·상대 예약 취소: 헤더 벨 말풍선, 알림 페이지, 읽은 알림 삭제, STOMP 실시간 푸시 + 연결이 끊겼을 때만 30초 폴링), 매칭별 채팅(채팅 화면에서 REST로 보내고 STOMP 사용자 큐로 받기, 읽음 표시, 종료 후 읽기 전용), 링크 기반 공연정보 자동 입력(제목·공연장·공연 기간, 회차 시각 제외), 관리자 페이지(공연 수정 제안 처리·내 티켓 인증 확인), 교환 이력 조회(`GET /api/exchange/history`, 마이페이지 '교환 이력' 화면 `/exchange/history`: 본인 이력만 최신순, 교환 당시 스냅샷, 읽기 전용). **미구현**: 7일 경과 알림, 차단·신고. 다음 마이그레이션 번호는 V13부터(차단 `user_block`). 상세 수치는 [STATS.md](STATS.md), 이력은 [HISTORY.md](HISTORY.md).
+DB는 Flyway V1~V13, 19개 테이블(performance_edit_proposal·seat_claim·user_block·abuse_report·user_sanction 포함, users·performance·performance_session·ticket·exchange_request·exchange_want_range·exchange_want_seat·exchange_want_session·exchange_match·exchange_ticket_lock·exchange_history·notification·chat_message·chat_read_state). **구현 완료**: 가입·로그인(JWT), 공연 등록·목록·상세(등록 후 수정 불가), 티켓 등록·내리기, 교환 희망 조건(범위별 추가금·소프트 삭제), 후보 조회, 제안·거절·채팅 종료, 한 명 예약·예약 취소, 교환 수락→교환 완료(기존 티켓 EXCHANGED+새 티켓, 교환 이력 기록, 교환된 좌석 안내), 내 매칭 조회, 교환 화면 5개(티켓 등록·내 티켓·희망 조건 폼·후보 목록·내 매칭), 알림 3종(새 제안·상대 예약·상대 예약 취소: 헤더 벨 말풍선, 알림 페이지, 읽은 알림 삭제, STOMP 실시간 푸시 + 연결이 끊겼을 때만 30초 폴링), 매칭별 채팅(채팅 화면에서 REST로 보내고 STOMP 사용자 큐로 받기, 읽음 표시, 종료 후 읽기 전용), 링크 기반 공연정보 자동 입력(제목·공연장·공연 기간, 회차 시각 제외), 관리자 페이지(공연 수정 제안 처리·내 티켓 인증 확인), 교환 이력 조회(`GET /api/exchange/history`, 마이페이지 '교환 이력' 화면 `/exchange/history`: 본인 이력만 최신순, 교환 당시 스냅샷, 읽기 전용). 차단·신고·이용 정지와 관리자 신고 관리. **미구현**: 7일 경과 알림. 다음 마이그레이션 번호는 V14부터. 상세 수치는 [STATS.md](STATS.md), 이력은 [HISTORY.md](HISTORY.md).
 
 ## 제품·교환 규칙 (확정)
 
@@ -65,7 +65,7 @@ DB는 Flyway V1~V12, 16개 테이블(performance_edit_proposal·seat_claim 포�
 - 후보 응답: `myExtra*`=내 범위 중 상대 좌석이 속한 범위의 추가금, `extraType/extraAmount`=상대 범위 중 내 좌석이 속한 범위의 추가금. 매칭 행에는 추가금 스냅샷 4컬럼을 둔다.
 
 ### 후보 조회
-- 조건: 같은 공연 / 상대 티켓 회차 ∈ 내 희망 회차이고 내 티켓 회차 ∈ 상대 희망 회차 / 상대 좌석 ∈ 내 희망 좌석이고 내 좌석 ∈ 상대 희망 좌석 / 추가금 호환 / 상대 요청 OPEN·티켓 ACTIVE / 마감 지난 회차 제외 / 내 요청·같은 사용자 제외 / **예약으로 잠긴 티켓 제외**(예약이 취소되면 복귀) / 같은 쌍의 열린 매칭 제외 / 차단 사용자 제외(차단 구현 시). 내 티켓이 잠겨 있으면 조회가 422 `TICKET_LOCKED`.
+- 조건: 같은 공연 / 상대 티켓 회차 ∈ 내 희망 회차이고 내 티켓 회차 ∈ 상대 희망 회차 / 상대 좌석 ∈ 내 희망 좌석이고 내 좌석 ∈ 상대 희망 좌석 / 추가금 호환 / 상대 요청 OPEN·티켓 ACTIVE / 마감 지난 회차 제외 / 내 요청·같은 사용자 제외 / **예약으로 잠긴 티켓 제외**(예약이 취소되면 복귀) / 같은 쌍의 열린 매칭 제외 / 차단 사용자·정지 사용자 제외. 내 티켓이 잠겨 있으면 조회가 422 `TICKET_LOCKED`.
 - 정렬: 내 희망 회차 priority → 상대 요청 최신순. 응답에 신뢰도 필드는 없다. 페이징 `page&size`(기본 20, 최대 100); 후보가 수천 건을 넘으면 keyset 페이징 필요(후속).
 - SQL은 `STRAIGHT_JOIN` 힌트를 유지한다(상대 요청 풀스캔 방지).
 
@@ -119,7 +119,7 @@ DB는 Flyway V1~V12, 16개 테이블(performance_edit_proposal·seat_claim 포�
 - 닫힌 매칭(CANCELED·COMPLETED)의 알림도 안 읽은 개수·목록에서 빼지 않고, 회색 '종료된 매칭' 라벨로만 표시한다. 알림이 사라지는 유일한 경로는 사용자의 **'읽은 알림 삭제'**(읽은 알림만 대상)다.
 - 화면: 헤더 벨을 누르면 바로 아래 말풍선(최신 5건, 모두 읽음, 알림 전체 보기), 알림 전체 보기는 `/notifications` 페이지다. 알림 클릭은 읽음 처리 후 매칭 카드로 이동한다. 새 알림은 STOMP `/user/queue/notifications`로 "새 알림이 생겼다"는 신호만 푸시하고(문구·상대 정보는 싣지 않음, 커밋 뒤 전파), 화면은 신호를 받으면 REST로 개수·목록을 다시 읽는다. 연결이 끊겨 있을 때만 화면이 보일 때 30초 폴링한다(연결 중에는 5분 안전 확인).
 - 알림 구조는 type 추가로 확장할 수 있게 둔다(예: 7일 경과 알림).
-- **사용자 차단 기능을 만든다**: 차단하면 후보에서 제외되고 채팅할 수 없다. **사용자 신고는 필수**(교환 핵심 흐름 이후 추가).
+- **사용자 차단·신고는 구현됨**(아래 '차단·신고·이용 정지' 절): 차단하면 후보에서 제외되고 채팅할 수 없으며, 신고는 관리자가 처리한다.
 - 관리자는 DB에서 ADMIN 역할을 직접 부여하는 방식으로 시작한다. 회원탈퇴는 물리 삭제가 아니라 익명화(로그·제재 FK 유지)한다.
 
 ### 관리자·공연 수정 제안·내 티켓 인증 (구현됨, V12 `performance_edit_proposal`·`seat_claim`)
@@ -127,6 +127,13 @@ DB는 Flyway V1~V12, 16개 테이블(performance_edit_proposal·seat_claim 포�
 - **공연 수정 제안**: 공연 상세 "정보가 틀렸어요"에서 **제목·공연장**(최소 하나)과 사유를 제안하면, 관리자가 현재 값→제안 값을 비교해 승인(공연에 반영)하거나 거절(사유)한다. **회차·링크는 수정 대상이 아니다.** 공연을 바꾸는 유일한 경로는 관리자 승인(`Performance.applyApprovedEdit`)이다. 사용자당 PENDING 3건, 같은 공연 PENDING 1건. 알림은 만들지 않고 제안자는 `/my/edit-proposals`에서 결과를 본다. 잠금 순서는 제안 행 → 공연 행.
 - **내 티켓 인증(좌석 소유 인증 요청)**: 이미 같은 좌석이 등록돼 있다는 안내의 '내 티켓 인증'에서 회차·좌석과 **예매내역 사진 1장**(jpeg/png/webp, ≤5 MiB)을 올리면 관리자가 사진·현재 그 좌석을 가진 티켓을 보고 승인/거절한다. **승인하면 현재 그 좌석의 활성 티켓을 시스템이 내린다**(요청 CLOSED, CHATTING 매칭 시스템 취소; 예약 잠금 중이면 승인 불가). 요청자는 이후 일반 티켓 등록으로 직접 등록한다. 사진은 서버 로컬 디스크(`seatswap.upload.dir`)에 UUID 이름으로 저장하고 본인·ADMIN만 조회하며, **처리(승인·거절)가 끝나면 커밋 뒤 삭제**한다. 사용자당 PENDING 5건. 잠금 순서는 인증 요청 행 → 티켓 id↑ → 요청 id↑ → 매칭.
 - 상세는 [wiki/decisions/admin-design.md](wiki/decisions/admin-design.md).
+
+### 차단·신고·이용 정지·관리자 관리 (구현됨, V13 `user_block`·`abuse_report`·`user_sanction`)
+- **차단**은 채팅 화면에서만 시작한다(`POST /api/exchange/matches/{matchId}/block`, 임의 userId 차단 API 없음). 방향은 하나(차단자→피차단자)이지만 효과는 양방향이다: 서로 후보에서 제외, 새 제안 불가(후보 재검증 422 `NOT_A_CANDIDATE`), 둘 사이의 열린 매칭(CHATTING·RESERVED)은 차단 시점에 시스템 취소·예약 잠금 해제(`OpenMatchCanceller`), COMPLETED·교환 이력은 그대로, 상대에게 알리지 않는다. 멱등, 사용자당 200명. 해제는 `/my/blocks`(취소된 매칭은 복구되지 않는다). 재매칭 불가는 차단 때만이다.
+- **신고**도 채팅 화면에서만(`POST /api/exchange/matches/{matchId}/report`, 닫힌 매칭 가능). 사유 `ABUSE/FRAUD/NO_SHOW/FAKE_SEAT/OTHER`(OTHER는 상세 필수, ≤500). 같은 매칭에 내가 낸 OPEN 신고 1건, 사용자당 OPEN 10건. **신고만으로 자동 제재·자동 차단은 하지 않고**, 대상에게 알리지 않으며, 신고자는 `/my/reports`에서 처리 상태만 본다.
+- **관리자 관리**: `/admin/reports`(상태·사유 필터)·`/admin/reports/:id`(신고된 매칭의 **채팅 근거 열람**, 관리자 전용·처리 목적 외 사용 금지 안내, 처리/기각)·`/admin/sanctions`(활성/전체, 해제)·`/admin/blocks`(읽기 전용 현황). 처리(`resolve`)는 처리 메모와 함께 **이용 정지**(7일·30일·무기한, 사유 필수)를 걸 수 있다. ADMIN·자기 자신은 제재할 수 없고, 이미 정지 중인 대상에 또 제재할 수 없다.
+- **이용 정지**: 정지 중인 사용자는 모든 인증 API·로그인·토큰 재발급이 403 `ACCOUNT_SUSPENDED`(`{message, code, until}`), STOMP CONNECT 거부와 열려 있는 연결 종료(커밋 뒤), 후보에서 제외, 정지 순간 열린 매칭 전부 시스템 취소. 로그아웃은 가능하다. 기간은 조회 시 `ends_at > now`로 판단한다(스케줄러 없음). 강제는 `CustomUserDetailsService.loadUserById`(요청마다 DB 조회) 한 곳에서 한다.
+- 상세는 [wiki/decisions/block-report-design.md](wiki/decisions/block-report-design.md).
 
 ## 개발 규칙 (앞으로도 지킨다)
 
@@ -141,6 +148,7 @@ DB는 Flyway V1~V12, 16개 테이블(performance_edit_proposal·seat_claim 포�
 - 메시지 조회 쿼리는 `FORCE INDEX (idx_chat_message_match)`를 유지한다(옵티마이저가 PRIMARY 역방향·filesort를 고르는 문제).
 - 링크 자동 입력은 사용자가 준 URL을 요청하지 않고 `SourceKeyResolver`로 뽑은 사이트·숫자 ID로 고정 템플릿 URL만 만들어 요청한다(SSRF 방어의 핵심). 새 사이트를 추가할 때도 이 규칙과 호스트 고정을 유지한다.
 - 좌석 소유 인증 승인처럼 좌석 키(보조 유니크 인덱스)로 티켓을 잠가야 할 때는 `FOR UPDATE`를 키로 걸지 말고 id를 잠금 없이 읽은 뒤 PK로 잠그고 상태를 다시 판단한다(`deactivate`와 교착). 상태 전이로 바뀌는 값을 유니크로 쓸 때는 생성 컬럼 UNIQUE(PENDING만 유니크)를 쓴다.
+- 열린 매칭 시스템 취소(`OpenMatchCanceller`)는 티켓 id↑ → 매칭 id↑ 순서로 잠그고 호출 트랜잭션을 READ_COMMITTED로 연다. 후보 SQL의 차단 제외는 `NOT EXISTS` 두 개로 나눠 쓴다(OR는 전체 인덱스 스캔).
 - 소스코드 수정분 전달은 `MMDD-순번_수정내역영문.zip`, 문서(계획서/요구사항정의서 등)는 압축 없이 단일 파일.
 
 ## 기술 스택·범위 제외
@@ -151,7 +159,7 @@ DB는 Flyway V1~V12, 16개 테이블(performance_edit_proposal·seat_claim 포�
 ## 좌석표 트랙 동결 (보존 사실만)
 
 - 좌석표 이미지 인식·좌석표 기반 범위 선택은 **후순위**다. 코드와 seatmap-service는 삭제됐고 보관본은 git 태그 `archive/seatmap-track-20261007`이다. 새 작업의 선행 조건이 아니며, **새 매칭 코드는 좌석표(`SeatMapLayout`·좌석 `uid`·`section`)에 의존하지 않는다.**
-- **시작하지 않는 것(백로그, 사용자가 다시 지시하기 전까지)**: 제재·신고 테이블(`abuse_report`·`user_sanction`), 관리자 API·정식 등록 서비스, 수정 로그 조회 화면, DRAFT 삭제 정책·임시 플래그 정리, 좌석표 인식 정확도 검증, 좌석표 화면 개선.
+- **시작하지 않는 것(백로그, 사용자가 다시 지시하기 전까지)**: 정식 등록 서비스, 수정 로그 조회 화면, DRAFT 삭제 정책·임시 플래그 정리, 좌석표 인식 정확도 검증, 좌석표 화면 개선.
 - 나중에 다시 붙일 때의 보존 결정: 좌석표는 같은 (구역, 열, 번) 키를 고르는 화면·검증기로 얹는다. 좌석맵은 링크 스크래핑이 아니라 **사용자가 캡처한 이미지 업로드/주소 입력**으로 확보하고, 원본 이미지는 저장하지 않고 인식한 좌표만 저장한다(좌표는 원본 픽셀 기준, 화면은 SVG). 인식은 ①좌표 검출 ②행번호 OCR ③열번호(x좌표 순) 뿐이며 색상/판매상태 매핑은 하지 않는다. DRAFT(사용자 업로드, 확인용)→OFFICIAL(관리자 정식 등록) 흐름, OFFICIAL 오류는 정정 신고 2건 이상이면 자동 반영하고 DRAFT는 즉시 수정+로그. 열 번호는 통로를 건너도 이어서 부여(`aisleMode=continue`), '열'은 앞에서부터 1열·'번'은 왼쪽→오른쪽. 세부 설정값(DRAFT 상한·일일 제한·임시 삭제 플래그 `TEMP-DRAFT-DELETE` 등)은 태그와 `산출물/07_작업일지/2026-10-07.md`, `.claude/skills/seatmap-recognition-pattern`에 있다.
 
 ## 폐기된 안 (다시 제안하지 말 것)
@@ -169,9 +177,9 @@ DB는 Flyway V1~V12, 16개 테이블(performance_edit_proposal·seat_claim 포�
 
 ## 후속 작업 목록
 
-①신고·차단. 로고 변경, 알림 3종, 채팅, 실시간 알림 푸시, 링크 자동 입력, 관리자 페이지, 교환 이력 조회는 완료.
+사용자가 정한 6개 기능(채팅, 실시간 알림 푸시, 링크 자동 입력, 관리자 페이지, 교환 이력 조회, 차단·신고)은 모두 완료됐다. 남은 것: 7일 경과 알림(미구현), 브라우저 수동 점검, `trust_score` 컬럼 정리 여부 결정.
 
 ## 확인 필요 (열린 질문만)
 
-- **신고 처리용 최소 관리자 기능의 범위**: 신고 기능 착수 시 확인.
+- (해결) 신고 처리용 최소 관리자 기능의 범위는 신고 목록·상세(채팅 근거)·처리·이용 정지·차단 현황으로 확정해 구현했다.
 - 요구사항 문서 §7의 미해결 항목(Q-2~4, Q-6~8, Q-11~13): [후속요구사항 문서](산출물/04_요구사항정의서/후속요구사항_제안알림_교환됨_공연정보입력.md) §7 참고.

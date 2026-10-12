@@ -25,12 +25,17 @@ import java.util.List;
 public class CustomUserDetailsService implements UserDetailsService {
 
     private final UserRepository userRepository;
+    private final AccountSuspensionChecker suspensionChecker;
 
-    /** JWT 인증용. 사용자 없음 → UsernameNotFoundException (필터가 잡아 미인증 처리 → 401). */
+    /**
+     * JWT 인증용. 사용자 없음 → UsernameNotFoundException (필터가 잡아 미인증 처리 → 401).
+     * 활성 이용 정지가 있으면 AccountSuspendedException (필터가 403 ACCOUNT_SUSPENDED 로 응답) — 모든 인증 요청과 STOMP CONNECT 가 여기를 거친다.
+     */
     @Transactional(readOnly = true)
     public AuthUserPrincipal loadUserById(Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UsernameNotFoundException("사용자를 찾을 수 없습니다: id=" + userId));
+        suspensionChecker.assertNotSuspended(user.getId());
         return AuthUserPrincipal.of(user.getId(), user.getEmail(), user.getRole());
     }
 

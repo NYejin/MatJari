@@ -1,5 +1,6 @@
 import axios from "axios";
 import { requestTokenRefresh } from "./authClient";
+import { parseSuspension, saveSuspensionNotice } from "./suspension";
 import { getUserFromAccessToken, isTokenExpired, tokenStorage } from "./tokenStorage";
 import type { TokenResponse } from "../types/auth";
 
@@ -58,6 +59,13 @@ export function refreshSession(): Promise<RefreshResult> {
       return { status: "ok", tokens };
     } catch (err) {
       if (tokenStorage.getRefreshToken() !== refreshToken) return { status: "superseded" };
+      // 정지된 계정(403 ACCOUNT_SUSPENDED): 재시도하지 않고 로그아웃 처리 (안내는 로그인 화면)
+      const suspension = parseSuspension(err);
+      if (suspension) {
+        saveSuspensionNotice(suspension);
+        tokenStorage.clear();
+        return { status: "invalid" };
+      }
       // 백엔드는 무효/만료 refresh token을 SeatSwapException(400)으로 응답한다
       if (axios.isAxiosError(err) && err.response?.status === 400) {
         tokenStorage.clear();

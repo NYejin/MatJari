@@ -1,5 +1,6 @@
 package com.seatswap.security;
 
+import com.seatswap.exception.AccountSuspendedException;
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -32,6 +33,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider jwtTokenProvider;
     private final CustomUserDetailsService userDetailsService;
+    private final SecurityErrorResponseWriter errorWriter;
+
+    /** 이용 정지 중에도 허용하는 유일한 경로(정지된 사용자가 스스로 로그아웃할 수 있어야 한다). */
+    static final String LOGOUT_PATH = "/api/auth/logout";
 
     @Override
     protected void doFilterInternal(
@@ -55,6 +60,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                     SecurityContextHolder.getContext().setAuthentication(authentication);
                 }
+            } catch (AccountSuspendedException e) {
+                // 이용 정지: 401 이 아니라 403 ACCOUNT_SUSPENDED (프론트가 토큰 재발급을 시도하지 않게 구분). 로그아웃만 미인증으로 통과시킨다.
+                SecurityContextHolder.clearContext();
+                if (!isLogout(request)) {
+                    errorWriter.writeSuspended(response, e);
+                    return;
+                }
             } catch (UsernameNotFoundException | JwtException e) {
                 // 토큰은 서명상 유효하지만 사용자가 삭제된 경우(UsernameNotFoundException) 등.
                 // 여기서 직접 응답을 쓰지 않고 "인증 안 됨" 상태로 체인을 계속 진행한다.
@@ -67,5 +79,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private static boolean isLogout(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        String context = request.getContextPath();
+        String path = context != null && !context.isEmpty() && uri.startsWith(context) ? uri.substring(context.length()) : uri;
+        return LOGOUT_PATH.equals(path);
     }
 }

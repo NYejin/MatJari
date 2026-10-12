@@ -51,7 +51,7 @@ class AuthServiceBcryptLimitTest {
         JwtTokenProvider jwt = mock(JwtTokenProvider.class);
         when(jwt.generateAccessToken(any(), anyString())).thenReturn("access");
         when(jwt.generateRefreshToken(any(), anyString())).thenReturn("refresh");
-        authService = new AuthService(userRepository, passwordEncoder, jwt);
+        authService = new AuthService(userRepository, passwordEncoder, jwt, mock(com.seatswap.security.AccountSuspensionChecker.class));
     }
 
     @Test

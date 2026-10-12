@@ -31,6 +31,13 @@ public interface TicketRepository extends JpaRepository<Ticket, Long> {
                                       @Param("rowKey") String rowKey,
                                       @Param("colKey") String colKey);
 
+    /** 사용자들의 ACTIVE 티켓 id (잠금 없음). 차단·정지 시스템 취소가 이 티켓들을 id 오름차순으로 잠근다. */
+    @Query("""
+            select t.id from Ticket t
+            where t.user.id in :userIds and t.status = com.seatswap.domain.TicketStatus.ACTIVE
+            """)
+    List<Long> findActiveIdsByUserIds(@Param("userIds") java.util.Collection<Long> userIds);
+
     /** 내 활성 티켓: 회차 시각 오름차순. 응답 DTO에 필요한 회차·공연을 함께 읽는다. */
     @Query("""
             select t from Ticket t

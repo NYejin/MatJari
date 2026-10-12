@@ -54,6 +54,8 @@ const ACTIVITY_LINKS = [
   { to: "/exchange/history", label: "교환 이력" },
   { to: "/my/edit-proposals", label: "내 수정 제안" },
   { to: "/my/seat-claims", label: "내 티켓 인증 요청" },
+  { to: "/my/blocks", label: "차단 목록" },
+  { to: "/my/reports", label: "내 신고 내역" },
 ] as const;
 
 /**

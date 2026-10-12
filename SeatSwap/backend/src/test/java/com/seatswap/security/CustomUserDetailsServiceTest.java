@@ -20,7 +20,7 @@ import static org.mockito.Mockito.when;
 class CustomUserDetailsServiceTest {
 
     private final UserRepository userRepository = mock(UserRepository.class);
-    private final CustomUserDetailsService service = new CustomUserDetailsService(userRepository);
+    private final CustomUserDetailsService service = new CustomUserDetailsService(userRepository, mock(AccountSuspensionChecker.class));
 
     @Test
     void loadUserByIdBuildsUserIdBasedPrincipal() {

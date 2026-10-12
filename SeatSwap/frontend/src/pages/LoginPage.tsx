@@ -3,6 +3,7 @@ import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useAuthRedirect } from "../hooks/useAuthRedirect";
 import { parseApiError } from "../api/errors";
+import { clearSuspensionNotice, parseSuspension, peekSuspensionNotice, suspensionMessage } from "../api/suspension";
 import {
   compactErrors,
   normalizeEmail,
@@ -31,6 +32,8 @@ export default function LoginPage() {
 
   // 일회성 값(안내 문구/이메일 프리필)은 최초 진입 시 컴포넌트 state로 옮겨 보존한다
   const [notice] = useState(stateNotice);
+  // 이용 정지로 로그아웃된 경우의 안내(전역 인터셉터가 저장). 다음 로그인 시도 때 지운다
+  const [suspendedNotice, setSuspendedNotice] = useState<string | null>(peekSuspensionNotice);
   const [email, setEmail] = useState(prefillEmail ?? "");
   const [password, setPassword] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -61,6 +64,8 @@ export default function LoginPage() {
     setFieldErrors(errors);
     setFormError(null);
     if (Object.keys(errors).length > 0) return;
+    clearSuspensionNotice();
+    setSuspendedNotice(null);
 
     setSubmitting(true);
     try {
@@ -68,6 +73,13 @@ export default function LoginPage() {
       await login({ email: normalizeEmail(email), password });
       // 성공 시 isAuthenticated가 true가 되어 위의 <Navigate>로 이동한다
     } catch (err) {
+      const suspension = parseSuspension(err);
+      if (suspension) {
+        setFieldErrors({});
+        setFormError(suspensionMessage(suspension));
+        setSubmitting(false);
+        return;
+      }
       const parsed = parseApiError(err, "로그인에 실패했습니다. 잠시 후 다시 시도해 주세요.");
       const { fieldErrors: next, hasFieldError } = pickFieldErrors(parsed.fieldErrors, FIELDS);
       setFieldErrors(next);
@@ -86,6 +98,12 @@ export default function LoginPage() {
         {notice && (
           <p className={ui.notice} role="status">
             {notice}
+          </p>
+        )}
+
+        {suspendedNotice && (
+          <p className={ui.formError} role="alert">
+            {suspendedNotice}
           </p>
         )}
 

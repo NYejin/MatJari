@@ -130,6 +130,18 @@ class StompAuthChannelInterceptorTest {
     }
 
     @Test
+    void 이용_정지_중인_계정의_CONNECT는_거부되고_연결이_등록되지_않는다() throws Exception {
+        WebSocketSession ws = socket("sus");
+        validToken("suspended", 31L, Duration.ofMinutes(1));
+        when(users.loadUserById(31L)).thenThrow(new com.seatswap.exception.AccountSuspendedException(null));
+
+        assertThatThrownBy(() -> interceptor.preSend(frame(StompCommand.CONNECT, "sus", null, null, "Bearer suspended"), null))
+                .isInstanceOf(StompRejectedException.class).hasMessage("account suspended");
+        verify(ws).close(CloseStatus.POLICY_VIOLATION.withReason("policy violation"));
+        assertThat(registry.isActive("sus")).isFalse();
+    }
+
+    @Test
     void CONNECT_거부_사유들_헤더없음_Bearer아님_무효_refresh_사용자없음() throws Exception {
         WebSocketSession ws = socket("s1");
         assertThatThrownBy(() -> interceptor.preSend(frame(StompCommand.CONNECT, "s1", null, null, null), null))

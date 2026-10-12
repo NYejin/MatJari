@@ -23,6 +23,9 @@ const CODE_MESSAGES: Record<string, string> = {
   TICKET_LIMIT_REACHED: "등록할 수 있는 티켓 수를 넘었어요. 쓰지 않는 티켓을 내린 뒤 다시 시도해 주세요.",
   REQUEST_DELETED: "이미 삭제된 교환 조건이에요. 내 티켓에서 새로 만들어 주세요.",
   WANT_EXTRA_CONFLICT: "겹치는 범위에 서로 다른 추가금 조건이 있어요. 겹치는 범위의 추가금을 같게 맞춰주세요.",
+  BLOCK_LIMIT_REACHED: "차단할 수 있는 사용자 수를 넘었어요. 차단 목록에서 해제한 뒤 다시 시도해 주세요.",
+  REPORT_ALREADY_OPEN: "이 채팅에 접수된 신고가 아직 처리 중이에요. 처리 결과는 '내 신고 내역'에서 볼 수 있어요.",
+  REPORT_LIMIT_REACHED: "처리 중인 신고가 너무 많아요. 처리가 끝난 뒤 다시 신고해 주세요.",
   BUSY: "요청이 몰려 처리하지 못했어요. 잠시 후 다시 시도해주세요.",
 };
 

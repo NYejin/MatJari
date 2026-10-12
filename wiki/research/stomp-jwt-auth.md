@@ -3,7 +3,7 @@ title: 실시간 채팅(STOMP) JWT 인증·인가 조사
 type: research
 tags: [chat, websocket, stomp, jwt, security]
 sources: [https://docs.spring.io/spring-security/reference/servlet/integrations/websocket.html, https://docs.spring.io/spring-security/reference/6.5/servlet/integrations/websocket.html, https://docs.spring.io/spring-framework/reference/web/websocket/stomp/authentication-token-based.html, https://docs.spring.io/spring-framework/reference/web/websocket/stomp/handle-annotations.html, https://docs.spring.io/spring-framework/reference/web/websocket/stomp/user-destination.html, https://docs.spring.io/spring-framework/reference/web/websocket/stomp/overview.html, https://docs.spring.io/spring-framework/reference/web/websocket/stomp/enable.html, https://docs.spring.io/spring-framework/reference/web/websocket/server.html, https://docs.spring.io/spring-framework/reference/web/websocket/stomp/configuration-performance.html, https://docs.spring.io/spring-framework/reference/web/websocket/fallback.html, https://docs.spring.io/spring/reference/6.2/web/websocket/stomp/authorization.html, https://cheatsheetseries.owasp.org/cheatsheets/WebSocket_Security_Cheat_Sheet.html, https://developer.mozilla.org/en-US/docs/Web/API/WebSocket/WebSocket, https://docs.spring.io/spring-boot/3.3/appendix/dependency-versions/coordinates.html]
-updated: 2026-10-11
+updated: 2026-10-12
 confidence: medium
 status: draft
 ---
@@ -80,8 +80,8 @@ status: draft
 
 ### 후속 메모
 
-- 토큰 만료·사용자 변경 후 푸시가 최대 약 30초 유지될 수 있다. 차단·제재를 구현할 때는 해당 사용자의 세션을 강제로 종료하는 훅이 필요하다.
-- push payload와 REST 응답에 상대 `senderId`(users.id)가 노출된다. 차단·신고 브랜치에서 `mine` 같은 불리언으로 대체할지 검토한다.
+- 토큰 만료·사용자 변경 후 푸시가 최대 약 30초 유지될 수 있다. 차단·제재는 구현됐다(CONNECT 거부 + 이용 정지 커밋 뒤 연결 종료).
+- push payload와 REST 응답에 상대 `senderId`(users.id)가 노출된다. 차단·신고 구현에서도 `mine`으로 바꾸지 않았다.
 
 ## 미확인
 

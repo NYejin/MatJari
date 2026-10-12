@@ -14,9 +14,9 @@ Spring Boot 3.x, Spring Security(JWT), Spring Data JPA, WebSocket(STOMP), MySQL,
 `com.seatswap` 아래 `domain`(엔티티) · `controller` · `service` · `repository` · `config`(Security·WebSocket·Clock·JPA Auditing) · `security`(JwtTokenProvider) · `exception`(커스텀 예외 + GlobalExceptionHandler) · `dto`.
 
 ## 현재 범위
-- DB는 Flyway V1~V12, 16개 테이블. 다음 마이그레이션은 V13부터이고 적용된 V1~V12는 수정하지 않는다. 스키마 구조 변경은 직접 하지 말고 db-schema-architect에게 먼저 설계를 요청하라고 사용자에게 알린다. 엔티티는 `산출물/08_ERD/erd.dot`을 따른다.
+- DB는 Flyway V1~V13, 19개 테이블. 다음 마이그레이션은 V14부터이고 적용된 V1~V13은 수정하지 않는다. 스키마 구조 변경은 직접 하지 말고 db-schema-architect에게 먼저 설계를 요청하라고 사용자에게 알린다. 엔티티는 `산출물/08_ERD/erd.dot`을 따른다.
 - 구현됨: 인증, 공연(등록·목록·상세·lookup만), 티켓, 교환 희망 조건(`/api/exchange/requests`), 후보 조회(`.../candidates`), 제안·예약(`.../proposals`, `/api/exchange/matches/{id}/reserve|unreserve|complete|reject|cancel`), 매칭 조회(`/api/exchange/matches/me`, `/{id}`; 비참여자 404), 교환 완료(V9 `exchange_history` 기록 포함), 알림(V10 `notification`, `/api/notifications` 조회·안 읽은 개수·읽음·모두 읽음·읽은 알림 삭제, 새 제안·상대 예약·예약 취소 알림 생성), 채팅(V11 `chat_message`·`chat_read_state`, `POST/GET /api/exchange/matches/{id}/messages`·`PUT .../messages/read`, STOMP `/ws` 사용자 큐 푸시).
-- 미구현(V13 이후, 지시 전에는 시작하지 않음): 사용자 차단, 신고, 7일 경과 알림. (관리자 기능은 구현됨: 공연 수정 제안·좌석 소유 인증, `/api/admin/**`) (링크 자동 입력은 구현됨: `service/linkinfo/`, 사용자 URL을 요청하지 않고 고정 템플릿 URL만 요청한다.)
+- 미구현(V14 이후, 지시 전에는 시작하지 않음): 7일 경과 알림. (차단·신고·이용 정지·관리자 신고 관리는 구현됨: `OpenMatchCanceller`, `BlockService`, `AbuseReportService`, `AdminModerationService`, 정지 강제는 `CustomUserDetailsService.loadUserById`.) (관리자 기능은 구현됨: 공연 수정 제안·좌석 소유 인증, `/api/admin/**`) (링크 자동 입력은 구현됨: `service/linkinfo/`, 사용자 URL을 요청하지 않고 고정 템플릿 URL만 요청한다.)
 - 좌석표 트랙은 동결이다. seatmap-service와 좌석표 코드는 삭제되어 태그 `archive/seatmap-track-20261007`에 보관된다. 좌석 인식(OpenCV/OCR)은 이 에이전트의 책임이 아니고, 좌석표 관련 새 기능은 사용자가 다시 지시하기 전에는 만들지 않는다.
 
 ## 도메인 규칙
@@ -44,7 +44,7 @@ Spring Boot 3.x, Spring Security(JWT), Spring Data JPA, WebSocket(STOMP), MySQL,
 - 시각은 `ClockConfig`의 `Clock`(Asia/Seoul)에서만 얻고 `LocalDateTime.now()`를 직접 호출하지 않는다. `created_at`/`updated_at`은 JPA Auditing으로 채운다.
 - 스키마 변경은 엔티티 수정과 같은 커밋에 Flyway 마이그레이션을 함께 추가한다(erd-conventions 스킬).
 - 새 엔드포인트는 산출물/04_요구사항정의서의 FR 번호와 연결되는지 확인하고, 필요하면 doc-writer로 문서를 갱신하도록 안내한다.
-- CLAUDE.md '확인 필요' 목록(신고용 최소 관리자 기능 범위 등)은 사용자 확인 없이 확정된 것처럼 구현하지 않는다.
+- CLAUDE.md '확인 필요' 목록의 열린 질문은 사용자 확인 없이 확정된 것처럼 구현하지 않는다.
 
 ## 파일 전달
 수정한 소스 파일은 `MMDD-순번_수정내역영문.zip`로 묶어 전달한다 (project-doc-convention 스킬 참고).

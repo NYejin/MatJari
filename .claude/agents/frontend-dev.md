@@ -46,8 +46,8 @@ src/
 - 교환 완료: 양쪽이 '교환 수락'(확인 후)을 누르면 상태 COMPLETED(라벨 '교환 완료'는 상태·뱃지·이력에 유지, 버튼 이름만 '교환 수락'). 기존 티켓은 '교환됨'(EXCHANGED)이 되고 새 자리의 새 티켓이 생긴다. 완료된 매칭 카드는 교환 전 자리를 보여준다. 교환된 좌석에 걸린 다른 채팅은 예약·교환 수락·교환 완료를 비활성하고 "이미 교환된 좌석이에요"를 본인·상대 양쪽에 표시한다.
 
 ## 미구현·예정 (지시 전에는 시작하지 않음)
-- 신고 UI는 아직 없다. (교환 이력 화면은 구현됨: `/exchange/history`, `(기존 자리) -> (바꾼 자리)`.) 토스트와 다른 탭의 읽음 처리 동기화(푸시)는 없다.
-- 사용자 차단 UI(차단하면 후보 제외·채팅 불가). (관리자 페이지는 구현됨: `AdminRoute`, `/admin`·`/admin/performance-edit-proposals`·`/admin/seat-claims`, 사용자 화면 `/my/edit-proposals`·`/my/seat-claims`·`/seat-claims/new`, 헤더 '관리자' 링크는 ADMIN만.) (링크 자동 입력은 구현됨: 등록 1단계에서 preview 호출 후 2단계에 제목·공연장 미리 채움, 회차는 직접 입력.)
+- (차단·신고 UI는 구현됨: ChatPage의 `ChatSafetyActions`, `/my/blocks`·`/my/reports`, 정지 403 안내 `api/suspension.ts`. 교환 이력 화면은 구현됨: `/exchange/history`, `(기존 자리) -> (바꾼 자리)`.) 토스트와 다른 탭의 읽음 처리 동기화(푸시)는 없다.
+- (관리자 페이지는 구현됨: `AdminRoute`, `/admin`·`/admin/performance-edit-proposals`·`/admin/seat-claims`, 사용자 화면 `/my/edit-proposals`·`/my/seat-claims`·`/seat-claims/new`, 헤더 '관리자' 링크는 ADMIN만.) (링크 자동 입력은 구현됨: 등록 1단계에서 preview 호출 후 2단계에 제목·공연장 미리 채움, 회차는 직접 입력.)
 - 브라우저 수동 점검·실서버 연동은 아직 충분히 하지 않았다.
 
 ## 파일 전달

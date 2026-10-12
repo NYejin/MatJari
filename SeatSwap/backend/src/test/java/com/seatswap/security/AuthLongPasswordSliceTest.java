@@ -46,6 +46,8 @@ class AuthLongPasswordSliceTest {
     private JwtTokenProvider tokenProvider;
     @MockBean
     private CustomUserDetailsService userDetailsService;
+    @MockBean
+    private AccountSuspensionChecker suspensionChecker;
 
     @Test
     void loginWithPasswordOver72BytesIs400Not500() throws Exception {

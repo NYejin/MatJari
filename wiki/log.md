@@ -37,3 +37,6 @@ llm-wiki 스킬, researcher·wiki-curator 에이전트, `scripts/lint-wiki.mjs`�
 
 ## [2026-10-12] ingest | 관리자 페이지(공연 수정 제안·좌석 소유 인증) 반영
 관리자 기능(V12, 브랜치 `feature/admin`, 커밋 `e608c5a`·`96a5623`·`6c04c08`·`04fecf7`, 미병합) 구현 사실을 반영했다. 결정 페이지 `admin-design.md`를 추가하고, 함정 페이지에 11절(좌석 키 보조 인덱스 FOR UPDATE 교착, PENDING 전용 생성 컬럼 유니크)을, 용어집에 관리자 절을 더했다. 범위 해석("다")은 추정이라 confidence는 medium이다.
+
+## [2026-10-12] ingest | 차단·신고·이용 정지 반영
+차단·신고·관리자 신고 처리·이용 정지(V13, 브랜치 `feature/block-report`, 미병합) 구현 사실을 반영했다. 결정 페이지 `block-report-design.md`를 추가하고, 함정 페이지에 12절(차단 NOT EXISTS 분리, READ_COMMITTED 제재 중복 직렬화, users 잠금 금지)을, 용어집에 차단·신고 절을 더했다. 채팅 설계·STOMP 조사·관리자 설계의 "차단은 범위 밖/훅 필요" 서술을 갱신했다. 테스트 수치는 구현 세션 기록이며 confidence는 medium이다.

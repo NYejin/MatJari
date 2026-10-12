@@ -46,6 +46,34 @@ public interface ExchangeMatchRepository extends JpaRepository<ExchangeMatch, Lo
             """)
     List<Long> findOpenIdsByRequestId(@Param("requestId") Long requestId);
 
+    /** 두 사용자 사이(방향 무관)의 열린 매칭 id 를 오름차순으로 읽는다(잠금 없음). 차단 시스템 취소용. */
+    @Query("""
+            select m.id from ExchangeMatch m
+            where ((m.userAId = :a and m.userBId = :b) or (m.userAId = :b and m.userBId = :a))
+              and m.status in (com.seatswap.domain.ExchangeMatchStatus.CHATTING,
+                               com.seatswap.domain.ExchangeMatchStatus.RESERVED)
+            order by m.id asc
+            """)
+    List<Long> findOpenIdsBetweenUsers(@Param("a") Long userA, @Param("b") Long userB);
+
+    /** 한 사용자가 참여한 열린 매칭 id 를 오름차순으로 읽는다(잠금 없음). 이용 정지 시스템 취소용. */
+    @Query("""
+            select m.id from ExchangeMatch m
+            where (m.userAId = :userId or m.userBId = :userId)
+              and m.status in (com.seatswap.domain.ExchangeMatchStatus.CHATTING,
+                               com.seatswap.domain.ExchangeMatchStatus.RESERVED)
+            order by m.id asc
+            """)
+    List<Long> findOpenIdsByUserId(@Param("userId") Long userId);
+
+    /** 매칭 참여자 [userA, userB] (엔티티를 영속성 컨텍스트에 올리지 않는다). */
+    @Query("select m.userAId, m.userBId from ExchangeMatch m where m.id = :id")
+    List<Object[]> findParticipants(@Param("id") Long id);
+
+    /** 매칭들의 티켓 [ticketA, ticketB] (잠금 없음). */
+    @Query("select m.ticketAId, m.ticketBId from ExchangeMatch m where m.id in :ids")
+    List<Object[]> findTicketIdsByIds(@Param("ids") java.util.Collection<Long> ids);
+
     /** 티켓을 내릴 때 그 티켓이 a측인 CHATTING 매칭을 시스템 취소(canceled_by NULL)한다. 티켓 행 잠금 뒤에 호출한다. */
     @Modifying(flushAutomatically = true)
     @Query("""

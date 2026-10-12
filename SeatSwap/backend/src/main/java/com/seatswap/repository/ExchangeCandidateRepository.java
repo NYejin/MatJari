@@ -2,10 +2,14 @@ package com.seatswap.repository;
 
 import com.seatswap.domain.ExtraType;
 import com.seatswap.domain.WantExtra;
+import com.seatswap.config.ClockConfig;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /**
@@ -101,20 +105,53 @@ public class ExchangeCandidateRepository {
             AND NOT EXISTS (SELECT 1 FROM exchange_ticket_lock l WHERE l.ticket_id = tb.id)
             """;
 
+    /**
+     * V13 차단 제외 (별칭 bk1, bk2). 방향은 하나지만 효과는 양방향이라 NOT EXISTS 두 개로 나눈다(OR 로 묶으면 uk_user_block_pair 대신
+     * 전체 인덱스 스캔). ta = 내 티켓, tb = 상대 티켓. 제안 시 후보 재검증(findCandidatePair)도 같은 조각을 쓴다.
+     */
+    private static final String BLOCK_EXCLUSIONS = """
+            AND NOT EXISTS (SELECT 1 FROM user_block bk1 WHERE bk1.blocker_id = ta.user_id AND bk1.blocked_id = tb.user_id)
+            AND NOT EXISTS (SELECT 1 FROM user_block bk2 WHERE bk2.blocker_id = tb.user_id AND bk2.blocked_id = ta.user_id)
+            """;
+
+    private static final DateTimeFormatter SQL_TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final Clock DEFAULT_CLOCK = Clock.system(ClockConfig.SERVICE_ZONE);
+
     private final JdbcTemplate jdbc;
+    private final Clock clock;
+
+    @Autowired
+    public ExchangeCandidateRepository(JdbcTemplate jdbc, Clock clock) {
+        this.jdbc = jdbc;
+        this.clock = clock;
+    }
 
     public ExchangeCandidateRepository(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
+        this(jdbc, DEFAULT_CLOCK);
     }
 
     /**
-     * 후보에서 더 제외할 조건을 붙이는 확장 지점 (V5: 같은 쌍 열린 매칭, 예약 잠금 티켓). 정확한 조건식은 backend/README.md '후속 메모 (매칭 후보 조회)' 참고.
-     * 차단(user_block) 조건은 해당 테이블이 아직 없어 넣지 않았다(후속 V 파일에서 같은 방식으로 추가).
+     * 후보에서 더 제외할 조건을 붙이는 확장 지점 (V5: 같은 쌍 열린 매칭, 예약 잠금 티켓 / V13: 양방향 차단). 정확한 조건식은 backend/README.md '후속 메모 (매칭 후보 조회)' 참고.
+     * 활성 제재(이용 정지) 사용자 제외는 현재 시각이 필요해 {@link #sanctionExclusion(LocalDateTime)} 로 따로 붙인다.
      * 규칙(위반하면 IllegalStateException): 조각은 `AND`로 시작하고 파라미터(`?`)를 포함하지 않는다.
      * ta/tb/a/b 별칭을 쓸 수 있다. 앞뒤 개행은 {@link #normalizeExclusions} 가 보장한다.
      */
     static String additionalExclusions() {
-        return normalizeExclusions(EXCLUSIONS);
+        return normalizeExclusions(EXCLUSIONS + BLOCK_EXCLUSIONS);
+    }
+
+    /**
+     * 활성 제재 사용자 제외(상대 티켓 소유자 tb.user_id). 활성 = revoked_at IS NULL AND (ends_at IS NULL OR ends_at > now).
+     * 조각에는 바인딩 파라미터를 쓸 수 없어 now 를 서버가 만든 타임스탬프 리터럴(yyyy-MM-dd HH:mm:ss)로 넣는다(사용자 입력 아님).
+     * 내가 정지 상태인 경우는 전역 인증 필터가 막으므로 여기서 보지 않는다.
+     */
+    static String sanctionExclusion(LocalDateTime now) {
+        return normalizeExclusions("AND NOT EXISTS (SELECT 1 FROM user_sanction us WHERE us.user_id = tb.user_id"
+                + " AND us.revoked_at IS NULL AND (us.ends_at IS NULL OR us.ends_at > '" + SQL_TIMESTAMP.format(now) + "'))");
+    }
+
+    private LocalDateTime now() {
+        return LocalDateTime.now(clock);
     }
 
     /** 확장 조각 검증·정규화. 비어 있으면 빈 문자열, 아니면 앞뒤에 개행을 붙인다. */
@@ -134,19 +171,27 @@ public class ExchangeCandidateRepository {
 
     /** 현재 목록 SQL(확장 지점 포함). 실행계획 확인용. */
     public static String candidateSql() {
-        return SELECT + FROM_CORE + JOIN_USERS + WHERE + additionalExclusions() + ORDER;
+        return candidateSql(LocalDateTime.now(DEFAULT_CLOCK));
+    }
+
+    public static String candidateSql(LocalDateTime now) {
+        return SELECT + FROM_CORE + JOIN_USERS + WHERE + additionalExclusions() + sanctionExclusion(now) + ORDER;
     }
 
     /** COUNT 전용 SQL(users 조인 생략). 결과 행 수는 목록 쿼리 전체와 같아야 한다(테스트로 확인). */
     public static String countSql() {
-        return "SELECT COUNT(*) " + FROM_CORE + WHERE + additionalExclusions();
+        return countSql(LocalDateTime.now(DEFAULT_CLOCK));
+    }
+
+    public static String countSql(LocalDateTime now) {
+        return "SELECT COUNT(*) " + FROM_CORE + WHERE + additionalExclusions() + sanctionExclusion(now);
     }
 
     /**
      * @param todayStart 오늘 0시(KST). 상대 회차의 마감(starts_at 다음날 0시)이 지나지 않은 것은 starts_at >= todayStart 와 같다.
      */
     public List<Row> findCandidates(Long myRequestId, LocalDateTime todayStart, int limit, long offset) {
-        return jdbc.query(candidateSql(), (rs, i) -> new Row(
+        return jdbc.query(candidateSql(now()), (rs, i) -> new Row(
                 rs.getLong("request_id"), rs.getLong("ticket_id"),
                 rs.getString("zone_label"), rs.getString("row_label"), rs.getString("col_label"),
                 rs.getLong("session_id"), rs.getObject("starts_at", LocalDateTime.class),
@@ -158,7 +203,7 @@ public class ExchangeCandidateRepository {
     }
 
     public long countCandidates(Long myRequestId, LocalDateTime todayStart) {
-        Long count = jdbc.queryForObject(countSql(), Long.class, myRequestId, todayStart);
+        Long count = jdbc.queryForObject(countSql(now()), Long.class, myRequestId, todayStart);
         return count == null ? 0 : count;
     }
 
@@ -170,7 +215,8 @@ public class ExchangeCandidateRepository {
      */
     public java.util.Optional<PairExtras> findCandidatePair(Long myRequestId, Long targetRequestId, LocalDateTime todayStart) {
         String sql = "SELECT STRAIGHT_JOIN wa.extra_type AS my_type, wa.extra_amount AS my_amount, "
-                + "wb.extra_type AS their_type, wb.extra_amount AS their_amount " + FROM_CORE + WHERE + "  AND b.id = ? LIMIT 1";
+                + "wb.extra_type AS their_type, wb.extra_amount AS their_amount " + FROM_CORE + WHERE
+                + normalizeExclusions(BLOCK_EXCLUSIONS) + sanctionExclusion(now()) + "  AND b.id = ? LIMIT 1";
         return jdbc.query(sql, (rs, i) -> new PairExtras(
                 new WantExtra(ExtraType.valueOf(rs.getString("my_type")), (Integer) rs.getObject("my_amount")),
                 new WantExtra(ExtraType.valueOf(rs.getString("their_type")), (Integer) rs.getObject("their_amount"))),

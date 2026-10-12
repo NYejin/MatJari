@@ -8,12 +8,12 @@ model: opus
 너는 SeatSwap 프로젝트의 DB 스키마/ERD 설계 담당이다.
 ERD 산출물 위치: `산출물/08_ERD/` (저장소 루트 기준). 엔티티 구현 위치: `SeatSwap/backend/.../domain/`.
 
-## 현재 스키마 (Flyway V1~V12, 16개 테이블, 기준 다이어그램 산출물/08_ERD/erd.dot)
+## 현재 스키마 (Flyway V1~V13, 19개 테이블, 기준 다이어그램 산출물/08_ERD/erd.dot)
 `users`·`performance`·`performance_session`·`ticket`(좌석 텍스트 컬럼·status ACTIVE/INACTIVE/EXCHANGED·`uk_ticket_active_seat`) / `exchange_request`·`exchange_want_range`·`exchange_want_seat`·`exchange_want_session` / `exchange_match`·`exchange_ticket_lock` / `exchange_history`(V9, 교환 완료 이력 스냅샷, append-only) / `notification`(V10, 알림) / `chat_message`·`chat_read_state`(V11, 채팅). 공연장은 테이블이 아니라 `performance.venue_name VARCHAR(100) NOT NULL` 텍스트다. 컬럼·제약 이름의 상세는 erd-conventions 스킬과 `산출물/08_ERD/exchange-schema-design.md`를 따른다.
 - 추가금은 요청이 아니라 **희망 범위 단위**(`exchange_want_range`·`exchange_want_seat`의 `extra_type`·`extra_amount`), `exchange_match`에는 a/b 추가금 스냅샷 4컬럼이 있다.
 - `exchange_request`는 소프트 삭제(DELETED·`deleted_at`·`live_flag`, 미삭제 요청만 티켓당 1개).
 - `exchange_match` 예약은 `reserved_by_id`·`reserved_at`(한 명이 예약하면 RESERVED, 예약 취소로 CHATTING 복귀)이고 `a/b_reserved_at`은 DEPRECATED 레거시다.
-- 다음 마이그레이션은 **V13부터**이고 V1~V12는 수정하지 않는다. V12는 `performance_edit_proposal`·`seat_claim`이다(PENDING만 유니크는 생성 컬럼+UNIQUE). 좌석표·수정 로그·제재 설계는 삭제되어 태그 `archive/seatmap-track-20261007`에 보관된다.
+- 다음 마이그레이션은 **V14부터**이고 V1~V13은 수정하지 않는다. V13은 `user_block`·`abuse_report`·`user_sanction`이다(OPEN만 유니크는 생성 컬럼+UNIQUE). V12는 `performance_edit_proposal`·`seat_claim`이다(PENDING만 유니크는 생성 컬럼+UNIQUE). 좌석표·수정 로그·제재 설계는 삭제되어 태그 `archive/seatmap-track-20261007`에 보관된다.
 
 주요 관계:
 - Performance 1:N PerformanceSession
@@ -41,9 +41,9 @@ ERD 산출물 위치: `산출물/08_ERD/` (저장소 루트 기준). 엔티티 �
 - **교환 이력 `exchange_history`(V9)**: `(기존 자리) -> (바꾼 자리)`를 자리 정보 **스냅샷**(공연·회차·구역·열·번 텍스트)으로 저장하고 `old_ticket_id`·`new_ticket_id`를 둔다. 조회 화면·API는 후속.
 - **교환 완료 시 티켓 처리(V9 구현)**: 한 트랜잭션에서 기존 두 티켓을 `EXCHANGED`로 바꾸고 각자 새 자리 티켓을 INSERT한다. 기존 티켓의 교환 요청은 CLOSED로 닫는다. 교환 완료된 좌석에 걸린 다른 CHATTING 매칭은 자동 취소하지 않는다(UI에서 비활성 + 안내). 근거: `wiki/decisions/exchange-complete-new-ticket.md`.
 
-## V13 이후 설계 대상 (미구현)
-- **사용자 차단 `user_block`**: 누가 누구를 차단. 차단 시 후보 제외·채팅 불가. 사용자 신고는 교환 핵심 흐름 이후 설계한다. 좌석표·제재(`abuse_report`·`user_sanction` 등)는 동결이라 설계하지 않는다.
-- 신고 처리용 최소 관리자 기능 범위 등 CLAUDE.md '확인 필요' 목록은 설계 전에 사용자에게 확인한다.
+## V14 이후 설계 대상 (미구현)
+- (V13에서 `user_block`·`abuse_report`·`user_sanction` 구현 완료. 7일 경과 알림 등 새 요구가 생기면 여기에 적는다.)
+- CLAUDE.md '확인 필요' 목록의 열린 질문은 설계 전에 사용자에게 확인한다.
 
 ## 반드시 지킬 것 (erd-conventions 스킬 참고)
 - 스키마를 변경하면 반드시 산출물/08_ERD의 다이어그램(graphviz .dot 기반)을 함께 갱신한다.

@@ -115,6 +115,9 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             throw e;
         } catch (JwtException | IllegalArgumentException | UsernameNotFoundException e) {
             throw reject(sessionId, "unauthorized");
+        } catch (com.seatswap.exception.AccountSuspendedException e) {
+            // 이용 정지 중인 계정은 연결할 수 없다(사유 상세는 ERROR 프레임에 싣지 않는다)
+            throw reject(sessionId, "account suspended");
         } catch (RuntimeException e) {
             // DB 장애 등: 원인은 로그에만 남기고(토큰 제외) 연결은 거부한다
             log.warn("STOMP CONNECT 인증 중 오류: {}", e.toString());

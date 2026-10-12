@@ -169,6 +169,19 @@ public class WebSocketSessionRegistry {
         }
     }
 
+    /** 이용 정지 등으로 한 사용자의 모든 연결(탭)을 즉시 close 1008 로 닫는다. 닫은 세션 수를 돌려준다. */
+    public int closeAllOf(long userId) {
+        int closed = 0;
+        for (Map.Entry<String, Entry> e : sessions.entrySet()) {
+            Entry entry = e.getValue();
+            if (entry.userId != null && entry.userId == userId && sessions.remove(e.getKey(), entry)) {
+                closeQuietly(entry.socket, "account suspended");
+                closed++;
+            }
+        }
+        return closed;
+    }
+
     /** ERROR 프레임이 먼저 나가도록 잠깐 뒤에 close 1008. 스케줄러가 없으면 즉시. */
     public void closePolicyViolationSoon(String sessionId) {
         if (sessionId == null) {

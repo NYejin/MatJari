@@ -16,7 +16,7 @@ status: draft
 
 - 항상 티켓(id 오름차순), 요청(id 오름차순), 매칭 순이다 (`SeatSwap/backend/README.md` "동시성" 절).
 - 요청만 잠그는 update/delete 경로에서는 티켓을 잠그지 않는다 ([CLAUDE.md](../../CLAUDE.md)의 교환 희망 조건 항목에도 같은 규약이 적혀 있다).
-- `users` 행은 티켓 이후에 잡는다. 새 코드에서 users 행을 X 잠금한 뒤 티켓·요청을 잠그지 않는다. `TicketService.create`는 users 행을 먼저 잡고 티켓은 INSERT만 하므로 잠금 순서 규약 안에서는 순환이 없다. 다만 교환 완료의 새 티켓 INSERT와는 갭 잠금으로 엇갈릴 수 있다(8절). 앞으로 차단(`user_block`) 서비스도 users X 잠금 뒤에 티켓·요청·매칭을 잠그면 안 된다.
+- `users` 행은 티켓 이후에 잡는다. 새 코드에서 users 행을 X 잠금한 뒤 티켓·요청을 잠그지 않는다. `TicketService.create`는 users 행을 먼저 잡고 티켓은 INSERT만 하므로 잠금 순서 규약 안에서는 순환이 없다. 다만 교환 완료의 새 티켓 INSERT와는 갭 잠금으로 엇갈릴 수 있다(8절). 차단(`user_block`)·제재 서비스도 users X 잠금 뒤에 티켓·요청·매칭을 잠그지 않는다(12절).
 - 잠금 읽기가 트랜잭션의 첫 쿼리들이 되게 한다. 불변 컬럼(티켓 id, 사용자 id)은 트랜잭션 밖에서 먼저 읽어 잠금 대상을 정한다. REPEATABLE READ 스냅샷이 잠금 뒤에 시작해야 최신 상태를 본다.
 
 ## 2. FK 인덱스에 갱신 컬럼을 붙이면 교착 (실제 재현)
@@ -110,3 +110,13 @@ status: draft
 - **좌석 키 보조 유니크 인덱스로 티켓을 `FOR UPDATE` 하면 교착**: 좌석 소유 인증 승인에서 (회차, 구역, 열, 번)으로 티켓을 `FOR UPDATE` 하면 InnoDB가 보조 유니크 인덱스(`uk_ticket_active_seat`)를 먼저 잠그고 PK를 나중에 잠근다. 반면 `deactivate`는 PK(id)로 티켓을 잠가 순서가 엇갈려 교착이 났다. 해결: 좌석 키로는 **id만 잠금 없이 읽고**, 그 id로 PK 잠금을 잡은 뒤 **상태를 다시 판단**한다(그사이 내려졌거나 바뀌었을 수 있다). 이를 위해 `TicketService.deactivateLocked`를 추출했고 기존 동작과 테스트는 바뀌지 않았다. 잠금 순서는 인증 요청 행, 티켓 id 오름차순, 요청 id 오름차순, 매칭이다(1절 규약 앞에 claim 행이 붙는다). 승인+소유자 내리기+제3자 제안+예약 혼합 경합 테스트에서 교착 0건(구현 세션 기록).
 - **상태 전이로 바뀌는 값은 생성 컬럼 UNIQUE로, PENDING만 유일**: "사용자(·좌석)당 대기 1건"은 `status` 자체에 유니크를 걸 수 없다(처리된 행이 쌓이므로). 생성 컬럼 `pending_proposer_id`/`pending_claimant_id` = `IF(status='PENDING', 사용자 id, NULL)`에 UNIQUE를 걸면 처리 후 NULL이 되어 슬롯이 비고 재제안이 가능하다. 3절의 `active_flag`·`live_flag`와 같은 성질(NULL은 유니크 비교 제외)이다. FK 인덱스는 이와 분리해 단일 컬럼으로 둔다(2절).
 - **사용자당 상한은 사용자 행 `FOR UPDATE`로**: 수정 제안 생성(PENDING 3건)은 첫 쿼리로 사용자 행을 잠가야 동시 요청에서도 상한을 지킨다. 승인 쪽 잠금은 제안 행, 공연 행 순서다(공연을 잠그는 다른 경로가 없어 1절 규약과 충돌하지 않는다).
+
+## 12. 차단·신고·이용 정지(V13) 함정
+
+설계 근거는 [차단·신고·이용 정지 설계 근거](../decisions/block-report-design.md). 구현 세션(2026-10-12, `feature/block-report`)의 EXPLAIN·임시 MySQL IT로 확인한 사실이다.
+
+- **차단 후보 제외는 `NOT EXISTS` 두 개로 나눈다**: 양방향 차단을 `(blocker=A AND blocked=B) OR (blocker=B AND blocked=A)` 하나의 NOT EXISTS로 쓰면 EXPLAIN에서 전체 인덱스 스캔이 나왔다. 방향별로 NOT EXISTS를 둘로 나누면 둘 다 `uk_user_block_pair`를 eq_ref 커버링으로 쓴다. 4절 STRAIGHT_JOIN 후보 SQL의 제외 조각에 적용된다(별칭 `ub` 사용 금지, 조각에 `?` 금지라는 기존 규칙 유지).
+- **READ_COMMITTED에서 활성 제재 중복은 잠금 읽기로 못 막는다**: "사용자당 활성 제재 1건"은 DB 제약이 없다. 활성 제재를 잠금 읽기로 확인해도 READ_COMMITTED에는 갭 잠금이 없어, 행이 아직 없을 때 두 트랜잭션이 모두 통과해 둘 다 INSERT할 수 있다. 해결: 처리 트랜잭션이 **같은 대상의 신고 행 전체를 먼저 `FOR UPDATE`로 잠가 직렬화**한 뒤 ADMIN 여부 읽기, 활성 제재 잠금 읽기, `cancelAllOf`, `user_sanction` INSERT, 신고 갱신 순으로 진행한다. 같은 대상을 동시에 제재하면 한쪽이 교착으로 503(BUSY)이 되지만 중복 제재는 생기지 않는다(검증은 구현 세션 기록).
+- **`users` 행은 티켓 뒤에 잠그므로 `OpenMatchCanceller` 앞에서 users X 잠금 금지**: canceller는 티켓 id 오름차순으로 잠근다(1절). 호출자가 먼저 대상 users 행을 X로 잠그면 users→티켓 순서가 되어 기존 티켓→users 경로와 순환할 수 있다. 그래서 resolve는 users 행을 잠그지 않는다. canceller는 호출 트랜잭션이 READ_COMMITTED이고 호출 전에 `ExchangeMatch` 엔티티를 로드하지 않아야 한다(티켓 잠금 뒤 매칭 목록을 다시 읽으므로).
+- **쓰기 위치**: `user_block`·`abuse_report`·`user_sanction` INSERT는 트랜잭션 마지막이다(8절 notification 규칙과 같은 취지). 신고·차단 상한은 사용자 행을 잠그지 않으므로 근소 초과가 가능하다(admin의 사용자 행 잠금 상한, 11절과 대비).
+- **차단·신고와 예약/내리기/제안 경합**: 20라운드 경합 테스트에서 교착 0건(구현 세션 기록).

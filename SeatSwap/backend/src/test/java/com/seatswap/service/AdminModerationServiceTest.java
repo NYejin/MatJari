@@ -71,7 +71,7 @@ class AdminModerationServiceTest {
         when(provider.getObject()).thenReturn(canceller);
         Clock clock = Clock.fixed(NOW.atZone(ZONE).toInstant(), ZONE);
         service = new AdminModerationService(reportRepository, sanctionRepository, userRepository, chatRepository, provider,
-                mock(EntityManager.class), clock);
+                mock(EntityManager.class), clock, mock(com.seatswap.websocket.WebSocketSessionRegistry.class));
 
         report = AbuseReport.create(10L, 20L, 50L, AbuseReport.Reason.ABUSE, "욕설");
         ReflectionTestUtils.setField(report, "id", 9L);

@@ -82,3 +82,12 @@ SeatSwap 고유 용어의 짧은 정의다. 확정 결정 본문은 [CLAUDE.md](
 - **미리보기 API** (`GET /api/performances/preview?sourceUrl=`): 링크 페이지에서 제목·공연장·공연 기간을 읽어 돌려준다. 응답 `status`는 `OK`·`UNSUPPORTED_SITE`·`NO_INFO`·`FETCH_FAILED` 중 하나이고 항상 200이다.
 - **고정 템플릿 URL**: 사용자가 준 URL 대신 사이트별 템플릿 3종에 id만 끼워 만든 주소. SSRF를 구조적으로 막는 장치다.
 - **공연 기간**: 링크에서 읽는 날짜 범위(`periodStart`/`periodEnd`). 회차 일시는 읽지 못해 안내 문구로만 보여준다.
+
+## 차단·신고·이용 정지
+
+설계 근거는 [차단·신고·이용 정지 설계 근거](decisions/block-report-design.md), 함정은 [함정 페이지 12절](gotchas/lock-order-and-index-pitfalls.md) 참고. 구현 완료(V13, 브랜치 `feature/block-report`, 미병합).
+
+- **차단** (`user_block`): 채팅 화면에서 상대를 차단. 저장은 한 방향, 효과(후보 제외·제안 불가·열린 매칭 시스템 취소)는 양방향이며 상대에게 알리지 않는다.
+- **신고** (`abuse_report`): 채팅 화면에서 접수하는 신고. 사유 5종, 상태 `OPEN`/`RESOLVED`/`DISMISSED`. 자동 제재는 없다.
+- **이용 정지** (`user_sanction`): 관리자가 신고 처리 때 거는 제재. 정지 중에는 인증 API가 403 `ACCOUNT_SUSPENDED`다. 기간 만료는 조회 시 판단하고 관리자가 해제할 수 있다.
+- **열린 매칭 시스템 취소** (`OpenMatchCanceller`): 차단·정지 때 CHATTING·RESERVED 매칭을 `canceled_by_id` NULL로 취소하고 예약 잠금을 푸는 공용 계약.

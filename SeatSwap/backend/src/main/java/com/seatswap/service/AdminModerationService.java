@@ -27,7 +27,10 @@ import com.seatswap.repository.UserSanctionRepository;
 import com.seatswap.security.AccountSuspensionChecker;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
+import com.seatswap.websocket.WebSocketSessionRegistry;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -81,6 +84,8 @@ public class AdminModerationService {
     private final ObjectProvider<OpenMatchCanceller> cancellerProvider;
     private final EntityManager entityManager;
     private final Clock clock;
+    /** 이용 정지 커밋 뒤 대상의 열려 있는 STOMP 연결을 닫는다. */
+    private final WebSocketSessionRegistry sessionRegistry;
 
     // ------------------------------------------------------------------ 신고
 
@@ -148,7 +153,8 @@ public class AdminModerationService {
             sanctionNote = cleanNote(sanctionInput.note(), "sanction.note", true);
         }
 
-        AbuseReport report = lockOpenReportOfTarget(reportId);
+        // 제재를 걸 때만 같은 대상의 신고 행 전체를 잠가 직렬화한다(제재 없는 처리는 그 신고 행만 잠근다)
+        AbuseReport report = sanctionInput == null ? lockOpenReport(reportId) : lockOpenReportOfTarget(reportId);
         LocalDateTime now = LocalDateTime.now(clock);
         Long sanctionId = null;
         if (sanctionInput != null) {
@@ -166,10 +172,28 @@ public class AdminModerationService {
             UserSanction sanction = sanctionRepository.saveAndFlush(
                     UserSanction.suspend(targetId, report.getId(), sanctionNote, now, sanctionInput.days(), adminId));
             sanctionId = sanction.getId();
+            closeSocketsAfterCommit(targetId);
         }
         report.resolve(adminId, note, sanctionId, now);
         reportRepository.saveAndFlush(report);
         return toAdminReports(List.of(report)).get(0);
+    }
+
+    /** 커밋된 뒤에만 대상의 STOMP 연결을 닫는다(롤백이면 닫지 않는다). 실패해도 처리 결과에는 영향이 없다. */
+    private void closeSocketsAfterCommit(Long userId) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            return; // 트랜잭션 밖(단위 테스트)에서는 닫지 않는다
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    sessionRegistry.closeAllOf(userId);
+                } catch (RuntimeException e) {
+                    // 연결이 남아도 REST 는 이미 403 이고 열린 매칭은 취소됐다. 토큰 만료 때 정리된다.
+                }
+            }
+        });
     }
 
     @Transactional

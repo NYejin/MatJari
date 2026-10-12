@@ -26,8 +26,8 @@
 - STOMP 스켈레톤(`config/WebSocketConfig`의 TODO)은 채팅 구현(V11, 2026-10-11)으로 대체됐다. 아래 '채팅 (V11)' 절 참고.
 - **티켓 등록(FR-03)은 구현 완료** (`TicketController`, `TicketService`, `SeatKeyNormalizer`). 좌석 1개를 텍스트(구역 필수, 열·번은 숫자 또는 문자)로 등록한다. 같은 회차·구역·열·번의 활성 티켓은 1개(DB `uk_ticket_active_seat`), 사용자당 활성 티켓 20개 상한(`users` 행 FOR UPDATE로 직렬화), 회차 당일 끝(다음날 0시 KST)까지만 등록할 수 있다. 교환 희망 범위·매칭·예약은 아래 교환 항목 참고. 내릴 때 예약 잠금이면 `TicketService.ensureCanDeactivate`가 409 `TICKET_RESERVED`로 막는다.
 - **교환 희망 조건 등록(FR-04 교환 요청)은 구현 완료** (`ExchangeRequestController`, `ExchangeRequestService`, `WantSeatExpander`, Flyway V4). 티켓 하나에 미삭제 요청 1개(범위별 추가금 유형·희망 회차 우선순위·희망 좌석 범위)를 등록·조회·수정·소프트 삭제한다. 범위는 (구역, 열 from~to, 번 from~to)로 입력하면 개별 좌석으로 펼쳐 `exchange_want_seat`에 저장한다. **매칭 후보 조회**(`GET /api/exchange/requests/{id}/candidates`, 읽기 전용)는 구현됐다. 티켓을 내리면(`DELETE /api/tickets/{id}`) 그 티켓의 교환 요청은 CLOSED로 바뀐다.
-- **매칭 생성·예약(FR-04 교환 흐름 일부)은 구현 완료** (`ExchangeMatchController`, `ExchangeMatchService`, Flyway V5). 후보를 골라 매칭(채팅 단계, CHATTING)을 만들고, 둘 중 한 명이 예약하면 RESERVED가 되어 두 티켓이 잠기고, 누구든 예약을 취소해 CHATTING으로 되돌릴 수 있다(`reserve`/`unreserve`, Flyway V8). 채팅 종료(취소)·거절은 CHATTING에서만 가능하다. **교환 완료는 구현 완료(2026-10-11, V9)**: 양쪽 '교환 수락'(`complete`)으로 COMPLETED, 기존 티켓 EXCHANGED + 새 티켓, `exchange_history` 기록(아래 '교환 완료' 절). **아직 없는 것**: 교환 이력 조회 API·마이페이지 화면(기록은 구현, 조회는 다음 브랜치). 후보 '예약 중' 뱃지는 폐기(후보 목록은 예약 잠긴 티켓을 계속 제외). (내 매칭 조회 `GET /api/exchange/matches/me`·`/{id}`는 구현됨) 아래 '매칭 API' 참고.
-- **알림 3종(R1-3) 구현 완료(2026-10-11, `feature/notifications`, V10)**: 새 제안·상대 예약·상대 예약 취소를 `notification`에 쌓고, 조회·안 읽은 개수·읽음·모두 읽음·읽은 알림 삭제 API 5개를 제공한다. 자세한 규칙은 아래 '알림 (V10)' 절. 실시간 푸시(STOMP 신호)는 2026-10-11 `feature/notifications-realtime`에서 구현됐다(아래 '알림 실시간 푸시' 절). 토스트는 만들지 않았다.
+- **매칭 생성·예약(FR-04 교환 흐름 일부)은 구현 완료** (`ExchangeMatchController`, `ExchangeMatchService`, Flyway V5). 후보를 골라 매칭(채팅 단계, CHATTING)을 만들고, 한쪽이 예약을 제안하고 상대가 수락하면 RESERVED가 되어 두 티켓이 잠기고, 누구든 예약을 취소해 CHATTING으로 되돌릴 수 있다(`reserve`·`reserve/accept`·`unreserve`, Flyway V8·V15. 2026-10-13 이전의 '한 명이 예약하면 즉시 RESERVED' 방식은 폐기). 채팅 종료(취소)·거절은 CHATTING에서만 가능하다. **교환 완료는 구현 완료(2026-10-11, V9)**: 양쪽 '교환 수락'(`complete`)으로 COMPLETED, 기존 티켓 EXCHANGED + 새 티켓, `exchange_history` 기록(아래 '교환 완료' 절). 교환 이력 조회 API·마이페이지 화면은 2026-10-12 구현 완료다. 후보 '예약 중' 뱃지는 폐기(후보 목록은 예약 잠긴 티켓을 계속 제외). (내 매칭 조회 `GET /api/exchange/matches/me`·`/{id}`는 구현됨) 아래 '매칭 API' 참고.
+- **알림 6종 구현 완료(V10 2026-10-11 3종, V15 2026-10-13 6종, `feature/reserve-propose`)**: 새 제안·예약 제안·예약 제안 거절·상대 예약 수락·상대 예약 취소·새 채팅 메시지를 `notification`에 쌓고, 조회·안 읽은 개수·읽음·모두 읽음·읽은 알림 삭제 API 5개를 제공한다. 자세한 규칙은 아래 '알림 (V10)' 절. 실시간 푸시(STOMP 신호)는 2026-10-11 `feature/notifications-realtime`에서 구현됐다(아래 '알림 실시간 푸시' 절). 토스트는 만들지 않았다.
 - **관리자 페이지 (V12, 2026-10-12, `feature/admin`)는 구현 완료**: 공연 수정 제안(제목·공연장)과 좌석 소유 인증 요청(내 티켓 인증, 사진 업로드) 두 가지를 관리자가 처리한다. 자세한 규칙은 아래 '관리자 API' 절.
 - **사용자 차단·신고, 관리자 신고 처리·이용 정지(V13, 2026-10-12, `feature/block-report`)는 구현 완료**: 차단은 채팅 화면에서 시작하고 양쪽 후보에서 빠지며 열린 매칭은 시스템 취소된다. 신고는 채팅 화면에서 하고 관리자가 채팅 근거를 열람한다. 정지 계정은 모든 인증 API·로그인·재발급·STOMP CONNECT가 403이다. 자세한 규칙은 아래 '차단·신고·이용 정지 (V13)' 절.
 - 테스트 수치(2026-10-12, `feature/block-report`): 백엔드 전체(임시 MySQL IT 포함) 781건 통과·실패 0·skip 0(V13 스키마 7, 차단 17, 신고·제재 약 45 포함). 프론트 `tsc`·빌드 통과, 브라우저 점검 미실시.
@@ -168,12 +168,15 @@
 
 ## 매칭 API (후보 선택 -> 채팅 -> 예약)
 
-모두 로그인이 필요하다. 매칭은 조건 일치 판정으로 찾은 후보를 사용자가 골라 시작하며 점수화·랭킹·신뢰도는 쓰지 않는다. 흐름: 후보 선택 -> 채팅(CHATTING, 한 요청에 여러 개 동시 가능) -> **둘 중 한 명이 예약**(RESERVED, 두 티켓 잠금, **티켓당 예약 1개**, V8) -> 양도 후 양쪽 '교환 수락'(`complete`, 2026-10-11 구현) -> COMPLETED. 예약은 누구든(예약한 사람이 아니어도) 취소할 수 있고 취소하면 CHATTING으로 돌아가 같은 쌍이 다시 예약할 수 있다(횟수 제한·쿨다운 없음). 채팅 종료(cancel)·거절(reject)은 CHATTING에서만 가능하고 **RESERVED에서는 409 `MATCH_STATE_CONFLICT`('먼저 예약을 취소해주세요.')**다. 예약된 티켓의 새 제안·새 예약만 막히고 이미 열려 있던 다른 채팅은 유지된다. 재매칭 불가는 차단·신고뿐이며 둘 다 후속이다.
+모두 로그인이 필요하다. 매칭은 조건 일치 판정으로 찾은 후보를 사용자가 골라 시작하며 점수화·랭킹·신뢰도는 쓰지 않는다. 흐름: 후보 선택 -> 채팅(CHATTING, 한 요청에 여러 개 동시 가능) -> **예약 제안**(채팅 화면, 제안 컬럼만 기록, V15) -> **상대가 예약 수락**(RESERVED, 두 티켓 잠금, **티켓당 예약 1개**, V8). 예약 거절·제안 철회는 CHATTING을 유지한다 -> 양도 후 양쪽 '교환 수락'(`complete`, 2026-10-11 구현) -> COMPLETED. 예약은 누구든(예약한 사람이 아니어도) 취소할 수 있고 취소하면 CHATTING으로 돌아가 같은 쌍이 다시 예약할 수 있다(횟수 제한·쿨다운 없음). 채팅 종료(cancel)·거절(reject)은 CHATTING에서만 가능하고 **RESERVED에서는 409 `MATCH_STATE_CONFLICT`('먼저 예약을 취소해주세요.')**다. 예약된 티켓의 새 제안·새 예약만 막히고 이미 열려 있던 다른 채팅은 유지된다. 재매칭 불가는 차단·신고뿐이며 둘 다 V13에서 구현됐다.
 
 | Method | Path | 설명 |
 |---|---|---|
 | POST | /api/exchange/requests/{id}/proposals | 후보를 골라 매칭 생성 (201, 본문 `{"targetRequestId": 800}`). `{id}`는 내 요청. 응답은 아래 매칭 응답 |
-| POST | /api/exchange/matches/{id}/reserve | 예약 (200). 두 참여자 누구나 한 명이 누르면 CHATTING -> RESERVED + 두 티켓 `exchange_ticket_lock`(티켓 id 오름차순). 이미 RESERVED면 누가 눌렀든 멱등 200(예약자는 그대로). 어느 티켓이든 다른 매칭에서 잠겨 있으면 409 `TICKET_ALREADY_RESERVED`. 회차 마감 검사는 하지 않는다(공연 시작 후에도 가능). 새 예약에만 잠근 행으로 두 티켓 ACTIVE·두 요청 OPEN을 다시 확인한다: 요청 삭제 409 `REQUEST_DELETED`, 요청 닫힘/티켓 비활성 422 `TICKET_NOT_ACTIVE`(멱등 reserve·unreserve·cancel·reject에는 적용하지 않는다) |
+| POST | /api/exchange/matches/{id}/reserve | **예약 제안** (200, 상태는 CHATTING 그대로, 응답 `reservationProposal`=MINE). CHATTING이고 제안이 없을 때만. 내가 이미 제안했으면 멱등 200. 상대가 이미 제안했으면 409 `RESERVATION_PROPOSAL_PENDING`. RESERVED면 409 `MATCH_STATE_CONFLICT`. 두 티켓 중 하나라도 다른 매칭에서 잠겼으면 409 `TICKET_ALREADY_RESERVED`(제안 시점에 미리 거른다), EXCHANGED면 409 `TICKET_EXCHANGED`. 제안은 티켓을 잠그지 않고 매칭 행만 `FOR UPDATE`로 잠근다. 회차 마감 검사는 하지 않는다 |
+| POST | /api/exchange/matches/{id}/reserve/accept | **예약 수락** (200, 제안받은 쪽만). 제안이 없으면 409 `RESERVATION_PROPOSAL_NOT_FOUND`, 제안자가 누르면 409 `RESERVATION_PROPOSAL_OWN`. 기존 예약 로직을 그대로 쓴다(잠금 순서 티켓 id↑ → 요청 id↑ → 매칭, 잠근 뒤 티켓 ACTIVE·요청 OPEN 재확인, `exchange_ticket_lock` 2행). `reserved_by_id`는 **제안자**, `reserved_at`은 수락 시각이고 제안 컬럼은 비운다. RESERVED에서 다시 누르면 양쪽 모두 멱등 200. 다른 매칭에서 잠긴 좌석이면 409 `TICKET_ALREADY_RESERVED`. 다른 채팅은 자동 취소하지 않는다 |
+| POST | /api/exchange/matches/{id}/reserve/decline | **예약 제안 거절** (200, 제안받은 쪽만). 제안을 지우고 CHATTING 유지, `RESERVATION_REJECTED`를 제안자에게 보낸다. 제안이 없으면 멱등 200. 내가 낸 제안을 내가 거절하면 409 `RESERVATION_PROPOSAL_OWN`. 닫힌 매칭은 409 `MATCH_STATE_CONFLICT` |
+| POST | /api/exchange/matches/{id}/reserve/withdraw | **제안 철회** (200, 제안자만). 제안을 지우고 CHATTING 유지. 알림은 없다. 제안이 없으면 멱등 200. 상대가 낸 제안을 철회하면 409 `RESERVATION_PROPOSAL_NOT_OWN`. 닫힌 매칭은 409 `MATCH_STATE_CONFLICT` |
 | POST | /api/exchange/matches/{id}/unreserve | 예약 취소 (200). 두 참여자 누구나(예약자가 아니어도) RESERVED -> CHATTING, `reserved_*`와 교환 수락 표시(`a/b_completed_at`) 초기화, 잠금 2행 삭제. CHATTING이면 멱등 200. COMPLETED/CANCELED는 409 |
 | POST | /api/exchange/matches/{id}/complete | 교환 수락 (200, 응답은 매칭 응답). RESERVED에서만, 참여자 누구나 누른다(호출자 쪽 `a/b_completed_at` 기록). 첫 수락은 RESERVED를 유지하고, **두 번째 수락이 한 트랜잭션으로 교환 완료**한다: 잠금 순서 티켓 id↑ → 요청 id↑ → 매칭, 기존 두 티켓을 `EXCHANGED`로 바꾸고 flush한 뒤 새 티켓 2개를 INSERT(소유자 유지, 회차·구역·열·번은 상대의 기존 티켓 값), `exchange_history` 2행, 두 기존 요청 CLOSED(`status = OPEN` 조건), `exchange_ticket_lock` 2행 삭제, 매칭 COMPLETED(`reserved_*` NULL). 내가 이미 수락했으면 멱등 200. CHATTING이면 409 `MATCH_STATE_CONFLICT`(message `예약한 뒤에 교환 수락할 수 있어요.`), CANCELED·COMPLETED도 409. 마감 검사·활성 20개 상한 검사는 없다. 같은 티켓의 다른 CHATTING 매칭은 취소하지 않는다(Q-15) |
 | POST | /api/exchange/matches/{id}/reject | 제안받은 쪽(b)의 거절 (200, 결과 CANCELED). 제안한 쪽이 부르면 403. **RESERVED에서는 409**(먼저 예약 취소) |
@@ -186,12 +189,13 @@
 ```bash
 curl -s -X POST localhost:8080/api/exchange/requests/721/proposals -H "Authorization: Bearer $T" \
      -H 'Content-Type: application/json' -d '{"targetRequestId":722}'      # 201 {"id":401,"status":"CHATTING",...}
-curl -s -X POST localhost:8080/api/exchange/matches/401/reserve -H "Authorization: Bearer $T"     # 예약 (한 명이 누르면 RESERVED)
+curl -s -X POST localhost:8080/api/exchange/matches/401/reserve -H "Authorization: Bearer $T"     # 예약 제안 (상대가 reserve/accept로 수락해야 RESERVED)
+curl -s -X POST localhost:8080/api/exchange/matches/401/reserve/accept -H "Authorization: Bearer $T"   # 예약 수락 (제안받은 쪽, RESERVED)
 curl -s -X POST localhost:8080/api/exchange/matches/401/unreserve -H "Authorization: Bearer $T"   # 예약 취소 (CHATTING 복귀)
 curl -s -X POST localhost:8080/api/exchange/matches/401/cancel -H "Authorization: Bearer $T"      # 채팅 종료 (CHATTING에서만)
 ```
 
-매칭 응답 (POST 응답·목록·단건이 모두 같은 모양, 호출자 기준): `id, status(CHATTING|RESERVED|COMPLETED|CANCELED), mySide(A=제안자|B), role(SENT=내가 a측|RECEIVED=b측), myRequestId, myTicketId, mySeat{zone,row,col,sessionId,startsAt}, counterpartRequestId, counterpartTicketId, counterpartSeat{...}, counterpartNickname, myExtraType, myExtraAmount, counterpartExtraType, counterpartExtraAmount, myRequestDeleted, counterpartRequestDeleted, reservedBy(RESERVED일 때 예약한 사람 ME|COUNTERPART, 그 밖의 상태는 null), reservedAt(RESERVED일 때만 값), myAccepted, counterpartAccepted(교환 수락 표시 = 호출자 쪽 `a/b_completed_at`이 있는지, 예약 취소 때 초기화), myTicketExchanged, counterpartTicketExchanged(그 쪽 티켓이 EXCHANGED인지, 다른 매칭의 교환 완료로 닫힌 좌석), myTicketReservedElsewhere, counterpartTicketReservedElsewhere(그 쪽 티켓이 이 매칭이 아닌 다른 매칭의 예약 잠금인지, 카드의 '(다른 사용자와 예약 중인 좌석)' 문구용), canceledBy(ME|COUNTERPART|SYSTEM, CANCELED일 때만), canceledAt, createdAt, updatedAt`. 좌석의 zone·row·col은 사용자가 입력한 표시용 원문이고 `startsAt`은 `yyyy-MM-dd'T'HH:mm`. 상대의 이메일 등 개인정보는 내려가지 않고 닉네임만 있다. 추가금 유형은 X/ANY/POS/NEG이며 금액은 참고용이다. **추가금은 매칭을 만들 때 저장한 스냅샷**(`exchange_match.a/b_extra_*`: 내 범위 중 상대 좌석을 포함한 범위의 값, 상대 범위 중 내 좌석을 포함한 범위의 값)이라 이후 요청을 수정·삭제해도 바뀌지 않는다. `myRequestDeleted/counterpartRequestDeleted`는 그 쪽 요청이 삭제(DELETED)됐는지다(매칭 기록은 남는다). (V8에서 `myReservedAt`/`counterpartReservedAt`를 제거하고 `reservedBy`/`reservedAt`/`myAccepted`/`counterpartAccepted`로 바꿨다. 나머지 필드는 그대로다.)
+매칭 응답 (POST 응답·목록·단건이 모두 같은 모양, 호출자 기준): `id, status(CHATTING|RESERVED|COMPLETED|CANCELED), mySide(A=제안자|B), role(SENT=내가 a측|RECEIVED=b측), myRequestId, myTicketId, mySeat{zone,row,col,sessionId,startsAt}, counterpartRequestId, counterpartTicketId, counterpartSeat{...}, counterpartNickname, myExtraType, myExtraAmount, counterpartExtraType, counterpartExtraAmount, myRequestDeleted, counterpartRequestDeleted, reservationProposal(V15, CHATTING의 예약 제안 여부 NONE|MINE|THEIRS, RESERVED·종료는 NONE), reservedBy(RESERVED일 때 예약을 수락해 확정된 쪽, 즉 예약 제안자 ME|COUNTERPART, 그 밖의 상태는 null), reservedAt(RESERVED일 때만 값), myAccepted, counterpartAccepted(교환 수락 표시 = 호출자 쪽 `a/b_completed_at`이 있는지, 예약 취소 때 초기화), myTicketExchanged, counterpartTicketExchanged(그 쪽 티켓이 EXCHANGED인지, 다른 매칭의 교환 완료로 닫힌 좌석), myTicketReservedElsewhere, counterpartTicketReservedElsewhere(그 쪽 티켓이 이 매칭이 아닌 다른 매칭의 예약 잠금인지, 카드의 '(다른 사용자와 예약 중인 좌석)' 문구용), canceledBy(ME|COUNTERPART|SYSTEM, CANCELED일 때만), canceledAt, createdAt, updatedAt`. 좌석의 zone·row·col은 사용자가 입력한 표시용 원문이고 `startsAt`은 `yyyy-MM-dd'T'HH:mm`. 상대의 이메일 등 개인정보는 내려가지 않고 닉네임만 있다. 추가금 유형은 X/ANY/POS/NEG이며 금액은 참고용이다. **추가금은 매칭을 만들 때 저장한 스냅샷**(`exchange_match.a/b_extra_*`: 내 범위 중 상대 좌석을 포함한 범위의 값, 상대 범위 중 내 좌석을 포함한 범위의 값)이라 이후 요청을 수정·삭제해도 바뀌지 않는다. `myRequestDeleted/counterpartRequestDeleted`는 그 쪽 요청이 삭제(DELETED)됐는지다(매칭 기록은 남는다). (V8에서 `myReservedAt`/`counterpartReservedAt`를 제거하고 `reservedBy`/`reservedAt`/`myAccepted`/`counterpartAccepted`로 바꿨다. 나머지 필드는 그대로다.)
 
 ```json
 {"id":401,"status":"RESERVED","mySide":"B","role":"RECEIVED","myRequestId":721,"myTicketId":611,
@@ -200,7 +204,7 @@ curl -s -X POST localhost:8080/api/exchange/matches/401/cancel -H "Authorization
  "counterpartSeat":{"zone":"B구역","row":"2","col":"3","sessionId":8,"startsAt":"2026-11-02T19:00"},
  "counterpartNickname":"상대3","myExtraType":"X","myExtraAmount":null,"counterpartExtraType":"NEG","counterpartExtraAmount":-10000,
  "myRequestDeleted":false,"counterpartRequestDeleted":false,
- "reservedBy":"COUNTERPART","reservedAt":"2026-10-08T11:30:00","myAccepted":false,"counterpartAccepted":false,"myTicketExchanged":false,"counterpartTicketExchanged":false,"myTicketReservedElsewhere":false,"counterpartTicketReservedElsewhere":false,"canceledBy":null,"canceledAt":null,
+ "reservationProposal":"NONE","reservedBy":"COUNTERPART","reservedAt":"2026-10-08T11:30:00","myAccepted":false,"counterpartAccepted":false,"myTicketExchanged":false,"counterpartTicketExchanged":false,"myTicketReservedElsewhere":false,"counterpartTicketReservedElsewhere":false,"canceledBy":null,"canceledAt":null,
  "createdAt":"2026-10-08T11:00:00","updatedAt":"2026-10-08T12:00:05"}
 ```
 
@@ -210,12 +214,12 @@ curl -s -X POST localhost:8080/api/exchange/matches/401/cancel -H "Authorization
 
 **허용/불허 상태 전이 표** (`ExchangeMatch.isAllowed`, `ExchangeMatchService` Javadoc과 같은 표. 불허는 모두 409 `MATCH_STATE_CONFLICT`):
 
-| 상태 \ 동작 | propose | reserve | unreserve | reject(b측) | cancel | complete |
-|---|---|---|---|---|---|---|
-| CHATTING | 409(같은 쌍 열린 매칭) | 허용(즉시 RESERVED + 잠금) | 멱등 200 | 허용 | 허용 | 불허(예약 전, 409 `MATCH_STATE_CONFLICT`) |
-| RESERVED | 409(같은 쌍 열린 매칭) | 멱등 200 | 허용(CHATTING 복귀, 잠금 해제) | 409 (먼저 예약 취소) | 409 (먼저 예약 취소) | 첫 수락은 RESERVED 유지, 두 번째 수락에서 COMPLETED(V9) |
-| COMPLETED | 허용(새 매칭) | 409 | 409 | 409 | 409 | 409 |
-| CANCELED | 허용(새 매칭) | 409 | 409 | 409 | 409 | 409 |
+| 상태 \ 동작 | propose | reserve(제안) | reserve/accept | reserve/decline·withdraw | unreserve | reject(b측) | cancel | complete |
+|---|---|---|---|---|---|---|---|---|
+| CHATTING | 409(같은 쌍 열린 매칭) | 허용(제안 기록, 상대 제안이 있으면 409) | 제안받은 쪽만 허용(RESERVED로 전이) | 허용(제안 지움, 없으면 멱등 200) | 멱등 200 | 허용 | 허용 | 불허(예약 전, 409 `MATCH_STATE_CONFLICT`) |
+| RESERVED | 409(같은 쌍 열린 매칭) | 멱등 200 | 양쪽 모두 멱등 200 | 멱등 200(제안 없음) | 허용(CHATTING 복귀, 잠금 해제) | 409 (먼저 예약 취소) | 409 (먼저 예약 취소) | 첫 수락은 RESERVED 유지, 두 번째 수락에서 COMPLETED(V9) |
+| COMPLETED | 허용(새 매칭) | 409 | 409 | 409 | 409 | 409 | 409 | 409 |
+| CANCELED | 허용(새 매칭) | 409 | 409 | 409 | 409 | 409 | 409 | 409 |
 
 propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. 열린 매칭(CHATTING·RESERVED)이 없으면 취소·완료된 뒤에도 같은 쌍으로 다시 만들 수 있다.
 
@@ -228,6 +232,7 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 | 없는 요청·없는 매칭, **매칭 참여자가 아닌 사용자**(없는 매칭과 같은 404, 존재 은닉) | 404 | `{message}` |
 | 같은 쌍의 열린 매칭이 이미 있음 (반대 방향 제안 포함) | 409 | `{message, code: MATCH_ALREADY_OPEN, matchId}` |
 | 상태 전이 불허 (이미 CANCELED/COMPLETED 등, **RESERVED에서 cancel/reject**: message `먼저 예약을 취소해주세요.`) | 409 | `{message, code: MATCH_STATE_CONFLICT, status, action}` |
+| 예약 제안 충돌 (`reserve`·`reserve/accept`·`reserve/decline`·`reserve/withdraw`) | 409 | `{message, code}`: `RESERVATION_PROPOSAL_PENDING`(상대 제안 대기), `RESERVATION_PROPOSAL_NOT_FOUND`(수락할 제안 없음), `RESERVATION_PROPOSAL_OWN`(제안자가 수락·거절), `RESERVATION_PROPOSAL_NOT_OWN`(상대 제안 철회) |
 | 열린 매칭이 있는 요청 수정·삭제 (`PATCH/DELETE /api/exchange/requests/{id}`) | 409 | `{message, code: ACTIVE_MATCH_EXISTS}` |
 | (제거됨) 완료된 매칭 기록이 있는 요청 삭제 — 소프트 삭제라 이제 허용되며 `MATCH_HISTORY_EXISTS`는 쓰지 않는다 | - | - |
 | 내 요청이 닫힘/티켓 내림 | 422 | `{code: TICKET_NOT_ACTIVE, message}` |
@@ -239,7 +244,7 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 | 코드 | 상태 | 언제 |
 |---|---|---|
 | `TICKET_LOCKED` | 422 | **내** 티켓이 예약 잠금인데 제안하거나 후보를 조회할 때. 상대 티켓이 잠긴 경우에는 쓰지 않는다(`NOT_A_CANDIDATE`로 합쳐 상대의 예약 상태를 노출하지 않는다) |
-| `TICKET_ALREADY_RESERVED` | 409 | 매칭 참여자가 reserve 하는데 이 매칭의 티켓이 이미 다른 매칭에서 예약됨 (참여자 사이의 화면이라 노출해도 되는 정보) |
+| `TICKET_ALREADY_RESERVED` | 409 | 매칭 참여자가 예약 제안(reserve)이나 수락(reserve/accept)을 하는데 이 매칭의 티켓이 이미 다른 매칭에서 예약됨 (참여자 사이의 화면이라 노출해도 되는 정보) |
 | `TICKET_RESERVED` | 409 | 예약 잠금이 걸린 티켓을 내리려 할 때 (`DELETE /api/tickets/{id}`) |
 | `TICKET_EXCHANGED` | 409 | 교환 완료로 `EXCHANGED`가 된 티켓을 예약하려 할 때(reserve에서 일반 검사보다 먼저 확인), 또는 내리려 할 때(`DELETE /api/tickets/{id}`) |
 
@@ -251,9 +256,12 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 - **요청 수정·삭제**: 그 요청이 a측이든 b측이든 RESERVED 매칭이 있으면 409 `ACTIVE_MATCH_EXISTS`(아무것도 바꾸지 않음), 없으면 CHATTING 매칭을 모두 시스템 취소한 뒤 수정·삭제한다. 삭제는 소프트 삭제라 매칭 행은 지우지 않고, COMPLETED 매칭이 있어도 삭제는 허용된다.
 - **후보 조회**: 같은 요청 쌍의 열린 매칭이 있는 상대와 예약 잠금 티켓은 후보에서 빠진다. 취소·완료된 매칭은 보지 않는다(재매칭 허용). 내 티켓이 잠겨 있으면 조회 자체가 422다. 차단 양방향 제외와 정지 사용자 티켓 제외는 V13에서 구현됐다(아래 '차단·신고·이용 정지' 절).
 
+- **예약 제안이 걸린 매칭**: cancel·reject·요청 수정·삭제·티켓 내리기·차단·정지의 시스템 취소는 제안이 걸려 있어도 그대로 동작하고, 같은 문장에서 `reserve_proposed_*`를 NULL로 비운다(V15 CHECK: CHATTING이 아니면 제안 컬럼은 NULL).
+
 ### 동시성 (요청 행 잠금 기반)
 
 - 잠금 순서는 **항상 티켓(id 오름차순) -> 요청(id 오름차순) -> 매칭**이다. `users` 행은 티켓 이후에 잡는다(`TicketService.create`가 users 행을 먼저 잡고 티켓은 INSERT만 하므로 지금은 순환이 없다). **새 코드에서 users 행을 X 잠금한 뒤 티켓·요청을 잠그지 않는다**(`TicketService.deactivate`, `ExchangeRequestService`와 같은 규약). 요청·매칭의 불변 컬럼(티켓 id, 사용자 id)을 트랜잭션 밖에서 먼저 읽어 잠금 대상을 정하고, 잠금 읽기가 트랜잭션의 첫 쿼리들이 되게 한다(MySQL REPEATABLE READ 스냅샷이 잠금 뒤에 시작해야 최신 상태를 본다).
+- 예약 제안 경합(V15): 양쪽 동시 제안은 매칭 행 잠금으로 직렬화되어 하나만 성공하고 나머지는 409 `RESERVATION_PROPOSAL_PENDING`. 제안 vs 철회, 수락 vs 철회·거절, 수락 vs 다른 매칭의 같은 티켓 수락, 수락 vs 취소·차단·정지·티켓 내리기·요청 삭제, 예약 취소 vs 재제안은 `ReserveProposalMysqlTest`에서 교착 0과 불변식(잠금 행 = 2×RESERVED, 제안은 CHATTING에만)을 확인했다.
 - 같은 쌍 동시 제안은 하나만 201이고 나머지는 열린 매칭을 보고 409(최종 방어선은 `uk_exchange_match_open_pair`). 같은 티켓을 건 두 매칭이 동시에 예약하려 하면 하나만 RESERVED이고 나머지는 409(최종 방어선은 `exchange_ticket_lock` PK). 같은 매칭을 두 사람이 동시에 reserve하면 티켓 행 잠금에서 직렬화되어 한 번만 처리되고 나중 쪽은 멱등 200이다. 불변식: `exchange_ticket_lock` 행이 있는 매칭 <=> RESERVED이고 정확히 2행, RESERVED <=> `reserved_by_id`·`reserved_at` NOT NULL(V8 CHECK `ck_exchange_match_reserved`). RESERVED를 벗어나는 모든 UPDATE는 같은 문장에서 `reserved_*`를 NULL로 만든다(unreserve는 `a/b_completed_at`도 함께). 시스템 취소 경로(요청 수정·삭제, 티켓 내리기)는 CHATTING만 취소하므로 `reserved_*`가 이미 NULL이다. `reserved_by_id` 갱신(NULL -> 값, reserve)은 FK 검사로 users 행에 S 잠금을 걸지만 잠금 순서 맨 끝이고 users 행을 X로 잡고 매칭을 기다리는 곳이 없어 순환이 없다. 앞으로 차단(`user_block`) 서비스가 users 행을 X로 잡은 뒤 티켓·요청·매칭을 잠그면 안 된다.
 - **교착 사례(해결됨)**: FK가 쓰는 인덱스를 `(ticket_a_id, status)` 같은 복합 인덱스로 만들면 `status`만 바꾸는 UPDATE(티켓 내림으로 인한 시스템 취소)도 InnoDB가 FK 인덱스 변경으로 보고 부모 `ticket` 행에 S 잠금을 걸어, 잠금 순서 밖에서 다른 티켓을 잡다가 양쪽 수락과 교착이 났다(실제 MySQL 경쟁 테스트에서 재현). 그래서 V5의 FK 인덱스는 모두 단일 컬럼이다. 이후 `exchange_match`에 인덱스를 더할 때 FK 컬럼에 `status` 같은 갱신 컬럼을 붙이지 않는다.
 - 락 대기 실패·교착은 503 `BUSY`로 응답한다.
@@ -324,7 +332,8 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 - **V11 적용 안내 (채팅, `V11__chat_message.sql`, 2026-10-11)**: 새 테이블 2개만 만든다. 기존 테이블 변경·데이터 이관·파괴적 단계는 없다. `chat_message`(append-only, 만든 뒤 수정·삭제하지 않음): `match_id`·`sender_id` FK(ON DELETE/UPDATE 동작 없음), `content` VARCHAR(1000)(코드 포인트 기준은 앱에서 검사), `client_message_id` VARCHAR(36) ascii_bin(대소문자 구분), UNIQUE `uk_chat_message_client(client_message_id, sender_id)`, 단일 컬럼 KEY `idx_chat_message_match`·`idx_chat_message_sender`, CHECK 2개(본문 공백 아님, id 길이 8~36). `chat_read_state`: PK(`match_id`, `user_id`), `last_read_message_id` BIGINT(FK 아님, 0 = 아무것도 안 읽음, CHECK >= 0), `updated_at`, FK 2개와 `idx_chat_read_state_user`. 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하다. 되돌리기는 롤포워드(두 테이블 삭제). 요구 MySQL 8.0.16 이상. 검증: `ChatSchemaMysqlTest`(실제 MySQL, `SEATSWAP_IT_*`가 있을 때만).
 - **V12 적용 안내 (관리자 처리 대상, `V12__admin_edit_proposal_seat_claim.sql`, 2026-10-12)**: 새 테이블 2개만 만든다(`performance_edit_proposal`, `seat_claim`). 기존 테이블 변경·데이터 이관·파괴적 단계는 없다. 두 테이블 모두 상태 `PENDING/APPROVED/REJECTED`(CHECK)이고, 'PENDING은 사용자(·좌석)당 1건'을 생성 컬럼 `pending_proposer_id`·`pending_claimant_id`(PENDING일 때만 사용자 id, 아니면 NULL)와 UNIQUE로 강제한다. 처리되면 NULL이 되어 유니크에서 빠지므로 다시 제안·요청할 수 있다. FK 인덱스는 모두 단일 컬럼이고 FK에 ON DELETE/UPDATE 동작을 두지 않는다. `seat_claim.image_key`는 소문자 UUID(UNIQUE, CHECK 정규식), `image_content_type`은 jpeg/png/webp, `image_size`는 1~5242880(5 MiB), `resolved_ticket_id`는 FK가 아니다(승인 때 내려진 티켓 id 기록용). 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하다. 되돌리기는 롤포워드(두 테이블 삭제). 요구 MySQL 8.0.16 이상. 검증: `AdminSchemaMysqlTest`(실제 MySQL, `SEATSWAP_IT_*`가 있을 때만).
 - **V13 적용 안내 (차단·신고·이용 정지, `V13__block_report_sanction.sql`, 2026-10-12)**: 새 테이블 3개만 만든다. 기존 테이블(`users` 포함) 변경·데이터 이관·파괴적 단계는 없다. `user_block`: `blocker_id`·`blocked_id` FK(ON DELETE/UPDATE 동작 없음), UNIQUE `uk_user_block_pair(blocker_id, blocked_id)`가 blocker FK 인덱스를 겸하고 KEY `blocked_id` 단일 컬럼, CHECK 자기 차단 금지. `abuse_report`: reason 5종(`ABUSE`/`FRAUD`/`NO_SHOW`/`FAKE_SEAT`/`OTHER`)과 status(`OPEN`/`RESOLVED`/`DISMISSED`) CHECK, 'OPEN은 (신고자, 매칭)당 1건'을 생성 컬럼 `open_reporter_id`(status가 OPEN일 때만 신고자 id, 아니면 NULL)와 UNIQUE(`open_reporter_id`, `match_id`)로 강제, `sanction_id`는 순환 FK를 피하려고 FK가 아니다, 처리 상태별 CHECK(처리됐으면 `handled_*` 필수), OTHER면 `detail` 필수, reporter ≠ reported CHECK. 관리자 목록용 status 인덱스와 대상별 누적 조회용 `reported_id` 단일 인덱스를 둔다. `user_sanction`: `user_id`·`report_id`(NULL 가능)·`created_by_id`·`revoked_by_id` FK, type `SUSPEND` CHECK, `ends_at` NULL = 무기한, `revoked_at`(해제 시각, 있으면 `revoked_by_id` 필수), CHECK `ends_at > starts_at`·자기 제재 금지. '사용자당 활성 제재 1건'은 DB 제약이 없고 서비스가 대상 `users` 행을 FOR UPDATE로 잠근 뒤 검사한다. 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하다. 되돌리기는 롤포워드(세 테이블 삭제). 요구 MySQL 8.0.16 이상. 검증: `BlockReportSchemaMysqlTest` 7건(실제 MySQL, `SEATSWAP_IT_*`가 있을 때만).
-- **V14 적용 안내 (소셜 로그인, `V14__social_account.sql`, 2026-10-12)**: 새 테이블 `social_account` 하나만 만든다. 기존 테이블(`users` 포함) 변경·데이터 이관·파괴적 단계는 없다. 컬럼: `id`, `user_id`(FK users, 단일 컬럼 KEY), `provider` VARCHAR(20) utf8mb4_bin(GOOGLE/KAKAO/NAVER CHECK), `provider_user_id` VARCHAR(100) utf8mb4_bin(빈 값 CHECK), `created_at`. UNIQUE(provider, provider_user_id). 재실행 가능한 프로시저 패턴. 다음 마이그레이션은 V15.
+- **V14 적용 안내 (소셜 로그인, `V14__social_account.sql`, 2026-10-12)**: 새 테이블 `social_account` 하나만 만든다. 기존 테이블(`users` 포함) 변경·데이터 이관·파괴적 단계는 없다. 컬럼: `id`, `user_id`(FK users, 단일 컬럼 KEY), `provider` VARCHAR(20) utf8mb4_bin(GOOGLE/KAKAO/NAVER CHECK), `provider_user_id` VARCHAR(100) utf8mb4_bin(빈 값 CHECK), `created_at`. UNIQUE(provider, provider_user_id). 재실행 가능한 프로시저 패턴. 다음 마이그레이션은 V16.
+- **V15 적용 안내 (예약 제안·채팅 알림, `V15__reserve_proposal_chat_notification.sql`, 2026-10-13)**: `exchange_match`에 `reserve_proposed_by_id`(FK users, 단일 컬럼 인덱스)·`reserve_proposed_at`을 추가한다(둘 다 NULL이거나 둘 다 NOT NULL, 제안은 CHATTING에서만, 제안자는 참여자라는 CHECK 3종. FK는 `reserved_by_id`와 같은 방식). `notification.type` CHECK를 6종으로 넓히고 `ck_notification_chat_dedup`(CHAT_MESSAGE는 `dedup_key = 'CHAT_MESSAGE:{matchId}:{recipientId}'` 형식 강제)을 추가한다. 기존 행은 백필 없이 만족한다. 재실행 가능한 프로시저 패턴. 테이블 수는 20 그대로다.
 - 차단·신고·이용 정지(`user_block`, `abuse_report`, `user_sanction`)는 **V13에서 구현됐다**(V8은 예약 방식 변경, V9는 교환 완료·교환 이력, V10은 알림, V11은 채팅, V12는 관리자 처리 대상 두 테이블에 사용됨)(예전 문서의 'V6 이후'는 V6/V7이 추가금·소프트 삭제에 쓰이면서 밀렸다).
 - **V3 적용 안내 (`ticket` 좌석 컬럼)**: `zone_label/zone_key`, `row_key`, `col_key`, `status`, `created_at/updated_at`, 생성 컬럼 `active_flag`, `uk_ticket_active_seat`(회차·구역·열·번·active_flag), `idx_ticket_user_status`를 추가하고 `row_label`/`col_label`을 NOT NULL VARCHAR(20)으로 바꾼다.
   - 가드: `ticket`에 행이 있으면 아무것도 바꾸기 전에 SIGNAL로 실패한다(새 NOT NULL 구역 컬럼에 채울 값이 없음). 적용 전 `SELECT COUNT(*) FROM ticket;`가 0인지 확인한다. 행이 있어 실패했다면 테스트 행을 지우고 `flyway repair`(실패 기록 삭제) 후 다시 적용한다. 임시 프로시저 `v3_guard_ticket_empty`가 남을 수 있으나 재실행 시 먼저 DROP 한다.
@@ -626,7 +635,7 @@ AND NOT EXISTS (SELECT 1 FROM exchange_ticket_lock l WHERE l.ticket_id = tb.id)
 - (해소) 요청 삭제가 소프트 삭제(V7)가 되어 매칭 행은 지워지지 않고 상대의 취소 기록이 남는다. 삭제된 요청 쪽은 응답의 `myRequestDeleted`/`counterpartRequestDeleted`로 표시한다.
 - **낯선 사용자의 제안(CHATTING)은 b측 요청의 수정·삭제를 막는다.** 열린 매칭이 있는 요청은 409이므로, 아무 후보나 제안해 놓으면 상대가 먼저 취소/거절(reject)해야 자기 요청을 고칠 수 있다. 차단하면 그 쌍의 열린 매칭은 시스템 취소되어 풀린다(V13). 신고만으로는 풀리지 않으며 상대의 취소·거절 정책은 그대로 둔다.
 - (L2) `TicketService.deactivate`의 CHATTING 매칭 시스템 취소 UPDATE(`ticket_a_id=? and status=CHATTING`)는 REPEATABLE READ에서 `idx_exchange_match_ticket_a/b` 구간을 status 필터 전에 next-key로 잠가, 과거 CANCELED/COMPLETED 행과 인접 gap까지 잠글 수 있다(이웃 티켓 id의 INSERT가 잠시 지연될 수 있으나 교착은 아님). 규모가 커지면 `SELECT id ... FOR UPDATE`로 id를 뽑아 PK로 갱신하는 방식으로 바꾼다.
-- (L3) 한 요청에 열린 매칭이 여러 개일 때 하나가 RESERVED가 되어도 나머지 CHATTING 매칭은 그대로 남는다(자동 취소 없음: 새 제안·새 예약만 막는다). 사용자가 직접 취소해야 하며, 교환 완료로 기존 티켓이 EXCHANGED가 되어도 자동 취소하지 않고 버튼 비활성+"이미 교환된 좌석이에요" 안내로 처리한다. 다른 매칭에서 티켓이 잠긴 상태의 reserve는 409(`TICKET_ALREADY_RESERVED`)이고 이때 아무 흔적(`reserved_*`)도 남기지 않는다(어느 쪽 티켓이 잠겼는지는 응답에 싣지 않는다). 후보 카드의 '예약 중' 뱃지는 폐기(2026-10-11)해 후보 SQL은 바꾸지 않는다(예약 잠긴 티켓은 계속 제외). 알림 3종은 V10으로 구현 완료(2026-10-11, 실시간 푸시는 같은 날 `feature/notifications-realtime`에서 구현).
+- (L3) 한 요청에 열린 매칭이 여러 개일 때 하나가 RESERVED가 되어도 나머지 CHATTING 매칭은 그대로 남는다(자동 취소 없음: 새 제안·새 예약만 막는다). 사용자가 직접 취소해야 하며, 교환 완료로 기존 티켓이 EXCHANGED가 되어도 자동 취소하지 않고 버튼 비활성+"이미 교환된 좌석이에요" 안내로 처리한다. 다른 매칭에서 티켓이 잠긴 상태의 reserve는 409(`TICKET_ALREADY_RESERVED`)이고 이때 아무 흔적(`reserved_*`)도 남기지 않는다(어느 쪽 티켓이 잠겼는지는 응답에 싣지 않는다). 후보 카드의 '예약 중' 뱃지는 폐기(2026-10-11)해 후보 SQL은 바꾸지 않는다(예약 잠긴 티켓은 계속 제외). 알림은 V10(3종)·V15(6종)으로 구현 완료(실시간 푸시는 2026-10-11 `feature/notifications-realtime`).
 - (L7, 해소) V5의 `ck_exchange_match_canceled`는 CANCELED의 `canceled_at` 필수와 열린 상태의 `canceled_*` NULL만 강제했다. V8이 `ck_exchange_match_reserved`(RESERVED <=> `reserved_*`)와 `ck_exchange_match_completed`(CHATTING이면 수락 표시 NULL, COMPLETED이면 둘 다 NOT NULL)로 상태별 시각 일관성을 DB가 강제하게 보강했다. 교환 완료(V9) 구현 때 이 CHECK와 COMPLETED 전이가 맞는지 확인했다(`ExchangeCompleteMysqlTest` 통과). 남은 것: 레거시 `a/b_reserved_at` 삭제는 충분히 뒤로 미룬다(백필 재계산 근거).
 - (L8, 해소) 응답 변환이 닉네임을 위해 `userRepository.findById`를 따로 호출하던 문제는 조인 한 번(`ExchangeMatchQueryRepository`)으로 바꿔 해소했다. 내 매칭 목록·단건 조회 API도 구현됐다. 회차 마감 후 잠금이 남은 티켓의 자동 비활성(스케줄러)은 아직 없다.
 
@@ -670,7 +679,7 @@ AND NOT EXISTS (SELECT 1 FROM exchange_ticket_lock l WHERE l.ticket_id = tb.id)
 - **전송 순서**: 트랜잭션 밖에서 참여자를 확인한 뒤, 트랜잭션의 첫 쿼리로 매칭 행을 `FOR UPDATE`로 잠근다(매칭 행만 잠그고 UPDATE하지 않으므로 `updated_at`과 정렬이 바뀌지 않는다). 같은 (`clientMessageId`, 보낸 사람) 행이 이미 있으면 상태와 무관하게 그 행을 돌려준다(응답 유실 뒤 재전송 보호, 속도 제한 미소모). 없으면 상태가 CHATTING·RESERVED가 아닐 때 409, 아니면 속도 제한(새 INSERT에만 소모) 뒤 INSERT한다. **커밋 뒤**에 두 참여자에게 푸시하며, 푸시가 실패해도 저장은 유지된다.
 - 같은 매칭의 전송은 매칭 행 잠금으로 직렬화되므로 id 순서가 커밋 순서다. 종료(cancel·complete) 커밋 뒤에는 메시지가 커밋되지 않는다.
 - **읽음 포인터**: `ChatReadStateRepository.advance`는 UPDATE(GREATEST) -> 없으면 INSERT -> 중복 키면 재UPDATE 순서이며, **호출자 트랜잭션 밖(autocommit, `NOT_SUPPORTED`)**에서 실행한다. 트랜잭션 안에서는 갭 잠금 교착이 재현됐다. 매칭이나 users 행을 잠근 트랜잭션 안에서 호출하지 않는다.
-- **잠금 순서**: 채팅 트랜잭션은 매칭 행 하나만 잠그므로 티켓 -> 요청 -> 매칭 규약과 충돌하지 않는다. 채팅은 notification 행을 쓰지 않는다.
+- **잠금 순서**: 채팅 트랜잭션은 매칭 행 하나만 잠그므로 티켓 -> 요청 -> 매칭 규약과 충돌하지 않는다. 채팅 전송은 트랜잭션 맨 끝에서 상대의 `CHAT_MESSAGE` 알림을 (수신자, 매칭)당 1행 재사용으로 쓴다(V15): PK 행을 먼저 갱신하고 없을 때만 `INSERT … ON DUPLICATE KEY UPDATE`. 같은 `clientMessageId` 재전송은 알림을 다시 쓰지 않는다. 읽음 포인터가 올라가면 `NotificationService.markChatRead`가 그 알림을 읽음 처리한다(매칭·users 잠금 밖의 독립 트랜잭션).
 - **상태별 허용**: CHATTING·RESERVED는 읽기·쓰기 모두 허용한다(교환된 좌석이나 다른 예약 매칭이 걸린 채팅 포함). CANCELED·COMPLETED는 읽기·읽음만 허용한다.
 - 메시지는 무기한 보관하며 수정·삭제하지 않는다(신고 근거 보관, 탈퇴는 익명화). 새 메시지는 `exchange_match.updated_at`을 바꾸지 않는다.
 - **속도 제한**: 사용자별 최근 5초 5건과 최근 60초 60건을 둘 다 지켜야 한다(슬라이딩 윈도, 한도를 넘은 시도는 기록하지 않음). 서버 한 대의 메모리이며 재시작하면 초기화된다.
@@ -692,7 +701,7 @@ AND NOT EXISTS (SELECT 1 FROM exchange_ticket_lock l WHERE l.ticket_id = tb.id)
 
 ### 미구현·알려진 한계 (채팅)
 - **차단·정지(V13 구현 완료)**: 이용 정지는 커밋 뒤 대상의 STOMP 연결을 닫는다(차단은 열린 매칭 취소로 쓰기만 막는다).
-- 신고는 V13에서 구현됐다(채팅 화면에서 신고, 관리자가 채팅 근거를 열람). 메시지 수정·삭제 없음(정책). 이미지·첨부 없음(텍스트만). 시스템 메시지·알림 행 없음(새 메시지 알림 없음, 헤더 채팅 아이콘 없음).
+- 신고는 V13에서 구현됐다(채팅 화면에서 신고, 관리자가 채팅 근거를 열람). 메시지 수정·삭제 없음(정책). 이미지·첨부 없음(텍스트만). 시스템 메시지는 저장하지 않는다. 새 메시지는 `CHAT_MESSAGE` 알림(수신자별 1행 재사용)으로 헤더 벨에 뜨며, 헤더 채팅 아이콘은 없다(V15).
 - 속도 제한과 연결 제한은 서버 한 대의 메모리다. 다중 인스턴스로 가려면 공유 저장소가 필요하다.
 - 미인증 소켓은 CONNECT 기한(10초) 뒤 닫히지만 정리 주기 때문에 최대 약 40초 유지될 수 있다(운영 프록시 연결 한도로 흡수). 하트비트 미응답 종료와 16KB 초과 프레임 거부는 실측으로 확인하지 않았다.
 - 응답·푸시에 상대 `senderId`(users.id)가 노출된다.
@@ -700,9 +709,9 @@ AND NOT EXISTS (SELECT 1 FROM exchange_ticket_lock l WHERE l.ticket_id = tb.id)
 
 ## 알림 (V10, 2026-10-11, `feature/notifications`)
 
-알림 3종(R1-3)의 쓰기 경로와 조회·읽음·삭제 API다. 실시간 푸시(STOMP 신호)는 `feature/notifications-realtime`(2026-10-11)에서 구현했고, 토스트는 만들지 않았다('알림 실시간 푸시' 절).
+알림 6종(V15에서 3종 추가)의 쓰기 경로와 조회·읽음·삭제 API다. 실시간 푸시(STOMP 신호)는 `feature/notifications-realtime`(2026-10-11)에서 구현했고, 토스트는 만들지 않았다('알림 실시간 푸시' 절).
 
-- 엔티티·저장소: `domain/Notification`(`notification` 테이블; `readAt`은 조회용 매핑이고 갱신은 벌크 쿼리로 한다), `domain/NotificationType`(PROPOSAL_RECEIVED / MATCH_RESERVED / RESERVATION_CANCELED), `NotificationRepository`(저장·읽음·삭제), `NotificationQueryRepository`(목록·개수 조회). 서비스 `NotificationService`, 컨트롤러 `NotificationController`(`/api/notifications`), 응답 `NotificationResponse`·`UnreadCountResponse`.
+- 엔티티·저장소: `domain/Notification`(`notification` 테이블; `readAt`은 조회용 매핑이고 갱신은 벌크 쿼리로 한다), `domain/NotificationType`(PROPOSAL_RECEIVED / RESERVATION_PROPOSED / RESERVATION_REJECTED / MATCH_RESERVED / RESERVATION_CANCELED / CHAT_MESSAGE), `NotificationRepository`(저장·읽음·삭제), `NotificationQueryRepository`(목록·개수 조회). 서비스 `NotificationService`, 컨트롤러 `NotificationController`(`/api/notifications`), 응답 `NotificationResponse`·`UnreadCountResponse`.
 
 ### 알림 API
 
@@ -711,12 +720,12 @@ AND NOT EXISTS (SELECT 1 FROM exchange_ticket_lock l WHERE l.ticket_id = tb.id)
 | Method | Path | 설명 |
 |---|---|---|
 | GET | /api/notifications?page=0&size=20&unreadOnly=false | 내 알림 목록, id 내림차순. size 기본 20, 100 초과는 100으로 보정. page 음수·size 1 미만·잘못된 값은 400. 닫힌 매칭의 알림도 포함 |
-| GET | /api/notifications/unread-count | `{total, byType}`. byType에는 3종 키가 항상 있다(0 포함). 닫힌 매칭 알림도 센다 |
+| GET | /api/notifications/unread-count | `{total, byType}`. byType에는 6종 키가 항상 있다(0 포함). 닫힌 매칭 알림도 센다 |
 | POST | /api/notifications/{id}/read | 단건 읽음 (204, 이미 읽었어도 멱등) |
 | POST | /api/notifications/read-all?type= | 일괄 읽음 (204). type을 생략하면 전체, 잘못된 type은 400 |
 | DELETE | /api/notifications/read | 읽은 알림 삭제 (200, `{"deleted": n}`). 안 읽은 알림과 남의 알림은 지우지 않는다. **알림이 사라지는 유일한 경로**다 |
 
-unread-count 예시: `{"total":3,"byType":{"PROPOSAL_RECEIVED":2,"MATCH_RESERVED":1,"RESERVATION_CANCELED":0}}`
+unread-count 예시: `{"total":3,"byType":{"PROPOSAL_RECEIVED":0,"RESERVATION_PROPOSED":1,"RESERVATION_REJECTED":0,"MATCH_RESERVED":0,"RESERVATION_CANCELED":0,"CHAT_MESSAGE":2}}`
 
 목록 항목(`NotificationResponse`): `id, type, matchId, read, readAt, createdAt, matchStatus, matchClosed, role(SENT|RECEIVED), counterpartNickname, performanceTitle, mySeat{zone,row,col}, counterpartSeat{zone,row,col}`.
 - `role`은 매칭 기준이다(SENT = 내가 제안자 a측, RECEIVED = b측). `matchClosed`는 CANCELED·COMPLETED일 때 true다.
@@ -724,29 +733,41 @@ unread-count 예시: `{"total":3,"byType":{"PROPOSAL_RECEIVED":2,"MATCH_RESERVED
 
 ### 생성 규칙 (쓰기 경로)
 
-`ExchangeMatchService`의 `propose`·`reserve`·`unreserve`가 **상태를 실제로 바꾼 경우에만**, 트랜잭션의 맨 끝에서 `NotificationService.notify`(MANDATORY, saveAndFlush)로 수신자당 1건을 쓴다. 멱등 경로와 오류 경로에서는 쓰지 않으며, 트랜잭션이 롤백되면 알림도 함께 사라진다.
+`ExchangeMatchService`의 `propose`·예약 제안(`reserve`)·수락(`reserve/accept`)·거절(`reserve/decline`)·`unreserve`와 `ChatService`의 전송이 **상태를 실제로 바꾼 경우에만**, 트랜잭션의 맨 끝에서 `NotificationService.notify`(MANDATORY, saveAndFlush)로 수신자당 1건을 쓴다. 멱등 경로와 오류 경로에서는 쓰지 않으며, 트랜잭션이 롤백되면 알림도 함께 사라진다.
 
 | type | 생성 시점 | 수신자 | dedup_key |
 |---|---|---|---|
 | PROPOSAL_RECEIVED | 제안으로 CHATTING 매칭이 생성됨 | 제안받은 쪽(b측) | `PROPOSAL_RECEIVED:{matchId}` (같은 제안은 한 번만) |
-| MATCH_RESERVED | 한쪽이 예약함 (CHATTING -> RESERVED) | 호출자의 반대편 | NULL (예약마다 1건) |
+| RESERVATION_PROPOSED | 예약 제안이 생김 (CHATTING, 제안 컬럼 기록) | 제안받은 쪽 | `RESERVATION_PROPOSED:{matchId}:{recipientId}` (재사용 1행) |
+| RESERVATION_REJECTED | 제안받은 쪽이 예약 제안을 거절함 | 제안자 | NULL (거절마다 1건) |
+| MATCH_RESERVED | 제안받은 쪽이 수락해 RESERVED가 됨 (문구: 상대가 예약을 수락했어요) | 제안자 | NULL (예약마다 1건) |
 | RESERVATION_CANCELED | 한쪽이 예약을 취소함 (RESERVED -> CHATTING) | 호출자의 반대편 | NULL (취소마다 1건) |
+| CHAT_MESSAGE | 상대가 채팅 메시지를 저장함 (같은 `clientMessageId` 재전송 제외) | 상대 | `CHAT_MESSAGE:{matchId}:{recipientId}` (재사용 1행) |
 
-- **dedup_key 규칙**: 한 번만 생기는 알림(제안)만 `dedup_key`로 막는다(`uk_notification_dedup` 단일 유니크, NULL은 중복 허용). 예약·예약 취소는 같은 매칭에서 반복되므로 키를 두지 않고 반복마다 1건을 쌓는다. 설계 가안이던 `(user_id, type, match_id)` 유니크는 쓰지 않는다. 재예약 때 그 유니크가 위반되어 예약 트랜잭션이 통째로 롤백되기 때문이다.
+예약 제안 철회(`reserve/withdraw`)는 알림을 만들지 않는다.
+
+- **dedup_key 규칙**: 한 번만 생기는 알림(제안)만 `dedup_key`로 막는다(`uk_notification_dedup` 단일 유니크, NULL은 중복 허용). 예약 수락·거절·예약 취소는 같은 매칭에서 반복되므로 키를 두지 않고 반복마다 1건을 쌓는다. 예약 제안과 채팅 메시지는 (수신자, 매칭)당 1행을 재사용한다(아래 '재사용 알림'). 설계 가안이던 `(user_id, type, match_id)` 유니크는 쓰지 않는다. 재예약 때 그 유니크가 위반되어 예약 트랜잭션이 통째로 롤백되기 때문이다.
 - **잠금 순서**: 티켓 id↑ -> 요청 id↑ -> 매칭 -> users(S, FK 검사) -> notification. **notification 행을 잠근 뒤에는 티켓·요청·매칭을 잠그지 않는다.** 알림 쓰기는 항상 트랜잭션의 마지막이다.
 - **읽음·삭제 규칙**: 잠금 없는 SELECT로 id를 모은 뒤 500개씩 `WHERE id IN (...)`으로만 갱신·삭제한다. 범위 UPDATE/DELETE는 쓰지 않는다(갭·넥스트키 잠금이 동시에 들어오는 알림 INSERT와 교착하는 것을 피하기 위해서다). 읽음 처리는 수집 이후 들어온 새 알림을 건드리지 않는다.
 - **닫힌 매칭**: 취소·완료된 매칭의 알림도 개수·목록에서 빼지 않는다(`matchClosed`만 표시). 알림을 자동으로 읽음 처리하지도 않는다(요구사항 §7 Q-6 확정).
 - **인덱스**: `idx_notification_user`·`idx_notification_match`는 FK용 단일 컬럼이다. 안 읽은 개수는 `unread_user_id` 생성 컬럼 인덱스로 센다. FK 인덱스에 `read_at` 같은 갱신 컬럼을 넣지 않는다(위 '동시성' 규칙).
 
+### 재사용 알림 (V15, 2026-10-13)
+
+- `RESERVATION_PROPOSED`·`CHAT_MESSAGE`는 `dedup_key`를 `{type}:{matchId}:{recipientId}`로 채우고 (수신자, 매칭)당 행 1개를 재사용한다. 쓸 때는 **PK 행을 먼저 갱신**(`read_at = NULL`, `created_at = now`)하고, 행이 없을 때(처음이거나 읽은 알림 삭제 뒤)만 `INSERT … ON DUPLICATE KEY UPDATE`로 만든다. 순수 upsert(유니크 인덱스를 먼저 잠금)는 '읽은 알림 삭제'(PK를 먼저 잠금)와 실제 MySQL에서 교착했으므로 순서를 통일했다.
+- 되살린 알림은 `created_at`이 바뀌므로 목록·말풍선 정렬은 `ORDER BY created_at DESC, id DESC`다(`NotificationQueryRepository`). 사용자당 알림이 (수신자, 매칭)당 1행이라 정렬용 `(user_id, created_at)` 인덱스는 만들지 않았다(EXPLAIN 근거 없음).
+- **채팅 알림 읽음**: `ChatService.markRead`가 포인터를 올리면 `NotificationService.markChatRead`가 그 (수신자, 매칭)의 `CHAT_MESSAGE` 행을 유니크 키로 찾아 PK로 한 행씩 읽음 처리한다(안 읽은 것만). 이 호출은 매칭·users 잠금 밖의 독립 트랜잭션(READ_COMMITTED)에서 한다. 한 문장의 `NOT EXISTS` 가드로 읽음 포인터 뒤에 상대 메시지가 남아 있으면 읽음 처리하지 않는다(새 메시지의 알림 되살리기와 겹쳐도 새 알림이 읽음으로 덮이지 않게 한다).
+- 닫힌 매칭의 알림은 개수·목록에 그대로 남는다(위 '닫힌 매칭' 규칙).
+
 ### 테스트
 
-- `NotificationControllerSliceTest` 7건: 전 엔드포인트 로그인 요구, 목록 응답 형태(개인정보 없음), 파라미터 전달과 잘못된 값 400, unread-count의 3종 키 상시 포함, 읽음 204와 남의 알림 404.
+- `NotificationControllerSliceTest` 7건: 전 엔드포인트 로그인 요구, 목록 응답 형태(개인정보 없음), 파라미터 전달과 잘못된 값 400, unread-count의 byType 키 상시 포함(V15 이후 6종), 읽음 204와 남의 알림 404.
 - `NotificationApiMysqlTest` 10건(실제 MySQL, `SEATSWAP_IT_*` 필요, 없으면 건너뜀): 목록의 수신자 기준 조인과 개인정보 없음, id 내림차순·unreadOnly·페이지·size 100 보정, 닫힌 매칭 알림 포함, 읽음 멱등과 404, 전체 읽음의 type 필터·수집 이후 알림 보존·대량 배치, 읽은 알림 삭제(안 읽은 것과 남의 것 보존), 교환 완료 매칭 알림의 교환 전 자리 유지, 그리고 **교착 스트레스**(한 수신자에게 제안·예약·취소가 동시에 몰리는 동안 수신자의 읽음·삭제와 본인 티켓 등록 경합을 돌려도 1213 교착이 없고 알림 개수가 맞는다).
 
 ### 미구현 (알림)
 
 - 토스트: 만들지 않았다(벨 뱃지 즉시 갱신과 `/notifications`의 '새 알림' 버튼으로 대체). 실시간 푸시(STOMP 신호)는 구현됐다('알림 실시간 푸시' 절).
-- 거절·채팅 종료·7일 경과·교환 완료 알림: 생성하지 않는다(`NotificationType` 확장으로 추가할 수 있다).
+- 채팅 종료·7일 경과·교환 완료·예약 제안 철회 알림: 생성하지 않는다(`NotificationType` 확장으로 추가할 수 있다).
 - 알림 보존 기간·자동 정리 정책: 없다(사용자의 '읽은 알림 삭제'만 있다).
 
 ## 알림 실시간 푸시 (2026-10-11, `feature/notifications-realtime`)
@@ -764,7 +785,7 @@ unread-count 예시: `{"total":3,"byType":{"PROPOSAL_RECEIVED":2,"MATCH_RESERVED
 - 프론트: `api/realtimeHub.ts`가 로그인한 앱 전체에서 탭당 STOMP 연결 1개를 공유한다. 벨 훅 `useUnreadNotifications`와 채팅 훅 `useChatSocket`이 각자 참조를 잡고(acquire), 마지막 참조가 풀리면 연결을 닫는다. 토큰 재발급 시 재연결하고, 지수 백오프(1~30초)는 허브와 `realtime.ts`가 처리한다. 이미 연결된 상태에서 채팅 화면이 열리면 구독 직후 `onConnected`가 한 번 불려 빈 구간을 채운다.
 - 화면: 신호를 받으면 벨 개수를 즉시 다시 읽는다. 벨 말풍선이 열려 있으면 목록을 조용히 다시 읽는다. `/notifications` 페이지는 목록을 바로 바꾸지 않고 "새 알림이 있어요. 눌러서 불러오기" 버튼(`role="status"`)만 띄운다. 토스트는 만들지 않았다.
 - 폴링: 연결이 살아 있으면 30초 폴링을 하지 않고 5분(30초×10틱)마다 안전 확인만 한다. 연결이 끊겨 있으면 이전처럼 화면이 보일 때만 30초 폴링하고, focus·visibilitychange·경로 이동·읽음/삭제 직후에 즉시 다시 읽는다. (재)연결 직후에도 안 읽은 개수를 즉시 다시 읽는다.
-- 새 채팅 메시지는 여전히 알림 행을 만들지 않고 헤더 메시지 아이콘도 없다(채팅 푸시 규칙은 불변).
+- 새 채팅 메시지는 `CHAT_MESSAGE` 알림 행(재사용 1행)으로 벨에 표시되고, 푸시는 같은 알림 신호 1건(`/user/queue/notifications`, afterCommit)이다. 헤더 메시지 아이콘은 없다(채팅 푸시 규칙은 불변).
 
 ### 테스트
 - 백엔드 기본 + 임시 MySQL IT 포함 617건 통과(실패 0, skip 0). 새 테스트: `NotificationServicePushTest`(커밋 뒤 1회, 롤백 시 미전송, 전파 실패 삼킴), `StompAuthChannelInterceptorTest`(알림 큐 구독, 두 큐 동시 구독, 목적지당 중복·변형 거부), `StompChatMysqlIT`(제안받은 사용자의 모든 탭만 수신, 제안한 사람·제3자는 미수신).
@@ -902,7 +923,7 @@ docker rm -f seatswap-tmp-match
 
 ## 교환 완료 (2026-10-11, V9, `feature/exchange-complete`)
 
-- 흐름: 둘 중 한 명이 예약(RESERVED) -> 양쪽이 '교환 수락'(`complete`) -> 두 번째 수락이 교환 완료 트랜잭션을 실행해 COMPLETED. 첫 수락은 `a/b_completed_at`만 기록하고 RESERVED를 유지한다. 한쪽만 수락하고 방치돼도 자동 완료·취소는 없다(7일 경과 알림은 후속).
+- 흐름: 예약 제안 -> 상대 수락으로 예약(RESERVED, V15 이후) -> 양쪽이 '교환 수락'(`complete`) -> 두 번째 수락이 교환 완료 트랜잭션을 실행해 COMPLETED. 첫 수락은 `a/b_completed_at`만 기록하고 RESERVED를 유지한다. 한쪽만 수락하고 방치돼도 자동 완료·취소는 없다(7일 경과 알림은 후속).
 - **트랜잭션 순서 (flush 주의)**: 잠금(티켓 id↑ -> 요청 id↑ -> 매칭) -> 기존 두 티켓 `markExchanged()` -> **`ticketRepository.flush()`** -> 새 티켓 INSERT -> `exchange_history` 2행 -> 두 기존 요청 CLOSED -> 잠금 2행 삭제 -> 매칭 COMPLETED. flush를 빼면 Hibernate가 INSERT를 UPDATE보다 먼저 실행해 아직 ACTIVE인 기존 티켓과 `uk_ticket_active_seat`가 충돌한다. 새 티켓 생성은 `Ticket.exchangedFrom`, 이력은 `ExchangeHistory.of`로 만든다.
 - 응답: 매칭 응답의 `mySeat`/`counterpartSeat`와 ticket id는 교환 전 자리·티켓이다. 교환 후 자리는 새 티켓과 `exchange_history`에서 본다.
 - 테스트: `ExchangeCompleteMysqlTest` 8건(실제 MySQL, 실제 서비스·트랜잭션), `MigrationV9MysqlTest` 3건. 같은 매칭 양쪽 동시 수락 20라운드(COMPLETED는 정확히 한 번), 같은 티켓을 건 두 매칭 경합 20라운드, 교착 0건.
@@ -910,10 +931,12 @@ docker rm -f seatswap-tmp-match
 - 교환 이력 조회 API(`GET /api/exchange/history`)와 마이페이지 화면은 2026-10-12 `feature/exchange-history`에서 구현했다(DB 변경 없음, 본인 행만 id 내림차순, size 기본 20 최대 100, `ExchangeHistoryService`·`ExchangeHistoryController`, 슬라이스·서비스 테스트 5건).
 
 ## 다음 단계
-1. 교환 도메인 구현 계속: (완료) V4 희망 범위·희망 좌석·희망 회차, 매칭 후보 조회, V5 매칭 생성·예약·거절·취소·예약 잠금, V6 추가금 범위 단위, V7 요청 소프트 삭제, V8 한 명 예약·예약 취소, V9 교환 완료(COMPLETED, 기존 티켓 EXCHANGED + 새 티켓)·교환 이력 기록, V10 알림 3종(조회·읽음·삭제 API 포함, 2026-10-11), V11 채팅(REST 전송·조회·읽음 + STOMP 푸시, 2026-10-11), 알림 실시간 푸시(STOMP 신호, 2026-10-11, `feature/notifications-realtime`), 관리자 페이지 V12(공연 수정 제안·내 티켓 인증, 2026-10-12, `feature/admin`) / 남음: 7일 경과 알림(미구현). 차단·신고(V13, 2026-10-12)와 교환 이력 조회 API·화면(2026-10-12 `feature/exchange-history`)은 구현 완료 (설계안 `산출물/08_ERD/exchange-schema-design.md`)
+1. 교환 도메인 구현 계속: (완료) V4 희망 범위·희망 좌석·희망 회차, 매칭 후보 조회, V5 매칭 생성·예약·거절·취소·예약 잠금, V6 추가금 범위 단위, V7 요청 소프트 삭제, V8 단일 예약·예약 취소, V15 예약 제안·예약 수락·채팅 알림(2026-10-13), V9 교환 완료(COMPLETED, 기존 티켓 EXCHANGED + 새 티켓)·교환 이력 기록, V10 알림 3종(조회·읽음·삭제 API 포함, 2026-10-11), V11 채팅(REST 전송·조회·읽음 + STOMP 푸시, 2026-10-11), 알림 실시간 푸시(STOMP 신호, 2026-10-11, `feature/notifications-realtime`), 관리자 페이지 V12(공연 수정 제안·내 티켓 인증, 2026-10-12, `feature/admin`) / 남음: 7일 경과 알림(미구현). 차단·신고(V13, 2026-10-12)와 교환 이력 조회 API·화면(2026-10-12 `feature/exchange-history`)은 구현 완료 (설계안 `산출물/08_ERD/exchange-schema-design.md`)
 2. 티켓 자동 비활성(회차 당일 끝 경과, 스케줄러)과 '내 티켓 인증'
-3. (완료) 후보 제시 -> 매칭 생성 -> 한 명 예약/예약 취소 -> 양쪽 '교환 수락'으로 교환 완료(V9, 2026-10-11)
+3. (완료) 후보 제시 -> 매칭 생성 -> 예약 제안·수락/예약 취소 -> 양쪽 '교환 수락'으로 교환 완료(V9, 2026-10-11)
 4. (완료, 2026-10-12) 사용자 차단·신고·관리자 신고 처리·이용 정지(V13). 후기 기능은 없음; 채팅은 2026-10-11 구현 완료
 5. 배포 시 SecurityConfig의 CORS allowed-origin을 실제 프론트 도메인으로 교체
 6. 브라우저 수동 점검(차단·신고·정지 화면 포함), trust_score 컬럼 정리 여부 결정, 7일 경과 알림(미구현)
-7. (완료, 2026-10-12, 미병합) 소셜 로그인(V14). 다음 요청(미착수): 예약 방식 변경(예약 버튼은 채팅 화면에서만, 예약도 '예약 제안 → 상대 수락'이어야 RESERVED, V15 필요). 그 뒤 7일 경과 알림.
+7. (완료, 2026-10-12, 미병합) 소셜 로그인(V14).
+8. (완료, 2026-10-13, 미병합) 예약 제안·예약 수락·채팅 알림(V15), 벨 위치(데스크톱은 '내 매칭' 오른쪽). 예약 버튼은 채팅 화면에만 있다.
+9. 다음 요청(미착수, 사용자): 마이페이지 회원정보 수정(닉네임·소셜 연결), 회원탈퇴·개인정보처리방침·footer 링크, 포스터 표시, 회차 정보 자동 채우기. 그 뒤 7일 경과 알림.

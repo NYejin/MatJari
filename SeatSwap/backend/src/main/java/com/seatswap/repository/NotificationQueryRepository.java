@@ -14,7 +14,8 @@ import java.util.Map;
  * 알림 조회 (읽기 전용, 잠금 없는 일반 SELECT). 알림 1건당 한 번의 조인(notification -> match -> 양쪽 티켓 -> 회차 -> 공연, 양쪽 users)으로
  * 닉네임·좌석·공연명을 읽어 N+1 이 없다. 수신자가 a측인지는 SQL 이 아니라 행 변환에서 가른다(양쪽을 항상 읽는다).
  * 개인정보 보호: users 에서는 nickname 만 읽는다(이메일 등은 SELECT 하지 않는다).
- * 접근 경로: idx_notification_user(user_id) 로 내 알림만 읽고(보조 인덱스 끝에 PK 가 붙어 id DESC 정렬이 인덱스 역순 스캔) 나머지는 PK 점조회.
+ * 접근 경로: idx_notification_user(user_id) 로 내 알림만 읽고 (created_at DESC, id DESC) 로 정렬한다. 재사용 알림이 (수신자, 매칭)당 1행이라
+ * 사용자당 행 수가 작아 filesort 비용이 작다고 보고 별도 인덱스는 두지 않는다. 나머지는 PK 점조회.
  * 안 읽은 개수는 idx_notification_unread(unread_user_id, 생성 컬럼) 로 센다. 목록 COUNT 는 notification 만 센다
  * (match_id 가 NOT NULL + FK 라 INNER JOIN 으로 줄어드는 행이 없다).
  */
@@ -45,9 +46,9 @@ public class NotificationQueryRepository {
         this.jdbc = jdbc;
     }
 
-    /** id 내림차순 한 페이지. */
+    /** 최신순(created_at 내림차순, 같으면 id 내림차순) 한 페이지. 되살린(revive) 재사용 알림은 created_at 이 갱신되므로 맨 위로 온다. */
     public List<NotificationResponse> findPage(Long userId, boolean unreadOnly, int limit, long offset) {
-        String sql = SELECT + (unreadOnly ? " AND n.read_at IS NULL" : "") + " ORDER BY n.id DESC LIMIT ? OFFSET ?";
+        String sql = SELECT + (unreadOnly ? " AND n.read_at IS NULL" : "") + " ORDER BY n.created_at DESC, n.id DESC LIMIT ? OFFSET ?";
         return jdbc.query(sql, (rs, i) -> {
             boolean mineIsA = userId.equals(rs.getLong("user_a_id"));
             String status = rs.getString("match_status");
@@ -70,7 +71,7 @@ public class NotificationQueryRepository {
         return n == null ? 0 : n;
     }
 
-    /** 안 읽은 개수(종류별). 3종 키를 0 으로 채워 돌려준다. 닫힌 매칭 알림도 센다. */
+    /** 안 읽은 개수(종류별). 알림 종류 6개 키를 0 으로 채워 돌려준다. 닫힌 매칭 알림도 센다. */
     public Map<NotificationType, Long> unreadCountsByType(Long userId) {
         Map<NotificationType, Long> result = new EnumMap<>(NotificationType.class);
         for (NotificationType t : NotificationType.values()) {

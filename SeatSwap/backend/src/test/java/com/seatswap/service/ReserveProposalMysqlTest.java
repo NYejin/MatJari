@@ -167,7 +167,7 @@ class ReserveProposalMysqlTest {
         ExchangeMatchResponse offered = matchService.reserve(p.userId, m);
         assertThat(offered.reservationProposal()).isEqualTo("MINE");
         assertThat(matchService.reserve(p.userId, m).reservationProposal()).as("내 제안 재호출은 멱등").isEqualTo("MINE");
-        assertThat(count("SELECT COUNT(*) FROM notification WHERE type = 'RESERVATION_PROPOSED' AND user_id = " + q.userId + " AND dedup_key IS NULL"))
+        assertThat(count("SELECT COUNT(*) FROM notification WHERE type = 'RESERVATION_PROPOSED' AND user_id = " + q.userId + " AND dedup_key = 'RESERVATION_PROPOSED:" + m + ":" + q.userId + "'"))
                 .as("멱등 재호출은 알림 없음").isEqualTo(1);
         assertThatThrownBy(() -> matchService.reserve(q.userId, m)).isInstanceOfSatisfying(ConflictException.class,
                 e -> assertThat(e.getDetails()).containsEntry("code", "RESERVATION_PROPOSAL_PENDING"));
@@ -189,7 +189,7 @@ class ReserveProposalMysqlTest {
 
         // p 가 다시 제안 -> q 가 수락: 제안자 p 에게 MATCH_RESERVED, reserved_by = p, 잠금 2행
         matchService.reserve(p.userId, m);
-        assertThat(notificationService.unreadCount(q.userId).byType()).containsEntry("RESERVATION_PROPOSED", 2L);
+        assertThat(notificationService.unreadCount(q.userId).byType()).containsEntry("RESERVATION_PROPOSED", 1L);   // (수신자, 매칭)당 1행 재사용
         ExchangeMatchResponse accepted = matchService.reserveAccept(q.userId, m);
         assertThat(accepted.status()).isEqualTo("RESERVED");
         assertThat(accepted.reservedBy()).isEqualTo("COUNTERPART");
@@ -300,7 +300,7 @@ class ReserveProposalMysqlTest {
         Party g = party(9, "Z5"), h = party(10, "Z5");
         mutual(g, h);
         long m7 = proposed(g, h, h);
-        new TransactionTemplate(transactionManager).executeWithoutResult(s -> canceller.cancelAllOf(g.userId));
+        readCommitted().executeWithoutResult(s -> canceller.cancelAllOf(g.userId));
         assertCanceledWithoutProposal(m7);
 
         assertThat(count("SELECT COUNT(*) FROM exchange_match WHERE reserve_proposed_by_id IS NOT NULL OR reserve_proposed_at IS NOT NULL")).isZero();
@@ -415,7 +415,7 @@ class ReserveProposalMysqlTest {
         List<Disruptor> disruptors = List.of(
                 new Disruptor("cancel", (c) -> matchService.cancel(c.p.userId, c.m)),
                 new Disruptor("block", (c) -> blockService.blockFromMatch(c.q.userId, c.m)),
-                new Disruptor("suspend", (c) -> new TransactionTemplate(transactionManager).executeWithoutResult(s -> canceller.cancelAllOf(c.p.userId))),
+                new Disruptor("suspend", (c) -> readCommitted().executeWithoutResult(s -> canceller.cancelAllOf(c.p.userId))),
                 new Disruptor("deactivateA", (c) -> ticketService.deactivate(c.p.userId, c.p.ticketId)),
                 new Disruptor("deactivateB", (c) -> ticketService.deactivate(c.q.userId, c.q.ticketId)),
                 new Disruptor("deleteRequest", (c) -> requestService.delete(c.p.userId, c.p.requestId)));
@@ -636,7 +636,145 @@ class ReserveProposalMysqlTest {
         invariants();
     }
 
+    // ------------------------------------------------------------------ 알림 재사용·정렬·읽음 가드
+
+    @Test
+    void 제안_철회_재제안을_반복해도_수신자_알림_행은_1개이고_읽음_삭제_뒤에는_새_행_읽음_뒤_재제안은_다시_안_읽음() {
+        Party p = party(1, "Z1");
+        Party q = party(2, "Z1");
+        mutual(p, q);
+        long m = matchService.propose(p.userId, p.requestId, q.requestId).id();
+        String key = "RESERVATION_PROPOSED:" + m + ":" + q.userId;
+        String sql = "SELECT COUNT(*) FROM notification WHERE type = 'RESERVATION_PROPOSED' AND user_id = " + q.userId;
+
+        for (int i = 0; i < 4; i++) {
+            matchService.reserve(p.userId, m);
+            matchService.reserveWithdraw(p.userId, m);
+        }
+        assertThat(count(sql)).as("제안→철회 4회 반복해도 1행").isEqualTo(1);
+        assertThat(count(sql + " AND dedup_key = '" + key + "' AND read_at IS NULL")).isEqualTo(1);
+        long firstId = jdbc.queryForObject("SELECT id FROM notification WHERE dedup_key = ?", Long.class, key);
+
+        // 읽은 뒤 재제안하면 같은 행이 다시 안 읽음
+        notificationService.markRead(q.userId, firstId);
+        assertThat(count(sql + " AND read_at IS NOT NULL")).isEqualTo(1);
+        matchService.reserve(p.userId, m);
+        assertThat(count(sql + " AND read_at IS NULL AND id = " + firstId)).as("읽음 후 재제안은 다시 안 읽음").isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM notification WHERE type = 'RESERVATION_PROPOSED'")).isEqualTo(1);
+        assertThat(publisher.events.stream().filter(e -> e.equals(q.userId + ":RESERVATION_PROPOSED:" + m)).count())
+                .as("제안 성공마다 푸시 1건").isEqualTo(5);
+
+        // 읽은 알림 삭제 뒤 재제안은 새 행
+        matchService.reserveWithdraw(p.userId, m);
+        notificationService.markRead(q.userId, firstId);
+        assertThat(notificationService.deleteRead(q.userId)).isGreaterThanOrEqualTo(1);
+        assertThat(count(sql)).isZero();
+        matchService.reserve(p.userId, m);
+        assertThat(count(sql + " AND read_at IS NULL")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT id FROM notification WHERE dedup_key = ?", Long.class, key)).isGreaterThan(firstId);
+
+        // 거절 알림은 반복마다 쌓이는 기존 방식(dedup_key NULL)을 유지한다
+        matchService.reserveDecline(q.userId, m);
+        matchService.reserve(p.userId, m);
+        matchService.reserveDecline(q.userId, m);
+        assertThat(count("SELECT COUNT(*) FROM notification WHERE type = 'RESERVATION_REJECTED' AND dedup_key IS NULL AND user_id = " + p.userId)).isEqualTo(2);
+        assertThat(publisher.notVisible.get()).isZero();
+        invariants();
+    }
+
+    @Test
+    void 되살린_알림은_알림_목록과_미리보기_크기_모두에서_최신순_맨_위에_온다() {
+        Party p = party(1, "Z1");
+        Party q = party(2, "Z1");
+        Party r = party(3, "Z1");
+        mutual(p, q);
+        mutual(r, q);
+        long m1 = matchService.propose(p.userId, p.requestId, q.requestId).id();
+        chatService.send(p.userId, m1, "안녕하세요", "11111111-ssss");     // q 의 채팅 알림 = 가장 작은 id 쪽
+        long m2 = matchService.propose(r.userId, r.requestId, q.requestId).id();   // id 가 더 큰 새 제안 알림
+        matchService.reserve(r.userId, m2);                                         // id 가 더 큰 예약 제안 알림
+        long chatId = jdbc.queryForObject("SELECT id FROM notification WHERE type = 'CHAT_MESSAGE' AND user_id = ?", Long.class, q.userId);
+        assertThat(chatId).isLessThan(jdbc.queryForObject("SELECT MAX(id) FROM notification WHERE user_id = ?", Long.class, q.userId));
+
+        // 시각을 전부 과거로 고정한 뒤 채팅 알림을 되살린다
+        jdbc.update("UPDATE notification SET created_at = '2020-01-01 00:00:00.000000' WHERE user_id = ?", q.userId);
+        chatService.send(p.userId, m1, "다시 메시지", "22222222-ssss");
+
+        assertThat(count("SELECT COUNT(*) FROM notification WHERE type = 'CHAT_MESSAGE' AND user_id = " + q.userId)).isEqualTo(1);
+        for (int size : new int[] {1, 2, 5, 20}) {
+            assertThat(notificationService.list(q.userId, 0, size, false).content().get(0).id())
+                    .as("size=" + size + " 의 첫 알림은 되살린 채팅 알림").isEqualTo(chatId);
+            assertThat(notificationService.list(q.userId, 0, size, true).content().get(0).id()).isEqualTo(chatId);
+        }
+        // 같은 created_at 이면 id 내림차순
+        List<Long> ids = notificationService.list(q.userId, 0, 20, false).content().stream().map(NotificationResponse::id).toList();
+        assertThat(ids.get(0)).isEqualTo(chatId);
+        assertThat(ids.subList(1, ids.size())).isSortedAccordingTo(java.util.Comparator.reverseOrder());
+        // 두 번째 페이지도 이어서 정렬된다(중복·누락 없음)
+        assertThat(notificationService.list(q.userId, 1, 1, false).content().get(0).id()).isEqualTo(ids.get(1));
+    }
+
+    @Test
+    void 읽음_포인터_뒤에_상대_메시지가_남아_있으면_채팅_알림은_읽음_처리되지_않는다() {
+        Party p = party(1, "Z1");
+        Party q = party(2, "Z1");
+        mutual(p, q);
+        long m = matchService.propose(p.userId, p.requestId, q.requestId).id();
+        long first = chatService.send(p.userId, m, "하나", "11111111-gggg").message().id();
+        chatService.markRead(q.userId, m, first);
+        String chat = "SELECT COUNT(*) FROM notification WHERE type = 'CHAT_MESSAGE' AND user_id = " + q.userId;
+        assertThat(count(chat + " AND read_at IS NOT NULL")).isEqualTo(1);
+
+        long second = chatService.send(p.userId, m, "둘", "22222222-gggg").message().id();   // 되살아남(안 읽음)
+        assertThat(count(chat + " AND read_at IS NULL")).isEqualTo(1);
+
+        // 늦게 도착한 옛 읽음 처리(포인터는 first 인 상태)는 새 메시지 알림을 읽음으로 만들지 않는다
+        notificationService.markChatRead(q.userId, m);
+        assertThat(count(chat + " AND read_at IS NULL")).as("가드: 포인터 뒤 상대 메시지가 있다").isEqualTo(1);
+
+        // 내가 보낸 메시지는 가드에 걸리지 않는다: 포인터가 상대 마지막 메시지까지 오면 읽음 처리
+        chatService.send(q.userId, m, "답장", "33333333-gggg");
+        chatService.markRead(q.userId, m, jdbc.queryForObject("SELECT MAX(id) FROM chat_message", Long.class));
+        assertThat(count(chat + " AND read_at IS NOT NULL")).isEqualTo(1);
+        assertThat(second).isGreaterThan(first);
+    }
+
+    @Test
+    void 읽음_처리와_새_메시지_revive가_겹쳐도_포인터_뒤_메시지가_있으면_알림은_안_읽음으로_남는다() throws Exception {
+        Party p = party(1, "Z1");
+        Party q = party(2, "Z1");
+        mutual(p, q);
+        long m = matchService.propose(p.userId, p.requestId, q.requestId).id();
+        AtomicInteger seqNo = new AtomicInteger();
+        for (int round = 0; round < 25; round++) {
+            chatService.send(p.userId, m, "먼저", String.format("r%07d-aaaa", seqNo.incrementAndGet()));
+            List<Callable<Object>> calls = List.of(
+                    () -> {
+                        Long max = jdbc.queryForObject("SELECT COALESCE(MAX(id), 0) FROM chat_message", Long.class);
+                        chatService.markRead(q.userId, m, max);
+                        return "read";
+                    },
+                    () -> chatService.send(p.userId, m, "겹치는 새 메시지", String.format("r%07d-bbbb", seqNo.incrementAndGet())));
+            for (Object res : runConcurrently(calls)) {
+                assertThat(res).as("round " + round).isNotInstanceOf(Exception.class);
+            }
+            long pointer = count("SELECT COALESCE(MAX(last_read_message_id), 0) FROM chat_read_state WHERE user_id = " + q.userId + " AND match_id = " + m);
+            long lastFromP = count("SELECT MAX(id) FROM chat_message WHERE sender_id = " + p.userId + " AND match_id = " + m);
+            boolean unread = count("SELECT COUNT(*) FROM notification WHERE type = 'CHAT_MESSAGE' AND user_id = " + q.userId + " AND read_at IS NULL") == 1;
+            assertThat(unread || pointer >= lastFromP).as("round " + round + ": 포인터 뒤 상대 메시지가 있으면 알림은 안 읽음이어야 한다 (pointer=" + pointer
+                    + ", lastFromP=" + lastFromP + ")").isTrue();
+        }
+        invariants();
+    }
+
     // ------------------------------------------------------------------ 도우미
+
+    /** 운영 AdminModerationService.resolve 와 같은 READ_COMMITTED 로 OpenMatchCanceller 를 호출한다. */
+    private TransactionTemplate readCommitted() {
+        TransactionTemplate t = new TransactionTemplate(transactionManager);
+        t.setIsolationLevel(org.springframework.transaction.TransactionDefinition.ISOLATION_READ_COMMITTED);
+        return t;
+    }
 
     private record UnreadCountResponseView(long total, long chat) {
         UnreadCountResponseView(com.seatswap.dto.response.UnreadCountResponse r) {

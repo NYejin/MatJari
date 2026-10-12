@@ -43,12 +43,12 @@ import java.util.Map;
  * <pre>
  *            PROPOSE  RESERVE(제안)      ACCEPT(수락)       DECLINE/WITHDRAW  UNRESERVE  REJECT(b측)  CANCEL  COMPLETE
  * CHATTING   409      허용(내 제안 멱등)  제안 있을 때 허용   제안 없으면 멱등    멱등 200   허용         허용    409 (예약 전)
- * RESERVED   409      409              수락자면 멱등 200   멱등 200          허용       409          409     허용 (내가 이미 수락했으면 멱등 200)
+ * RESERVED   409      409              멱등 200(양쪽)     멱등 200          허용       409          409     허용 (내가 이미 수락했으면 멱등 200)
  * COMPLETED  허용*    409              409              409               409        409          409     409
  * CANCELED   허용*    409              409              409               409        409          409     409
  * </pre>
- * 예약 제안 오류: 상대 제안이 이미 있으면 409 RESERVATION_PROPOSAL_PENDING, 수락할 제안이 없으면 409 RESERVATION_PROPOSAL_NOT_FOUND, 내가 낸 제안을 내가 수락·거절하면
- * 409 RESERVATION_PROPOSAL_OWN, 상대가 낸 제안을 내가 철회하면 409 RESERVATION_PROPOSAL_NOT_OWN. CHATTING 을 벗어나는 모든 전이는 같은 UPDATE 에서 제안 컬럼을 비운다.
+ * 예약 제안 오류: 상대 제안이 이미 있으면 409 RESERVATION_PROPOSAL_PENDING, CHATTING 에서 수락할 제안이 없으면 409 RESERVATION_PROPOSAL_NOT_FOUND, CHATTING 에서 내가 낸 제안을 내가 수락·거절하면
+ * 409 RESERVATION_PROPOSAL_OWN(이미 RESERVED 면 제안자·수락자 누구든 accept 는 멱등 200), 상대가 낸 제안을 내가 철회하면 409 RESERVATION_PROPOSAL_NOT_OWN. CHATTING 을 벗어나는 모든 전이는 같은 UPDATE 에서 제안 컬럼을 비운다.
  * PROPOSE 는 '같은 요청 쌍의 열린 매칭이 있는가'가 기준이다(*: 열린 매칭이 없으면, 취소·완료된 뒤에는 새 매칭을 만들 수 있다).
  * 불허 전이는 409 {message, code: MATCH_STATE_CONFLICT, status, action}. RESERVED 에서 reject·cancel 은 message '먼저 예약을 취소해주세요.'.
  * PROPOSE 중복은 409 MATCH_ALREADY_OPEN(+matchId).
@@ -62,7 +62,8 @@ import java.util.Map;
  *       그때 읽은 양쪽 적용 추가금(범위 단위)을 매칭 행의 스냅샷(a/b_extra_type·amount)으로 복사한다.</li>
  *   <li>reserve(예약 제안): 두 참여자 누구나, CHATTING 이고 제안이 없을 때만 reserve_proposed_by_id/at 을 채운다(티켓은 잠그지 않고 매칭 행만 FOR UPDATE).
  *       내가 이미 제안했으면 멱등 200, 상대 제안이 있으면 409 RESERVATION_PROPOSAL_PENDING, RESERVED 면 409 MATCH_STATE_CONFLICT. 어느 티켓이든 이미 다른 매칭에서
- *       잠겼으면 제안 시점에도 409 TICKET_ALREADY_RESERVED(미리 거르기), EXCHANGED 면 409 TICKET_EXCHANGED. 제안받은 쪽에게 RESERVATION_PROPOSED 알림.</li>
+ *       잠겼으면 제안 시점에도 409 TICKET_ALREADY_RESERVED(미리 거르기), EXCHANGED 면 409 TICKET_EXCHANGED. 제안받은 쪽에게 RESERVATION_PROPOSED 알림((수신자, 매칭)당 1행 재사용: 제안할 때마다 되살림, dedup_key = RESERVATION_PROPOSED:{matchId}:{recipientId}).
+ *       제안·철회·거절은 매칭 updated_at 을 갱신하므로 내 매칭 목록 정렬(최근 변경순)이 바뀐다(의도).</li>
  *   <li>reserveAccept(예약 수락): 제안받은 쪽만. 티켓 id↑ -> 요청 id↑ -> 매칭 잠금 뒤 RESERVED(reserved_by_id = 제안자, reserved_at = 수락 시각, 제안 컬럼 NULL)가 되고
  *       두 티켓에 exchange_ticket_lock 을 티켓 id 오름차순으로 한 트랜잭션에서 INSERT 한다. 어느 티켓이든 이미 다른 매칭에서 잠겼으면 409 TICKET_ALREADY_RESERVED
  *       (같은 티켓의 두 매칭이 동시에 수락하면 하나만 RESERVED). 회차 마감 검사는 하지 않는다(6차 확정). 제안자에게 MATCH_RESERVED 알림.</li>
@@ -79,7 +80,7 @@ import java.util.Map;
  * <h3>동시성: 요청 행 잠금 기반</h3>
  * 잠금 순서는 항상 티켓(id 오름차순) -> 요청(id 오름차순) -> 매칭이다(TicketService.deactivate·ExchangeRequestService 와 같은 규약).
  * 어떤 연산이든 같은 순서로 잡으므로 교착이 없고, 같은 쌍의 동시 propose 는 직렬화되어 하나만 201 이고 나머지는 열린 매칭을 보고 409 이다.
- * 같은 매칭의 두 사람이 동시에 reserve 하면 티켓 행 잠금에서 직렬화되어 한 번만 처리되고 나중 쪽은 RESERVED 를 읽어 멱등 200 이 된다.
+ * 같은 매칭의 두 사람이 동시에 reserve(제안)하면 매칭 행 잠금에서 직렬화되어 먼저 온 쪽만 제안이 되고 나중 쪽은 409 RESERVATION_PROPOSAL_PENDING 이다(수락이 동시에 오면 티켓 잠금에서 직렬화되어 한 번만 RESERVED, 나중 쪽은 멱등 200).
  * 잠금 읽기(FOR UPDATE) 이후에야 첫 일관 읽기(스냅샷)가 시작되도록, 요청·매칭의 불변 컬럼(티켓 id·사용자 id)을 먼저 트랜잭션 밖에서 읽는다.
  * 최종 방어선은 DB 제약이다: uk_exchange_match_open_pair(같은 쌍 열린 매칭 1개), exchange_ticket_lock PK(티켓당 예약 1개), ck_exchange_match_reserved(V8).
  * 불변식: exchange_ticket_lock 행이 있는 매칭 <=> status = RESERVED, 그리고 정확히 2행.
@@ -93,8 +94,8 @@ import java.util.Map;
  *
  * <h3>알림 (V10)</h3>
  * 상태가 실제로 바뀐 propose/reserve/accept/decline/unreserve 의 같은 트랜잭션 맨 끝에서 수신자당 1건: 새 제안은 받는 쪽(b)에게 PROPOSAL_RECEIVED(dedup_key 있음),
- * 예약 제안은 상대에게 RESERVATION_PROPOSED, 수락은 제안자에게 MATCH_RESERVED, 거절은 제안자에게 RESERVATION_REJECTED, 예약 취소는 상대에게 RESERVATION_CANCELED
- * (모두 dedup_key NULL). 철회·멱등·오류 경로는 알림이 없다. 롤백되면 알림도 사라진다. (채팅 알림은 ChatService 가 upsert 한다.)
+ * 예약 제안은 상대에게 RESERVATION_PROPOSED((수신자, 매칭)당 1행 재사용, dedup_key 있음), 수락은 제안자에게 MATCH_RESERVED, 거절은 제안자에게 RESERVATION_REJECTED, 예약 취소는 상대에게 RESERVATION_CANCELED
+ * (이 셋은 dedup_key NULL). 철회·멱등·오류 경로는 알림이 없다. 롤백되면 알림도 사라진다. (채팅 알림은 ChatService 가 upsert 한다.)
  *
  * 공연 시작 후에도 예약·예약 취소·취소가 가능하다. 이미 시작한 채팅의 reserve/accept/unreserve 에는 회차 마감 검사를 하지 않는다(새 매칭 생성에만 적용).
  */
@@ -379,7 +380,7 @@ public class ExchangeMatchService {
                 Map<Long, ExchangeRequest> requests = lockRequests(List.of(pre.getRequestAId(), pre.getRequestBId()));
                 ExchangeMatch m = matchRepository.findByIdForUpdate(matchId)
                         .orElseThrow(() -> new NotFoundException(MATCH_NOT_FOUND_MESSAGE));
-                // 멱등: 이미 CHATTING 인데 unreserve, 이미 내가 수락해 RESERVED 인데 accept 는 아무것도 쓰지 않고 현재 상태를 돌려준다.
+                // 멱등: 이미 CHATTING 인데 unreserve, 이미 RESERVED 인데 accept 는 아무것도 쓰지 않고 현재 상태를 돌려준다.
                 if ((action == ExchangeMatchAction.UNRESERVE && m.getStatus() == ExchangeMatchStatus.CHATTING)
                         || (action == ExchangeMatchAction.RESERVE_ACCEPT && acceptIsIdempotentOrFail(m, userId))) {
                     return view(m.getId(), userId);
@@ -424,15 +425,12 @@ public class ExchangeMatchService {
     }
 
     /**
-     * 수락 전 상태 검사(매칭 행 잠금 뒤). 이미 내가 수락해 RESERVED 면 true(멱등), 수락할 수 있는 CHATTING+상대 제안이면 false, 나머지는 예외.
-     * RESERVED 에서 제안자가 수락하려 하면 409 RESERVATION_PROPOSAL_OWN, 닫힌 매칭은 409 MATCH_STATE_CONFLICT.
+     * 수락 전 상태 검사(매칭 행 잠금 뒤). 이미 RESERVED 면(누가 부르든) true(멱등), 수락할 수 있는 CHATTING+상대 제안이면 false, 나머지는 예외.
+     * CHATTING 에서 제안자가 수락하려 하면 409 RESERVATION_PROPOSAL_OWN, 닫힌 매칭은 409 MATCH_STATE_CONFLICT.
      */
     private boolean acceptIsIdempotentOrFail(ExchangeMatch m, Long userId) {
         if (m.getStatus() == ExchangeMatchStatus.RESERVED) {
-            if (userId.equals(m.getReservedById())) {
-                throw proposalError(PROPOSAL_OWN_CODE, PROPOSAL_OWN_MESSAGE);
-            }
-            return true;
+            return true;   // 이미 성립한 예약: 제안자든 수락자든 멱등 200 (철회하라는 안내가 어긋나므로 409 로 막지 않는다)
         }
         if (m.getStatus() != ExchangeMatchStatus.CHATTING) {
             throw stateConflict(m.getStatus(), ExchangeMatchAction.RESERVE_ACCEPT);
@@ -461,7 +459,7 @@ public class ExchangeMatchService {
                     .orElseThrow(() -> new NotFoundException(MATCH_NOT_FOUND_MESSAGE));
             ExchangeMatchStatus st = m.getStatus();
             if (action == ExchangeMatchAction.RESERVE) {
-                if (st != ExchangeMatchStatus.CHATTING) {
+                if (!ExchangeMatch.isAllowed(st, action)) {
                     throw stateConflict(st, action);
                 }
                 if (m.hasReservationProposal()) {
@@ -479,11 +477,11 @@ public class ExchangeMatchService {
                 }
                 m.proposeReservation(userId, timePolicy.now());
                 matchRepository.saveAndFlush(m);
-                notificationService.notify(counterpartOf(m, userId), NotificationType.RESERVATION_PROPOSED, m.getId(), null);
+                notificationService.notifyReservationProposed(counterpartOf(m, userId), m.getId());
                 return view(m.getId(), userId);
             }
             // DECLINE / WITHDRAW
-            if (st != ExchangeMatchStatus.CHATTING && st != ExchangeMatchStatus.RESERVED) {
+            if (!ExchangeMatch.isAllowed(st, action)) {
                 throw stateConflict(st, action);
             }
             if (!m.hasReservationProposal()) {

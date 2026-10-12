@@ -484,12 +484,11 @@ class ExchangeMatchServiceTest {
     }
 
     @Test
-    void 이미_RESERVED면_수락자는_멱등_200_제안자는_OWN_409이고_아무것도_쓰지_않는다() {
+    void 이미_RESERVED면_수락자도_제안자도_accept는_멱등_200이고_아무것도_쓰지_않는다() {
         ExchangeMatch m = existingMatch(ExchangeMatchStatus.RESERVED);   // 제안자 = 예약자 = 1번
 
         assertThat(service.reserveAccept(2L, MATCH).status()).isEqualTo("RESERVED");
-        assertThatThrownBy(() -> service.reserveAccept(1L, MATCH)).isInstanceOfSatisfying(ConflictException.class,
-                e -> assertThat(e.getDetails()).containsEntry("code", "RESERVATION_PROPOSAL_OWN"));
+        assertThat(service.reserveAccept(1L, MATCH).status()).as("제안자의 accept 도 멱등 200").isEqualTo("RESERVED");
 
         assertThat(m.getReservedById()).isEqualTo(1L);
         verify(lockRepository, never()).insert(anyLong(), anyLong(), any());
@@ -737,12 +736,12 @@ class ExchangeMatchServiceTest {
 
         InOrder order = inOrder(matchRepository, notificationService);
         order.verify(matchRepository).saveAndFlush(any(ExchangeMatch.class));
-        order.verify(notificationService).notify(1L, NotificationType.RESERVATION_PROPOSED, MATCH, null);
-        verify(notificationService, org.mockito.Mockito.times(1)).notify(any(), any(), any(), any());
+        order.verify(notificationService).notifyReservationProposed(1L, MATCH);
+        verify(notificationService, never()).notify(any(), any(), any(), any());
 
         existingMatch(ExchangeMatchStatus.CHATTING);
         service.reserve(1L, MATCH);
-        verify(notificationService).notify(2L, NotificationType.RESERVATION_PROPOSED, MATCH, null);
+        verify(notificationService).notifyReservationProposed(2L, MATCH);
     }
 
     @Test

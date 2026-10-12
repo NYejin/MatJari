@@ -137,18 +137,19 @@ public class ExchangeMatch {
     }
 
     /**
-     * 허용 상태 전이 표 (8·9차 답변). PROPOSE 의 상태는 '같은 요청 쌍의 가장 최근 매칭' 상태이며 열린 매칭(CHATTING·RESERVED)이 있으면
-     * 새 매칭을 만들 수 없다(취소·완료된 뒤에는 다시 가능). 멱등 처리(RESERVED 에서 reserve, CHATTING 에서 unreserve)는 서비스가 상태를 보고
-     * 먼저 걸러내므로 표에서는 '멱등'으로 적고 {@code isAllowed} 는 열린 상태에서 true 를 돌려준다.
+     * 허용 상태 전이 표(단일 출처; 서비스가 reserve/decline/withdraw 도 이 표로 판정한다). PROPOSE 의 상태는 '같은 요청 쌍의 가장 최근 매칭' 상태이며
+     * 열린 매칭(CHATTING·RESERVED)이 있으면 새 매칭을 만들 수 없다(취소·완료된 뒤에는 다시 가능). 멱등 처리는 서비스가 상태를 보고 먼저 걸러내므로
+     * 표에서는 '멱등'으로 적는다.
      * <pre>
-     *            PROPOSE  RESERVE   UNRESERVE  REJECT(b측)  CANCEL  COMPLETE
-     * CHATTING   불허     허용       멱등 200   허용         허용    불허(예약 전)
-     * RESERVED   불허     멱등 200   허용       불허         불허    허용
-     * COMPLETED  허용     불허       불허       불허         불허    불허
-     * CANCELED   허용     불허       불허       불허         불허    불허
+     *            PROPOSE  RESERVE(제안)         ACCEPT(수락)           DECLINE/WITHDRAW       UNRESERVE  REJECT(b측)  CANCEL  COMPLETE
+     * CHATTING   불허     허용(내 제안은 멱등)  허용(제안 있을 때)     허용(제안 없으면 멱등)  멱등 200   허용         허용    불허(예약 전)
+     * RESERVED   불허     불허                  멱등 200(제안자·수락자) 멱등 200(제안 없음)    허용       불허         불허    허용
+     * COMPLETED  허용     불허                  불허                   불허                   불허       불허         불허    불허
+     * CANCELED   허용     불허                  불허                   불허                   불허       불허         불허    불허
      * </pre>
-     * 멱등 200 인 경우(RESERVED 에서 reserve, CHATTING 에서 unreserve)는 허용(true)을 반환하며 서비스가 상태 변경 없이 현재 상태를 응답한다.
-     * RESERVED 에서 reject·cancel 은 막고 먼저 예약을 취소해야 한다(409 MATCH_STATE_CONFLICT).
+     * {@code isAllowed} 반환값: RESERVE·RESERVE_ACCEPT·REJECT·CANCEL 은 CHATTING 만 true(RESERVED 에서 accept 의 멱등 200 은 서비스가 이 검사 앞에서 거른다),
+     * UNRESERVE·DECLINE·WITHDRAW 는 열린 상태에서 true(RESERVED 의 DECLINE/WITHDRAW 는 제안이 없어 서비스가 멱등 200 으로 처리). RESERVED 에서 reject·cancel 은 막고
+     * 먼저 예약을 취소해야 한다(409 MATCH_STATE_CONFLICT). 제안 컬럼 변경도 {@code updated_at} 을 갱신하므로 내 매칭 목록 정렬이 바뀐다(의도).
      */
     public static boolean isAllowed(ExchangeMatchStatus status, ExchangeMatchAction action) {
         return switch (action) {

@@ -118,8 +118,7 @@ class ExchangeMatchMysqlTest {
         assertThat(locks()).isEqualTo(2);
         assertThat(jdbc.queryForObject("SELECT reserved_by_id FROM exchange_match WHERE id=?", Long.class, proposed.id())).isEqualTo(p.userId);
         assertThat(matchService.reserveAccept(q.userId, proposed.id()).status()).as("수락자의 재호출은 멱등").isEqualTo("RESERVED");
-        assertThatThrownBy(() -> matchService.reserveAccept(p.userId, proposed.id())).isInstanceOfSatisfying(ConflictException.class,
-                e -> assertThat(e.getDetails()).containsEntry("code", "RESERVATION_PROPOSAL_OWN"));
+        assertThat(matchService.reserveAccept(p.userId, proposed.id()).status()).as("제안자의 accept 도 멱등 200").isEqualTo("RESERVED");
         assertThatThrownBy(() -> matchService.reserve(p.userId, proposed.id())).isInstanceOfSatisfying(ConflictException.class,
                 e -> assertThat(e.getDetails()).containsEntry("code", "MATCH_STATE_CONFLICT"));
         assertThat(locks()).isEqualTo(2);
@@ -952,7 +951,7 @@ class ExchangeMatchMysqlTest {
     }
 
     @Test
-    void 예약_예약취소를_3번_반복하면_알림_9행이고_수신자는_호출자가_아닌_쪽이며_유니크_위반이_없다() {
+    void 예약_예약취소를_3번_반복하면_알림_7행이고_수신자는_호출자가_아닌_쪽이며_유니크_위반이_없다() {
         Party p = party(1, "Z1");
         Party q = party(2, "Z1");
         mutual(p, q);
@@ -964,9 +963,9 @@ class ExchangeMatchMysqlTest {
         }
 
         assertThat(count("SELECT COUNT(*) FROM notification WHERE match_id = " + m + " AND type IN ('RESERVATION_PROPOSED','MATCH_RESERVED','RESERVATION_CANCELED')"))
-                .isEqualTo(9);
-        assertThat(count("SELECT COUNT(*) FROM notification WHERE type = 'RESERVATION_PROPOSED' AND user_id = " + q.userId + " AND dedup_key IS NULL"))
-                .isEqualTo(3);
+                .as("예약 제안 알림은 (수신자, 매칭)당 1행 재사용이라 1 + 3 + 3").isEqualTo(7);
+        assertThat(count("SELECT COUNT(*) FROM notification WHERE type = 'RESERVATION_PROPOSED' AND user_id = " + q.userId
+                + " AND dedup_key = 'RESERVATION_PROPOSED:" + m + ":" + q.userId + "'")).isEqualTo(1);
         assertThat(count("SELECT COUNT(*) FROM notification WHERE type = 'MATCH_RESERVED' AND user_id = " + p.userId + " AND dedup_key IS NULL"))
                 .isEqualTo(3);
         assertThat(count("SELECT COUNT(*) FROM notification WHERE type = 'RESERVATION_CANCELED' AND user_id = " + p.userId + " AND dedup_key IS NULL"))

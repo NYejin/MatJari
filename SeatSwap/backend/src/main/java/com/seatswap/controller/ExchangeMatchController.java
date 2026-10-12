@@ -70,7 +70,7 @@ public class ExchangeMatchController {
         return matchService.reserve(principal.userId(), id);
     }
 
-    /** 예약 수락(제안받은 쪽) -> 200 + RESERVED(두 티켓 잠금). 제안 없음 409 RESERVATION_PROPOSAL_NOT_FOUND, 내 제안 409 RESERVATION_PROPOSAL_OWN. */
+    /** 예약 수락(제안받은 쪽) -> 200 + RESERVED(두 티켓 잠금). 제안 없음 409 RESERVATION_PROPOSAL_NOT_FOUND, 내 제안(CHATTING) 409 RESERVATION_PROPOSAL_OWN, 이미 RESERVED 면 양쪽 멱등 200. */
     @PostMapping("/matches/{id}/reserve/accept")
     public ExchangeMatchResponse reserveAccept(@PathVariable Long id, @AuthenticationPrincipal AuthUserPrincipal principal) {
         return matchService.reserveAccept(principal.userId(), id);

@@ -43,3 +43,6 @@ llm-wiki 스킬, researcher·wiki-curator 에이전트, `scripts/lint-wiki.mjs`�
 
 ## [2026-10-12] ingest | 소셜 로그인 반영
 소셜 로그인(V14, 브랜치 `feature/social-login`, 미병합) 구현 사실을 반영했다. 결정 페이지 `social-login-design.md`와 함정 페이지 `frontend-react-pitfalls.md`(StrictMode 중단 요청 가드, `__proto__` 키 조회)를 추가했다. 실제 제공자 키로는 검증하지 못해 confidence는 medium이다.
+
+## [2026-10-13] ingest | 예약 제안/수락과 채팅 알림 반영
+예약 제안/수락·채팅 알림·벨 위치(V15, 브랜치 `feature/reserve-propose`, 미병합) 구현 사실을 반영했다. 결정 페이지 `reserve-propose-design.md`를 추가하고, 함정 페이지에 13절(upsert 대 삭제 교착, 벌크 JPQL의 제안 컬럼 우회)을 더했다. 채팅·알림 설계와 용어집의 낡은 서술(채팅 알림 행 없음, 한 명이 예약, 알림 3종)을 정정했다. 테스트 수치는 구현 세션 기록이며 confidence는 medium이다.

@@ -3,7 +3,7 @@ title: 채팅 설계 근거 (REST 전송 + STOMP 수신)
 type: decision
 tags: [채팅, 설계, stomp, 결정근거]
 sources: [../research/stomp-jwt-auth.md, ../gotchas/lock-order-and-index-pitfalls.md, ../glossary.md, ../../CLAUDE.md, ../../산출물/07_작업일지/2026-10-11.md]
-updated: 2026-10-12
+updated: 2026-10-13
 confidence: medium
 status: draft
 ---
@@ -51,11 +51,13 @@ status: draft
 
 ## 문서 근거로 정해진 나머지
 
-요구사항 문서 근거로 확정된 항목이며 사용자 결정 4개와 구분한다. 본문 1000자(코드 포인트), 무기한 보관·삭제·수정 불가, 이미지·첨부 없음(텍스트만), 새 메시지 알림 행 없음, 헤더 메시지 아이콘 없음, 새 메시지는 `exchange_match.updated_at`을 바꾸지 않음, 차단은 채팅 당시 범위 밖이었고 이후 구현됐다([차단·신고 설계](block-report-design.md)). 근거 문서 위치는 이번 입력에서 확인하지 못했다.
+요구사항 문서 근거로 확정된 항목이며 사용자 결정 4개와 구분한다. 본문 1000자(코드 포인트), 무기한 보관·삭제·수정 불가, 이미지·첨부 없음(텍스트만), 새 메시지는 `exchange_match.updated_at`을 바꾸지 않음, 차단은 채팅 당시 범위 밖이었고 이후 구현됐다([차단·신고 설계](block-report-design.md)). 근거 문서 위치는 이번 입력에서 확인하지 못했다.
+
+> 정정(2026-10-13): 당시의 "새 메시지 알림 행 없음, 헤더 메시지 아이콘·벨 표시 없음"은 사용자 결정으로 **뒤집혔다.** 이제 새 메시지는 `CHAT_MESSAGE` 알림으로 (수신자, 매칭)당 1행을 재사용해 헤더 벨에 뜬다(별도 메시지 아이콘은 여전히 없다). 근거는 [예약 제안/수락과 채팅 알림 설계](reserve-propose-design.md).
 
 ## 연결 범위 변경 (실시간 알림 푸시 이후)
 
-채팅 구현 당시에는 연결을 채팅 화면이 열려 있는 동안만 맺었다. 실시간 알림 푸시(`feature/notifications-realtime`)부터는 로그인한 앱 전체가 탭당 연결 1개를 공유하고(참조 카운트, 헤더 벨 훅과 채팅 훅이 각자 acquire), 구독 허용 목적지는 `/user/queue/chat`과 `/user/queue/notifications` 두 개이며 **목적지당 구독 1개**다. 이미 연결된 상태에서 채팅 화면을 열면 구독 직후 `onConnected`로 빈 구간을 채운다. 채팅 푸시 규칙(새 메시지에 알림 행·헤더 메시지 아이콘 없음)은 그대로다. 자세한 내용은 [알림 설계 근거](notification-design.md)와 [함정 10절](../gotchas/lock-order-and-index-pitfalls.md) 참고.
+채팅 구현 당시에는 연결을 채팅 화면이 열려 있는 동안만 맺었다. 실시간 알림 푸시(`feature/notifications-realtime`)부터는 로그인한 앱 전체가 탭당 연결 1개를 공유하고(참조 카운트, 헤더 벨 훅과 채팅 훅이 각자 acquire), 구독 허용 목적지는 `/user/queue/chat`과 `/user/queue/notifications` 두 개이며 **목적지당 구독 1개**다. 이미 연결된 상태에서 채팅 화면을 열면 구독 직후 `onConnected`로 빈 구간을 채운다. 채팅 푸시(`/user/queue/chat`) 자체는 그대로지만, 새 메시지의 알림 행 없음 규칙은 이후 뒤집혀 `CHAT_MESSAGE` 알림이 생긴다([예약 제안 설계](reserve-propose-design.md)). 자세한 내용은 [알림 설계 근거](notification-design.md)와 [함정 10절](../gotchas/lock-order-and-index-pitfalls.md) 참고.
 
 ## 알려진 한계와 후속
 

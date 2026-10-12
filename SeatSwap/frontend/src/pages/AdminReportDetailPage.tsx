@@ -164,8 +164,11 @@ function Evidence({ reportId }: { reportId: number }) {
         if (signal?.aborted) return;
         setError(exchangeErrorMessage(err, "채팅 근거를 불러오지 못했습니다.").message);
       } finally {
-        loadingRef.current = false;
-        if (!signal?.aborted) setLoading(false);
+        // 중단된 요청(StrictMode 재마운트 등)은 가드·로딩 상태를 건드리지 않는다(다음 요청이 이어받는다)
+        if (!signal?.aborted) {
+          loadingRef.current = false;
+          setLoading(false);
+        }
       }
     },
     [reportId]
@@ -174,7 +177,10 @@ function Evidence({ reportId }: { reportId: number }) {
   useEffect(() => {
     const controller = new AbortController();
     void fetchMore(undefined, controller.signal);
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      loadingRef.current = false;
+    };
   }, [fetchMore]);
 
   return (

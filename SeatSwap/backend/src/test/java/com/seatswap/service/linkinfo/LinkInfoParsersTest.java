@@ -119,6 +119,13 @@ class LinkInfoParsersTest {
     }
 
     @Test
+    void melon_linkedVenueIgnoresMoreLinkText() {
+        String dd = "<a href=\"javascript:;\" class=\"link\"><span class=\"place\">덕스(DUEX) 홍대 1관&nbsp;</span>"
+                + "<span class=\"ico_more\">바로가기</span></a>";
+        assertEquals("덕스(DUEX) 홍대 1관", parse("melon", melon(dd, "2025.03.04")).venue());
+    }
+
+    @Test
     void melon_emptyOrDashVenueAndSingleDate() {
         ParsedInfo empty = parse("melon", melon("  ", "2025.03.04"));
         assertEquals("멜론 & 콘서트", empty.title());

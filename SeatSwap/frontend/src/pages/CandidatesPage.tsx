@@ -175,7 +175,7 @@ function CandidatesView({ requestId, validId }: { requestId: number; validId: bo
         {state.status === "success" && state.items.length > 0 && (
           <>
             <p className={ui.hint}>
-              ‘내 조건’은 내가 이 자리를 원할 때 정한 추가금, ‘상대 조건’은 상대가 내 자리를 원할 때 정한 추가금이에요. 금액은 매칭 판정에 쓰이지 않고 참고로만 보여요. ‘제안하기’를 누르면 바로 매칭(채팅 단계)이 시작되고, 예약은 내 매칭 화면에서 한 명이 ‘예약하기’를 누르면 두 티켓이 예약돼요.
+              ‘내 조건’은 내가 이 자리를 원할 때 정한 추가금, ‘상대 조건’은 상대가 내 자리를 원할 때 정한 추가금이에요. 금액은 매칭 판정에 쓰이지 않고 참고로만 보여요. ‘제안하기’를 누르면 바로 매칭(채팅 단계)이 시작되고, 예약은 채팅 화면에서 한 명이 ‘예약 제안하기’를 누르고 상대가 수락하면 두 티켓이 예약돼요.
             </p>
             <ul className="flex flex-col gap-3" aria-label="매칭 후보 목록">
               {state.items.map((c) => (

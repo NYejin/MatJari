@@ -2,13 +2,15 @@
 title: 알림 3종 설계 근거 (동기 INSERT 선택)
 type: decision
 tags: [알림, 설계, 동시성, 결정근거]
-sources: [../gotchas/lock-order-and-index-pitfalls.md, ../glossary.md, ../research/stomp-jwt-auth.md, ../../CLAUDE.md, ../../산출물/07_작업일지/2026-10-11.md]
-updated: 2026-10-11
+sources: [reserve-propose-design.md, ../gotchas/lock-order-and-index-pitfalls.md, ../glossary.md, ../research/stomp-jwt-auth.md, ../../CLAUDE.md, ../../산출물/07_작업일지/2026-10-11.md]
+updated: 2026-10-13
 confidence: medium
 status: draft
 ---
 
 # 알림 3종 설계 근거 (동기 INSERT 선택)
+
+> 갱신(2026-10-13): V15에서 알림 유형이 6종으로 늘었고(`RESERVATION_PROPOSED`·`RESERVATION_REJECTED`·`CHAT_MESSAGE`), `MATCH_RESERVED`는 '상대가 예약을 수락'으로 의미가 바뀌었으며, 채팅·예약 제안 알림은 (수신자, 매칭)당 1행을 재사용한다. 아래 3종 기준 서술(새 제안만 dedup_key, 예약 계열 NULL 등)의 변경분은 [예약 제안/수락과 채팅 알림 설계](reserve-propose-design.md)가 기준이다.
 
 알림 3종(새 제안, 상대가 예약, 상대가 예약 취소)의 구현(V10, 브랜치 `feature/notifications`, 미병합)에서 무엇을 놓고 어떻게 골랐는지의 근거다. 확정 규칙 본문은 [CLAUDE.md](../../CLAUDE.md), 용어는 [용어집](../glossary.md), 잠금 규칙과 함정은 [잠금 순서와 인덱스·유니크 키 함정](../gotchas/lock-order-and-index-pitfalls.md) 8절이 기준이다. 이 페이지는 새 결정을 만들지 않는다.
 

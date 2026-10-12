@@ -3,7 +3,7 @@ title: 잠금 순서와 인덱스·유니크 키 함정
 type: gotcha
 tags: [mysql, 교착, 인덱스, flyway, 동시성]
 sources: [SeatSwap/backend/src/main/resources/db/migration/V9__exchange_complete_history.sql, 산출물/08_ERD/exchange-schema-design.md, SeatSwap/backend/README.md, SeatSwap/backend/src/main/resources/db/migration/V3__ticket_seat_columns.sql, SeatSwap/backend/src/main/resources/db/migration/V5__exchange_match_tables.sql, SeatSwap/backend/src/main/resources/db/migration/V7__exchange_request_soft_delete.sql, SeatSwap/backend/src/main/resources/db/migration/V8__exchange_match_single_reserve.sql, SeatSwap/backend/src/main/resources/db/migration/V11__chat_message.sql, CLAUDE.md]
-updated: 2026-10-12
+updated: 2026-10-13
 confidence: medium
 status: draft
 ---
@@ -78,6 +78,7 @@ status: draft
 - **트랜잭션 맨 끝에서 INSERT**: `NotificationService.notify`는 propose/reserve/unreserve 트랜잭션의 마지막에 일반 INSERT로 쓴다. `notification.user_id`, `match_id` FK 때문에 users 행에 S 잠금이 걸리므로, 잠금 순서는 티켓 id 오름차순, 요청 id 오름차순, 매칭, users S, notification이다. notification 행을 잠근 뒤 티켓·요청·매칭을 잠그지 않는다. 한 트랜잭션에서 수신자당 알림은 1건이다.
 - **읽음·삭제는 잠금 없는 SELECT 후 IN 벌크**: 먼저 잠금 없는 SELECT로 대상 id를 모으고, 500개씩 `WHERE id IN (...)`로 UPDATE/DELETE 한다. `WHERE user_id = ? AND read_at IS NULL` 같은 범위 UPDATE/DELETE는 쓰지 않는다. 인덱스 범위에 갭 잠금이 걸려 같은 수신자에게 알림을 INSERT하는 다른 트랜잭션(propose 등)과 교착할 수 있기 때문이다. 읽은 알림 삭제에서도 안 읽은 것은 건드리지 않는다.
 - **dedup_key 유니크 함정**: 요구사항 가안은 `(user_id, type, match_id)`를 유니크로 두는 것이었다. 그러면 예약, 예약 취소, 재예약을 반복할 때 같은 키가 두 번 들어가 유니크 위반이 나고 **예약 자체가 롤백**된다. 그래서 `dedup_key` 단일 컬럼 유니크(`uk_notification_dedup`)로 바꿨다. 중복을 막아야 하는 새 제안만 `PROPOSAL_RECEIVED:{matchId}` 값을 넣고, 예약·예약 취소는 `dedup_key`를 NULL로 둔다. MySQL 유니크는 NULL끼리 비교하지 않으므로(3절과 같은 성질) 예약↔취소 반복마다 매번 1건이 쌓인다.
+- (V15 이후 보완) 채팅·예약 제안 알림은 위 "반복마다 1건"의 예외로 (수신자, 매칭)당 1행을 재사용하며 `dedup_key`를 채운다. 근거와 교착 사례는 13절과 [예약 제안 설계](../decisions/reserve-propose-design.md).
 - 안 읽은 개수용 `unread_user_id`는 생성 컬럼이며 FK가 아니고, 갱신 컬럼 인덱스가 FK 인덱스를 겸하지 않게 user/match/unread 키를 모두 단일 컬럼으로 뒀다(2절 원칙).
 - 검증: 한 수신자에게 14명이 동시에 propose·reserve/unreserve 하는 동안 수신자가 읽음·삭제 60회 반복과 `TicketService.create`를 병행하는 임시 MySQL IT에서 1213(교착) 0건. 기본 테스트 527건 통과, 임시 MySQL IT 포함 543건 통과(교착 스트레스 보강 전 수치, 보강 후 알림 테스트 클래스만 재실행) (이 수치는 구현 세션 기록이며 재실행은 하지 않았다).
 
@@ -120,3 +121,12 @@ status: draft
 - **`users` 행은 티켓 뒤에 잠그므로 `OpenMatchCanceller` 앞에서 users X 잠금 금지**: canceller는 티켓 id 오름차순으로 잠근다(1절). 호출자가 먼저 대상 users 행을 X로 잠그면 users→티켓 순서가 되어 기존 티켓→users 경로와 순환할 수 있다. 그래서 resolve는 users 행을 잠그지 않는다. canceller는 호출 트랜잭션이 READ_COMMITTED이고 호출 전에 `ExchangeMatch` 엔티티를 로드하지 않아야 한다(티켓 잠금 뒤 매칭 목록을 다시 읽으므로).
 - **쓰기 위치**: `user_block`·`abuse_report`·`user_sanction` INSERT는 트랜잭션 마지막이다(8절 notification 규칙과 같은 취지). 신고·차단 상한은 사용자 행을 잠그지 않으므로 근소 초과가 가능하다(admin의 사용자 행 잠금 상한, 11절과 대비).
 - **차단·신고와 예약/내리기/제안 경합**: 20라운드 경합 테스트에서 교착 0건(구현 세션 기록).
+
+## 13. 예약 제안/수락(V15) 함정
+
+설계 근거는 [예약 제안/수락 설계 근거](../decisions/reserve-propose-design.md). 구현 세션(2026-10-13, `feature/reserve-propose`)의 임시 MySQL IT로 확인한 사실이다.
+
+- **유니크 보조 인덱스를 먼저 잠그는 `INSERT ... ON DUPLICATE KEY UPDATE`는 PK를 먼저 잠그는 삭제와 교착한다(실제 MySQL 재현)**: 채팅·예약 제안 알림을 (수신자, 매칭)당 1행으로 재사용하려고 `dedup_key` 유니크(`uk_notification_dedup`)에 upsert를 걸었더니, 읽은 알림 삭제(PK 기준 `DELETE ... WHERE id IN`)와 잠금 순서가 반전되어 교착했다. upsert는 유니크 인덱스를 먼저, 삭제는 PK를 먼저 잠그기 때문이다(11절 첫 항목과 같은 계열). 해결: **먼저 PK 기준으로 UPDATE(읽음 해제, `created_at`=now)하고, 영향 행이 0일 때만 upsert**해 PK 먼저 잠그는 방식으로 통일했다. 읽은 알림이 삭제되어 행이 없어진 경우는 새로 INSERT된다. 10절의 "`ON DUPLICATE KEY UPDATE`는 쓰지 않는다"(읽음 포인터) 항목의 정확한 이유는 여전히 미확인이며, 이 항목은 알림 쪽에서 확인된 사례일 뿐 같은 원인이라는 증거는 아니다.
+- **벌크 JPQL은 엔티티 로직을 우회한다**: CHATTING을 벗어나는 UPDATE는 제안 컬럼(`reserve_proposed_by_id`·`reserve_proposed_at`)을 같은 문장에서 NULL로 만들어야 CHECK를 통과한다. 엔티티 메서드(취소 등)에는 이 정리가 들어 있지만, 티켓 내리기의 벌크 JPQL 2개처럼 엔티티를 거치지 않고 상태만 바꾸는 쿼리는 그 로직을 타지 않으므로 SET 절에 직접 제안 컬럼 NULL을 넣어야 한다. 3절 마지막 항목(`reserved_by_id`)과 같은 규칙의 확장이며, CHATTING 이탈 경로(취소·거절·종료·요청 수정/삭제·티켓 내리기·차단·정지)를 새로 추가할 때 점검한다.
+- **제안은 match 행만, 수락만 티켓 잠금**: 제안·철회·거절은 match `FOR UPDATE`만 잡고 알림은 맨 끝에 쓴다. 수락은 1절 순서(티켓 id↑, 요청 id↑, 매칭)를 그대로 쓴다. 동시 제안, 수락 대 철회·거절·취소·차단·정지·티켓 내리기, 같은 티켓의 두 매칭 수락 경합, 채팅 전송·읽음·삭제 혼합에서 교착 0건, 불변식(잠금 행 = 2×RESERVED) 유지(구현 세션 기록).
+- **채팅 알림 읽음 가드**: 읽음 포인터가 움직일 때 CHAT_MESSAGE 알림을 읽음 처리하는 UPDATE는 READ_COMMITTED로 유니크 키 한 행만 건드리고, 포인터 뒤에 상대 메시지가 남아 있으면(NOT EXISTS) 읽음 처리하지 않는다. 매칭·users 잠금 트랜잭션 안에서는 호출하지 않는다(10절). 가드와 알림 되살림이 겹치는 극히 약한 창은 남아 있다.

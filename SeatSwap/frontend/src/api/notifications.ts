@@ -38,21 +38,30 @@ export const notificationsApi = {
   },
 };
 
-/** 알림 문구 (이름·공연·좌석은 조회 때 조인한 값) */
+/** 알림 문구 (이름·공연·좌석은 조회 때 조인한 값). 알 수 없는 type은 일반 문구로 폴백한다 */
 export function notificationText(n: AppNotification): string {
   const name = n.counterpartNickname;
   switch (n.type) {
     case "PROPOSAL_RECEIVED":
       return `${name}님이 교환을 제안했어요 · ${n.performanceTitle} ${formatSeat(n.counterpartSeat)}`;
     case "MATCH_RESERVED":
-      return `${name}님이 교환을 예약했어요. 내 티켓도 예약 중으로 잠겼어요.`;
+      return `${name}님이 예약을 수락했어요. 내 티켓도 예약 중으로 잠겼어요.`;
     case "RESERVATION_CANCELED":
       return `${name}님이 예약을 취소했어요. 다시 채팅 중이에요.`;
+    case "RESERVATION_PROPOSED":
+      return `${name}님이 예약을 제안했어요`;
+    case "RESERVATION_REJECTED":
+      return `${name}님이 예약 제안을 거절했어요`;
+    case "CHAT_MESSAGE":
+      return `${name}님이 메시지를 보냈어요`;
+    default:
+      return `${name ?? "상대"}님과의 매칭에 새 소식이 있어요`;
   }
 }
 
-/** 알림을 누르면 이동할 내 매칭 주소 (제안 알림은 받은 제안 탭, 해당 카드로) */
+/** 알림을 누르면 이동할 주소: 채팅/예약 제안 알림은 채팅 화면, 제안 알림은 받은 제안 탭, 그 외는 해당 매칭 카드 */
 export function notificationPath(n: AppNotification): string {
+  if (n.type === "CHAT_MESSAGE" || n.type === "RESERVATION_PROPOSED") return `/exchange/matches/${n.matchId}/chat`;
   const query = new URLSearchParams();
   if (n.type === "PROPOSAL_RECEIVED") query.set("role", "RECEIVED");
   query.set("matchId", String(n.matchId));

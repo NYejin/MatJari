@@ -104,6 +104,8 @@ export interface MatchSeat {
  * RESERVED일 때 reservedBy가 예약한 쪽이다(ME 또는 COUNTERPART, 그 외 null).
  * myAccepted/counterpartAccepted는 '교환 수락' 여부. COMPLETED의 좌석은 항상 교환 전 자리다.
  */
+export type ReservationProposal = "NONE" | "MINE" | "THEIRS";
+
 export interface ExchangeMatch {
   id: number;
   status: MatchStatus;
@@ -123,7 +125,10 @@ export interface ExchangeMatch {
   /** 요청이 소프트 삭제됐는지 (삭제되면 채팅 단계 매칭은 자동 취소된다) */
   myRequestDeleted: boolean;
   counterpartRequestDeleted: boolean;
+  /** RESERVED일 때 예약을 제안한 쪽(수락으로 예약이 성립) */
   reservedBy: "ME" | "COUNTERPART" | null;
+  /** CHATTING의 예약 제안 상태: NONE 없음 / MINE 내가 제안(상대 수락 대기) / THEIRS 상대가 제안(내가 수락·거절) */
+  reservationProposal: ReservationProposal;
   reservedAt: string | null;
   myAccepted: boolean;
   counterpartAccepted: boolean;

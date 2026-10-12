@@ -1,6 +1,6 @@
-# 교환 도메인 스키마 설계안 (V3~V14 구현 완료; V8 한 명 예약 방식은 10절, 알림 V10은 1.13절, 차단·신고·이용 정지 V13은 12절, 소셜 로그인 계정 V14는 13절)
+# 교환 도메인 스키마 설계안 (V3~V15 구현 완료; V8 한 명 예약 방식은 10절(V15로 '제안 -> 상대 수락'으로 대체), 알림 V10은 1.13절, 차단·신고·이용 정지 V13은 12절, 소셜 로그인 계정 V14는 13절, 예약 제안·알림 6종 V15는 14절)
 
-작성 2026-10-08 / 브랜치 `docs/exchange-schema-design` / 상태: **V3~V14 구현 완료**(설계 확정 2026-10-08 사용자 답변 반영, 남은 확인 필요는 6절 끝). 현재 DB는 V1~V14(20개 테이블)이고 **다음 마이그레이션은 V15**다. V12는 관리자 처리 대상 두 테이블(11절), V13은 차단·신고·이용 정지 세 테이블(12절), V14는 소셜 로그인 계정 `social_account`(13절)다. 교환 수락→교환 완료(`EXCHANGED`+새 티켓+`exchange_history`)는 V9로 구현 완료. `user_block`·`abuse_report`·`user_sanction`은 V13으로 구현 완료(1.6절, 12절). 채팅(`chat_message`·`chat_read_state`)은 V11로 구현 완료(1.9절). 알림(`notification`)은 V10으로 구현 완료(1.13절). 아래 인용문은 날짜순 구현 기록이며, 본문 중 '(대체됨)'·취소선·V4/V5 시점 표기는 이력이고 현행 기준은 9절(V6·V7)·10절(V8)·1.7절 표다.
+작성 2026-10-08 / 브랜치 `docs/exchange-schema-design` / 상태: **V3~V15 구현 완료**(설계 확정 2026-10-08 사용자 답변 반영, 남은 확인 필요는 6절 끝). 현재 DB는 V1~V15(20개 테이블)이고 **다음 마이그레이션은 V16**이다. V15는 예약 제안 2컬럼과 알림 type 6종(14절)이다. V12는 관리자 처리 대상 두 테이블(11절), V13은 차단·신고·이용 정지 세 테이블(12절), V14는 소셜 로그인 계정 `social_account`(13절)다. 교환 수락→교환 완료(`EXCHANGED`+새 티켓+`exchange_history`)는 V9로 구현 완료. `user_block`·`abuse_report`·`user_sanction`은 V13으로 구현 완료(1.6절, 12절). 채팅(`chat_message`·`chat_read_state`)은 V11로 구현 완료(1.9절). 알림(`notification`)은 V10으로 구현 완료(1.13절). 아래 인용문은 날짜순 구현 기록이며, 본문 중 '(대체됨)'·취소선·V4/V5 시점 표기는 이력이고 현행 기준은 9절(V6·V7)·10절(V8)·1.7절 표다.
 
 > **구현 상태 (2026-10-08, 브랜치 `feature/ticket-register`, 미커밋)**: 1.1절 ticket 변경은 **V3로 구현 완료**(`V3__ticket_seat_columns.sql`, ticket 행이 있으면 SIGNAL 가드로 실패, 생성 컬럼 `active_flag`, `uk_ticket_active_seat`, `idx_ticket_user_status`; 정규화 키는 서비스 `SeatKeyNormalizer`가 NFKC·공백 제거·대문자·앞 0 제거·끝의 '열'/'번' 제거로 만든다). 티켓 등록 API(`POST /api/tickets`, `GET /api/tickets/me`, `DELETE /api/tickets/{id}`)도 구현됨. V4 희망 쪽은 아래 메모대로 구현 완료다.
 >
@@ -27,7 +27,9 @@
 
 > **구현 (2026-10-12, `feature/social-login`, V14)**: 소셜 로그인(구글·카카오·네이버) 계정 연결 테이블 `social_account`는 **V14(`V14__social_account.sql`)** 로 추가됐고 현재 DB는 V1~V14(20개 테이블)다. `users`는 바꾸지 않았다. 자세한 컬럼·제약·인덱스는 13절. 다음 마이그레이션은 V15다.
 
-설계 시점 기준선: V1+V2 (users, performance, performance_session, ticket 4개 테이블; 현재는 V1~V14, 20개 테이블). 이 문서의 SQL은 초안이며 마이그레이션 파일이 아니다(실제 SQL은 `SeatSwap/backend/src/main/resources/db/migration/`이 기준).
+> **구현 (2026-10-12, `feature/reserve-propose`, V15)**: 예약을 **'제안 -> 상대 수락'** 으로 바꿨다(V8의 '한 명이 예약하면 RESERVED'를 뒤집음, 상태값은 그대로 CHATTING -> RESERVED). **V15(`V15__reserve_proposal_chat_notification.sql`)** 가 `exchange_match`에 `reserve_proposed_by_id`(FK users)·`reserve_proposed_at`을 추가하고 `notification.ck_notification_type`을 6종(+`RESERVATION_PROPOSED`·`RESERVATION_REJECTED`·`CHAT_MESSAGE`)으로 넓혔다. 채팅 알림은 이전의 'Q-8: 채팅 알림 행 없음'을 뒤집어 (수신자, 매칭)당 1행을 재사용한다. 현재 DB는 V1~V15(20개 테이블, 테이블 수 불변). 상세는 14절. 다음 마이그레이션은 V16이다.
+
+설계 시점 기준선: V1+V2 (users, performance, performance_session, ticket 4개 테이블; 현재는 V1~V15, 20개 테이블). 이 문서의 SQL은 초안이며 마이그레이션 파일이 아니다(실제 SQL은 `SeatSwap/backend/src/main/resources/db/migration/`이 기준).
 좌석표(`SeatMapLayout`·`uid`·`section`)에 의존하지 않는다. 후기·신뢰도·신고 테이블은 만들지 않는다(신고는 8절에서 확장 여지만 언급).
 
 ---
@@ -147,7 +149,8 @@
 | request_b_id | BIGINT | NOT NULL FK. CHECK (request_a_id <> request_b_id) |
 | user_a_id / user_b_id | BIGINT | NOT NULL FK -> users (요청에서 유도 가능하나 차단 조회와 내 매칭 목록용 비정규화) |
 | status | VARCHAR(20) bin | NOT NULL, CHECK IN ('CHATTING','RESERVED','COMPLETED','CANCELED') (4종, CLOSED 삭제) |
-| reserved_by_id / reserved_at | BIGINT / DATETIME(6) | **V8 현행**: 예약한 사람(FK users, NULL)·예약 시각. RESERVED일 때만 둘 다 NOT NULL(`ck_exchange_match_reserved`), 예약자는 참여자(`ck_exchange_match_reserved_by_party`), 단일 컬럼 FK 인덱스 `idx_exchange_match_reserved_by` |
+| reserved_by_id / reserved_at | BIGINT / DATETIME(6) | **V8 현행**: 예약한 사람(FK users, NULL)·예약 시각. RESERVED일 때만 둘 다 NOT NULL(`ck_exchange_match_reserved`), 예약자는 참여자(`ck_exchange_match_reserved_by_party`), 단일 컬럼 FK 인덱스 `idx_exchange_match_reserved_by`. **V15부터** `reserved_by_id` = 예약을 제안한 사람, `reserved_at` = 상대가 수락한 시각(14절) |
+| reserve_proposed_by_id / reserve_proposed_at | BIGINT / DATETIME(6) | **V15 추가**: 예약 제안자(FK users, NULL)·제안 시각. 둘 다 NULL이거나 둘 다 NOT NULL(`ck_exchange_match_reserve_proposal_pair`), CHATTING에서만 값이 있음(`ck_exchange_match_reserve_proposal_status`), 제안자는 참여자(`ck_exchange_match_reserve_proposed_by_party`), 단일 컬럼 FK 인덱스 `idx_exchange_match_reserve_proposed_by` (14절) |
 | a_extra_type / a_extra_amount / b_extra_type / b_extra_amount | VARCHAR(10) / INT (각 측) | **V6 추가**: 매칭 시점 추가금 스냅샷 4컬럼(표시용), a측 = a가 b 좌석을 포함한 범위의 추가금, b측 반대 |
 | a_reserved_at / b_reserved_at | DATETIME(6) | NULL. **DEPRECATED 레거시(V8, 삭제하지 않고 읽지도 쓰지도 않음)**. '이 사람과 교환할게요' 누른 시각 (V5 당시 구현. **8차 답변(2026-10-09)으로 대체되어 V8에서 구현 완료**: 양쪽 동의 대신 `reserved_by_id`(FK users NULL)·`reserved_at`(NULL), RESERVED일 때만 NOT NULL로 CHECK. **V8 구현 완료, 10절**, a/b_reserved_at은 삭제하지 않고 미사용 레거시로 유지) |
 | a_completed_at / b_completed_at | DATETIME(6) | NULL. '교환 수락'(내부 값·API는 `complete`) 누른 시각. V8의 `ck_exchange_match_completed`: CHATTING이면 둘 다 NULL, COMPLETED이면 둘 다 NOT NULL. 예약 취소 시 초기화 |
@@ -243,9 +246,9 @@ User 1:N Ticket / Performance / notification(수신자, V10) / chat_message(발�
 |---|---|---|
 | id | BIGINT PK AI | |
 | user_id | BIGINT | NOT NULL FK -> users (수신자), `idx_notification_user` |
-| type | VARCHAR(40) | NOT NULL, `ck_notification_type`: PROPOSAL_RECEIVED(새 제안, 받는 쪽) / MATCH_RESERVED(상대가 예약) / RESERVATION_CANCELED(상대가 예약 취소) |
-| match_id | BIGINT | NOT NULL FK -> exchange_match, `ck_notification_match_required`(3종 모두 필수), `idx_notification_match` |
-| dedup_key | VARCHAR(100) | NULL, `uk_notification_dedup` UNIQUE. PROPOSAL_RECEIVED만 `PROPOSAL_RECEIVED:{matchId}`로 채우고 예약·예약 취소는 NULL(UNIQUE는 NULL 중복 허용) |
+| type | VARCHAR(40) | NOT NULL, `ck_notification_type`: PROPOSAL_RECEIVED(새 제안, 받는 쪽) / MATCH_RESERVED(상대가 예약; V15부터 '상대가 예약을 수락', 제안자에게) / RESERVATION_CANCELED(상대가 예약 취소) / **V15 추가**: RESERVATION_PROPOSED(상대가 예약을 제안, 제안받은 쪽) / RESERVATION_REJECTED(예약 제안이 거절됨, 제안자) / CHAT_MESSAGE(새 채팅 메시지, 상대) |
+| match_id | BIGINT | NOT NULL FK -> exchange_match, `ck_notification_match_required`(6종 모두 필수), `idx_notification_match` |
+| dedup_key | VARCHAR(100) | NULL, `uk_notification_dedup` UNIQUE. PROPOSAL_RECEIVED는 `PROPOSAL_RECEIVED:{matchId}`, **V15** CHAT_MESSAGE는 `CHAT_MESSAGE:{matchId}:{userId}`(`ck_notification_chat_dedup`이 형식을 강제, (수신자, 매칭)당 1행 재사용)로 채우고, 예약 계열(MATCH_RESERVED·RESERVATION_CANCELED·RESERVATION_PROPOSED·RESERVATION_REJECTED)은 NULL(UNIQUE는 NULL 중복 허용) |
 | read_at | DATETIME(6) | NULL = 안 읽음 |
 | unread_user_id | BIGINT 생성 컬럼 | `IF(read_at IS NULL, user_id, NULL)` STORED, `idx_notification_unread`(안 읽은 개수 전용, FK 아님) |
 | created_at | DATETIME(6) | NOT NULL |
@@ -386,7 +389,7 @@ LIMIT :size OFFSET :offset;                      -- 후속: keyset(priority, sta
 
 ## 4. Flyway 계획
 
-- (설계 시점 계획 — 실제로는 V3~V14로 나뉘어 구현됐고 **다음 번호는 V15**이다.) 당시 다음 번호는 V3. 파일은 둘로 나누는 것을 권장한다(MySQL DDL은 트랜잭션이 아니라 중간 실패 시 앞선 변경이 남으므로 실패 범위를 줄임).
+- (설계 시점 계획 — 실제로는 V3~V15로 나뉘어 구현됐고 **다음 번호는 V16**이다.) 당시 다음 번호는 V3. 파일은 둘로 나누는 것을 권장한다(MySQL DDL은 트랜잭션이 아니라 중간 실패 시 앞선 변경이 남으므로 실패 범위를 줄임).
   - `V3__ticket_seat_columns.sql`: 1.1의 ticket 변경.
   - `V4__exchange_domain.sql`: 1.2~1.10 신규 테이블(요청·희망·차단·매칭·잠금·채팅·이력). 신고 테이블 번호는 선점하지 않는다. (실제: V4 = 희망 4개, V5 = 매칭·잠금, V9 = exchange_history, V10 = notification, V11 = chat_message·chat_read_state, user_block은 V12 예정.)
 - **기존 ticket 행 이관·가드 필요 여부**
@@ -980,7 +983,7 @@ DROP PROCEDURE v8_single_reserve;
 ### 11.5 되돌리기·검증
 - 되돌리기는 롤포워드(새 V 파일에서 두 테이블 삭제)다. V2·V6~V11과 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하다.
 - 요구 MySQL 8.0.16 이상(CHECK 강제). 검증: `AdminSchemaMysqlTest`(실제 MySQL, `SEATSWAP_IT_*`가 있을 때만) 6건.
-- 다음 마이그레이션은 V15이다(V13은 12절, V14는 13절).
+- 다음 마이그레이션은 V13이었다(V13은 12절, V14는 13절, V15는 14절, 현재 다음 번호는 V16).
 
 ## 12. V13 — 차단·신고·이용 정지 (구현 완료 2026-10-12, `V13__block_report_sanction.sql`, `feature/block-report`)
 
@@ -1067,7 +1070,7 @@ DROP PROCEDURE v8_single_reserve;
 ### 12.5 되돌리기·검증
 - 되돌리기는 롤포워드(새 V 파일에서 `user_sanction` → `abuse_report` → `user_block` 순으로 삭제)다. V2·V6~V12와 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하다. 파괴적 단계는 없다.
 - 요구 MySQL 8.0.16 이상(CHECK 강제). 검증: `BlockReportSchemaMysqlTest`(실제 MySQL, `SEATSWAP_IT_*`가 있을 때만) 7건.
-- 다음 마이그레이션은 V14였다(V14는 13절, 현재 다음 번호는 V15).
+- 다음 마이그레이션은 V14였다(V14는 13절, 현재 다음 번호는 V16).
 
 ## 13. V14 — 소셜 로그인 계정 연결 (2026-10-12, `V14__social_account.sql`, `feature/social-login`)
 
@@ -1095,4 +1098,52 @@ DROP PROCEDURE v8_single_reserve;
 - 가입은 `users` INSERT → `social_account` INSERT 한 트랜잭션이며 티켓·요청·매칭을 잠그지 않는다. 기존 잠금 순서와 겹치지 않는다.
 - 되돌리기는 롤포워드(새 V 파일에서 `social_account` 삭제)다. V2·V6~V13과 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하다.
 - 요구 MySQL 8.0.16 이상(CHECK 강제). 검증: `SocialAccountSchemaMysqlTest`(실제 MySQL, `SEATSWAP_IT_*`가 있을 때만) 4건 — 재실행 안전·제약/인덱스 이름, UNIQUE 위반, provider CHECK·FK 위반, 같은 사용자의 여러 provider 허용.
-- 다음 마이그레이션은 V15다.
+- 다음 마이그레이션은 V15였다(14절, 현재 다음 번호는 V16).
+
+## 14. V15 — 예약 제안(제안 -> 상대 수락) + 알림 type 6종 (2026-10-12, `V15__reserve_proposal_chat_notification.sql`, `feature/reserve-propose`)
+
+사용자 지시로 두 결정을 뒤집는다. ①V8의 '둘 중 한 명이 예약하면 RESERVED'(10절)를 **'예약 제안 -> 상대 예약 수락'** 으로 바꾼다. ②'채팅 알림 행 없음'(Q-8)을 뒤집어 **채팅도 알림 벨에 뜬다**. 새 테이블은 없다(20개 그대로). 실제 SQL은 마이그레이션 파일이 기준이다.
+
+### 14.1 exchange_match — 예약 제안 2컬럼
+
+예약 제안은 상태값이 아니라 **매칭의 부가 정보**다. 상태 흐름은 그대로 `CHATTING -> RESERVED`이고, 제안은 CHATTING 매칭에만 걸린다.
+
+| 컬럼 | 타입 | 제약 |
+|---|---|---|
+| reserve_proposed_by_id | BIGINT | NULL, FK -> users `fk_exchange_match_reserve_proposed_by` (ON DELETE/UPDATE 동작 없음 — CHECK에 쓰이는 컬럼이라 MySQL이 거부한다), 단일 컬럼 FK 인덱스 `idx_exchange_match_reserve_proposed_by` |
+| reserve_proposed_at | DATETIME(6) | NULL. 제안 시각 |
+
+CHECK 3개 (V8 `ck_exchange_match_reserved`와 같은 안전망 성격, NULL 통과를 막으려고 각 항을 `IS NULL`/`IS NOT NULL`로 썼다):
+- `ck_exchange_match_reserve_proposal_pair`: 두 컬럼은 함께 NULL이거나 함께 NOT NULL.
+- `ck_exchange_match_reserve_proposal_status`: `status = 'CHATTING'`이 아니면 두 컬럼 모두 NULL. RESERVED·CANCELED·COMPLETED 매칭에는 제안이 남을 수 없다.
+- `ck_exchange_match_reserve_proposed_by_party`: 제안자는 NULL이거나 `user_a_id`/`user_b_id` 중 하나(참여자만 제안).
+
+`reserved_by_id`·`reserved_at`(V8)은 그대로 쓰되 의미가 바뀐다: **`reserved_by_id` = 예약을 제안한 사람, `reserved_at` = 상대가 수락한 시각**. `ck_exchange_match_reserved`(RESERVED일 때만 NOT NULL)는 그대로다.
+
+전이별 UPDATE (CHECK 때문에 **같은 문장**에서 처리해야 한다):
+
+| 동작 | 전/후 상태 | 제안 컬럼 | 비고 |
+|---|---|---|---|
+| 제안 (`POST /reserve`) | CHATTING -> CHATTING | NULL -> (호출자, now) | match 행만 FOR UPDATE. 티켓 잠금 없음 |
+| 철회 (`/reserve/withdraw`, 제안자) / 거절 (`/reserve/decline`, 받은 쪽) | CHATTING -> CHATTING | -> NULL, NULL | match 행만 FOR UPDATE |
+| 수락 (`/reserve/accept`, 받은 쪽) | CHATTING -> RESERVED | -> NULL, NULL | `reserved_by_id = 제안자`, `reserved_at = now`. 기존 reserve 잠금 순서·잠금 행 2건 INSERT 그대로 |
+| 예약 취소 (`/unreserve`) | RESERVED -> CHATTING | 이미 NULL | 기존 그대로 |
+| 취소·거절·시스템 취소 (cancel/reject/`OpenMatchCanceller`/티켓 내리기 벌크 JPQL/요청 수정·삭제/차단/정지) | CHATTING -> CANCELED | -> NULL, NULL | **빠뜨리면 `ck_exchange_match_reserve_proposal_status` 위반으로 DB가 거부한다** |
+
+- 기존 행은 두 컬럼이 NULL이라 백필 없이 세 CHECK를 만족한다.
+- FK 검사: 제안자를 쓰는 UPDATE는 `users` 행(제안자)에 S 잠금을 건다(`reserved_by_id`와 같은 성질). `users`를 FOR UPDATE로 잡는 트랜잭션(티켓 등록·좌석 인증 요청·공연 수정 제안)은 그 뒤에 매칭을 잠그지 않으므로 순환이 생기지 않는다. 잠금 순서: 티켓 id↑ -> 요청 id↑ -> 매칭 -> users(S, FK 검사) -> notification.
+
+### 14.2 notification — type 6종과 채팅 알림 1행 재사용
+
+- `ck_notification_type` 재작성: `PROPOSAL_RECEIVED`, `MATCH_RESERVED`, `RESERVATION_CANCELED` + **`RESERVATION_PROPOSED`, `RESERVATION_REJECTED`, `CHAT_MESSAGE`**. 기존 허용 집합의 상위 집합이라 기존 행은 영향이 없다. 마이그레이션은 `CHECK_CLAUSE`에 `CHAT_MESSAGE`가 없을 때만 `DROP CHECK` + `ADD CONSTRAINT`를 **한 ALTER 문**으로 실행한다(CHECK가 빠진 순간이 없음). 이름 자체가 없으면(중간 실패) 새로 만든다.
+- 새 CHECK `ck_notification_chat_dedup`: `type <> 'CHAT_MESSAGE' OR (dedup_key IS NOT NULL AND dedup_key = CONCAT('CHAT_MESSAGE:', match_id, ':', user_id))`. 채팅 알림은 (수신자, 매칭)당 1행으로 `uk_notification_dedup`이 보장한다.
+- 채팅 알림 쓰기: `INSERT ... ON DUPLICATE KEY UPDATE read_at = NULL, created_at = ?`로 만들거나 되살린다(읽은 알림 삭제로 행이 없으면 새로 INSERT). 채팅 전송 트랜잭션은 첫 쿼리로 매칭을 FOR UPDATE로 잡으므로 같은 키의 동시 upsert는 직렬화된다. 멱등 재전송(같은 `clientMessageId`)은 알림을 다시 쓰지 않는다.
+- 채팅 알림 읽음: 읽음 포인터가 앞으로 움직이면 `UPDATE notification SET read_at = ? WHERE dedup_key = 'CHAT_MESSAGE:{matchId}:{userId}' AND read_at IS NULL`(유니크 점조회 — `user_id`·`match_id` 비유니크 인덱스로 거르면 다음 키 잠금 범위가 넓어진다). 읽음 advance 규칙대로 매칭·users 잠금 트랜잭션 밖에서 실행한다.
+- 예약 계열 3종(`MATCH_RESERVED`·`RESERVATION_PROPOSED`·`RESERVATION_REJECTED`)과 `RESERVATION_CANCELED`는 반복마다 1건이라 `dedup_key` NULL. 철회는 알림 없음.
+- `type` 컬럼은 V10부터 `utf8mb4_0900_ai_ci`라 대소문자만 다른 값(`chat_message`)도 CHECK를 통과한다. 앱은 enum 이름(대문자)만 쓰므로 바꾸지 않았다.
+- 인덱스는 V10 그대로(새 인덱스 없음).
+
+### 14.3 되돌리기·검증
+- 되돌리기는 롤포워드(새 V 파일에서 새 CHECK·FK·인덱스·컬럼을 DROP하고 `ck_notification_type`을 3종으로 되돌림; 그 전에 새 type 3종 행을 지우거나 바꿔야 한다). V2·V6~V14와 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하고 파괴적 단계가 없다.
+- 요구 MySQL 8.0.16 이상(CHECK 강제). 검증: `ReserveProposalSchemaMysqlTest`(실제 MySQL, `SEATSWAP_IT_*`가 있을 때만) 6건 — V14 데이터가 있는 DB에서 이관·재실행 안전·기존 데이터 불변, 중간 실패 뒤 재적용, 제안 CHECK 3개(한쪽만 NULL·CHATTING 외 상태·제3자 거부, 수락·취소는 같은 문장에서 비워야 통과), 제안자 FK, type 6종 허용·그 외 거부, CHAT_MESSAGE dedup 형식과 upsert 재사용.
+- 다음 마이그레이션은 V16이다.

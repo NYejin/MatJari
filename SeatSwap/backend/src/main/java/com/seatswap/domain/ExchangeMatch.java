@@ -80,12 +80,22 @@ public class ExchangeMatch {
 
     // a_reserved_at / b_reserved_at 는 V8 부터 미사용(레거시) 컬럼이라 매핑하지 않는다.
 
-    /** 예약한 사람(a 또는 b 측 사용자). RESERVED 일 때만 값이 있다(ck_exchange_match_reserved). */
+    /** 예약을 제안한 사람(a 또는 b 측 사용자; 수락 시 제안자가 그대로 들어간다). RESERVED 일 때만 값이 있다(ck_exchange_match_reserved). */
     @Column(name = "reserved_by_id")
     private Long reservedById;
 
     @Column(name = "reserved_at")
     private LocalDateTime reservedAt;
+
+    /**
+     * 예약 제안자(a 또는 b 측 사용자, V15). CHATTING 에서만 값이 있고(ck_exchange_match_reserve_proposal_status) 두 컬럼은 함께 NULL/NOT NULL 이다.
+     * CHATTING 을 벗어나는 모든 UPDATE(수락 -> RESERVED, 취소 -> CANCELED, 벌크 JPQL 포함)는 같은 문장에서 이 둘을 NULL 로 만든다.
+     */
+    @Column(name = "reserve_proposed_by_id")
+    private Long reserveProposedById;
+
+    @Column(name = "reserve_proposed_at")
+    private LocalDateTime reserveProposedAt;
 
     @Column(name = "a_completed_at")
     private LocalDateTime aCompletedAt;
@@ -127,23 +137,26 @@ public class ExchangeMatch {
     }
 
     /**
-     * 허용 상태 전이 표 (8·9차 답변). PROPOSE 의 상태는 '같은 요청 쌍의 가장 최근 매칭' 상태이며 열린 매칭(CHATTING·RESERVED)이 있으면
-     * 새 매칭을 만들 수 없다(취소·완료된 뒤에는 다시 가능). 멱등 처리(RESERVED 에서 reserve, CHATTING 에서 unreserve)는 서비스가 상태를 보고
-     * 먼저 걸러내므로 표에서는 '멱등'으로 적고 {@code isAllowed} 는 열린 상태에서 true 를 돌려준다.
+     * 허용 상태 전이 표(단일 출처; 서비스가 reserve/decline/withdraw 도 이 표로 판정한다). PROPOSE 의 상태는 '같은 요청 쌍의 가장 최근 매칭' 상태이며
+     * 열린 매칭(CHATTING·RESERVED)이 있으면 새 매칭을 만들 수 없다(취소·완료된 뒤에는 다시 가능). 멱등 처리는 서비스가 상태를 보고 먼저 걸러내므로
+     * 표에서는 '멱등'으로 적는다.
      * <pre>
-     *            PROPOSE  RESERVE   UNRESERVE  REJECT(b측)  CANCEL  COMPLETE
-     * CHATTING   불허     허용       멱등 200   허용         허용    불허(예약 전)
-     * RESERVED   불허     멱등 200   허용       불허         불허    허용
-     * COMPLETED  허용     불허       불허       불허         불허    불허
-     * CANCELED   허용     불허       불허       불허         불허    불허
+     *            PROPOSE  RESERVE(제안)         ACCEPT(수락)           DECLINE/WITHDRAW       UNRESERVE  REJECT(b측)  CANCEL  COMPLETE
+     * CHATTING   불허     허용(내 제안은 멱등)  허용(제안 있을 때)     허용(제안 없으면 멱등)  멱등 200   허용         허용    불허(예약 전)
+     * RESERVED   불허     불허                  멱등 200(제안자·수락자) 멱등 200(제안 없음)    허용       불허         불허    허용
+     * COMPLETED  허용     불허                  불허                   불허                   불허       불허         불허    불허
+     * CANCELED   허용     불허                  불허                   불허                   불허       불허         불허    불허
      * </pre>
-     * 멱등 200 인 경우(RESERVED 에서 reserve, CHATTING 에서 unreserve)는 허용(true)을 반환하며 서비스가 상태 변경 없이 현재 상태를 응답한다.
-     * RESERVED 에서 reject·cancel 은 막고 먼저 예약을 취소해야 한다(409 MATCH_STATE_CONFLICT).
+     * {@code isAllowed} 반환값: RESERVE·RESERVE_ACCEPT·REJECT·CANCEL 은 CHATTING 만 true(RESERVED 에서 accept 의 멱등 200 은 서비스가 이 검사 앞에서 거른다),
+     * UNRESERVE·DECLINE·WITHDRAW 는 열린 상태에서 true(RESERVED 의 DECLINE/WITHDRAW 는 제안이 없어 서비스가 멱등 200 으로 처리). RESERVED 에서 reject·cancel 은 막고
+     * 먼저 예약을 취소해야 한다(409 MATCH_STATE_CONFLICT). 제안 컬럼 변경도 {@code updated_at} 을 갱신하므로 내 매칭 목록 정렬이 바뀐다(의도).
      */
     public static boolean isAllowed(ExchangeMatchStatus status, ExchangeMatchAction action) {
         return switch (action) {
             case PROPOSE -> !status.isOpen();
-            case RESERVE, UNRESERVE -> status.isOpen();
+            case RESERVE, RESERVE_ACCEPT -> status == ExchangeMatchStatus.CHATTING;
+            case UNRESERVE -> status.isOpen();
+            case RESERVE_DECLINE, RESERVE_WITHDRAW -> status.isOpen();
             case REJECT, CANCEL -> status == ExchangeMatchStatus.CHATTING;
             case COMPLETE -> status == ExchangeMatchStatus.RESERVED;
         };
@@ -159,17 +172,46 @@ public class ExchangeMatch {
         return userId.equals(userBId) ? Side.B : null;
     }
 
-    /** 호출자 쪽 예약: CHATTING -> RESERVED. 두 티켓의 잠금 INSERT 는 서비스가 같은 트랜잭션에서 한다. */
-    public void reserve(Long userId, LocalDateTime now) {
+    /** 예약 제안: CHATTING 이고 제안이 없을 때만. 상태는 그대로이고 제안 두 컬럼만 채운다. */
+    public void proposeReservation(Long userId, LocalDateTime now) {
         if (status != ExchangeMatchStatus.CHATTING) {
-            throw new IllegalStateException("CHATTING 매칭만 예약할 수 있습니다: " + status);
+            throw new IllegalStateException("CHATTING 매칭만 예약을 제안할 수 있습니다: " + status);
         }
         if (sideOf(userId) == null) {
-            throw new IllegalArgumentException("매칭 참여자만 예약할 수 있습니다.");
+            throw new IllegalArgumentException("매칭 참여자만 예약을 제안할 수 있습니다.");
+        }
+        if (reserveProposedById != null) {
+            throw new IllegalStateException("이미 예약 제안이 있습니다.");
+        }
+        reserveProposedById = userId;
+        reserveProposedAt = now;
+    }
+
+    /** 제안 지우기(거절·철회). 상태는 바꾸지 않는다. */
+    public void clearReservationProposal() {
+        reserveProposedById = null;
+        reserveProposedAt = null;
+    }
+
+    public boolean hasReservationProposal() {
+        return reserveProposedById != null;
+    }
+
+    /**
+     * 예약 수락: CHATTING(+제안 있음) -> RESERVED. reserved_by_id = 제안자, reserved_at = 수락 시각이고 제안 컬럼은 같은 UPDATE 에서 비운다
+     * (ck_exchange_match_reserve_proposal_status). 두 티켓의 잠금 INSERT 는 서비스가 같은 트랜잭션에서 한다.
+     */
+    public void acceptReservation(LocalDateTime now) {
+        if (status != ExchangeMatchStatus.CHATTING) {
+            throw new IllegalStateException("CHATTING 매칭만 예약을 수락할 수 있습니다: " + status);
+        }
+        if (reserveProposedById == null) {
+            throw new IllegalStateException("수락할 예약 제안이 없습니다.");
         }
         status = ExchangeMatchStatus.RESERVED;
-        reservedById = userId;
+        reservedById = reserveProposedById;
         reservedAt = now;
+        clearReservationProposal();
     }
 
     /** 예약 취소: RESERVED -> CHATTING. 예약 표시와 교환 수락(a/b_completed_at) 표시를 한 번에 비운다(ck_exchange_match_reserved·completed). */
@@ -180,6 +222,7 @@ public class ExchangeMatch {
         status = ExchangeMatchStatus.CHATTING;
         reservedById = null;
         reservedAt = null;
+        clearReservationProposal();
         aCompletedAt = null;
         bCompletedAt = null;
     }
@@ -190,6 +233,7 @@ public class ExchangeMatch {
             throw new IllegalStateException("CHATTING 매칭만 취소할 수 있습니다: " + status);
         }
         status = ExchangeMatchStatus.CANCELED;
+        clearReservationProposal();   // 제안이 걸려 있어도 같은 UPDATE 에서 비운다(CHECK)
         this.canceledById = canceledById;
         canceledAt = now;
     }

@@ -25,13 +25,13 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
- * 매칭 채팅 (V11). 보내기는 REST, 받기는 STOMP 사용자 큐(전파는 {@link ChatPushPublisher}, 커밋 후)다. 시스템 메시지·알림 행은 만들지 않는다.
+ * 매칭 채팅 (V11). 보내기는 REST, 받기는 STOMP 사용자 큐(전파는 {@link ChatPushPublisher}, 커밋 후)다. 시스템 메시지는 저장하지 않는다. 새 메시지는 수신자의 CHAT_MESSAGE 알림 1행을 upsert 한다(V15, 아래 전송 참고).
  *
  * <h3>전송</h3>
  * ①본문 정규화·검증(400) ②<b>트랜잭션 밖</b>에서 매칭을 읽어 참여자 확인(비참여자·없는 매칭 404)
  * ③트랜잭션 안에서 <b>첫 쿼리</b>로 매칭 행 {@code FOR UPDATE}(이후 일관 읽기가 잠금 뒤에 시작되도록) -> 같은 (clientMessageId, 보낸 사람)이 이미 있으면
  * 상태·속도 제한과 무관하게 그 행을 돌려준다(멱등, 200, 응답이 유실된 재전송 보호) -> 없으면 상태가 CHATTING·RESERVED 가 아닐 때 409 MATCH_STATE_CONFLICT
- * -> 속도 제한(429, 새 INSERT 만 소모) -> INSERT(201)
+ * -> 속도 제한(429, 새 INSERT 만 소모) -> INSERT(201) -> <b>맨 끝</b>에서 상대의 CHAT_MESSAGE 알림 upsert(멱등 재전송은 건너뜀)
  * ④<b>커밋 뒤</b> 트랜잭션 밖에서 두 참여자에게 전파(실패해도 저장은 유지, 멱등 재전송은 다시 전파하지 않는다).
  * 채팅 트랜잭션은 매칭 행 하나만 잠그므로 티켓 -> 요청 -> 매칭 잠금 순서 규약을 깨지 않는다(매칭 행은 UPDATE 하지 않아 updated_at·정렬이 변하지 않는다).
  * 같은 매칭의 전송은 그 행 잠금으로 직렬화되므로 id 순서 = 커밋 순서이고, 종료(cancel/complete)와 겹쳐도 종료 커밋 뒤에는 메시지가 커밋되지 않는다.
@@ -58,6 +58,7 @@ public class ChatService {
     private final ChatMessageRepository messageRepository;
     private final ChatReadStateRepository readStateRepository;
     private final ChatRateLimiter rateLimiter;
+    private final NotificationService notificationService;
     private final ObjectProvider<ChatPushPublisher> publisherProvider;
     private final Clock clock;
     private final TransactionTemplate tx;
@@ -66,6 +67,7 @@ public class ChatService {
                        ChatMessageRepository messageRepository,
                        ChatReadStateRepository readStateRepository,
                        ChatRateLimiter rateLimiter,
+                       NotificationService notificationService,
                        ObjectProvider<ChatPushPublisher> publisherProvider,
                        Clock clock,
                        PlatformTransactionManager transactionManager) {
@@ -73,6 +75,7 @@ public class ChatService {
         this.messageRepository = messageRepository;
         this.readStateRepository = readStateRepository;
         this.rateLimiter = rateLimiter;
+        this.notificationService = notificationService;
         this.publisherProvider = publisherProvider;
         this.clock = clock;
         this.tx = new TransactionTemplate(transactionManager);
@@ -107,7 +110,10 @@ public class ChatService {
                         "status", m.getStatus().name(), "action", "SEND"));
             }
             rateLimiter.acquire(userId);   // 새 INSERT 일 때만 소모(메모리 연산이라 매칭 행 잠금을 오래 잡지 않는다)
-            return new Stored(messageRepository.saveAndFlush(ChatMessage.of(matchId, userId, content, clientMessageId)), true);
+            ChatMessage saved = messageRepository.saveAndFlush(ChatMessage.of(matchId, userId, content, clientMessageId));
+            // 알림은 트랜잭션 맨 끝(저장 성공 뒤): 상대의 (수신자, 매칭)당 1행을 만들거나 되살린다. 푸시는 커밋 뒤 신호다.
+            notificationService.notifyChatMessage(counterpartOf(m, userId), matchId);
+            return new Stored(saved, true);
         });
 
         ChatDtos.Message dto = toDto(stored.message());
@@ -171,6 +177,7 @@ public class ChatService {
             return;
         }
         readStateRepository.advance(matchId, userId, truncated, LocalDateTime.now(clock));
+        markChatNotificationRead(userId, matchId);
         publishRead(matchId, counterpartOf(m, userId), truncated);
     }
 
@@ -199,6 +206,15 @@ public class ChatService {
             publisherProvider.getIfAvailable(() -> ChatPushPublisher.NOOP).publishMessage(matchId, dto, recipients);
         } catch (RuntimeException e) {
             log.warn("채팅 메시지 전파 실패(저장은 유지됨) matchId={} messageId={}: {}", matchId, dto.id(), e.toString());
+        }
+    }
+
+    /** 포인터가 올라갔으면 내 CHAT_MESSAGE 알림도 읽음 처리한다(매칭·users 잠금 밖의 독립 트랜잭션). 실패해도 읽음 포인터는 이미 반영됐다. */
+    private void markChatNotificationRead(Long userId, Long matchId) {
+        try {
+            notificationService.markChatRead(userId, matchId);
+        } catch (RuntimeException e) {
+            log.warn("채팅 알림 읽음 처리 실패(포인터는 반영됨) matchId={} userId={}: {}", matchId, userId, e.toString());
         }
     }
 

@@ -17,7 +17,7 @@ SeatSwap 고유 용어의 짧은 정의다. 확정 결정 본문은 [CLAUDE.md](
 | 용어 | 내부 값 | 뜻 | 위치 |
 |---|---|---|---|
 | 매칭 | `CHATTING` | 후보 목록에서 한쪽이 상대를 골라 제안하면 생기는 채팅 단계. 한 요청에 여러 개 동시에 열 수 있다. 화면 라벨은 현재 '진행 중'이고 '매칭'으로 바꾸는 것은 문서의 기본안이다 | `ExchangeMatchStatus`, 테이블 `exchange_match` |
-| 예약 중 | `RESERVED` | 둘 중 한 명이 예약하면 되는 상태(8차·9차 답변, V8). 두 티켓이 잠긴다. 예약을 취소하면 `CHATTING`으로 돌아간다. 구현 완료 | `reserve`/`unreserve` API, `reserved_by_id`·`reserved_at` |
+| 예약 중 | `RESERVED` | 한쪽이 예약을 제안하고 상대가 수락하면 되는 상태(V15에서 '한 명이 예약'(V8)을 뒤집음). 제안은 상태가 아니라 매칭의 부가 정보(`reserve_proposed_*`)다. 수락하면 두 티켓이 잠기고 예약을 취소하면 `CHATTING`으로 돌아간다. 구현 완료(미병합) | `reserve`(제안)/`reserve/accept`/`decline`/`withdraw`/`unreserve` API, `reserved_by_id`(=제안자)·`reserved_at`, [근거 페이지](decisions/reserve-propose-design.md) |
 | 교환 수락 | (버튼 이름) | 화면 버튼 이름만 바뀐 것이다. 내부 값·API는 `complete`, 컬럼은 `a_completed_at`/`b_completed_at` 그대로. 구현 완료(V9, 커밋 `52cfb5a`). 첫 수락은 시각만 기록하고 RESERVED를 유지하며, 화면에서 확인 단계를 한 번 거친다 | 요구사항 문서 §3, 9차 답변 |
 | 교환 완료 | `COMPLETED` | 양쪽이 '교환 수락'을 모두 누른 상태. 상태·뱃지·이력 라벨은 '교환 완료'를 유지한다. 취소 불가. 두 번째 수락 때 한 트랜잭션으로 전이한다(구현 완료). 완료 시 기존 티켓의 교환 요청은 `CLOSED`가 되고 그 티켓의 다른 채팅은 자동 취소하지 않는다(Q-15 확정) | `complete` API, `exchange_history` |
 | 교환됨 | `TicketStatus.EXCHANGED` | 교환 완료 때 기존 티켓에 붙는 티켓 상태. 구현 완료(V9에서 `ck_ticket_status` 확장). 이 상태인 티켓은 내릴 수 없고(409 `TICKET_EXCHANGED`) 새 예약도 막힌다. 이 상태인 티켓의 다른 채팅 카드는 버튼 비활성 + "이미 교환된 좌석이에요" 표시 | [근거 페이지](decisions/exchange-complete-new-ticket.md) |
@@ -44,8 +44,8 @@ SeatSwap 고유 용어의 짧은 정의다. 확정 결정 본문은 [CLAUDE.md](
 
 설계 근거는 [알림 설계](decisions/notification-design.md), 쓰기 규칙은 [함정 페이지 8절](gotchas/lock-order-and-index-pitfalls.md) 참고.
 
-- **알림 종류 3종** (`notification.type`, V10 CHECK): `PROPOSAL_RECEIVED`(새 제안, 수신자는 제안받는 쪽), `MATCH_RESERVED`(상대가 예약), `RESERVATION_CANCELED`(상대가 예약 취소). 뒤의 둘은 수신자가 호출자 반대편이다.
-- **dedup_key**: 중복 생성을 막는 단일 컬럼 유니크 키. 새 제안만 `PROPOSAL_RECEIVED:{matchId}` 값을 갖고, 예약·예약 취소는 NULL이라 반복마다 매번 알림 1건이 쌓인다.
+- **알림 종류 6종** (`notification.type`, V15 CHECK): `PROPOSAL_RECEIVED`(새 제안, 수신자는 제안받는 쪽), `MATCH_RESERVED`(상대가 예약을 수락, 제안자에게), `RESERVATION_CANCELED`(상대가 예약 취소), `RESERVATION_PROPOSED`(상대가 예약 제안), `RESERVATION_REJECTED`(예약 제안 거절), `CHAT_MESSAGE`(새 채팅 메시지). 수신자는 호출자 반대편이다. 근거는 [예약 제안 설계](decisions/reserve-propose-design.md).
+- **dedup_key**: 중복 생성을 막는 단일 컬럼 유니크 키. 새 제안은 `PROPOSAL_RECEIVED:{matchId}`, 채팅·예약 제안은 `{TYPE}:{matchId}:{recipientId}` 값을 갖고 (수신자, 매칭)당 1행을 재사용한다. 그 밖의 예약 수락·거절·예약 취소는 NULL이라 반복마다 알림 1건이 쌓인다.
 - **안 읽음**: `read_at`이 NULL인 알림. 안 읽은 개수는 생성 컬럼 `unread_user_id`로 센다. 닫힌 매칭의 알림도 센다.
 - **종료된 매칭 라벨**: 매칭이 CANCELED·COMPLETED가 된 알림에 붙는 회색 라벨(응답 `matchClosed`). 알림을 숨기지 않는다.
 

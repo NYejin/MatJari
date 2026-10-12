@@ -1,7 +1,13 @@
 import type { MatchRole, MatchStatus } from "./exchange";
 
 // 알림 (feature/notifications). 계약: 알림 설계 문서(V10 notification, /api/notifications).
-export type NotificationType = "PROPOSAL_RECEIVED" | "MATCH_RESERVED" | "RESERVATION_CANCELED";
+export type NotificationType =
+  | "PROPOSAL_RECEIVED"
+  | "MATCH_RESERVED"
+  | "RESERVATION_CANCELED"
+  | "RESERVATION_PROPOSED"
+  | "RESERVATION_REJECTED"
+  | "CHAT_MESSAGE";
 
 /** 알림에 걸린 자리 (교환 전 자리). 시각은 없다 */
 export interface NotificationSeat {
@@ -31,7 +37,7 @@ export interface AppNotification {
 /** GET /api/notifications/unread-count. 종류별 키는 0이어도 항상 포함 */
 export interface UnreadCount {
   total: number;
-  byType: Record<NotificationType, number>;
+  byType: Partial<Record<NotificationType, number>>;
 }
 
 /** STOMP /user/queue/notifications 푸시. 새 알림이 생겼다는 신호이며 문구·상대 정보는 실리지 않는다 */

@@ -111,11 +111,11 @@ class BlockMysqlTest {
         mutual(s, t);
         long m1 = matchService.propose(p1.userId, p1.requestId, q1.requestId).id();           // CHATTING
         long m2 = matchService.propose(q2.userId, q2.requestId, p2.requestId).id();           // RESERVED + 한쪽 수락
-        matchService.reserve(p2.userId, m2);
+        reserveFlow(p2.userId, m2);
         matchService.complete(p2.userId, m2);
         long m3 = matchService.propose(r.userId, r.requestId, p1.requestId).id();             // 다른 쌍, CHATTING
         long m4 = matchService.propose(s.userId, s.requestId, t.requestId).id();              // 다른 쌍, RESERVED
-        matchService.reserve(s.userId, m4);
+        reserveFlow(s.userId, m4);
         assertThat(locks()).isEqualTo(4);
 
         BlockResult result = blockService.blockFromMatch(q1.userId, m1);
@@ -151,7 +151,7 @@ class BlockMysqlTest {
         Party x = party(2, "Z1");
         mutual(w, x);
         long m = matchService.propose(w.userId, w.requestId, x.requestId).id();
-        matchService.reserve(w.userId, m);
+        reserveFlow(w.userId, m);
         matchService.complete(w.userId, m);
         ExchangeMatchResponse done = matchService.complete(x.userId, m);
         assertThat(done.status()).isEqualTo("COMPLETED");
@@ -176,7 +176,7 @@ class BlockMysqlTest {
         mutual(s, t);
         long m1 = matchService.propose(p.userId, p.requestId, q.requestId).id();
         long m2 = matchService.propose(r.userId, r.requestId, p.requestId).id();
-        matchService.reserve(r.userId, m2);
+        reserveFlow(r.userId, m2);
         long m3 = matchService.propose(s.userId, s.requestId, t.requestId).id();
 
         assertThatThrownBy(() -> canceller.cancelAllOf(p.userId)).isInstanceOf(IllegalTransactionStateException.class);
@@ -309,12 +309,12 @@ class BlockMysqlTest {
             mutual(a, c);
             long m = matchService.propose(a.userId, a.requestId, b.requestId).id();
             if (round % 2 == 0) {
-                matchService.reserve(a.userId, m);
+                reserveFlow(a.userId, m);
             }
             runConcurrently(List.<Callable<Object>>of(
                     () -> blockService.blockFromMatch(a.userId, m),
                     () -> blockService.blockFromMatch(b.userId, m),
-                    () -> matchService.reserve(b.userId, m),
+                    () -> reserveFlow(b.userId, m),
                     () -> matchService.unreserve(a.userId, m),
                     () -> {
                         ticketService.deactivate(b.userId, b.ticketId);
@@ -343,13 +343,13 @@ class BlockMysqlTest {
             mutual(a, c);
             long m = matchService.propose(b.userId, b.requestId, a.requestId).id();
             if (round % 2 == 0) {
-                matchService.reserve(b.userId, m);
+                reserveFlow(b.userId, m);
             }
             TransactionTemplate tx = new TransactionTemplate(transactionManager);
             tx.setIsolationLevel(org.springframework.transaction.TransactionDefinition.ISOLATION_READ_COMMITTED);
             runConcurrently(List.<Callable<Object>>of(
                     () -> tx.execute(st -> canceller.cancelAllOf(a.userId)),
-                    () -> matchService.reserve(a.userId, m),
+                    () -> reserveFlow(a.userId, m),
                     () -> matchService.unreserve(b.userId, m),
                     () -> matchService.propose(c.userId, c.requestId, a.requestId),
                     () -> matchService.propose(a.userId, a.requestId, c.requestId)));
@@ -469,5 +469,10 @@ class BlockMysqlTest {
     private void mutual(Party a, Party b) {
         wants(a, b);
         wants(b, a);
+    }
+
+    /** 예약 제안 -> 상대 수락으로 RESERVED 를 만든다(V15). */
+    private com.seatswap.dto.response.ExchangeMatchResponse reserveFlow(long proposerId, long matchId) {
+        return com.seatswap.testsupport.ReserveFlow.reserve(matchService, jdbc, proposerId, matchId);
     }
 }

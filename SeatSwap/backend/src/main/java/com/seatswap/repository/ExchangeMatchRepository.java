@@ -78,7 +78,8 @@ public interface ExchangeMatchRepository extends JpaRepository<ExchangeMatch, Lo
     @Modifying(flushAutomatically = true)
     @Query("""
             update ExchangeMatch m
-            set m.status = com.seatswap.domain.ExchangeMatchStatus.CANCELED, m.canceledAt = :now, m.updatedAt = :now
+            set m.status = com.seatswap.domain.ExchangeMatchStatus.CANCELED, m.canceledAt = :now, m.updatedAt = :now,
+                m.reserveProposedById = null, m.reserveProposedAt = null
             where m.ticketAId = :ticketId and m.status = com.seatswap.domain.ExchangeMatchStatus.CHATTING
             """)
     int cancelChattingByTicketA(@Param("ticketId") Long ticketId, @Param("now") LocalDateTime now);
@@ -87,7 +88,8 @@ public interface ExchangeMatchRepository extends JpaRepository<ExchangeMatch, Lo
     @Modifying(flushAutomatically = true)
     @Query("""
             update ExchangeMatch m
-            set m.status = com.seatswap.domain.ExchangeMatchStatus.CANCELED, m.canceledAt = :now, m.updatedAt = :now
+            set m.status = com.seatswap.domain.ExchangeMatchStatus.CANCELED, m.canceledAt = :now, m.updatedAt = :now,
+                m.reserveProposedById = null, m.reserveProposedAt = null
             where m.ticketBId = :ticketId and m.status = com.seatswap.domain.ExchangeMatchStatus.CHATTING
             """)
     int cancelChattingByTicketB(@Param("ticketId") Long ticketId, @Param("now") LocalDateTime now);

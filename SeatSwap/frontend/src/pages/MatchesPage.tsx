@@ -8,7 +8,7 @@ import { button, FOCUS_RING, linkButton, liveRegionClass, ui } from "../componen
 import { usePagedList } from "../hooks/usePagedList";
 import type { ExchangeMatch, MatchRole, MatchStatus } from "../types/exchange";
 
-// FR-04 내 매칭 목록 (보호 라우트 /exchange/matches): 보낸(내가 제안)/받은 탭, 상태 배지, 예약하기·예약 취소·거절·채팅 종료.
+// FR-04 내 매칭 목록 (보호 라우트 /exchange/matches): 보낸(내가 제안)/받은 탭, 상태 배지, 예약 취소·거절·채팅 종료. 예약 제안·수락은 채팅 화면(ChatPage)에서 한다.
 // 예약 중에는 '교환 수락'(2단계 확인)을 누를 수 있고, 양쪽이 모두 수락하면 교환 완료가 된다. 각 카드의 '채팅' 링크로 채팅 화면(ChatPage)에 들어간다.
 // 동작(예약·예약 취소·교환 수락·거절·종료) 뒤에는 제자리 패치 대신 첫 페이지부터 다시 불러온다 (서버가 updated_at 순으로 정렬해 더 보기 목록이 어긋날 수 있음).
 
@@ -221,7 +221,7 @@ const NOT_READY_CLASS =
   "inline-flex min-h-11 cursor-not-allowed items-center justify-center rounded-[10px] border border-dashed border-gray-500 bg-gray-100 px-4 text-[0.9375rem]/[normal] font-semibold whitespace-nowrap text-gray-700 touch-manipulation " + FOCUS_RING;
 const DD_CLASS = "text-sm/[normal] text-gray-900 min-[30rem]:my-1 min-[30rem]:ml-2";
 
-type Action = "reserve" | "unreserve" | "reject" | "cancel" | "complete";
+type Action = "unreserve" | "reject" | "cancel" | "complete";
 
 /** '(삭제)' 표시 — 색이 아니라 글자로 알리고, 보조기기에는 긴 설명을 함께 읽어준다 */
 function DeletedTag({ label, text }: { label: string; text: string }) {
@@ -266,19 +266,13 @@ function MatchCard({
     setError(null);
     try {
       let res: ExchangeMatch | null = null;
-      if (action === "reserve") res = await exchangeApi.reserve(m.id);
-      else if (action === "unreserve") res = await exchangeApi.unreserve(m.id);
+      if (action === "unreserve") res = await exchangeApi.unreserve(m.id);
       else if (action === "complete") res = await exchangeApi.complete(m.id);
       else if (action === "reject") await exchangeApi.reject(m.id);
       else await exchangeApi.cancel(m.id);
       setConfirming(null);
       onChanged(
-        action === "reserve"
-          ? // 화면이 낡아 상대가 먼저 예약했다면 서버는 멱등 응답을 줄 수 있다 — 예약자가 내가 아니면 사실대로 안내
-            res?.reservedBy === "COUNTERPART"
-            ? `${m.counterpartNickname}님이 이미 예약했어요.`
-            : `${m.counterpartNickname}님과 예약했어요. 두 티켓이 예약 중이에요.`
-          : action === "complete"
+        action === "complete"
             ? res?.status === "COMPLETED"
               ? `${m.counterpartNickname}님과 교환이 완료됐어요. 새 자리는 내 티켓에서 확인하세요.`
               : res?.status === "RESERVED"
@@ -304,7 +298,6 @@ function MatchCard({
   const titleId = `match-${m.id}-title`;
   const open = m.status === "CHATTING" || m.status === "RESERVED";
   const reserved = m.status === "RESERVED";
-  const canReserve = m.status === "CHATTING";
   const ELSEWHERE = "(다른 사용자와 예약 중인 좌석)";
   const myElsewhere = m.status === "CHATTING" && m.myTicketReservedElsewhere;
   const counterpartElsewhere = m.status === "CHATTING" && m.counterpartTicketReservedElsewhere;
@@ -312,8 +305,9 @@ function MatchCard({
   const lockedReasonId = `match-${m.id}-locked-reason`;
   const exchangedId = `match-${m.id}-exchanged`;
   const completed = m.status === "COMPLETED";
-  /** 교환 완료로 EXCHANGED가 된 티켓이 걸린 채팅 중 매칭: 예약하기를 막고 안내한다 */
+  /** 교환 완료로 EXCHANGED가 된 티켓이 걸린 채팅 중 매칭: 안내 문구를 보인다 */
   const seatExchanged = m.status === "CHATTING" && (m.myTicketExchanged || m.counterpartTicketExchanged);
+  const proposal = m.status === "CHATTING" ? m.reservationProposal : "NONE";
   const anyAccepted = m.myAccepted || m.counterpartAccepted;
   /** 삭제된 조건이 걸린 매칭은 회색으로 낮춰 보인다 (글자 표시를 함께 쓴다) */
   const anyDeleted = m.counterpartRequestDeleted || m.myRequestDeleted;
@@ -323,8 +317,8 @@ function MatchCard({
   const chatLink = (
     <Link
       to={`/exchange/matches/${m.id}/chat`}
-      className={linkButton.outline}
-      aria-label={`${m.counterpartNickname}님과 채팅${unread > 0 ? `, 안 읽은 메시지 ${unread}개` : ""}`}
+      className={proposal === "THEIRS" ? linkButton.solid : linkButton.outline}
+      aria-label={`${m.counterpartNickname}님과 채팅${proposal === "THEIRS" ? ", 상대가 예약을 제안했어요" : ""}${unread > 0 ? `, 안 읽은 메시지 ${unread}개` : ""}`}
     >
       채팅
       {unread > 0 && (
@@ -398,6 +392,8 @@ function MatchCard({
           두 티켓이 예약되어 다른 매칭에서는 쓸 수 없어요.
         </p>
       )}
+      {proposal === "MINE" && <p className={ui.notice}>내가 예약을 제안했어요. 상대의 수락을 기다려요.</p>}
+      {proposal === "THEIRS" && <p className={ui.warning}>{m.counterpartNickname}님이 예약을 제안했어요 — 채팅에서 수락하세요.</p>}
       {reserved && m.counterpartAccepted && <p className={ui.notice}>{m.counterpartNickname}님이 교환 수락했어요.</p>}
       {completed && (
         <p className={ui.notice}>
@@ -415,16 +411,6 @@ function MatchCard({
       {open && (
         <div className="flex flex-wrap gap-2">
           {chatLink}
-          {canReserve &&
-            (seatExchanged ? (
-              <button type="button" className={NOT_READY_CLASS} aria-disabled="true" aria-describedby={exchangedId} onClick={(e) => e.preventDefault()}>
-                예약하기
-              </button>
-            ) : (
-              <button type="button" className={button.solid} onClick={() => run("reserve")} disabled={busy !== null} aria-busy={busy === "reserve"}>
-                {busy === "reserve" ? "처리 중..." : "예약하기"}
-              </button>
-            ))}
           {reserved && confirming !== "unreserve" && (
             <button type="button" className={button.outline} onClick={() => setConfirming("unreserve")} disabled={busy !== null}>
               예약 취소

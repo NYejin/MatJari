@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { getDisplayName, useAuth } from "../hooks/useAuth";
 import { useAuthRedirect, type AuthRouteState } from "../hooks/useAuthRedirect";
@@ -102,6 +102,19 @@ const accountNavClass = ({ isActive }: { isActive: boolean }) =>
   `${cls.accountNav} ${isActive ? cls.accountNavActive : cls.accountNavIdle}`;
 const accountLogoutButton = `${outlineButton} ${cls.accountActionItem}`;
 
+/** 뷰포트가 데스크톱(가로 메뉴) 폭인지. 벨은 인스턴스를 하나만 두고 폭에 따라 위치만 옮긴다(구독·폴링 중복 방지) */
+function useIsDesktop(): boolean {
+  const [desktop, setDesktop] = useState(() => window.matchMedia(DESKTOP_MEDIA_QUERY).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(DESKTOP_MEDIA_QUERY);
+    const onChange = () => setDesktop(mq.matches);
+    onChange();
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return desktop;
+}
+
 export default function Header() {
   const { user, profile, isInitializing } = useAuth();
   const logoutAndGoHome = useLogout();
@@ -109,6 +122,7 @@ export default function Header() {
   const location = useLocation();
   const isAdmin = profile?.role === "ADMIN";
   const [menuOpen, setMenuOpen] = useState(false);
+  const isDesktop = useIsDesktop();
   const menuId = useId();
   const headerRef = useRef<HTMLElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -214,8 +228,8 @@ export default function Header() {
           <img src="/logo.png" alt="SeatSwap" className={cls.logoImage} />
         </Link>
 
-        {/* 알림 벨: 로그인 상태에서만. 모바일은 로고와 햄버거 사이(패널 밖)라 메뉴를 열지 않아도 보인다 */}
-        {user && !isInitializing && <NotificationBell userId={user.id} onOpen={closeMenu} />}
+        {/* 알림 벨(모바일): 햄버거 버튼 왼쪽, 패널 밖이라 메뉴를 열지 않아도 보인다. 데스크톱은 아래 nav 안 '내 매칭' 오른쪽 */}
+        {user && !isInitializing && !isDesktop && <NotificationBell userId={user.id} onOpen={closeMenu} />}
 
         <button
           ref={toggleRef}
@@ -232,9 +246,15 @@ export default function Header() {
         <div id={menuId} className={`${cls.panel} ${menuOpen ? cls.panelOpen : cls.panelClosed}`}>
           <nav className={cls.nav} aria-label="주요 메뉴">
             {(user ? (isAdmin ? [...MENU, ADMIN_MENU_ITEM] : MENU) : []).map((item) => (
-              <NavLink key={item.to} to={item.to} className={navClass} onClick={closeMenu}>
-                {item.label}
-              </NavLink>
+              <Fragment key={item.to}>
+                <NavLink to={item.to} className={navClass} onClick={closeMenu}>
+                  {item.label}
+                </NavLink>
+                {/* 알림 벨(데스크톱): '내 매칭' 바로 오른쪽 */}
+                {isDesktop && item.to === "/exchange/matches" && user && !isInitializing && (
+                  <NotificationBell userId={user.id} onOpen={closeMenu} />
+                )}
+              </Fragment>
             ))}
           </nav>
           {authArea}

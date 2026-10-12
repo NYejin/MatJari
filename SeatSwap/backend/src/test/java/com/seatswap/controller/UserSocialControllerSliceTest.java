@@ -60,6 +60,8 @@ class UserSocialControllerSliceTest {
     @MockBean
     private UserService userService;
     @MockBean
+    private com.seatswap.service.WithdrawService withdrawService;
+    @MockBean
     private SocialAccountService socialAccountService;
 
     @BeforeEach

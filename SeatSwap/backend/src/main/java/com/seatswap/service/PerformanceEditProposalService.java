@@ -72,6 +72,7 @@ public class PerformanceEditProposalService {
         }
 
         User user = userRepository.findByIdForUpdate(userId)
+                .filter(u -> !u.isWithdrawn())
                 .orElseThrow(() -> new NotFoundException("사용자를 찾을 수 없습니다."));
         Performance performance = performanceRepository.findById(performanceId)
                 .orElseThrow(() -> new NotFoundException("공연을 찾을 수 없습니다."));

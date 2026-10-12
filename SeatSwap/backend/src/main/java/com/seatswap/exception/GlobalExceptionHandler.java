@@ -71,6 +71,18 @@ public class GlobalExceptionHandler {
                 .header("Retry-After", String.valueOf(e.getRetryAfterSeconds())).body(body);
     }
 
+    // 429 — 회원 탈퇴 시도 제한: {"code":"WITHDRAW_RATE_LIMITED","message":..,"retryAfterSeconds":n} + Retry-After 헤더
+    @ExceptionHandler(com.seatswap.service.WithdrawService.WithdrawRateLimitedException.class)
+    public ResponseEntity<Map<String, Object>> handleWithdrawRateLimited(
+            com.seatswap.service.WithdrawService.WithdrawRateLimitedException e) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("code", e.getCode());
+        body.put("message", e.getMessage());
+        body.put("retryAfterSeconds", e.getRetryAfterSeconds());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", String.valueOf(e.getRetryAfterSeconds())).body(body);
+    }
+
     // 소셜 로그인 REST 오류: 404 SOCIAL_PROVIDER_DISABLED / 400 INVALID_LOGIN_CODE / 429 SOCIAL_RATE_LIMITED(+Retry-After)
     @ExceptionHandler(com.seatswap.service.social.SocialAuthException.class)
     public ResponseEntity<Map<String, Object>> handleSocialAuth(com.seatswap.service.social.SocialAuthException e) {

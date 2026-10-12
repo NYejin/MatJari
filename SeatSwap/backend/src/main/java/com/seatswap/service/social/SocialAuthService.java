@@ -226,7 +226,9 @@ public class SocialAuthService {
         rateLimiter.acquire("x:" + clientIp);
         Long userId = codeStore.consume(loginCode).orElseThrow(SocialAuthException::invalidLoginCode);
         suspensionChecker.assertNotSuspended(userId); // 코드 발급 뒤에 정지됐을 수 있어 다시 검사한다
-        User user = userRepository.findById(userId).orElseThrow(SocialAuthException::invalidLoginCode);
+        User user = userRepository.findById(userId)
+                .filter(u -> !u.isWithdrawn()) // 코드 발급 뒤에 탈퇴했을 수 있다
+                .orElseThrow(SocialAuthException::invalidLoginCode);
         return authService.issueTokens(user);
     }
 

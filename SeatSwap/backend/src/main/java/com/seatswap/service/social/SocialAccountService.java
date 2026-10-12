@@ -102,7 +102,8 @@ public class SocialAccountService {
     @Transactional
     public void unlink(Long userId, String providerPath) {
         SocialProvider provider = SocialProvider.fromPath(providerPath).orElseThrow(SocialAuthException::providerDisabled);
-        User user = userRepository.findByIdForUpdate(userId).orElseThrow(SocialAccountService::unauthenticated);
+        User user = userRepository.findByIdForUpdate(userId)
+                .filter(u -> !u.isWithdrawn()).orElseThrow(SocialAccountService::unauthenticated);
         List<SocialAccount> accounts = socialAccountRepository.findByUserIdOrderByIdAsc(userId);
         SocialAccount target = accounts.stream().filter(a -> a.getProvider() == provider).findFirst().orElse(null);
         if (target == null) {

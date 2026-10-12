@@ -42,6 +42,10 @@ public class User {
     @Column(nullable = false, length = 20)
     private UserRole role = UserRole.USER;
 
+    /** 탈퇴 시각(V17, KST). NULL 이면 활성 회원. 값이 있으면 익명화된 탈퇴 회원이다. */
+    @Column(name = "withdrawn_at")
+    private LocalDateTime withdrawnAt;
+
     // 신뢰도 점수 — 거래 완료 후 Review 누적 기반 (요구사항정의서 FR-13)
     private Double trustScore = 0.0;
 
@@ -70,6 +74,31 @@ public class User {
         User user = create(email, unknownEncodedPassword, nickname);
         user.passwordLoginEnabled = false;
         return user;
+    }
+
+    public static final String WITHDRAWN_NICKNAME = "탈퇴한 회원";
+
+    public boolean isWithdrawn() {
+        return withdrawnAt != null;
+    }
+
+    public static String withdrawnEmail(Long userId) {
+        return "withdrawn." + userId + "@withdrawn.seatswap.invalid";
+    }
+
+    /**
+     * 탈퇴 익명화. 이메일은 예약 도메인(.invalid)의 id 기반 값이라 유니크가 유지되고, 비밀번호는 아무도 모르는 무작위 해시이며
+     * 비밀번호 로그인은 꺼진다. role 은 그대로 둔다. 연관 데이터 정리는 WithdrawService 몫이다.
+     */
+    public void anonymizeForWithdrawal(String unknownEncodedPassword, LocalDateTime now) {
+        if (withdrawnAt != null) {
+            throw new IllegalStateException("이미 탈퇴한 회원입니다.");
+        }
+        this.email = withdrawnEmail(id);
+        this.nickname = WITHDRAWN_NICKNAME;
+        this.password = unknownEncodedPassword;
+        this.passwordLoginEnabled = false;
+        this.withdrawnAt = now;
     }
 
     /** 닉네임 변경. 검증·정규화는 호출 쪽(UserService)이 한다. */

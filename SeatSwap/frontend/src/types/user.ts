@@ -12,3 +12,9 @@ export interface User {
   /** 권한. UI 분기용일 뿐 최종 권한 판정은 서버가 한다. 서버가 안 주면 일반 사용자로 간주 */
   role?: "USER" | "ADMIN";
 }
+
+/** DELETE /api/users/me 본문 — 비밀번호 계정은 password, 소셜 전용 계정은 confirmText("탈퇴합니다") */
+export interface WithdrawRequest {
+  password?: string;
+  confirmText?: string;
+}

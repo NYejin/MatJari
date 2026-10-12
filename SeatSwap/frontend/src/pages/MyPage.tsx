@@ -1,13 +1,14 @@
-import { useEffect, useRef, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { getDisplayName, getVisibleEmail, useAuth } from "../hooks/useAuth";
 import { useLogout } from "../hooks/useLogout";
 import NicknameEditor from "../components/NicknameEditor";
 import SocialLinkCard from "../components/SocialLinkCard";
+import WithdrawDialog from "../components/WithdrawDialog";
 import { FOCUS_RING } from "../components/ui";
 
 // FR-01 회원 — 마이페이지 (보호 라우트 /me). 내 정보(/api/users/me) 표시 + 로그아웃.
-// 내 티켓·내 매칭·교환 이력 등은 링크, 회원탈퇴만 "준비 중" 자리로 둔다.
+// 내 티켓·내 매칭·교환 이력 등은 링크, 회원탈퇴는 확인 모달(WithdrawDialog)을 연다.
 
 const cls = {
   /** AppLayout 콘텐츠 영역을 채우는 배경 (로그인 화면과 같은 톤) */
@@ -30,8 +31,6 @@ const cls = {
   comingList: "mt-2 divide-y divide-gray-200",
   comingItem: "flex min-h-11 items-center justify-between gap-3 text-[0.9375rem]/[normal] text-gray-700",
   activityLink: "font-semibold text-gray-900 no-underline active:bg-gray-100 " + FOCUS_RING,
-  /** gray-100 배경 + gray-700 글자 9.37:1 (gray-500은 4.39:1로 AA 미달) */
-  comingBadge: "shrink-0 rounded-full bg-gray-100 px-2.5 py-0.5 text-[0.8125rem]/[normal] text-gray-700",
   /** 하단 계정 동작 버튼 줄 (오른쪽 정렬) */
   accountActions: "flex justify-end gap-2",
   /** 터치 영역 48px */
@@ -45,9 +44,8 @@ const cls = {
 } as const;
 
 const outlineButton = `${cls.button} ${cls.buttonOutline}`;
-/** 준비 중 기능 버튼: 비활성 + "준비 중" 배지(정보는 배지가 전달 — gray-100 배경 gray-700 글자 9.37:1) */
-const comingSoonButton =
-  `${cls.button} gap-2 border border-gray-200 bg-white text-gray-500 disabled:cursor-not-allowed`;
+/** 회원탈퇴: 위험 색 외곽선 (red-700 / 흰 배경 6.47:1) */
+const withdrawButton = `${cls.button} border border-red-600 bg-white text-red-700 enabled:active:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60`;
 const retryButton = `${cls.button} ${cls.buttonSolid} ${cls.retryButton}`;
 
 const ACTIVITY_LINKS = [
@@ -70,7 +68,10 @@ function formatTrustScore(score: number | null): string {
 
 export default function MyPage() {
   const { user, profile, profileStatus, profileError, reloadProfile } = useAuth();
+  const { logout } = useAuth();
   const logoutAndGoHome = useLogout();
+  const navigate = useNavigate();
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
 
   // "다시 시도" 버튼은 로딩이 시작되면 사라지므로, 누르는 순간 포커스를 카드로 옮기고
   // 결과가 나오면 다시 카드에 둔다 (포커스가 원래 카드 안에 있었을 때만)
@@ -94,6 +95,12 @@ export default function MyPage() {
 
   // ProtectedRoute 하위라 user는 항상 있다 (타입 좁히기용)
   if (!user) return null;
+
+  // 탈퇴 성공: 보호 화면을 먼저 벗어난 뒤 토큰을 지운다 (useLogout과 같은 순서). 안내는 홈에서 한 번만 보여준다
+  const handleWithdrawn = () => {
+    navigate("/", { replace: true, state: { notice: "탈퇴가 완료됐어요. 그동안 이용해 주셔서 고마워요." } });
+    logout();
+  };
 
   const displayName = getDisplayName(user, profile);
   const visibleEmail = getVisibleEmail(user, profile);
@@ -172,13 +179,21 @@ export default function MyPage() {
           <button type="button" className={outlineButton} onClick={logoutAndGoHome}>
             로그아웃
           </button>
-          {/* 회원탈퇴는 아직 미구현 — 비활성 + 준비 중 배지 */}
-          <button type="button" className={comingSoonButton} disabled>
+          <button type="button" className={withdrawButton} onClick={() => setWithdrawOpen(true)}
+            disabled={!profile}
+            title={profile ? undefined : "내 정보를 불러온 뒤 탈퇴할 수 있어요"}
+          >
             회원탈퇴
-            <span className={cls.comingBadge}>준비 중</span>
           </button>
         </div>
       </div>
+      {withdrawOpen && profile && (
+        <WithdrawDialog
+          passwordLoginEnabled={profile.passwordLoginEnabled ?? true}
+          onClose={() => setWithdrawOpen(false)}
+          onWithdrawn={handleWithdrawn}
+        />
+      )}
     </div>
   );
 }

@@ -42,6 +42,15 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     @Query("select n.id from Notification n where n.userId = :userId and n.readAt is not null order by n.id")
     List<Long> findReadIds(@Param("userId") Long userId);
 
+    /** 회원 탈퇴: 수신자의 모든 알림 id 수집(잠금 없는 SELECT, 정렬). */
+    @Query("select n.id from Notification n where n.userId = :userId order by n.id")
+    List<Long> findAllIdsByUserId(@Param("userId") Long userId);
+
+    /** 회원 탈퇴: id 목록으로만 삭제한다(범위 DELETE 금지). 읽음 여부와 무관. */
+    @Modifying
+    @Query("delete from Notification n where n.id in :ids and n.userId = :userId")
+    int deleteAllByIds(@Param("ids") Collection<Long> ids, @Param("userId") Long userId);
+
     /** 단건 읽음에서 '이미 읽음(멱등 204)'과 '없음/남의 것(404)'을 가르는 잠금 없는 점조회. */
     boolean existsByIdAndUserId(Long id, Long userId);
 

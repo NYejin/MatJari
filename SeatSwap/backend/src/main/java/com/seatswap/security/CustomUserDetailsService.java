@@ -35,6 +35,10 @@ public class CustomUserDetailsService implements UserDetailsService {
     public AuthUserPrincipal loadUserById(Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UsernameNotFoundException("사용자를 찾을 수 없습니다: id=" + userId));
+        if (user.isWithdrawn()) {
+            // 탈퇴한 계정: 기존 액세스·리프레시 토큰이 즉시 무효가 된다(필터 401, STOMP CONNECT 거부)
+            throw new UsernameNotFoundException("탈퇴한 사용자입니다: id=" + userId);
+        }
         suspensionChecker.assertNotSuspended(user.getId());
         return AuthUserPrincipal.of(user.getId(), user.getEmail(), user.getRole());
     }

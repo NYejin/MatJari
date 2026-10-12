@@ -165,6 +165,19 @@ export default function SignupPage() {
           <button type="submit" className={ui.submit} disabled={submitting} aria-busy={submitting}>
             {submitting ? "가입 중..." : "회원가입"}
           </button>
+
+          <p className="text-[0.8125rem]/[normal] text-gray-700">
+            가입하면{" "}
+            <Link
+              to="/privacy"
+              target="_blank"
+              rel="noopener"
+              className="font-semibold text-primary-700 underline underline-offset-2"
+            >
+              개인정보처리방침
+            </Link>
+            에 동의한 것으로 봐요. 만 14세 미만은 가입할 수 없어요.
+          </p>
         </form>
 
         <SocialLoginButtons />

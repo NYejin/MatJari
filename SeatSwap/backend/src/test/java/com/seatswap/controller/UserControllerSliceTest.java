@@ -10,6 +10,16 @@ import com.seatswap.security.JwtAuthenticationEntryPoint;
 import com.seatswap.security.JwtTokenProvider;
 import com.seatswap.security.SecurityErrorResponseWriter;
 import com.seatswap.service.UserService;
+import com.seatswap.service.WithdrawService;
+import com.seatswap.dto.request.WithdrawRequest;
+import com.seatswap.exception.ConflictException;
+import com.seatswap.exception.SeatSwapException;
+import org.springframework.http.MediaType;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -47,6 +57,8 @@ class UserControllerSliceTest {
     private CustomUserDetailsService userDetailsService;
     @MockBean
     private UserService userService;
+    @MockBean
+    private WithdrawService withdrawService;
 
     @BeforeEach
     void setUp() {
@@ -86,6 +98,40 @@ class UserControllerSliceTest {
                     .andExpect(content().json(UNAUTHORIZED_JSON, true));
         }
         verify(userService, never()).getMe(any());
+    }
+
+    @Test
+    void withdrawReturns204AndPassesBody() throws Exception {
+        mockMvc.perform(delete("/api/users/me").header("Authorization", "Bearer good")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"password\":\"pw123456\"}"))
+                .andExpect(status().isNoContent());
+        verify(withdrawService).withdraw(1L, new WithdrawRequest("pw123456", null));
+    }
+
+    @Test
+    void withdrawWithoutTokenIs401AndWithoutBodyStillReachesService() throws Exception {
+        mockMvc.perform(delete("/api/users/me")).andExpect(status().isUnauthorized());
+        verify(withdrawService, never()).withdraw(any(), any());
+
+        mockMvc.perform(delete("/api/users/me").header("Authorization", "Bearer good")).andExpect(status().isNoContent());
+        verify(withdrawService).withdraw(1L, null);
+    }
+
+    @Test
+    void withdrawErrorsMapToContract() throws Exception {
+        doThrow(new ConflictException("관리자", java.util.Map.of("code", "ADMIN_CANNOT_WITHDRAW")))
+                .when(withdrawService).withdraw(eq(1L), any());
+        mockMvc.perform(delete("/api/users/me").header("Authorization", "Bearer good"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("ADMIN_CANNOT_WITHDRAW"));
+
+        doThrow(new SeatSwapException("비밀번호가 올바르지 않습니다.")).when(withdrawService).withdraw(eq(1L), any());
+        mockMvc.perform(delete("/api/users/me").header("Authorization", "Bearer good"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").value("비밀번호가 올바르지 않습니다."));
+
+        doThrow(new WithdrawService.WithdrawRateLimitedException(30)).when(withdrawService).withdraw(eq(1L), any());
+        mockMvc.perform(delete("/api/users/me").header("Authorization", "Bearer good"))
+                .andExpect(status().isTooManyRequests()).andExpect(header().string("Retry-After", "30"))
+                .andExpect(jsonPath("$.code").value("WITHDRAW_RATE_LIMITED")).andExpect(jsonPath("$.retryAfterSeconds").value(30));
     }
 
     @Test

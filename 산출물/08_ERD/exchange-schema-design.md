@@ -1,6 +1,6 @@
-# 교환 도메인 스키마 설계안 (V3~V10 구현 완료; V8 한 명 예약 방식은 10절, 알림 V10은 1.13절)
+# 교환 도메인 스키마 설계안 (V3~V13 구현 완료; V8 한 명 예약 방식은 10절, 알림 V10은 1.13절, 차단·신고·이용 정지 V13은 12절)
 
-작성 2026-10-08 / 브랜치 `docs/exchange-schema-design` / 상태: **V3~V12 구현 완료**(설계 확정 2026-10-08 사용자 답변 반영, 남은 확인 필요는 6절 끝). 현재 DB는 V1~V12(16개 테이블)이고 **다음 마이그레이션은 V13부터**다. V12는 관리자 처리 대상 두 테이블(11절)이다. 교환 수락→교환 완료(`EXCHANGED`+새 티켓+`exchange_history`)는 V9로 구현 완료. `user_block`은 미구현(V13 예정). 채팅(`chat_message`·`chat_read_state`)은 V11로 구현 완료(1.9절). 알림(`notification`)은 V10으로 구현 완료(1.13절). 아래 인용문은 날짜순 구현 기록이며, 본문 중 '(대체됨)'·취소선·V4/V5 시점 표기는 이력이고 현행 기준은 9절(V6·V7)·10절(V8)·1.7절 표다.
+작성 2026-10-08 / 브랜치 `docs/exchange-schema-design` / 상태: **V3~V13 구현 완료**(설계 확정 2026-10-08 사용자 답변 반영, 남은 확인 필요는 6절 끝). 현재 DB는 V1~V13(19개 테이블)이고 **다음 마이그레이션은 V14**다. V12는 관리자 처리 대상 두 테이블(11절), V13은 차단·신고·이용 정지 세 테이블(12절)이다. 교환 수락→교환 완료(`EXCHANGED`+새 티켓+`exchange_history`)는 V9로 구현 완료. `user_block`·`abuse_report`·`user_sanction`은 V13으로 구현 완료(1.6절, 12절). 채팅(`chat_message`·`chat_read_state`)은 V11로 구현 완료(1.9절). 알림(`notification`)은 V10으로 구현 완료(1.13절). 아래 인용문은 날짜순 구현 기록이며, 본문 중 '(대체됨)'·취소선·V4/V5 시점 표기는 이력이고 현행 기준은 9절(V6·V7)·10절(V8)·1.7절 표다.
 
 > **구현 상태 (2026-10-08, 브랜치 `feature/ticket-register`, 미커밋)**: 1.1절 ticket 변경은 **V3로 구현 완료**(`V3__ticket_seat_columns.sql`, ticket 행이 있으면 SIGNAL 가드로 실패, 생성 컬럼 `active_flag`, `uk_ticket_active_seat`, `idx_ticket_user_status`; 정규화 키는 서비스 `SeatKeyNormalizer`가 NFKC·공백 제거·대문자·앞 0 제거·끝의 '열'/'번' 제거로 만든다). 티켓 등록 API(`POST /api/tickets`, `GET /api/tickets/me`, `DELETE /api/tickets/{id}`)도 구현됨. V4 희망 쪽은 아래 메모대로 구현 완료다.
 >
@@ -23,7 +23,9 @@
 
 > **구현 완료 (2026-10-12, `feature/admin`, V12)**: 관리자 처리 대상 두 테이블 `performance_edit_proposal`(공연 수정 제안)과 `seat_claim`(좌석 소유 인증 요청)은 **V12(`V12__admin_edit_proposal_seat_claim.sql`)** 로 구현됐고 현재 DB는 V1~V12(16개 테이블)다. 자세한 컬럼·제약·인덱스·잠금 순서는 11절. 다음 마이그레이션은 V13(`user_block`, 예정)이다.
 
-설계 시점 기준선: V1+V2 (users, performance, performance_session, ticket 4개 테이블; 현재는 V1~V12, 16개 테이블). 이 문서의 SQL은 초안이며 마이그레이션 파일이 아니다(실제 SQL은 `SeatSwap/backend/src/main/resources/db/migration/`이 기준).
+> **구현 완료 (2026-10-12, `feature/block-report`, V13)**: 차단·신고·이용 정지 세 테이블 `user_block`·`abuse_report`·`user_sanction`은 **V13(`V13__block_report_sanction.sql`)** 로 구현됐고 현재 DB는 V1~V13(19개 테이블)이다. 자세한 컬럼·제약·인덱스·EXPLAIN 근거·잠금 순서는 12절. 다음 마이그레이션은 V14다.
+
+설계 시점 기준선: V1+V2 (users, performance, performance_session, ticket 4개 테이블; 현재는 V1~V13, 19개 테이블). 이 문서의 SQL은 초안이며 마이그레이션 파일이 아니다(실제 SQL은 `SeatSwap/backend/src/main/resources/db/migration/`이 기준).
 좌석표(`SeatMapLayout`·`uid`·`section`)에 의존하지 않는다. 후기·신뢰도·신고 테이블은 만들지 않는다(신고는 8절에서 확장 여지만 언급).
 
 ---
@@ -125,15 +127,15 @@
 - 희망 회차는 요청의 티켓과 **같은 공연**의 회차여야 한다(서비스 검사 + 후보 SQL에서 한 번 더 방어).
 - 본인 티켓의 회차도 희망 회차에 넣을 수 있다(같은 회차 안 교환). 후보 노출 정렬은 이 priority다.
 
-### 1.6 user_block — 사용자 차단 (미구현, V13 예정)
+### 1.6 user_block — 사용자 차단 (구현 완료 V13, 상세 12.1절)
 | 컬럼 | 타입 | 제약 |
 |---|---|---|
 | id | BIGINT PK AI | |
 | blocker_id / blocked_id | BIGINT | NOT NULL, FK -> users, `uk_user_block_pair` UNIQUE (blocker_id, blocked_id), CHECK (blocker_id <> blocked_id) |
 | created_at | DATETIME(6) | NOT NULL |
-| | | `idx_user_block_blocked` (blocked_id, blocker_id): 역방향 확인 |
+| | | `idx_user_block_blocked` (blocked_id): 단일 컬럼 FK 인덱스(V13 구현값. 이 표의 초안 `(blocked_id, blocker_id)`는 쓰지 않는다. 후보 조회는 `uk_user_block_pair`를 쓴다) |
 
-차단은 단방향 저장, 후보·채팅 판정은 양방향으로 본다(어느 쪽이 차단해도 후보 제외·채팅 불가). **차단 시 두 사용자 사이의 진행 중 매칭(CHATTING/RESERVED)은 시스템이 CANCELED로 바꾸고(`canceled_by_id` = 차단한 사람) 예약 잠금을 해제한다**(확정, 유지). 재매칭 불가는 차단(과 후속 신고)에만 걸린다.
+차단은 단방향 저장, 후보·채팅 판정은 양방향으로 본다(어느 쪽이 차단해도 후보 제외·채팅 불가). **차단 시 두 사용자 사이의 진행 중 매칭(CHATTING/RESERVED)은 시스템이 CANCELED로 바꾸고(`canceled_by_id` = NULL, 시스템 취소) 예약 잠금을 해제한다**(확정, 유지. 구현 2026-10-12: 차단 행의 주인을 취소자로 남기지 않고 시스템 취소로 기록한다). 재매칭 불가는 차단(과 후속 신고)에만 걸린다.
 
 ### 1.7 exchange_match — 후보 선택으로 열린 매칭(채팅방)
 | 컬럼 | 타입 | 제약 |
@@ -205,7 +207,7 @@
 - 잠금 순서: 채팅은 매칭 행 하나만 잠그므로 티켓 -> 요청 -> 매칭 규칙과 충돌하지 않는다.
 - 알림 행은 만들지 않는다(새 메시지 알림 없음). 시스템 메시지는 저장하지 않는다(채팅 화면 상단 배너로 상태 표시).
 - 목록 조회는 `FORCE INDEX (idx_chat_message_match)` 네이티브 쿼리를 쓴다(옵티마이저가 PK 역방향 정렬·filesort를 고르는 문제를 막기 위함).
-- 차단 시 채팅 불가는 `user_block`(V13 예정) 구현 때 붙인다.
+- 차단 시 채팅 불가는 V13에서 구현했다: 차단으로 두 사람 사이의 열린 매칭이 시스템 취소되어 읽기 전용이 되고, 새 메시지 전송은 409다(12절).
 
 ### 1.10 exchange_history — 교환 이력 스냅샷 (구현 완료 V9, 매칭 1건 완료 시 사용자별 1행씩 2행)
 | 컬럼 | 타입 | 제약 |
@@ -228,7 +230,7 @@ CHECK `ck_exchange_history_tickets` (old_ticket_id <> new_ticket_id). 복합 UNI
 마이페이지는 `(old) -> (new)`를 이 테이블만 읽어 그린다(티켓이 이후 다시 바뀌어도 불변). 이력 조회 API·마이페이지 화면은 다음 브랜치다.
 
 ### 1.11 관계 요약
-User 1:N Ticket / Performance / notification(수신자, V10) / chat_message(발신자, V11) / chat_read_state(V11); PerformanceSession 1:N Ticket; Ticket 1:0..1 미삭제 ExchangeRequest(V7, DELETED 요청 행은 남을 수 있어 물리적으로는 1:N); ExchangeRequest 1:N want_range / want_seat / want_session; ExchangeRequest 1:N ExchangeMatch(a측·b측); ExchangeMatch 1:N exchange_ticket_lock(최대 2) / chat_message / chat_read_state(V11, 사용자별 1행씩 최대 2) / exchange_history(최대 2) / notification(V10); User N:M User(user_block). User 1:N performance_edit_proposal(제안자·처리자, V12) / seat_claim(요청자·처리자, V12); Performance 1:N performance_edit_proposal; PerformanceSession 1:N seat_claim; seat_claim → ticket은 resolved_ticket_id 열만 두는 FK 아닌 참조(감사용, 점선).
+User 1:N Ticket / Performance / notification(수신자, V10) / chat_message(발신자, V11) / chat_read_state(V11); PerformanceSession 1:N Ticket; Ticket 1:0..1 미삭제 ExchangeRequest(V7, DELETED 요청 행은 남을 수 있어 물리적으로는 1:N); ExchangeRequest 1:N want_range / want_seat / want_session; ExchangeRequest 1:N ExchangeMatch(a측·b측); ExchangeMatch 1:N exchange_ticket_lock(최대 2) / chat_message / chat_read_state(V11, 사용자별 1행씩 최대 2) / exchange_history(최대 2) / notification(V10); User N:M User(user_block, V13). User 1:N abuse_report(신고자·대상·처리자, V13) / user_sanction(대상·처리자·해제자, V13); ExchangeMatch 1:N abuse_report(V13); abuse_report 1:N user_sanction(report_id, V13). `abuse_report.sanction_id`는 순환을 피하려고 FK가 아닌 참조(점선). User 1:N performance_edit_proposal(제안자·처리자, V12) / seat_claim(요청자·처리자, V12); Performance 1:N performance_edit_proposal; PerformanceSession 1:N seat_claim; seat_claim → ticket은 resolved_ticket_id 열만 두는 FK 아닌 참조(감사용, 점선).
 
 ### 1.12 좌석 정규화 규칙 (확정 a)
 - 서비스가 입력을 정규화해 `*_key`에 저장하고 원문은 `*_label`에 둔다. 규칙: 유니코드 NFKC(전각->반각), 양끝 공백 제거, 구역은 내부 공백까지 제거, 영문 대문자화, 열·번은 끝의 '열'/'번' 제거, 순수 숫자는 앞의 0 제거("03"→"3").
@@ -338,7 +340,7 @@ LIMIT :size OFFSET :offset;                      -- 후속: keyset(priority, sta
 | tb | ref, 상수 4컬럼 + active_flag | `uk_ticket_active_seat` (session, zone, row, col, active_flag): 점조회 |
 | b | eq_ref | ~~`uk_exchange_request_ticket`~~ -> V7 이후 `uk_exchange_request_live_ticket` (live_flag, ticket_id) |
 | wsb, wb | eq_ref | 각 PK 전체 |
-| NOT EXISTS 서브쿼리 | ref / eq_ref | `uk_user_block_pair`, `idx_user_block_blocked`(user_block 구현 후), `uk_exchange_match_open_pair`, `exchange_ticket_lock` PK |
+| NOT EXISTS 서브쿼리 | ref / eq_ref | `uk_user_block_pair`, `idx_user_block_blocked`(V13 구현 후 확인, 차단 제외는 `uk_user_block_pair` 두 조회로 나눠 씀, 12.3절), `uk_exchange_match_open_pair`, `exchange_ticket_lock` PK |
 
 - 작업량 ≈ (희망 좌석 수 n) × (희망 회차 수 s) 번의 tb 점조회. 예: 90석 × 3회차 = 270회, 각 점조회 뒤에 b/wsb/wb 점조회가 이어지므로 대부분 인덱스 룩업으로 끝난다. 사용자 대상 상한이 없으므로 n이 커지면 조회가 비례해 느려져 내부 안전 상한(확정 b, 6절)을 둔다.
 - 조인 순서를 '내 희망 좌석 -> 상대 티켓'으로 잡은 이유: 내 희망이 보통 상대 전체 티켓보다 작고, tb 접근이 전부 상수 동등 비교로 끝난다. 역방향(상대 희망에서 내 좌석 찾기)은 wb PK 점조회로 이미 처리한다.
@@ -382,7 +384,7 @@ LIMIT :size OFFSET :offset;                      -- 후속: keyset(priority, sta
 
 ## 4. Flyway 계획
 
-- (설계 시점 계획 — 실제로는 V3~V12로 나뉘어 구현됐고 **다음 번호는 V13**이다.) 당시 다음 번호는 V3. 파일은 둘로 나누는 것을 권장한다(MySQL DDL은 트랜잭션이 아니라 중간 실패 시 앞선 변경이 남으므로 실패 범위를 줄임).
+- (설계 시점 계획 — 실제로는 V3~V13로 나뉘어 구현됐고 **다음 번호는 V14**이다.) 당시 다음 번호는 V3. 파일은 둘로 나누는 것을 권장한다(MySQL DDL은 트랜잭션이 아니라 중간 실패 시 앞선 변경이 남으므로 실패 범위를 줄임).
   - `V3__ticket_seat_columns.sql`: 1.1의 ticket 변경.
   - `V4__exchange_domain.sql`: 1.2~1.10 신규 테이블(요청·희망·차단·매칭·잠금·채팅·이력). 신고 테이블 번호는 선점하지 않는다. (실제: V4 = 희망 4개, V5 = 매칭·잠금, V9 = exchange_history, V10 = notification, V11 = chat_message·chat_read_state, user_block은 V12 예정.)
 - **기존 ticket 행 이관·가드 필요 여부**
@@ -462,7 +464,7 @@ CREATE TABLE exchange_ticket_lock (
 ---
 
 ## 5. ERD 반영
-`산출물/08_ERD/erd.dot`은 현재 V1~V12의 16개 테이블(알림 `notification`은 V10, 채팅 `chat_message`·`chat_read_state`는 V11, `performance_edit_proposal`·`seat_claim`은 V12)을 파란 헤더(`#BDD7EE`)로, **예정(V13)** 테이블 `user_block`을 노란 배경 `#FFF2CC` / 주황 헤더 `#F4B183`과 점선 관계로 구분해 그린다(처음 작성 시에는 교환 테이블 전체가 예정 표기였고 구현되면서 현재 색으로 바뀌었다). `EXCHANGED`(ticket status)는 V9로 현재 색으로 표시한다. 이 환경에 graphviz `dot`이 없어 PNG 생성·렌더 확인은 못 했고 문법(따옴표, HTML 라벨 닫힘, 엣지 대상 노드 존재)만 점검했다. 한계: 레이아웃 겹침 여부는 `dot -Tpng erd.dot -o ERD.png` 실행 후 눈으로 확인해야 한다. chat_message와 잠금·이력 테이블까지 포함해 노드가 늘어 rankdir=LR에서 가로가 길어질 수 있다.
+`산출물/08_ERD/erd.dot`은 현재 V1~V13의 19개 테이블(알림 `notification`은 V10, 채팅 `chat_message`·`chat_read_state`는 V11, `performance_edit_proposal`·`seat_claim`은 V12, `user_block`·`abuse_report`·`user_sanction`은 V13)을 파란 헤더(`#BDD7EE`)로 그린다. V13 세 테이블은 구현 완료라 예정 색(노란 배경 `#FFF2CC` / 주황 헤더 `#F4B183`)을 쓰지 않는다. 처음 작성 시에는 교환 테이블 전체가 예정 표기였고 구현되면서 현재 색으로 바뀌었다. `abuse_report.sanction_id`처럼 FK가 아닌 참조는 점선으로 그린다. 2026-10-12 V13 갱신도 dot이 없는 환경이라 PNG는 만들지 못했고 DOT 문법만 점검했다. `EXCHANGED`(ticket status)는 V9로 현재 색으로 표시한다. 이 환경에 graphviz `dot`이 없어 PNG 생성·렌더 확인은 못 했고 문법(따옴표, HTML 라벨 닫힘, 엣지 대상 노드 존재)만 점검했다. 한계: 레이아웃 겹침 여부는 `dot -Tpng erd.dot -o ERD.png` 실행 후 눈으로 확인해야 한다. chat_message와 잠금·이력 테이블까지 포함해 노드가 늘어 rankdir=LR에서 가로가 길어질 수 있다.
 
 ---
 
@@ -501,12 +503,12 @@ CREATE TABLE exchange_ticket_lock (
 ---
 
 ## 7. 영향 범위 요약 (backend-dev / doc-writer 전달용)
-- (설계 시점 전달용 — V3~V12 구현 완료, 남은 것은 차단(V13 예정). 관리자 두 테이블은 V12(2026-10-12)로 구현. 알림은 V10, 채팅은 V11로 2026-10-11 구현) backend-dev(사용자 답변 후): V3, V4 작성, `Ticket` 필드 확장, 신규 엔티티, 정규화 유틸, 범위 펼침(서비스), 후보 조회(네이티브/QueryDSL), 예약 락 트랜잭션. `RepositoryQueryValidationTest` 확장.
+- (설계 시점 전달용 — V3~V13 구현 완료. 관리자 두 테이블은 V12(2026-10-12), 차단·신고·이용 정지 세 테이블은 V13(2026-10-12)으로 구현. 알림은 V10, 채팅은 V11로 2026-10-11 구현) backend-dev(사용자 답변 후): V3, V4 작성, `Ticket` 필드 확장, 신규 엔티티, 정규화 유틸, 범위 펼침(서비스), 후보 조회(네이티브/QueryDSL), 예약 락 트랜잭션. `RepositoryQueryValidationTest` 확장.
 - doc-writer: 요구사항정의서의 교환 흐름(상태 4종, 취소 후 재매칭 가능), 추가금 규칙(4유형 호환표), 사용자 차단, 교환 이력, 화면(티켓 등록의 구역 필수 입력, 희망 범위·회차 우선순위, 후보 목록)을 이 설계 확정 후 반영. erd-conventions 스킬의 '텍스트 좌석 입력 기반 매칭 스키마 방향' 절도 확정 이름으로 갱신.
 - 영향 없는 것: users, performance, performance_session 스키마 불변.
 
 ## 8. 신고 확장 여지 (설계하지 않음)
-신고는 교환 핵심 흐름 이후에 추가한다. 나중에 `exchange_match.id`·`users.id`를 참조하는 `user_report(reporter_id, target_user_id, match_id NULL, reason, status…)` 테이블을 새 V 파일로 붙이면 되고, 현재 스키마는 match_id·user_id 참조 키가 이미 있어 변경이 필요 없다. 차단과 신고는 별개 테이블로 둔다. 재매칭 불가는 차단과 신고에만 걸리므로 신고 착수 시 후보 SQL에 신고 대상 쌍 제외 조건을 추가한다(확인 필요).
+(2026-10-12 구현: 아래 `user_report`는 V13의 `abuse_report`로 구현됐다. 12절 참고. 아래 본문은 설계 당시 문장이다.) 신고는 교환 핵심 흐름 이후에 추가한다. 나중에 `exchange_match.id`·`users.id`를 참조하는 `user_report(reporter_id, target_user_id, match_id NULL, reason, status…)` 테이블을 새 V 파일로 붙이면 되고, 현재 스키마는 match_id·user_id 참조 키가 이미 있어 변경이 필요 없다. 차단과 신고는 별개 테이블로 둔다. 재매칭 불가는 차단과 신고에만 걸리므로 신고 착수 시 후보 SQL에 신고 대상 쌍 제외 조건을 추가한다(확인 필요).
 
 ~~마이그레이션(V3, V4) 및 엔티티 구현은 별도 지시 전까지 금지(이 문서는 설계만).~~ (설계 시점 문구. V3~V9은 구현 완료. 남은 V10 이후 항목은 설계·사용자 확인 후 구현한다.)
 
@@ -976,4 +978,91 @@ DROP PROCEDURE v8_single_reserve;
 ### 11.5 되돌리기·검증
 - 되돌리기는 롤포워드(새 V 파일에서 두 테이블 삭제)다. V2·V6~V11과 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하다.
 - 요구 MySQL 8.0.16 이상(CHECK 강제). 검증: `AdminSchemaMysqlTest`(실제 MySQL, `SEATSWAP_IT_*`가 있을 때만) 6건.
-- 다음 마이그레이션은 V13(`user_block`)이다.
+- 다음 마이그레이션은 V14이다(V13은 12절).
+
+## 12. V13 — 차단·신고·이용 정지 (구현 완료 2026-10-12, `V13__block_report_sanction.sql`, `feature/block-report`)
+
+새 테이블 3개만 만든다(기존 테이블 변경·데이터 이관·파괴적 단계 없음, `users` 불변). 확정 사항: 차단은 방향이 하나이고 효과는 양방향, 신고는 채팅 화면에서만, 신고만으로 자동 차단·자동 제재 없음, 정지는 관리자 처리의 일부이고 기간 7일/30일/무기한, 관리자(ADMIN)는 제재 대상 아님. 실제 SQL은 마이그레이션 파일이 기준이다.
+
+### 12.1 테이블
+
+**user_block — 사용자 차단**
+
+| 컬럼 | 타입 | 제약 |
+|---|---|---|
+| id | BIGINT PK AI | |
+| blocker_id / blocked_id | BIGINT | NOT NULL, FK -> users (차단한 사람 / 차단당한 사람), ON DELETE/UPDATE 동작 없음 |
+| created_at | DATETIME(6) | NOT NULL |
+
+- `uk_user_block_pair (blocker_id, blocked_id)` UNIQUE: 중복 차단 방지(멱등 차단의 최후 방어선)이면서 `blocker_id` FK 인덱스를 겸한다. 갱신 컬럼이 없어 교착 위험이 없다.
+- `idx_user_block_blocked (blocked_id)`: 단일 컬럼 FK 인덱스.
+- `ck_user_block_self`: `blocker_id <> blocked_id`.
+- 행은 INSERT·DELETE만 한다(해제는 DELETE). 차단 상한 200은 서비스 검사(422 `BLOCK_LIMIT_REACHED`).
+
+**abuse_report — 사용자 신고(매칭 화면에서 상대를 신고)**
+
+| 컬럼 | 타입 | 제약 |
+|---|---|---|
+| id | BIGINT PK AI | |
+| reporter_id / reported_id | BIGINT | NOT NULL, FK -> users (신고자 / 대상, 대상은 매칭 상대) |
+| match_id | BIGINT | NOT NULL, FK -> exchange_match (근거 매칭) |
+| reason | VARCHAR(20), utf8mb4_bin | NOT NULL, CHECK 5종 `ABUSE`/`FRAUD`/`NO_SHOW`/`FAKE_SEAT`/`OTHER` |
+| detail | VARCHAR(500) | NULL. CHECK 공백 아님, `OTHER`면 필수 |
+| status | VARCHAR(20), utf8mb4_bin | NOT NULL, 기본 `OPEN`, CHECK `OPEN`/`RESOLVED`/`DISMISSED` |
+| handled_by_id | BIGINT | NULL, FK -> users (처리한 관리자) |
+| handled_at | DATETIME(6) | NULL |
+| handler_note | VARCHAR(300) | NULL, CHECK 공백 아님 |
+| sanction_id | BIGINT | NULL, **FK 아님**(감사용 값). CHECK: RESOLVED일 때만 값 |
+| created_at / updated_at | DATETIME(6) | NOT NULL |
+| open_reporter_id | BIGINT 생성 컬럼 | `IF(status = 'OPEN', reporter_id, NULL)` STORED, FK 아님 |
+
+- `uk_abuse_report_open (open_reporter_id, match_id)` UNIQUE: 'OPEN은 (신고자, 매칭)당 1건'. 처리되면 NULL이 되어 유니크에서 빠지므로 같은 매칭에 다시 신고할 수 있다. 맨 앞 컬럼이 생성 컬럼이라 FK 인덱스가 아니며, '사용자당 OPEN 개수'(`open_reporter_id = ?`, 상한 10) 조회도 겸한다.
+- FK 인덱스(단일 컬럼): `idx_abuse_report_reporter`, `idx_abuse_report_reported`(대상별 누적 조회 겸용), `idx_abuse_report_match`, `idx_abuse_report_handled_by`.
+- `idx_abuse_report_status (status)`: 관리자 목록(`status = ? ORDER BY id DESC`)용. FK 인덱스가 아니다.
+- CHECK: `ck_abuse_report_self`(`reporter_id <> reported_id`), `ck_abuse_report_detail`, `ck_abuse_report_note`, `ck_abuse_report_handled`(OPEN이면 handled_*·handler_note·sanction_id가 모두 NULL, RESOLVED·DISMISSED면 handled_by_id·handled_at 필수), `ck_abuse_report_sanction`.
+- `sanction_id`를 FK로 두지 않은 이유: `user_sanction.report_id`가 이 테이블을 참조하므로 두 테이블 사이에 FK 순환이 생기기 때문이다.
+
+**user_sanction — 이용 정지(제재)**
+
+| 컬럼 | 타입 | 제약 |
+|---|---|---|
+| id | BIGINT PK AI | |
+| user_id | BIGINT | NOT NULL, FK -> users (정지 대상) |
+| report_id | BIGINT | NULL, FK -> abuse_report (근거 신고) |
+| type | VARCHAR(20), utf8mb4_bin | NOT NULL, 기본 `SUSPEND`, CHECK `SUSPEND` 하나(확장 여지) |
+| note | VARCHAR(300) | NOT NULL, CHECK 공백 아님 (사유 메모 필수) |
+| starts_at | DATETIME(6) | NOT NULL |
+| ends_at | DATETIME(6) | NULL = 무기한, CHECK `ends_at > starts_at` |
+| created_by_id | BIGINT | NOT NULL, FK -> users (건 관리자) |
+| revoked_at | DATETIME(6) | NULL (해제 시각) |
+| revoked_by_id | BIGINT | NULL, FK -> users (해제한 관리자). CHECK: `revoked_at`과 둘 다 NULL이거나 둘 다 값 |
+| created_at | DATETIME(6) | NOT NULL |
+
+- 단일 컬럼 FK 인덱스: `idx_user_sanction_user`(활성 제재 조회 `user_id = ? AND revoked_at IS NULL AND (ends_at IS NULL OR ends_at > ?)`에 쓰인다), `idx_user_sanction_report`, `idx_user_sanction_created_by`, `idx_user_sanction_revoked_by`.
+- `ck_user_sanction_self`: `user_id <> created_by_id`(자기 자신 제재 금지). ADMIN 대상 제재 금지는 DB가 아니라 서비스 검사(409 `CANNOT_SANCTION_ADMIN`).
+- '사용자당 활성 제재 1건'은 DB 제약이 없다. 서비스가 활성 제재 존재를 검사해 409 `SANCTION_ALREADY_ACTIVE`로 막는다(잠금은 12.4절).
+- 활성 판정은 조회 시점에 한다: `revoked_at IS NULL AND (ends_at IS NULL OR ends_at > now)`. 스케줄러는 없다.
+
+### 12.2 인덱스 근거
+- FK 인덱스는 모두 단일 컬럼이다. 갱신되는 컬럼(`status`·`handled_*`·`revoked_*`)을 FK 인덱스에 섞지 않는다. 섞으면 부모 행에 공유 잠금이 걸려 교착이 나므로(3.4절) 피한다.
+- 복합 유니크 `uk_user_block_pair`는 blocker FK 인덱스를 겸하되 갱신 컬럼이 없어 그 규칙을 어기지 않는다.
+- 'OPEN 1건' 유니크는 생성 컬럼 + UNIQUE로 강제한다(V7·V12와 같은 방식).
+- 관리자 목록용 `idx_abuse_report_status`(FK 아님)와 대상별 누적용 `idx_abuse_report_reported`(FK 인덱스)는 모두 단일 컬럼이다.
+
+### 12.3 EXPLAIN 근거 (후보 제외 SQL)
+- 후보 SQL의 차단 제외는 **양방향 조건을 `NOT EXISTS` 두 개로 나눠** 쓴다: `(blocker = ta.user_id AND blocked = tb.user_id)`와 `(blocker = tb.user_id AND blocked = ta.user_id)`. 두 조회 모두 `uk_user_block_pair`의 등호 두 개 점조회(eq_ref, 커버링)가 된다.
+- 하나의 `NOT EXISTS`에 OR로 묶으면 옵티마이저가 `user_block` 전체 인덱스 스캔을 고른다. 그래서 OR 형태는 쓰지 않는다.
+- 정지 사용자 티켓 제외는 활성 제재 존재 조회(`user_sanction`, `idx_user_sanction_user`)를 쓴다. 별칭 `ub`는 `users ub`와 겹치므로 쓰지 않는다.
+- 두 조각 모두 `AND`로 시작하고 `?`(바인딩 파라미터)를 넣지 않는다(`additionalExclusions()` 규칙, `normalizeExclusions`).
+
+### 12.4 잠금 순서
+- 차단·정지의 열린 매칭 시스템 취소(`OpenMatchCanceller`, MANDATORY 트랜잭션): 대상 매칭 id를 잠금 없이 읽고 → 관련 티켓 id 오름차순 FOR UPDATE → 매칭 id 오름차순 FOR UPDATE → 상태 재확인 후 CANCELED·잠금 삭제. 요청 상태는 건드리지 않는다. 호출 트랜잭션은 READ COMMITTED다(티켓 잠금 뒤 매칭 id를 다시 읽으므로).
+- 차단 INSERT는 트랜잭션의 마지막이다. 사용자 행(`users`)을 잠그지 않으므로 차단 상한 200은 동시 요청에서 근소하게 넘을 수 있다(알려진 한계).
+- 신고 INSERT는 트랜잭션의 마지막이다. 신고 쪽은 행을 잠그지 않는다(상한 10은 근소 초과 가능).
+- 제재(`resolve`): ① 대상의 신고 행들을 FOR UPDATE ② ADMIN 여부 읽기 ③ 활성 제재 잠금 읽기 ④ `cancelAllOf`(티켓 → 요청 → 매칭 순) ⑤ `user_sanction` INSERT ⑥ 신고 행 갱신. READ COMMITTED에서는 갭 잠금이 없으므로 같은 대상의 신고 행 전체를 먼저 잠가 제재·처리를 직렬화한다. `users` 행은 티켓 뒤라서 잠그지 않는다.
+- 같은 대상을 두 관리자가 동시에 제재하면 한쪽이 교착으로 503(`BUSY`)이 될 수 있고, 중복 제재는 생기지 않는다(알려진 한계).
+
+### 12.5 되돌리기·검증
+- 되돌리기는 롤포워드(새 V 파일에서 `user_sanction` → `abuse_report` → `user_block` 순으로 삭제)다. V2·V6~V12와 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하다. 파괴적 단계는 없다.
+- 요구 MySQL 8.0.16 이상(CHECK 강제). 검증: `BlockReportSchemaMysqlTest`(실제 MySQL, `SEATSWAP_IT_*`가 있을 때만) 7건.
+- 다음 마이그레이션은 V14다.

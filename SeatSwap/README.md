@@ -99,3 +99,18 @@ SeatSwap/
 | backend가 mysql 연결 실패 | Docker Compose는 healthcheck로 mysql 기동 후 backend가 뜨도록 되어 있음. 개별 실행 시 MySQL이 먼저 켜져 있는지 확인 |
 | frontend에서 API 호출 실패(CORS 등) | SecurityConfig에 CORS 설정 적용됨 (localhost:5173 허용). 배포 시 실제 프론트 도메인으로 교체 필요 |
 | MySQL Workbench에서 `seatswap` 계정으로 접속 시 Access denied | MySQL은 `MYSQL_USER`/`MYSQL_PASSWORD` 환경변수를 **데이터 볼륨이 비어있는 최초 기동 시에만** 읽어서 계정을 만든다. 이미 떠 있던 환경을 업데이트했다면 `docker compose down -v`로 볼륨까지 지운 뒤 `docker compose up --build`로 다시 띄워야 `seatswap` 계정이 생성됨. (`-v` 없이 내리면 기존 볼륨이 남아 계정이 안 만들어짐) |
+
+## 운영 구성 (집 PC 온프레미스 등)
+
+개발용 `docker-compose.yml`과 별개로 `docker-compose.prod.yml`을 쓴다. 밖에 열리는 포트는 nginx(`web`) 하나뿐이고, DB·백엔드는 내부 네트워크에서만 쓴다. 화면·`/api`·`/ws`가 같은 주소라 CORS 설정이 필요 없다.
+
+```bash
+cp .env.example .env        # DB_PASSWORD, JWT_SECRET, PUBLIC_URL 등을 채운다(아래)
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+- `PUBLIC_URL`: 브라우저로 접속하는 주소. 이 PC에서만 `http://localhost`, 같은 공유기 안이면 `http://<이 PC의 사설 IP>`, 공개하면 `https://내도메인`.
+- 접속 주소가 localhost가 아니면 메일 모드 `log`는 기동이 거부된다. `MAIL_MODE=smtp`와 `MAIL_*`를 채운다(Gmail은 앱 비밀번호).
+- 공개 인터넷에 열 때: Cloudflare Zero Trust에서 터널을 만들고(서비스 `http://web:80`) `.env`에 `TUNNEL_TOKEN`, `SOCIAL_COOKIE_SECURE=true`를 넣은 뒤 `--profile tunnel`을 붙여 올린다. 공유기 포트포워딩은 필요 없다.
+- 데이터는 Docker 볼륨(`mysql_data`, `upload_data`)에 있다. `down -v`는 DB까지 지운다. 백업: `docker compose -f docker-compose.prod.yml exec mysql mysqldump -u root -p seatswap > backup.sql`.
+- 한계: 백엔드가 프록시 뒤라 IP별 속도 제한(소셜·인증번호 발송)이 접속자 전체에 합쳐서 적용된다. 시연·소규모에서는 문제없지만 공개 운영 전에 신뢰 프록시 헤더 처리가 필요하다.

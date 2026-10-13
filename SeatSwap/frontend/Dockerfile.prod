@@ -1,0 +1,22 @@
+# 운영용 프런트: 빌드 단계에서 정적 파일을 만들고 nginx가 서빙한다(개발용 Dockerfile 은 vite dev 서버).
+# VITE_* 값은 빌드 때 번들에 고정되므로 바꾸면 이미지를 다시 빌드해야 한다.
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+# 기본은 같은 도메인의 /api (nginx 가 백엔드로 넘긴다). 채팅 WebSocket 주소도 여기서 계산된다(/ws).
+ARG VITE_API_BASE_URL=/api
+ARG VITE_PRIVACY_OPERATOR=
+ARG VITE_PRIVACY_CONTACT_EMAIL=
+ARG VITE_PRIVACY_EFFECTIVE_DATE=
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL \
+    VITE_PRIVACY_OPERATOR=$VITE_PRIVACY_OPERATOR \
+    VITE_PRIVACY_CONTACT_EMAIL=$VITE_PRIVACY_CONTACT_EMAIL \
+    VITE_PRIVACY_EFFECTIVE_DATE=$VITE_PRIVACY_EFFECTIVE_DATE
+RUN npm run build
+
+FROM nginx:1.27-alpine
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html
+EXPOSE 80

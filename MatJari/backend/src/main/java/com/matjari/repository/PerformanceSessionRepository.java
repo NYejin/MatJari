@@ -29,6 +29,16 @@ public interface PerformanceSessionRepository extends JpaRepository<PerformanceS
     List<SessionStats> findStats(@Param("performanceIds") Collection<Long> performanceIds,
                                  @Param("now") LocalDateTime now);
 
+    /** 티켓·교환 희망 회차·좌석 인증 요청이 걸려 있어 삭제할 수 없는 회차 id(FK 때문에 행이 남아 있으면 지울 수 없다). */
+    @Query("""
+            select s.id from PerformanceSession s
+            where s.id in :ids
+              and (exists (select 1 from Ticket t where t.performanceSession = s)
+                or exists (select 1 from ExchangeWantSession w where w.id.sessionId = s.id)
+                or exists (select 1 from SeatClaim c where c.performanceSession = s))
+            """)
+    List<Long> findInUseIds(@Param("ids") Collection<Long> ids);
+
     interface SessionStats {
         Long getPerformanceId();
 

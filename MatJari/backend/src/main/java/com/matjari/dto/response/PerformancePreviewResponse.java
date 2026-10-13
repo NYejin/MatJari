@@ -8,7 +8,8 @@ import java.util.List;
 /**
  * 링크에서 읽은 공연 정보 미리보기 (항상 200). status: OK(제목을 읽음) / UNSUPPORTED_SITE / NO_INFO / FETCH_FAILED.
  * 회차(시각)는 공개 HTML에 없어 읽지 않는다. 기간은 날짜만.
- * sessionCandidates: 회차 날짜 후보. 지금은 공연 기간이 하루·이틀일 때만 그 날짜들을 시각 없이(time=null) 채운다.
+ * sessionCandidates: 회차 날짜 후보. 공연 기간(시작·종료)이 있고 {@value #MAX_PERIOD_DAYS_FOR_CANDIDATES}일 이하이면 첫날부터 마지막 날까지
+ * 모든 날짜를 시각 없이(time=null) 채운다(연속된 날짜는 전부 후보).
  * 시각은 사용자가 직접 입력하며, 나중에 상세정보를 읽어 시각까지 채우는 출처가 붙으면 같은 구조(time 채움)로 내려 준다.
  */
 public record PerformancePreviewResponse(String status, String site, String title, String venueName,
@@ -18,10 +19,10 @@ public record PerformancePreviewResponse(String status, String site, String titl
     /** 회차 후보 하나. time 이 null 이면 날짜만 아는 후보다. */
     public record SessionCandidate(LocalDate date, LocalTime time) {}
 
-    /** 이 일수(시작·종료 포함) 이하인 공연만 기간의 날짜를 회차 후보로 채운다(그 이상은 회차 수를 날짜로 알 수 없다). */
-    public static final int MAX_PERIOD_DAYS_FOR_CANDIDATES = 2;
+    /** 이 일수(시작·종료 포함) 이하인 공연만 기간의 모든 날짜를 회차 후보로 채운다. 공연 등록 한 번에 넣을 수 있는 회차 수(100)와 같다. */
+    public static final int MAX_PERIOD_DAYS_FOR_CANDIDATES = 100;
 
-    /** 기간이 시작·종료 모두 있고 {@value #MAX_PERIOD_DAYS_FOR_CANDIDATES}일 이하일 때만 날짜 후보(시각 없음), 아니면 빈 목록. */
+    /** 기간이 시작·종료 모두 있고 {@value #MAX_PERIOD_DAYS_FOR_CANDIDATES}일 이하일 때 첫날부터 마지막 날까지 모든 날짜 후보(시각 없음), 아니면 빈 목록. */
     static List<SessionCandidate> candidatesFromPeriod(LocalDate start, LocalDate end) {
         if (start == null || end == null || end.isBefore(start)) {
             return List.of();

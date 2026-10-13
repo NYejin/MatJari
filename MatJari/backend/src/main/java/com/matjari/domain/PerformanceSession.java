@@ -17,7 +17,7 @@ import java.time.temporal.ChronoUnit;
  * (19:00과 19:00:30이 다른 회차로 등록되는 것 방지).
  * startsAt은 한국 공연 기준 현지 시각(KST 벽시계 시각)으로 저장한다.
  *
- * 수정/삭제 정책: 공연 등록 시 함께 만들어지며, 등록 후 추가·수정·삭제는 없다(추후 관리자 수정 제안으로만).
+ * 수정/삭제 정책: 공연 등록 시 함께 만들어지며, 등록 후 추가·수정·삭제는 관리자가 승인한 수정 제안(V20 session_changes)으로만 한다.
  */
 @Entity
 @Table(
@@ -58,6 +58,11 @@ public class PerformanceSession {
         session.performance = performance;
         session.startsAt = truncate(startsAt);
         return session;
+    }
+
+    /** 관리자가 승인한 수정 제안으로만 호출한다(서비스가 공연 행을 잠근 트랜잭션 안). 분 단위로 자른다. */
+    public void changeStartsAt(LocalDateTime newStartsAt) {
+        this.startsAt = truncate(newStartsAt);
     }
 
     /** 티켓 등록·매칭 허용 마감: 회차 당일 끝(다음날 0시, KST). 이 시각 이후에는 등록할 수 없다. */

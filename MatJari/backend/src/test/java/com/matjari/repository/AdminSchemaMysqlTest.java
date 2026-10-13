@@ -316,6 +316,8 @@ class AdminSchemaMysqlTest {
 
     @Test
     void 엔티티로_저장하고_처리하면_감사_시각과_상태가_반영된다() {
+        // 엔티티는 V20 의 session_changes 컬럼까지 쓴다 — 이 검사만 V20 까지 올린다(다른 검사는 매번 V12 로 다시 만든다)
+        flyway("20").migrate();
         Long[] ids = tx.execute(s -> {
             Performance perf = em.find(Performance.class, 1L);
             PerformanceSession session = em.find(PerformanceSession.class, 1L);

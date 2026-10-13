@@ -16,7 +16,7 @@ class PerformancePreviewResponseTest {
     }
 
     @Test
-    void oneDayAndTwoDayPeriodsGiveDateOnlyCandidates() {
+    void consecutivePeriodsGiveEveryDateAsDateOnlyCandidates() {
         LocalDate d = LocalDate.of(2026, 10, 11);
         var one = candidates(d, d);
         assertEquals(1, one.size());
@@ -29,9 +29,25 @@ class PerformancePreviewResponseTest {
     }
 
     @Test
+    void weekLongAndMaximumPeriodsGiveEveryDateInOrder() {
+        LocalDate d = LocalDate.of(2026, 10, 30);   // 달·연 경계를 넘는 기간도 날짜 그대로 이어진다
+        var week = candidates(d, d.plusDays(6));
+        assertEquals(7, week.size());
+        assertEquals(d, week.get(0).date());
+        assertEquals(LocalDate.of(2026, 11, 5), week.get(6).date());
+        week.forEach(c -> assertNull(c.time()));
+
+        int max = PerformancePreviewResponse.MAX_PERIOD_DAYS_FOR_CANDIDATES;
+        var longest = candidates(d, d.plusDays(max - 1L));   // 시작·종료 포함 정확히 상한 일수
+        assertEquals(max, longest.size());
+        assertEquals(d.plusDays(max - 1L), longest.get(max - 1).date());
+    }
+
+    @Test
     void longMissingOrReversedPeriodsGiveNoCandidates() {
         LocalDate d = LocalDate.of(2026, 10, 11);
-        assertTrue(candidates(d, d.plusDays(2)).isEmpty());   // 3일 이상은 날짜로 회차를 알 수 없다
+        // 공연 등록 한 번에 넣을 수 있는 회차 수(100)를 넘는 기간은 후보를 만들지 않는다
+        assertTrue(candidates(d, d.plusDays(PerformancePreviewResponse.MAX_PERIOD_DAYS_FOR_CANDIDATES)).isEmpty());
         assertTrue(candidates(d, null).isEmpty());
         assertTrue(candidates(null, d).isEmpty());
         assertTrue(candidates(d.plusDays(1), d).isEmpty());

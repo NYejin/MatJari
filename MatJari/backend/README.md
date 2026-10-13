@@ -26,7 +26,7 @@
 - **회원탈퇴·개인정보처리방침(2026-10-13, `feature/withdraw`, V17)은 구현 완료**: `DELETE /api/users/me`, 익명화와 진행 중 교환 자동 정리. 자세한 규칙은 아래 '회원탈퇴·개인정보처리방침 (V17)' 절.
 - **링크 기반 공연 정보 미리보기(2026-10-12, `feature/link-autofill`)는 구현 완료**(`GET /api/performances/preview`, DB 변경 없음). 자세한 규칙은 아래 '링크 공연정보 미리보기' 절.
 - **공연 포스터 표시(2026-10-13, `feature/poster`, DB 변경 없음)는 구현 완료**(`GET /api/performances/{id}/poster`, 미리보기 응답의 `posterUrl`). 자세한 규칙은 아래 '공연 포스터 표시' 절.
-- **회차 날짜 미리 채우기(2026-10-13, `feature/session-prefill`, DB 변경 없음)는 구현 완료**(미리보기 응답의 `sessionCandidates`, 공연 기간 2일 이하만 날짜). 자세한 규칙은 아래 '회차 날짜 후보' 절.
+- **회차 날짜 미리 채우기(2026-10-13, `feature/session-prefill`, DB 변경 없음)는 구현 완료**(미리보기 응답의 `sessionCandidates`, 공연 기간 100일 이하의 모든 날짜 — 2026-10-14에 2일 이하에서 확대). 자세한 규칙은 아래 '회차 날짜 후보' 절.
 - STOMP 스켈레톤(`config/WebSocketConfig`의 TODO)은 채팅 구현(V11, 2026-10-11)으로 대체됐다. 아래 '채팅 (V11)' 절 참고.
 - **티켓 등록(FR-03)은 구현 완료** (`TicketController`, `TicketService`, `SeatKeyNormalizer`). 좌석 1개를 텍스트(구역 필수, 열·번은 숫자 또는 문자)로 등록한다. 같은 회차·구역·열·번의 활성 티켓은 1개(DB `uk_ticket_active_seat`), 사용자당 활성 티켓 20개 상한(`users` 행 FOR UPDATE로 직렬화), 회차 당일 끝(다음날 0시 KST)까지만 등록할 수 있다. 교환 희망 범위·매칭·예약은 아래 교환 항목 참고. 내릴 때 예약 잠금이면 `TicketService.ensureCanDeactivate`가 409 `TICKET_RESERVED`로 막는다.
 - **교환 희망 조건 등록(FR-04 교환 요청)은 구현 완료** (`ExchangeRequestController`, `ExchangeRequestService`, `WantSeatExpander`, Flyway V4). 티켓 하나에 미삭제 요청 1개(범위별 추가금 유형·희망 회차 우선순위·희망 좌석 범위)를 등록·조회·수정·소프트 삭제한다. 범위는 (구역, 열 from~to, 번 from~to)로 입력하면 개별 좌석으로 펼쳐 `exchange_want_seat`에 저장한다. **매칭 후보 조회**(`GET /api/exchange/requests/{id}/candidates`, 읽기 전용)는 구현됐다. 티켓을 내리면(`DELETE /api/tickets/{id}`) 그 티켓의 교환 요청은 CLOSED로 바뀐다.
@@ -420,13 +420,13 @@ keyset 조각의 내부: 저장소에 `size+1`건을 요청해 다음 조각 유
 
 | Method | Path | 권한 | 설명 |
 |---|---|---|---|
-| POST | /api/performances/{id}/edit-proposals | 로그인 | 공연 수정 제안 (201). 본문 `{newTitle, newVenueName, reason}`, 제목·공연장 중 하나 이상 |
+| POST | /api/performances/{id}/edit-proposals | 로그인 | 공연 수정 제안 (201). 본문 `{newTitle, newVenueName, reason, sessionChanges?}`, 제목·공연장·회차 변경 중 하나 이상. `sessionChanges` = `[{type: ADD\|CHANGE\|REMOVE, sessionId?, startsAt?}]`(최대 20개, `startsAt`은 `YYYY-MM-DDTHH:mm` KST, 10분 단위·지난 시각 불가). 오류: 400 `sessionChanges`(형식·중복·없는 회차·회차 0개·시각 겹침), 422 `SESSION_IN_USE`(티켓·희망 조건이 걸린 회차 삭제). 응답에 `sessionChanges: [{type, sessionId, startsAt, currentStartsAt}]` |
 | GET | /api/performances/edit-proposals/me | 로그인 | 내 수정 제안 목록 |
 | POST | /api/seat-claims | 로그인 | 내 티켓 인증 요청 (201). multipart: `sessionId`, `zone`, `row`, `col`, `memo`(선택), `image`(사진 1장) |
 | GET | /api/seat-claims/me | 로그인 | 내 인증 요청 목록 |
 | GET | /api/seat-claims/{id}/image | 요청자 본인 또는 ADMIN | 사진 바이트. 그 외 404, 삭제됐으면 410 `IMAGE_DELETED` |
 | GET | /api/admin/performance-edit-proposals?status&page&size | ADMIN | 수정 제안 목록 (status 생략 시 전체) |
-| POST | /api/admin/performance-edit-proposals/{id}/approve | ADMIN | 승인: 공연에 반영 (이전 값을 `old_title`·`old_venue_name`에 스냅샷) |
+| POST | /api/admin/performance-edit-proposals/{id}/approve | ADMIN | 승인: 공연에 반영 (이전 값을 `old_title`·`old_venue_name`에 스냅샷, 회차 변경은 삭제→시각 변경→추가 순서로 반영하고 기존 시각을 기록). 승인 시점에 회차 상태가 달라졌으면 409 `SESSION_EDIT_CONFLICT`(제안은 PENDING 유지) |
 | POST | /api/admin/performance-edit-proposals/{id}/reject | ADMIN | 거절. 본문 `{note}` |
 | GET | /api/admin/seat-claims?status&page&size | ADMIN | 인증 요청 목록: 사진·요청자·현재 그 좌석을 가진 티켓 요약(holder) |
 | POST | /api/admin/seat-claims/{id}/approve | ADMIN | 승인: 현재 그 좌석의 활성 티켓을 시스템이 내린다 |

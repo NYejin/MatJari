@@ -76,3 +76,6 @@ llm-wiki 스킬, researcher·wiki-curator 에이전트, `scripts/lint-wiki.mjs`�
 
 ## [2026-10-13] ingest | 서비스 이름 변경(SeatSwap→맞자리/MatJari)
 해외에 같은 이름의 서비스가 있어 이름을 바꿨다. 위키 본문과 소스 경로(`SeatSwap/…`→`MatJari/…`, `com.seatswap`→`com.matjari`)는 새 이름으로 고쳤고, 이 로그의 위 항목들은 당시 표기(SeatSwap)를 그대로 둔다. 결정 근거와 영향 범위는 HISTORY.md와 작업일지 2026-10-13의 '서비스 이름 변경' 절.
+
+## [2026-10-14] ingest | 공연 수정 제안 회차 수정과 날짜 후보 확대 반영
+공연 수정 제안에 회차 수정(V20 `session_changes`, `feature/session-edit-proposal`)을 넣고 날짜 후보를 연속 기간 100일 이하 전체로 넓혔다. `admin-design.md`에 '회차 수정 제안' 절(JSON 컬럼 선택, 삭제 제한, 맞바꾸기 거부, 승인 충돌 처리)을, `link-autofill-design.md` 6.1에 후보 범위를 2일에서 100일로 넓힌 이유를 추가했다. 확정 규칙은 CLAUDE.md '공연 수정 제안'·'링크 기반 공연정보 자동 입력' 절이다.

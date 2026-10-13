@@ -16,7 +16,7 @@ import {
 } from "../api/editProposals";
 import { getErrorCode } from "../api/errors";
 // FR-02 공연 상세 (보호 라우트 /performances/:id) — 읽기 전용.
-// 공연은 등록 후 아무도 수정·삭제할 수 없다 (수정은 추후 관리자 수정 제안으로만).
+// 공연은 등록 후 아무도 수정·삭제할 수 없다 (수정은 아래 "정보가 틀렸어요" 수정 제안을 관리자가 승인할 때만).
 // 티켓 영역: 이 공연 티켓 등록(/tickets/new?performanceId=) 진입.
 
 /** 백엔드 TicketingSite와 같은 알려진 예매처 호스트 (호스트가 이것이거나 그 하위 도메인) */

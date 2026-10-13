@@ -368,7 +368,7 @@ export default function PerformanceRegisterPage() {
         {/* 안내 문구는 항상 있는 라이브 영역, 이동 버튼은 별도로 조건부 렌더링 */}
         <p className={liveRegionClass(existingId !== null ? "exists" : "", ui.notice)} role="status">
           {existingId !== null
-            ? "이미 등록된 공연이에요. 새로 등록하지 않고 기존 공연에서 회차를 추가하거나 교환할 수 있어요."
+            ? "이미 등록된 공연이에요. 새로 등록하지 않고 기존 공연에서 티켓을 등록하고 교환할 수 있어요."
             : ""}
         </p>
         <p className={ui.status} role="status">
@@ -402,7 +402,7 @@ export default function PerformanceRegisterPage() {
           {autoFill?.kind === "filled"
             ? "링크에서 읽은 정보예요. 맞는지 확인하고, 다르면 고쳐 주세요."
             : autoFill?.kind === "unsupported"
-              ? "이 링크는 자동 입력을 지원하지 않아요. YES24·티켓링크·멜론티켓의 공연 상세 주소만 읽을 수 있고, 인터파크는 지원하지 않아요. 직접 입력해 주세요."
+              ? "이 링크는 자동 입력을 지원하지 않아요. YES24·티켓링크·멜론티켓의 공연 상세 주소만 읽을 수 있어요. 직접 입력해 주세요."
               : autoFill?.kind === "failed"
                 ? "링크에서 정보를 읽지 못했어요. 직접 입력해 주세요."
                 : "정보가 맞는지 확인하고 틀리면 고쳐 주세요."}
@@ -458,7 +458,7 @@ export default function PerformanceRegisterPage() {
             <p className={ui.hint}>
               링크에 적힌 공연 기간: {periodText(autoFill.periodStart, autoFill.periodEnd)} ·{" "}
               {candidateDates.length > 0
-                ? "회차 시각은 링크에서 읽을 수 없어 직접 골라 주세요. 날짜는 공연 기간에 맞춰 미리 채워 뒀어요."
+                ? "회차 시각은 링크에서 읽을 수 없어 직접 골라 주세요. 날짜는 공연 기간에 맞춰 미리 채워 뒀으니 맞는지 확인하고 다르면 고쳐 주세요."
                 : "회차 일시는 링크에서 읽을 수 없어 직접 입력해 주세요."}
             </p>
           )}

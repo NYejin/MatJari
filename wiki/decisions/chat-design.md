@@ -10,7 +10,7 @@ status: draft
 
 # 채팅 설계 근거 (REST 전송 + STOMP 수신)
 
-채팅은 2026-10-11 `feature/chat` 브랜치에서 구현됐다(미병합). 이 문서는 선택지와 이유만 정리하고 결정 자체를 새로 만들지 않는다. 구현 사실은 [작업일지](../../산출물/07_작업일지/2026-10-11.md), 프로젝트 확정 결정은 [CLAUDE.md](../../CLAUDE.md), 함정은 [함정 페이지 10절](../gotchas/lock-order-and-index-pitfalls.md), STOMP 보안은 [STOMP 조사](../research/stomp-jwt-auth.md), 용어는 [용어집](../glossary.md) 참고.
+채팅은 2026-10-11 `feature/chat` 브랜치에서 구현됐다(병합됨). 이 문서는 선택지와 이유만 정리하고 결정 자체를 새로 만들지 않는다. 구현 사실은 [작업일지](../../산출물/07_작업일지/2026-10-11.md), 프로젝트 확정 결정은 [CLAUDE.md](../../CLAUDE.md), 함정은 [함정 페이지 10절](../gotchas/lock-order-and-index-pitfalls.md), STOMP 보안은 [STOMP 조사](../research/stomp-jwt-auth.md), 용어는 [용어집](../glossary.md) 참고.
 
 ## 사용자가 정한 결정 4개
 

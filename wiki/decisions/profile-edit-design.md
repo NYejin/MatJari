@@ -10,7 +10,7 @@ status: draft
 
 # 프로필 수정·소셜 계정 연결 설계 근거
 
-마이페이지의 닉네임 수정과 소셜 계정 연결·해제(V16 `users.password_login_enabled`, `social_account`의 사용자당 제공자 1개 유니크, 브랜치 `feature/profile-edit`, 2026-10-13 구현, 미병합)의 근거를 정리한다. 확정 규칙의 기준은 [CLAUDE.md](../../CLAUDE.md)다. 같은 이메일로 자동 연결하지 않는다는 결정은 [소셜 로그인 설계 근거](social-login-design.md)에 있고, 이 페이지는 그 결정을 뒤집지 않는다.
+마이페이지의 닉네임 수정과 소셜 계정 연결·해제(V16 `users.password_login_enabled`, `social_account`의 사용자당 제공자 1개 유니크, 브랜치 `feature/profile-edit`, 2026-10-13 구현, 병합됨)의 근거를 정리한다. 확정 규칙의 기준은 [CLAUDE.md](../../CLAUDE.md)다. 같은 이메일로 자동 연결하지 않는다는 결정은 [소셜 로그인 설계 근거](social-login-design.md)에 있고, 이 페이지는 그 결정을 뒤집지 않는다.
 
 사용자가 정한 것은 마이페이지에서 소셜 계정을 연결·해제할 수 있다는 범위와 자동 연결을 하지 않는다는 기존 결정이다. 2단계 확정, 플래그, 잠금 순서는 구현 세션에서 정했고, 검증 지적으로 2단계 확정이 한 번 바뀌었다.
 

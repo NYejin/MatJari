@@ -56,7 +56,7 @@ DB는 Flyway V1~V17, 20개 테이블(social_account·performance_edit_proposal·
 - 지난 회차: 회차 당일 끝(**다음날 0시 KST**)까지 티켓 등록·매칭을 허용하고 이후 자동 비활성한다(등록 400 `sessionId`, 요청 생성·수정 422 `SESSION_CLOSED`, 희망 회차 마감 400). 공연 시작 후에도 매칭·예약·교환 수락은 계속 가능하고, 이미 시작한 채팅의 예약·교환 수락에는 마감 검사를 하지 않는다.
 
 ### 티켓
-- 같은 회차·구역·열·번의 활성 티켓은 1개(409 `SEAT_ALREADY_REGISTERED`/`MY_TICKET_ALREADY_REGISTERED`), 사용자당 활성 20개 상한(422 `TICKET_LIMIT_REACHED`). 이미 등록된 좌석이면 안내 팝업을 띄우고 '내 티켓 인증' 링크를 둔다(사진 업로드→관리자 확인, 아래 '관리자' 절).
+- 같은 회차·구역·열·번의 활성 티켓은 1개(409 `SEAT_ALREADY_REGISTERED`/`MY_TICKET_ALREADY_REGISTERED`), 사용자당 활성 20개 상한(422 `TICKET_LIMIT_REACHED`). 이미 등록된 좌석이면 안내 박스(오류 영역)를 띄우고 '내 티켓 인증' 링크를 둔다(사진 업로드→관리자 확인, 아래 '관리자' 절).
 - 티켓 내리기는 소프트 삭제(INACTIVE)이며 본인만(남의 티켓 404, 멱등 204). 예약 잠금 중이면 409 `TICKET_RESERVED`. 잠기지 않았으면 해당 요청을 CLOSED로 바꾸고 그 티켓의 CHATTING 매칭을 시스템 취소한다. 닫힌 요청 수정은 422 `TICKET_NOT_ACTIVE`. 교환 완료로 `EXCHANGED`가 된 티켓은 409 `TICKET_EXCHANGED`로 내릴 수 없고, 그 티켓의 예약 시도도 같은 코드로 막힌다(INACTIVE는 기존대로 멱등 204). 교환으로 받은 새 티켓은 일반 ACTIVE 티켓이라 내리기·새 교환 요청이 가능하다.
 
 ### 추가금
@@ -71,8 +71,8 @@ DB는 Flyway V1~V17, 20개 테이블(social_account·performance_edit_proposal·
 
 ### 제안·취소
 - 제안(매칭 생성, '예약 제안'과 다르다): `POST /api/exchange/requests/{id}/proposals` = CHATTING 매칭 생성. 거절(`reject`)은 제안받은 쪽만, 채팅 종료(`cancel`)는 참여자 누구나 → CANCELED(`canceled_by_id`, 시스템 취소는 NULL). 불허 전이는 409 `MATCH_STATE_CONFLICT`.
-- **취소는 재매칭 불가가 아니다.** 같은 쌍 재매칭 불가는 **차단·신고 때만** 적용한다. 양쪽 완료 전에는 누구든 취소할 수 있다.
-- 한쪽만 수락하고 방치해도 자동 완료·자동 취소는 없다. **7일 경과 알림만** 보낸다(7일 경과 알림은 미구현).
+- **취소는 재매칭 불가가 아니다.** 같은 쌍 재매칭 불가는 **차단 때만**(그리고 신고 처리로 이용 정지가 걸린 사용자는 후보에서 빠진다) 적용한다. 신고만으로는 매칭에 영향이 없다. 양쪽 완료 전에는 누구든 취소할 수 있다.
+- 한쪽만 수락하고 방치해도 자동 완료·자동 취소는 없다. **7일 경과 알림만** 보내기로 했었으나 **보류**했다(2026-10-13 사용자 결정: 상대 매칭 카드·채팅으로 충분하고 스케줄러·마이그레이션 비용이 크다). 필요해지면 안 누른 쪽에게만, 하루 한 번 도는 작업으로 매칭당 1회(`dedup_key`) 보내는 안을 쓴다.
 
 ### 예약 (예약 제안 → 상대 수락, V15)
 - **예약은 상대가 수락해야 RESERVED가 된다.** 채팅 화면의 '예약 제안하기'로 한 명이 예약을 **제안**(`POST /api/exchange/matches/{id}/reserve`)하면, 상대가 '예약 수락'(`reserve/accept`)을 눌러야 RESERVED가 되고 두 티켓이 `exchange_ticket_lock`으로 잠긴다. 수락하면 `reserved_by_id`는 **제안자**, `reserved_at`은 수락 시각이다. 상대가 '거절'(`reserve/decline`)하면 제안만 지우고 CHATTING을 유지하며, 제안자는 '제안 철회'(`reserve/withdraw`)로 제안만 지운다. 거절·철회는 상태를 바꾸지 않는다. **한 명이 예약하면 즉시 RESERVED가 되는 방식은 폐기**됐다(폐기된 안 참고).
@@ -87,7 +87,7 @@ DB는 Flyway V1~V17, 20개 테이블(social_account·performance_edit_proposal·
 ### 교환 수락·교환 완료
 - 화면 버튼은 **'교환 수락'**, 상태·뱃지·이력 라벨은 **'교환 완료'**를 쓴다(내부 값·API `complete`·컬럼 `a/b_completed_at`은 그대로). 티켓팅 사이트에서 실제 양도까지 끝낸 뒤 각자 누르며(화면에서는 확인 단계를 한 번 거친다), 예약 중(RESERVED)에서만 누를 수 있다(예약 제안·수락은 '예약' 절). 첫 수락은 수락 시각만 기록하고 **양쪽이 모두 누르는 순간 한 트랜잭션에서** 매칭이 COMPLETED가 된다.
 - 같은 트랜잭션에서 **기존 두 티켓을 `EXCHANGED`로 바꾸고 각자 새 자리 티켓을 INSERT**한다(소유자 그대로, 회차·구역·열·번은 상대의 기존 티켓 값). 교환 완료된 매칭은 취소할 수 없다. 매칭 행의 좌석은 **항상 교환 전 자리**이고 교환 후 자리는 새 티켓·교환 이력(`exchange_history`의 old_ticket_id/new_ticket_id)에서 본다. 이력은 `(기존 자리) -> (바꾼 자리)` 스냅샷으로 `exchange_history`에 쌓이며, 마이페이지 '교환 이력' 화면(`/exchange/history`)에서 최신순으로 본다(읽기 전용, 상대 정보 없음, 채팅 기록 보기 링크). 완료 카드는 교환 전 자리와 받은 자리를 보여준다.
-- 교환이 완료된 기존 티켓은 내 자리가 아니므로 **그 티켓의 교환 요청은 같은 트랜잭션에서 CLOSED로 닫는다.** 그 티켓에 걸려 있던 **다른 채팅 매칭은 자동 취소하지 않는다.** 그 매칭 카드에서 교환 수락·교환 완료 버튼과 채팅 화면의 예약 제안·수락 버튼을 비활성화하고 카드 아래에 "이미 교환된 좌석이에요" 메시지를 **본인과 상대방 모두에게** 보여준다('교환됨' 여부는 티켓 상태 EXCHANGED로 판단).
+- 교환이 완료된 기존 티켓은 내 자리가 아니므로 **그 티켓의 교환 요청은 같은 트랜잭션에서 CLOSED로 닫는다.** 그 티켓에 걸려 있던 **다른 채팅 매칭은 자동 취소하지 않는다.** 그 매칭 카드에서 교환 수락·교환 완료 버튼을 비활성화하고 채팅 화면에서는 예약 제안 버튼을 안내 문구로 바꾸고 예약 수락 버튼을 숨기며 카드 아래에 "이미 교환된 좌석이에요" 메시지를 **본인과 상대방 모두에게** 보여준다('교환됨' 여부는 티켓 상태 EXCHANGED로 판단).
 
 ### 교환 요청 (희망 조건) 수정·삭제
 - 티켓당 미삭제 요청은 1개(409 `REQUEST_ALREADY_EXISTS`). **삭제는 소프트 삭제**(상태 DELETED·`deleted_at`, 삭제 시 want_range/seat/session 삭제, 삭제 후 같은 티켓에 새 요청 가능, 삭제 API는 멱등 204). 삭제된 요청은 후보·수정·`/requests/me`에서 제외하고 내 매칭 목록에는 회색 '(삭제)'·'(내 조건 삭제됨)'로 표시한다. 삭제된 요청 수정·후보 조회는 409 `REQUEST_DELETED`.
@@ -132,7 +132,7 @@ DB는 Flyway V1~V17, 20개 테이블(social_account·performance_edit_proposal·
 - 알림 행은 제안·예약 제안·수락·거절·예약 취소 트랜잭션과 채팅 전송의 **맨 끝**에서, 상태가 실제로 바뀐 경우에만 쓴다(멱등 재호출·오류 경로·같은 `clientMessageId` 재전송은 0건). 철회는 알림이 없다. 한 트랜잭션에서 수신자당 1건.
 - 중복 방지는 `dedup_key` 단일 유니크다. 한 번만 생기는 '새 제안'만 `PROPOSAL_RECEIVED:{matchId}`를 쓴다. '예약 제안'과 '새 채팅 메시지'는 **(수신자, 매칭)당 행 1개를 재사용**한다(`RESERVATION_PROPOSED:{matchId}:{recipientId}`, `CHAT_MESSAGE:{matchId}:{recipientId}`): 쓸 때마다 PK 행을 먼저 갱신(`read_at`=NULL, `created_at`=now)하고, 행이 없을 때만 `INSERT … ON DUPLICATE KEY UPDATE`로 만든다. 그래서 안 읽은 알림은 매칭당 최대 1건이다. '예약 수락'·'예약 거절'·'예약 취소'는 반복마다 1건씩 쌓이므로 `dedup_key`를 NULL로 둔다. (수신자·매칭·유형 복합 유니크는 재예약 때 예약 자체가 롤백되므로 쓰지 않는다.)
 - **채팅 알림 읽음**: 읽음 포인터가 앞으로 움직이면(채팅 화면에서 상대 메시지를 읽으면) 같은 수신자·매칭의 `CHAT_MESSAGE` 알림을 읽음 처리한다. 읽음 처리는 매칭·users 잠금을 잡은 트랜잭션 밖에서 한다.
-- 닫힌 매칭(CANCELED·COMPLETED)의 알림도 안 읽은 개수·목록에서 빼지 않고, 회색 '종료된 매칭' 라벨로만 표시한다. 알림이 사라지는 유일한 경로는 사용자의 **'읽은 알림 삭제'**(읽은 알림만 대상)다.
+- 닫힌 매칭(CANCELED·COMPLETED)의 알림도 안 읽은 개수·목록에서 빼지 않고, 회색 '종료된 매칭' 라벨로만 표시한다. 알림이 사라지는 경로는 사용자의 **'읽은 알림 삭제'**(읽은 알림만 대상)와 회원탈퇴(그 사용자가 받은 알림 전부)뿐이다.
 - 화면: 헤더 벨을 누르면 바로 아래 말풍선(최신 5건, 모두 읽음, 알림 전체 보기), 알림 전체 보기는 `/notifications` 페이지다. 알림 클릭은 읽음 처리 후 이동한다: 채팅 메시지·예약 제안은 채팅 화면, 나머지는 매칭 카드. 벨은 데스크톱(768px 이상)에서 '내 매칭' 바로 오른쪽(관리자 링크 앞), 햄버거 폭에서는 햄버거 버튼 왼쪽에 둔다(인스턴스 하나). 새 알림은 STOMP `/user/queue/notifications`로 "새 알림이 생겼다"는 신호만 푸시하고(문구·상대 정보는 싣지 않음, 커밋 뒤 전파), 화면은 신호를 받으면 REST로 개수·목록을 다시 읽는다. 연결이 끊겨 있을 때만 화면이 보일 때 30초 폴링한다(연결 중에는 5분 안전 확인).
 - 알림 구조는 type 추가로 확장할 수 있게 둔다(예: 7일 경과 알림).
 - **사용자 차단·신고는 구현됨**(아래 '차단·신고·이용 정지' 절): 차단하면 후보에서 제외되고 채팅할 수 없으며, 신고는 관리자가 처리한다.
@@ -140,26 +140,26 @@ DB는 Flyway V1~V17, 20개 테이블(social_account·performance_edit_proposal·
 
 ### 관리자·공연 수정 제안·내 티켓 인증 (구현됨, V12 `performance_edit_proposal`·`seat_claim`)
 - 관리자는 DB에서 `users.role='ADMIN'`을 직접 부여한다. `/api/admin/**`는 서버가 ADMIN만 허용하고, 프론트는 `AdminRoute`(`/api/users/me`의 role)로 `/admin` 화면을 가린다. 헤더에는 ADMIN일 때만 '관리자' 링크가 보인다.
-- **공연 수정 제안**: 공연 상세 "정보가 틀렸어요"에서 **제목·공연장**(최소 하나)과 사유를 제안하면, 관리자가 현재 값→제안 값을 비교해 승인(공연에 반영)하거나 거절(사유)한다. **회차·링크는 수정 대상이 아니다.** 공연을 바꾸는 유일한 경로는 관리자 승인(`Performance.applyApprovedEdit`)이다. 사용자당 PENDING 3건, 같은 공연 PENDING 1건. 알림은 만들지 않고 제안자는 `/my/edit-proposals`에서 결과를 본다. 잠금 순서는 제안 행 → 공연 행.
+- **공연 수정 제안**: 공연 상세 "정보가 틀렸어요"에서 **제목·공연장**(최소 하나)과 사유를 제안하면, 관리자가 현재 값→제안 값을 비교해 승인(공연에 반영)하거나 거절(사유)한다. **회차·링크는 수정 대상이 아니다.** 공연을 바꾸는 유일한 경로는 관리자 승인(`Performance.applyApprovedEdit`)이다. 사용자당 PENDING 3건, 한 사용자가 같은 공연에 낸 PENDING은 1건(다른 사용자는 같은 공연에 각자 낼 수 있다). 알림은 만들지 않고 제안자는 `/my/edit-proposals`에서 결과를 본다. 잠금 순서는 제안 행 → 공연 행.
 - **내 티켓 인증(좌석 소유 인증 요청)**: 이미 같은 좌석이 등록돼 있다는 안내의 '내 티켓 인증'에서 회차·좌석과 **예매내역 사진 1장**(jpeg/png/webp, ≤5 MiB)을 올리면 관리자가 사진·현재 그 좌석을 가진 티켓을 보고 승인/거절한다. **승인하면 현재 그 좌석의 활성 티켓을 시스템이 내린다**(요청 CLOSED, CHATTING 매칭 시스템 취소; 예약 잠금 중이면 승인 불가). 요청자는 이후 일반 티켓 등록으로 직접 등록한다. 사진은 서버 로컬 디스크(`seatswap.upload.dir`)에 UUID 이름으로 저장하고 본인·ADMIN만 조회하며, **처리(승인·거절)가 끝나면 커밋 뒤 삭제**한다. 사용자당 PENDING 5건. 잠금 순서는 인증 요청 행 → 티켓 id↑ → 요청 id↑ → 매칭.
 - 상세는 [wiki/decisions/admin-design.md](wiki/decisions/admin-design.md).
 
 ### 차단·신고·이용 정지·관리자 관리 (구현됨, V13 `user_block`·`abuse_report`·`user_sanction`)
 - **차단**은 채팅 화면에서만 시작한다(`POST /api/exchange/matches/{matchId}/block`, 임의 userId 차단 API 없음). 방향은 하나(차단자→피차단자)이지만 효과는 양방향이다: 서로 후보에서 제외, 새 제안 불가(후보 재검증 422 `NOT_A_CANDIDATE`), 둘 사이의 열린 매칭(CHATTING·RESERVED)은 차단 시점에 시스템 취소·예약 잠금 해제(`OpenMatchCanceller`), COMPLETED·교환 이력은 그대로, 상대에게 알리지 않는다. 멱등, 사용자당 200명. 해제는 `/my/blocks`(취소된 매칭은 복구되지 않는다). 재매칭 불가는 차단 때만이다.
 - **신고**도 채팅 화면에서만(`POST /api/exchange/matches/{matchId}/report`, 닫힌 매칭 가능). 사유 `ABUSE/FRAUD/NO_SHOW/FAKE_SEAT/OTHER`(OTHER는 상세 필수, ≤500). 같은 매칭에 내가 낸 OPEN 신고 1건, 사용자당 OPEN 10건. **신고만으로 자동 제재·자동 차단은 하지 않고**, 대상에게 알리지 않으며, 신고자는 `/my/reports`에서 처리 상태만 본다.
-- **관리자 관리**: `/admin/reports`(상태·사유 필터)·`/admin/reports/:id`(신고된 매칭의 **채팅 근거 열람**, 관리자 전용·처리 목적 외 사용 금지 안내, 처리/기각)·`/admin/sanctions`(활성/전체, 해제)·`/admin/blocks`(읽기 전용 현황). 처리(`resolve`)는 처리 메모와 함께 **이용 정지**(7일·30일·무기한, 사유 필수)를 걸 수 있다. ADMIN·자기 자신은 제재할 수 없고, 이미 정지 중인 대상에 또 제재할 수 없다.
+- **관리자 관리**: `/admin/reports`(상태·사유 필터)·`/admin/reports/:id`(신고된 매칭의 **채팅 근거 열람**, 관리자 전용·처리 목적 외 사용 금지 안내, 처리/기각)·`/admin/sanctions`(활성/전체, 해제)·`/admin/blocks`(읽기 전용 현황). 처리(`resolve`)는 처리 메모(선택 입력)와 함께 **이용 정지**(7일·30일·무기한, 사유 필수)를 걸 수 있다. ADMIN·자기 자신은 제재할 수 없고, 이미 정지 중인 대상에 또 제재할 수 없다.
 - **이용 정지**: 정지 중인 사용자는 모든 인증 API·로그인·토큰 재발급이 403 `ACCOUNT_SUSPENDED`(`{message, code, until}`), STOMP CONNECT 거부와 열려 있는 연결 종료(커밋 뒤), 후보에서 제외, 정지 순간 열린 매칭 전부 시스템 취소. 로그아웃은 가능하다. 기간은 조회 시 `ends_at > now`로 판단한다(스케줄러 없음). 강제는 `CustomUserDetailsService.loadUserById`(요청마다 DB 조회) 한 곳에서 한다.
 - 상세는 [wiki/decisions/block-report-design.md](wiki/decisions/block-report-design.md).
 
 ### 소셜 로그인 (구현됨, V14 `social_account`)
 - 제공자는 **카카오·구글·네이버 3종**이다. 백엔드가 Authorization Code를 직접 처리한다(Spring oauth2-client 미사용, 무상태 JWT 유지). 구글·카카오는 PKCE(S256)를 쓰고, 네이버는 PKCE를 지원하지 않아 state 쿠키로 CSRF를 막는다. 흐름: `GET /api/auth/social/{provider}/authorize`(302) → 제공자 → `GET .../callback` → 프런트 `/auth/callback#code=…` → `POST /api/auth/social/exchange {code}` → 기존 `TokenResponse`. `GET /api/auth/social/providers`는 client-id가 설정된 제공자만 돌려주며 버튼 표시에 쓴다.
 - **자동 연결 안 함**: `social_account(provider, provider_user_id)`가 있으면 그 사용자로 로그인한다. 없으면 가입하되, 제공자가 준 **검증된** 이메일이 이미 `users`에 있으면 가입을 막고 `EMAIL_EXISTS`(기존 방식으로 로그인 안내)를 돌려준다. 기존 계정에 소셜을 붙이는 것은 자동으로 하지 않고, 마이페이지에서 로그인한 본인이 명시적으로 연결할 때만 한다(아래 '프로필 수정·소셜 계정 연결' 절).
-- **자리표시 이메일**: 이메일이 없거나 검증되지 않았으면 `{provider}.{providerUserId}@social.seatswap.invalid`를 쓴다(예약 `.invalid` 도메인. 일반 가입은 `.invalid` 이메일을 거부한다. 식별자가 영숫자·`-_`가 아니면 SHA-256 앞 16자 hex로 대체). 비밀번호는 무작위 32바이트의 BCrypt 해시라 비밀번호 로그인은 불가능하다. 정지·차단·신고 규칙은 일반 사용자와 같다(callback·exchange·요청마다 검사).
+- **자리표시 이메일**: 이메일이 없거나 검증되지 않았으면 `{provider}.{SHA-256("provider:providerUserId") 앞 16자 hex}@social.seatswap.invalid`를 쓴다(예약 `.invalid` 도메인. 일반 가입은 `.invalid` 이메일을 거부한다. 제공자 식별자는 대소문자를 구분해 비교되므로 항상 해시를 쓴다). 비밀번호는 무작위 32바이트의 BCrypt 해시라 비밀번호 로그인은 불가능하다. 정지·차단·신고 규칙은 일반 사용자와 같다(callback·exchange·요청마다 검사).
 - **일회용 코드, 프래그먼트 전달**: 콜백은 토큰을 URL에 싣지 않고, 32바이트 랜덤 **일회용 로그인 코드**(서버 메모리, TTL 60초, 1회 사용, 보관 상한 1만 건을 넘으면 `SERVER_BUSY`)를 `#code=` 프래그먼트로 넘긴다. 프래그먼트라 서버 로그·Referer에 남지 않는다. exchange 때 정지 여부를 다시 검사하며, 틀리거나 만료된 코드는 400 `INVALID_LOGIN_CODE`다. 서버 재시작 때 코드가 사라지는 것은 허용한다.
 - **쿠키·state 규칙**: authorize는 state와 PKCE verifier를 HMAC 서명한 HttpOnly 쿠키 `ss_oauth`(Path=`/api/auth/social`, SameSite=Lax, Max-Age 600초)에 담는다. 콜백은 서명·만료·provider 일치와 state 상수시간 비교를 통과해야만 코드 교환을 시도하고, state는 1회용이며, 쿠키는 콜백에서 항상 삭제한다. 실패는 `302 {frontend-base-url}/login?socialError=…`로 보낸다(INVALID_STATE·ACCESS_DENIED(동의 거부)·PROVIDER_ERROR·EMAIL_EXISTS·ACCOUNT_SUSPENDED(&until)·SERVER_BUSY).
 - **제공자별 scope**: 구글 `openid email profile`(email_verified일 때만 이메일 사용), 카카오 `profile_nickname account_email`(is_email_valid·is_email_verified가 모두 true일 때만 이메일 사용), 네이버 scope 없음·state 필수.
 - **설정**: `seatswap.social.*` — `{google|kakao|naver}.client-id/client-secret`(환경변수 `SEATSWAP_SOCIAL_*`), `backend-base-url`(리다이렉트 URI = `{backend-base-url}/api/auth/social/{provider}/callback`, 각 개발자 콘솔에 등록), `frontend-base-url`(`seatswap.websocket.allowed-origins`에 포함돼야 하며 기동 시 검증), `state-secret`, `cookie-secure`. client-id가 비어 있는 제공자는 비활성이다(authorize 404 `SOCIAL_PROVIDER_DISABLED`). 운영(https·비루프백 백엔드)에서는 개발용 state-secret을 거부하고 cookie-secure=true를 요구한다.
-- authorize·callback·exchange는 IP당 분당 30회로 제한한다(버킷 분리, `getRemoteAddr()` 기준, 초과 429 `SOCIAL_RATE_LIMITED`). 로그에는 토큰·code·client_secret·이메일을 남기지 않는다.
+- authorize·callback·exchange는 IP당 분당 30회로 제한한다(버킷 분리, `getRemoteAddr()` 기준, authorize·exchange 초과는 429 `SOCIAL_RATE_LIMITED`, callback 초과는 `302 /login?socialError=SERVER_BUSY`). 로그에는 토큰·code·client_secret·이메일을 남기지 않는다.
 - 실제 카카오·구글·네이버 키로는 아직 검증하지 않았다. 스텁 제공자 테스트와 브라우저 스텁 점검만 했다.
 
 ### 프로필 수정·소셜 계정 연결 (구현됨, V16)
@@ -174,7 +174,7 @@ DB는 Flyway V1~V17, 20개 테이블(social_account·performance_edit_proposal·
 - **API**: `DELETE /api/users/me` body `{password?, confirmText?}`(인증 필요, 성공 204). 본인 확인: 비밀번호 로그인 계정(`password_login_enabled`=1)은 비밀번호(불일치 400), 소셜 전용 계정은 `confirmText`가 정확히 `탈퇴합니다`여야 한다(아니면 400). ADMIN은 409 `ADMIN_CANNOT_WITHDRAW`(역할을 DB에서 해제한 뒤 탈퇴). 사용자당 분당 5회(성공·실패 모두 센다, 초과 429 `WITHDRAW_RATE_LIMITED`). 이미 탈퇴했거나 동시 탈퇴의 뒤쪽은 401.
 - **처리(한 트랜잭션)**: ①PENDING 좌석 인증 요청 거절(처리자는 본인, 사진은 커밋 뒤 삭제) ②열린 매칭(CHATTING·RESERVED) 시스템 취소와 예약 잠금 해제(`OpenMatchCanceller`) ③OPEN 요청 CLOSED, 활성 티켓 INACTIVE ④users 행 FOR UPDATE 후 같은 정리를 한 번 더(2차 정리) ⑤`social_account` 전부 삭제, users 익명화(이메일 `withdrawn.{id}@withdrawn.seatswap.invalid`, 닉네임 `탈퇴한 회원`, 무작위 BCrypt, `password_login_enabled`=0, `withdrawn_at`=KST 현재 시각, role 유지) ⑥수신자 알림 삭제 ⑦커밋 뒤 STOMP 연결 종료(실패는 삼킨다).
 - **보존**: 채팅·읽음 상태·교환 이력·차단·신고·제재·PENDING 공연 수정 제안은 지우지 않는다(FK 유지). 닉네임은 users에서 읽으므로 상대·관리자 화면에 '탈퇴한 회원'으로 나온다.
-- **잠금 순서(탈퇴)**: 인증 요청 → 티켓 id↑ → 요청 → 매칭 id↑ → users → 알림. users 행은 티켓·매칭 잠금 **뒤에** 잡는다(개발 규칙 참고).
+- **잠금 순서(탈퇴)**: 인증 요청 → 티켓 id↑ → 매칭 id↑ → 요청 → users → 알림(요청이 매칭 뒤인 것은 알려진 좁은 교착 창이며 교착 감지기가 되돌려 503으로 끝난다). users 행은 티켓·매칭 잠금 **뒤에** 잡는다(개발 규칙 참고).
 - **인증 차단**: `CustomUserDetailsService`(`loadUserById`·`loadUserByUsername`)가 탈퇴 계정을 거절한다 → 기존 액세스 토큰 401, STOMP CONNECT 거부, 로그인·refresh·소셜 exchange·소셜 연결 확정 400, 소셜 연결 해제 401. 같은 이메일·같은 소셜 계정으로 새 계정을 만들 수 있다.
 - 관리자 제재 대상이 탈퇴한 사용자이면 409 `TARGET_WITHDRAWN`.
 - **이용 정지 중에도 탈퇴 API(`DELETE /api/users/me`)는 허용한다**(사용자 결정 2026-10-13; `JwtAuthenticationFilter`가 정지 예외에서 이 요청만 인증된 채로 통과시키고 `loadUserByIdAllowingSuspended`로 로딩). 다만 정지 중에는 로그인·토큰 재발급이 403이라 새 토큰을 받을 수 없고 화면(403이면 로그아웃)도 막혀 있어, 실제로는 정지 전에 받은 유효한 액세스 토큰이 있을 때만 쓸 수 있다. 토큰이 없는 정지 사용자는 방침 §8의 문의처로 요청한다(정지 중 로그인 허용은 후속).
@@ -195,7 +195,7 @@ DB는 Flyway V1~V17, 20개 테이블(social_account·performance_edit_proposal·
 - 읽음 포인터 advance는 매칭·users 잠금을 잡은 트랜잭션 안에서 호출하지 않는다(자기 대기·갭 잠금 교착).
 - 메시지 조회 쿼리는 `FORCE INDEX (idx_chat_message_match)`를 유지한다(옵티마이저가 PRIMARY 역방향·filesort를 고르는 문제).
 - 링크 자동 입력은 사용자가 준 URL을 요청하지 않고 `SourceKeyResolver`로 뽑은 사이트·숫자 ID로 고정 템플릿 URL만 만들어 요청한다(SSRF 방어의 핵심). 새 사이트를 추가할 때도 이 규칙과 호스트 고정을 유지한다.
-- 소셜 제공자 엔드포인트(authorize·token·userinfo)는 설정으로 고정하고 사용자 입력 URL은 요청하지 않는다. 리다이렉트 목적지도 설정 `frontend-base-url`로만 정한다. 소셜 콜백은 미분류 예외를 포함해 항상 302로 응답하고 JSON을 내지 않는다.
+- 소셜 제공자 엔드포인트(authorize·token·userinfo)는 설정으로 고정하고 사용자 입력 URL은 요청하지 않는다. 리다이렉트 목적지도 설정 `frontend-base-url`로만 정한다. 소셜 콜백은 미분류 예외를 포함해 302로 응답하고 JSON을 내지 않는다(예외: 꺼져 있거나 알 수 없는 제공자의 콜백은 404 JSON `SOCIAL_PROVIDER_DISABLED`).
 - 소셜 연결은 콜백에서 저장하지 않는다. 확정 API는 로그인 세션의 사용자와 코드의 사용자가 같을 때만 저장하고(로그인 CSRF 방지), 확정과 해제는 users 행을 FOR UPDATE로 먼저 잡은 뒤 판단한다.
 - 좌석 소유 인증 승인처럼 좌석 키(보조 유니크 인덱스)로 티켓을 잠가야 할 때는 `FOR UPDATE`를 키로 걸지 말고 id를 잠금 없이 읽은 뒤 PK로 잠그고 상태를 다시 판단한다(`deactivate`와 교착). 상태 전이로 바뀌는 값을 유니크로 쓸 때는 생성 컬럼 UNIQUE(PENDING만 유니크)를 쓴다.
 - 열린 매칭 시스템 취소(`OpenMatchCanceller`)는 티켓 id↑ → 매칭 id↑ 순서로 잠그고 호출 트랜잭션을 READ_COMMITTED로 연다. 후보 SQL의 차단 제외는 `NOT EXISTS` 두 개로 나눠 쓴다(OR는 전체 인덱스 스캔).
@@ -220,7 +220,7 @@ DB는 Flyway V1~V17, 20개 테이블(social_account·performance_edit_proposal·
 - 추가금 금액을 합산해 판정(두 값의 합 ≤ 0 등) → **유형(X/ANY/POS/NEG)만 판정**.
 - 교환 완료 시 기존 티켓의 좌석·회차를 갱신(임시 INACTIVE 교체 포함) → **기존 티켓 EXCHANGED + 새 티켓 INSERT**.
 - 한 명이 예약하면 즉시 RESERVED(제안·수락 없이) → **폐기. 예약은 '예약 제안 → 상대 예약 수락'으로만 RESERVED가 된다**(사용자 결정, 2026-10-12). 예약을 취소하면 CHATTING으로 돌아가는 것은 그대로다.
-- 취소 후 같은 상대와 재매칭 불가 → 취소는 재매칭 가능, 불가는 차단·신고 때만.
+- 취소 후 같은 상대와 재매칭 불가 → 취소는 재매칭 가능, 불가는 차단 때만.
 - 교환 요청 하드 삭제 → 소프트 삭제. 교환 완료된 티켓의 다른 채팅 자동 취소 → 취소하지 않고 비활성+안내.
 - 후보 카드의 같은 쌍 '예약 중' 뱃지 → 폐기. 후보에서는 예약 잠긴 티켓을 뺀다(예약 중 정보는 내 매칭 카드에서만).
 - 공연·제목·회차 수정/삭제 허용, 공연장 테이블·검색·정식 등록 → 등록 후 수정 불가, 공연장은 텍스트.
@@ -229,14 +229,14 @@ DB는 Flyway V1~V17, 20개 테이블(social_account·performance_edit_proposal·
 
 ## 후속 작업 목록
 
-사용자가 정한 6개 기능(채팅, 실시간 알림 푸시, 링크 자동 입력, 관리자 페이지, 교환 이력 조회, 차단·신고)은 모두 완료됐다. 소셜 로그인(카카오·구글·네이버, V14)과 예약 제안·수락·채팅 알림(V15)도 구현했다(미병합). 남은 것: AI로 상세정보를 읽어 회차 시각을 채우는 출처(구조만 열림), 7일 경과 알림(미구현), 브라우저 수동 점검, `trust_score` 컬럼 정리 여부 결정, 실제 제공자 키 연동 검증.
+사용자가 정한 6개 기능(채팅, 실시간 알림 푸시, 링크 자동 입력, 관리자 페이지, 교환 이력 조회, 차단·신고)은 모두 완료됐다. 소셜 로그인(V14)·예약 제안·수락·채팅 알림(V15)·프로필 수정(V16)·회원탈퇴(V17)·포스터·회차 날짜 미리 채우기도 구현해 모두 master에 병합됐다. 남은 것: AI로 상세정보를 읽어 회차 시각을 채우는 출처(구조만 열림), 7일 경과 알림(보류), 브라우저 수동 점검, `trust_score` 컬럼 정리 여부 결정, 실제 제공자 키 연동 검증.
 
-- **구현 완료(2026-10-13, V15, 미병합)**: 예약 방식 변경(예약 버튼은 채팅 화면에서만, 예약 제안 → 상대 수락으로 RESERVED), 채팅 새 메시지 알림(헤더 벨), 벨 위치(데스크톱은 '내 매칭' 오른쪽).
-- **구현 완료(2026-10-13, V16, 미병합)**: 마이페이지 닉네임 수정·소셜 계정 연결·해제.
-- **구현 완료(2026-10-13, V17, 미병합)**: 회원탈퇴·개인정보처리방침(`/privacy`)·푸터.
-- **구현 완료(2026-10-13, DB 변경 없음, 미병합)**: 공연 포스터 표시(`feature/poster`, '공연 포스터 표시' 절).
-- **구현 완료(2026-10-13, DB 변경 없음, 미병합)**: 회차 날짜 미리 채우기(`feature/session-prefill`, '링크 기반 공연정보 자동 입력' 절). 2일 이하 공연만 날짜를 채우고 시각은 직접 고른다.
-- **예정(미착수, 구조만 열림)**: AI가 상세정보를 읽어 회차 시각(과 3일 이상 공연의 회차)을 채우는 출처. `sessionCandidates.time`이 자리다. 그 뒤 7일 경과 알림.
+- **구현 완료(2026-10-13, V15, 병합됨)**: 예약 방식 변경(예약 버튼은 채팅 화면에서만, 예약 제안 → 상대 수락으로 RESERVED), 채팅 새 메시지 알림(헤더 벨), 벨 위치(데스크톱은 '내 매칭' 오른쪽).
+- **구현 완료(2026-10-13, V16, 병합됨)**: 마이페이지 닉네임 수정·소셜 계정 연결·해제.
+- **구현 완료(2026-10-13, V17, 병합됨)**: 회원탈퇴·개인정보처리방침(`/privacy`)·푸터.
+- **구현 완료(2026-10-13, DB 변경 없음, 병합됨)**: 공연 포스터 표시(`feature/poster`, '공연 포스터 표시' 절).
+- **구현 완료(2026-10-13, DB 변경 없음, 병합됨)**: 회차 날짜 미리 채우기(`feature/session-prefill`, '링크 기반 공연정보 자동 입력' 절). 2일 이하 공연만 날짜를 채우고 시각은 직접 고른다.
+- **예정(미착수, 구조만 열림)**: AI가 상세정보를 읽어 회차 시각(과 3일 이상 공연의 회차)을 채우는 출처. `sessionCandidates.time`이 자리다. 7일 경과 알림은 보류했다.
 - **회원탈퇴 후속**: 정지 중 사용자가 토큰 없이도 탈퇴할 수 있는 경로(정지 중 제한 로그인), 소셜 전용 계정의 재인증(지금은 확인 문구만), 인증 사진 삭제 실패 시 정리 작업, 채팅 보관 기간(지금은 운영 기간 동안), 보관 기간의 법적 근거 검토(공개 운영 전 전문가 검토 필요).
 
 ## 확인 필요 (열린 질문만)

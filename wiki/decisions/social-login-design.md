@@ -10,7 +10,7 @@ status: draft
 
 # 소셜 로그인 설계 근거
 
-카카오·구글·네이버 소셜 로그인(V14 `social_account`, 브랜치 `feature/social-login`, 2026-10-12 구현, 미병합)의 근거만 정리한다. 확정 규칙의 기준은 [CLAUDE.md](../../CLAUDE.md)다. 마이페이지의 소셜 계정 연결·해제(V16)는 [프로필 수정·소셜 계정 연결 설계 근거](profile-edit-design.md)에 있다. 여기서 새 결정을 만들지 않는다. 정지·차단 규칙은 [차단·신고·이용 정지 설계](block-report-design.md), 외부 요청 방어의 같은 사고방식은 [링크 자동 입력 설계](link-autofill-design.md) 참고.
+카카오·구글·네이버 소셜 로그인(V14 `social_account`, 브랜치 `feature/social-login`, 2026-10-12 구현, 병합됨)의 근거만 정리한다. 확정 규칙의 기준은 [CLAUDE.md](../../CLAUDE.md)다. 마이페이지의 소셜 계정 연결·해제(V16)는 [프로필 수정·소셜 계정 연결 설계 근거](profile-edit-design.md)에 있다. 여기서 새 결정을 만들지 않는다. 정지·차단 규칙은 [차단·신고·이용 정지 설계](block-report-design.md), 외부 요청 방어의 같은 사고방식은 [링크 자동 입력 설계](link-autofill-design.md) 참고.
 
 사용자가 정한 것은 두 가지다: 제공자 3개, 같은 이메일의 기존 계정이 있으면 자동 연결하지 않음. 나머지(방식, 일회용 코드 등)는 구현 세션에서 정했다.
 

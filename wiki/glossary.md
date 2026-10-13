@@ -17,7 +17,7 @@ SeatSwap 고유 용어의 짧은 정의다. 확정 결정 본문은 [CLAUDE.md](
 | 용어 | 내부 값 | 뜻 | 위치 |
 |---|---|---|---|
 | 매칭 | `CHATTING` | 후보 목록에서 한쪽이 상대를 골라 제안하면 생기는 채팅 단계. 한 요청에 여러 개 동시에 열 수 있다. 화면 라벨은 현재 '진행 중'이고 '매칭'으로 바꾸는 것은 문서의 기본안이다 | `ExchangeMatchStatus`, 테이블 `exchange_match` |
-| 예약 중 | `RESERVED` | 한쪽이 예약을 제안하고 상대가 수락하면 되는 상태(V15에서 '한 명이 예약'(V8)을 뒤집음). 제안은 상태가 아니라 매칭의 부가 정보(`reserve_proposed_*`)다. 수락하면 두 티켓이 잠기고 예약을 취소하면 `CHATTING`으로 돌아간다. 구현 완료(미병합) | `reserve`(제안)/`reserve/accept`/`decline`/`withdraw`/`unreserve` API, `reserved_by_id`(=제안자)·`reserved_at`, [근거 페이지](decisions/reserve-propose-design.md) |
+| 예약 중 | `RESERVED` | 한쪽이 예약을 제안하고 상대가 수락하면 되는 상태(V15에서 '한 명이 예약'(V8)을 뒤집음). 제안은 상태가 아니라 매칭의 부가 정보(`reserve_proposed_*`)다. 수락하면 두 티켓이 잠기고 예약을 취소하면 `CHATTING`으로 돌아간다. 구현 완료(병합됨) | `reserve`(제안)/`reserve/accept`/`decline`/`withdraw`/`unreserve` API, `reserved_by_id`(=제안자)·`reserved_at`, [근거 페이지](decisions/reserve-propose-design.md) |
 | 교환 수락 | (버튼 이름) | 화면 버튼 이름만 바뀐 것이다. 내부 값·API는 `complete`, 컬럼은 `a_completed_at`/`b_completed_at` 그대로. 구현 완료(V9, 커밋 `52cfb5a`). 첫 수락은 시각만 기록하고 RESERVED를 유지하며, 화면에서 확인 단계를 한 번 거친다 | 요구사항 문서 §3, 9차 답변 |
 | 교환 완료 | `COMPLETED` | 양쪽이 '교환 수락'을 모두 누른 상태. 상태·뱃지·이력 라벨은 '교환 완료'를 유지한다. 취소 불가. 두 번째 수락 때 한 트랜잭션으로 전이한다(구현 완료). 완료 시 기존 티켓의 교환 요청은 `CLOSED`가 되고 그 티켓의 다른 채팅은 자동 취소하지 않는다(Q-15 확정) | `complete` API, `exchange_history` |
 | 교환됨 | `TicketStatus.EXCHANGED` | 교환 완료 때 기존 티켓에 붙는 티켓 상태. 구현 완료(V9에서 `ck_ticket_status` 확장). 이 상태인 티켓은 내릴 수 없고(409 `TICKET_EXCHANGED`) 새 예약도 막힌다. 이 상태인 티켓의 다른 채팅 카드는 버튼 비활성 + "이미 교환된 좌석이에요" 표시 | [근거 페이지](decisions/exchange-complete-new-ticket.md) |
@@ -57,7 +57,7 @@ SeatSwap 고유 용어의 짧은 정의다. 확정 결정 본문은 [CLAUDE.md](
 
 ## 채팅
 
-설계 근거는 [채팅 설계 근거](decisions/chat-design.md), 함정은 [함정 페이지 10절](gotchas/lock-order-and-index-pitfalls.md) 참고. 구현 완료(V11, 브랜치 `feature/chat`, 미병합).
+설계 근거는 [채팅 설계 근거](decisions/chat-design.md), 함정은 [함정 페이지 10절](gotchas/lock-order-and-index-pitfalls.md) 참고. 구현 완료(V11, 브랜치 `feature/chat`, 병합됨).
 
 - **읽음 포인터** (`chat_read_state.last_read_message_id`): (매칭, 사용자)당 1행으로, 그 사용자가 읽은 마지막 메시지 id다. 단조 증가만 하며 FK가 아니다. 안 읽은 개수(`unreadChatCount`)와 상대의 '읽음' 표시가 이 값으로 계산된다.
 - **clientMessageId**: 클라이언트가 보내는 8~36자 식별자(`^[A-Za-z0-9_-]{8,36}$`). (`clientMessageId`, 발신자) 유니크로 같은 전송의 재전송을 멱등 처리한다(같은 id 재전송은 200). 다른 매칭에서 쓴 id는 409 `CLIENT_MESSAGE_ID_REUSED`.
@@ -69,7 +69,7 @@ SeatSwap 고유 용어의 짧은 정의다. 확정 결정 본문은 [CLAUDE.md](
 
 ## 관리자
 
-설계 근거는 [관리자 설계 근거](decisions/admin-design.md), 함정은 [함정 페이지 11절](gotchas/lock-order-and-index-pitfalls.md) 참고. 구현 완료(V12, 브랜치 `feature/admin`, 미병합).
+설계 근거는 [관리자 설계 근거](decisions/admin-design.md), 함정은 [함정 페이지 11절](gotchas/lock-order-and-index-pitfalls.md) 참고. 구현 완료(V12, 브랜치 `feature/admin`, 병합됨).
 
 - **공연 수정 제안** (`performance_edit_proposal`): 사용자가 공연의 제목·공연장 수정을 제안하고 관리자가 승인(공연에 반영)·거절하는 흐름. 상태 `PENDING`/`APPROVED`/`REJECTED`. 사용자당 대기는 3건까지.
 - **좌석 소유 인증 요청** (`seat_claim`, 화면 이름 '내 티켓 인증'): 이미 등록된 좌석의 소유를 예매내역 사진으로 주장하는 요청. 관리자가 승인하면 현재 그 좌석의 활성 티켓이 내려진다. 처리 후 사진은 삭제된다(`image_deleted_at`).
@@ -77,7 +77,7 @@ SeatSwap 고유 용어의 짧은 정의다. 확정 결정 본문은 [CLAUDE.md](
 
 ## 링크 자동 입력
 
-설계 근거는 [링크 자동 입력 설계 근거](decisions/link-autofill-design.md), 함정은 [링크 가져오기 함정](gotchas/link-fetch-pitfalls.md) 참고. 구현 완료(브랜치 `feature/link-autofill`, 미병합, DB 변경 없음).
+설계 근거는 [링크 자동 입력 설계 근거](decisions/link-autofill-design.md), 함정은 [링크 가져오기 함정](gotchas/link-fetch-pitfalls.md) 참고. 구현 완료(브랜치 `feature/link-autofill`, 병합됨, DB 변경 없음).
 
 - **미리보기 API** (`GET /api/performances/preview?sourceUrl=`): 링크 페이지에서 제목·공연장·공연 기간을 읽어 돌려준다. 응답 `status`는 `OK`·`UNSUPPORTED_SITE`·`NO_INFO`·`FETCH_FAILED` 중 하나이고 항상 200이다.
 - **고정 템플릿 URL**: 사용자가 준 URL 대신 사이트별 템플릿 3종에 id만 끼워 만든 주소. SSRF를 구조적으로 막는 장치다.
@@ -85,7 +85,7 @@ SeatSwap 고유 용어의 짧은 정의다. 확정 결정 본문은 [CLAUDE.md](
 
 ## 차단·신고·이용 정지
 
-설계 근거는 [차단·신고·이용 정지 설계 근거](decisions/block-report-design.md), 함정은 [함정 페이지 12절](gotchas/lock-order-and-index-pitfalls.md) 참고. 구현 완료(V13, 브랜치 `feature/block-report`, 미병합).
+설계 근거는 [차단·신고·이용 정지 설계 근거](decisions/block-report-design.md), 함정은 [함정 페이지 12절](gotchas/lock-order-and-index-pitfalls.md) 참고. 구현 완료(V13, 브랜치 `feature/block-report`, 병합됨).
 
 - **차단** (`user_block`): 채팅 화면에서 상대를 차단. 저장은 한 방향, 효과(후보 제외·제안 불가·열린 매칭 시스템 취소)는 양방향이며 상대에게 알리지 않는다.
 - **신고** (`abuse_report`): 채팅 화면에서 접수하는 신고. 사유 5종, 상태 `OPEN`/`RESOLVED`/`DISMISSED`. 자동 제재는 없다.

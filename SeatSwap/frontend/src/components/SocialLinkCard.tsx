@@ -171,8 +171,10 @@ export default function SocialLinkCard() {
     }
   };
 
-  const hasProviders = !!status && status.providers.length > 0;
-  // 활성 제공자가 없고 알릴 결과도 없으면 카드를 숨긴다
+  // 활성 제공자 + 지금은 꺼졌지만 이미 연결된 제공자(해제는 제공자가 꺼져 있어도 된다)
+  const rows = status ? [...new Set([...status.providers, ...status.accounts.map((a) => a.provider)])] : [];
+  const hasProviders = rows.length > 0;
+  // 보여 줄 제공자가 없고 알릴 결과도 없으면 카드를 숨긴다
   if (!hasProviders && !message && !loadFailed) return null;
 
   const linkedMap = new Map(status?.accounts.map((a) => [a.provider, a]));
@@ -199,10 +201,10 @@ export default function SocialLinkCard() {
           </button>
         </div>
       )}
-      {hasProviders && (
+      {status && hasProviders && (
         <>
           <ul className="mt-2 divide-y divide-gray-200">
-            {status.providers.map((provider) => {
+            {rows.map((provider) => {
               const account = linkedMap.get(provider);
               const label = PROVIDER_LABELS[provider];
               const rowBusy = busy === provider;

@@ -159,7 +159,7 @@ export default function NotificationsPage() {
 
         {state.status === "success" && state.items.length === 0 && (
           <div className={ui.card}>
-            <p className={ui.body}>아직 알림이 없어요. 새 제안이나 예약이 생기면 여기에 알려드려요.</p>
+            <p className={ui.body}>아직 알림이 없어요. 새 제안·예약·채팅 메시지가 생기면 여기에 알려드려요.</p>
           </div>
         )}
 

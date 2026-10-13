@@ -73,6 +73,8 @@ class SecuritySliceTest {
     private CustomUserDetailsService userDetailsService;
     @MockBean
     private AuthService authService;
+    @MockBean
+    private com.seatswap.service.EmailVerificationService emailVerificationService;
 
     @BeforeEach
     void setUp() {

@@ -63,6 +63,8 @@ class ModerationControllerSliceTest {
     private AdminModerationService adminService;
     @MockBean
     private AuthService authService;
+    @MockBean
+    private com.seatswap.service.EmailVerificationService emailVerificationService;
 
     @BeforeEach
     void setUp() {

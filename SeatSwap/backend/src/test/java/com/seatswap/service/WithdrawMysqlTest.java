@@ -46,7 +46,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 매 라운드 탈퇴 불변식을 확인한다: 탈퇴 사용자의 활성 티켓 0, 열린 매칭 0, OPEN 요청 0, 잠금 행 = 2 x RESERVED, social_account 0, 알림 0, 이메일 형식.
  */
 @ExtendWith(RealMysqlSupport.Condition.class)
-@SpringBootTest(properties = "ticket.max-active-per-user=100000")
+@SpringBootTest(properties = {"ticket.max-active-per-user=100000", "seatswap.email-verification.enabled=false"})
 @AutoConfigureMockMvc
 class WithdrawMysqlTest {
 

@@ -17,6 +17,14 @@ export interface SignupRequest {
   email: string;
   password: string;
   nickname: string;
+  /** 이메일로 받은 6자리 인증번호 (서버에서 인증이 켜져 있으면 필수) */
+  emailCode?: string;
+}
+
+/** POST /api/auth/signup/email-code 응답 — 유효 시간과 다시 보낼 수 있기까지의 대기 시간(초) */
+export interface EmailCodeResponse {
+  expiresInSeconds: number;
+  resendAfterSeconds: number;
 }
 
 /** POST /api/auth/refresh 요청 — RefreshRequest */

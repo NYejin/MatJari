@@ -65,6 +65,10 @@ export default function PrivacyPolicyPage() {
                 <strong>회원 가입 시(필수):</strong> 이메일, 비밀번호(암호화된 해시로만 저장), 닉네임
               </li>
               <li>
+                <strong>이메일 인증 시:</strong> 가입 전에 이메일 주인임을 확인하려고 인증번호를 메일로 보내요. 인증번호는 해시로만
+                저장하고 발송·만료 시각과 입력 횟수를 함께 기록해요.
+              </li>
+              <li>
                 <strong>소셜 로그인 시:</strong> 제공자 이름(카카오·구글·네이버)과 제공자 고유 식별자만 저장해요. 이메일과 프로필
                 이미지는 저장하지 않지만, 제공자의 프로필 닉네임을 초기 닉네임으로 사용해요(마이페이지에서 바꿀 수 있어요). 다만 제공자가 검증된 이메일을 주면 가입 이메일로 사용해요. 검증된 이메일이 없으면 서비스가
                 만든 자리표시 이메일을 써요.
@@ -106,6 +110,14 @@ export default function PrivacyPolicyPage() {
                   </tr>
                   <tr>
                     <th scope="row" className={`${cls.td} text-left font-semibold`}>
+                      이메일 인증번호 기록(해시, 발송·만료 시각, 입력 횟수)
+                    </th>
+                    <td className={cls.td}>
+                      가입이 끝나면 즉시 삭제해요. 가입하지 않고 만료된 기록은 이후 서비스가 정리해요.
+                    </td>
+                  </tr>
+                  <tr>
+                    <th scope="row" className={`${cls.td} text-left font-semibold`}>
                       좌석 인증 요청의 예매내역 사진
                     </th>
                     <td className={cls.td}>요청 처리(승인·거절)가 끝나면 즉시 삭제해요.</td>
@@ -142,7 +154,10 @@ export default function PrivacyPolicyPage() {
           </Section>
 
           <Section n={7} title="개인정보 처리의 위탁">
-            <p>서비스는 개인정보 처리를 외부에 위탁하지 않아요.</p>
+            <p>
+              서비스는 개인정보 처리를 외부에 위탁하지 않아요. 다만 이메일 인증번호는 운영자가 설정한 메일 발송 서비스(SMTP)를 통해
+              보내므로, 인증번호를 받을 때 입력한 이메일 주소가 그 서비스를 거쳐요.
+            </p>
           </Section>
 
           <Section n={8} title="정보주체의 권리와 행사 방법">

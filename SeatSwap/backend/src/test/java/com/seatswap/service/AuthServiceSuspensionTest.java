@@ -40,7 +40,7 @@ class AuthServiceSuspensionTest {
         passwordEncoder = mock(PasswordEncoder.class);
         jwt = mock(JwtTokenProvider.class);
         checker = mock(AccountSuspensionChecker.class);
-        authService = new AuthService(userRepository, passwordEncoder, jwt, checker);
+        authService = new AuthService(userRepository, passwordEncoder, jwt, checker, mock(com.seatswap.service.EmailVerificationService.class));
         user = User.create("a@b.com", "encoded", "닉네임");
         ReflectionTestUtils.setField(user, "id", 5L);
         when(userRepository.findByEmail("a@b.com")).thenReturn(Optional.of(user));

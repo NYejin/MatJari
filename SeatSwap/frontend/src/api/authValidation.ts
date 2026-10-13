@@ -52,6 +52,16 @@ export function validateEmail(email: string): string | undefined {
   return undefined;
 }
 
+export const EMAIL_CODE_LENGTH = 6;
+
+/** 이메일 인증번호: 숫자 6자리 */
+export function validateEmailCode(code: string): string | undefined {
+  const value = code.trim();
+  if (!value) return "이메일로 받은 인증번호를 입력해주세요.";
+  if (!new RegExp(`^\\d{${EMAIL_CODE_LENGTH}}$`).test(value)) return "인증번호는 숫자 6자리예요.";
+  return undefined;
+}
+
 /** 로그인용: 비어 있는지만 확인 (기존 계정 규칙이 달라도 서버 판단에 맡김). 전송 값은 trim 하지 않는다. */
 export function validateLoginPassword(password: string): string | undefined {
   return isBlankByJavaTrim(password) ? "비밀번호를 입력해주세요." : undefined;

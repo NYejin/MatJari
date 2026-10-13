@@ -36,7 +36,7 @@ class AuthServiceTest {
     void setUp() {
         userRepository = mock(UserRepository.class);
         passwordEncoder = mock(PasswordEncoder.class);
-        authService = new AuthService(userRepository, passwordEncoder, mock(JwtTokenProvider.class), mock(com.seatswap.security.AccountSuspensionChecker.class));
+        authService = new AuthService(userRepository, passwordEncoder, mock(JwtTokenProvider.class), mock(com.seatswap.security.AccountSuspensionChecker.class), mock(com.seatswap.service.EmailVerificationService.class));
         when(passwordEncoder.encode(anyString())).thenReturn("encoded");
     }
 

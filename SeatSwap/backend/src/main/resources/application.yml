@@ -49,6 +49,21 @@ exchange:
     max-ranges: ${EXCHANGE_WANT_MAX_RANGES:50}
 
 seatswap:
+  mail:
+    # log(기본, 개발용: 메일 내용을 로그에 출력) | smtp(실제 발송: SPRING_MAIL_HOST/PORT/USERNAME/PASSWORD 필요). 운영에서는 smtp 여야 기동된다
+    mode: ${SEATSWAP_MAIL_MODE:log}
+    from: ${SEATSWAP_MAIL_FROM:}
+  email-verification:
+    # 일반 가입 전 이메일 인증번호. false 면 가입에 인증번호를 요구하지 않는다
+    enabled: ${SEATSWAP_EMAIL_VERIFICATION_ENABLED:true}
+    code-ttl-seconds: ${SEATSWAP_EMAIL_CODE_TTL_SECONDS:600}
+    resend-cooldown-seconds: ${SEATSWAP_EMAIL_CODE_RESEND_SECONDS:60}
+    max-attempts: ${SEATSWAP_EMAIL_CODE_MAX_ATTEMPTS:5}
+    ip-per10-min: ${SEATSWAP_EMAIL_CODE_IP_PER_10MIN:10}
+    email-per10-min: ${SEATSWAP_EMAIL_CODE_EMAIL_PER_10MIN:5}
+    global-per-hour: ${SEATSWAP_EMAIL_CODE_GLOBAL_PER_HOUR:200}
+    # 코드 해시 HMAC 키. 운영에서는 반드시 새 값으로 덮어쓴다(예: openssl rand -base64 48)
+    secret: ${SEATSWAP_EMAIL_CODE_SECRET:dev-only-insecure-email-code-secret-please-override}
   upload:
     # 좌석 소유 인증 사진 저장 디렉터리(웹에서 직접 서빙하지 않는 경로). UUID 이름으로만 저장한다. 처리 후 파일은 삭제된다
     dir: ${SEATSWAP_UPLOAD_DIR:./data/seat-claims}

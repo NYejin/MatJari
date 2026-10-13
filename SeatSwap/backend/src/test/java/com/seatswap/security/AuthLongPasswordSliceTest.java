@@ -48,6 +48,8 @@ class AuthLongPasswordSliceTest {
     private CustomUserDetailsService userDetailsService;
     @MockBean
     private AccountSuspensionChecker suspensionChecker;
+    @MockBean
+    private com.seatswap.service.EmailVerificationService emailVerificationService;
 
     @Test
     void loginWithPasswordOver72BytesIs400Not500() throws Exception {

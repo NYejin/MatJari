@@ -22,8 +22,17 @@ public record SignupRequest(
 
         @NotBlank(message = "닉네임을 입력해주세요.")
         @Size(min = 2, max = 20, message = "닉네임은 2~20자로 입력해주세요.")
-        String nickname
+        String nickname,
+
+        /** 이메일로 받은 인증번호(6자리). 인증이 꺼진 환경에서는 비워도 된다. */
+        @Size(max = 20, message = "인증번호는 숫자 6자리예요.")
+        String emailCode
 ) {
+    /** 인증번호 없이 만드는 호출(인증이 꺼진 환경·기존 테스트). */
+    public SignupRequest(String email, String password, String nickname) {
+        this(email, password, nickname, null);
+    }
+
     public SignupRequest {
         email = AuthInputNormalizer.normalizeEmail(email);
         nickname = AuthInputNormalizer.normalizeNickname(nickname);
@@ -32,6 +41,6 @@ public record SignupRequest(
     /** 로그/디버깅 출력에 비밀번호 평문이 남지 않도록 마스킹 */
     @Override
     public String toString() {
-        return "SignupRequest[email=" + email + ", password=****, nickname=" + nickname + "]";
+        return "SignupRequest[email=" + email + ", password=****, nickname=" + nickname + ", emailCode=****]";
     }
 }

@@ -126,6 +126,14 @@ export default function PerformanceRegisterPage() {
   const [autoFill, setAutoFill] = useState<AutoFillNote | null>(null);
   /** 링크에서 읽은 포스터 이미지 주소(표시만, 저장하지 않는다) */
   const [posterUrl, setPosterUrl] = useState<string | null>(null);
+  /** 링크 기간에서 얻은 회차 날짜 후보(yyyy-MM-dd) — 눌러서 날짜 칸만 채운다(시각은 직접 입력) */
+  const [candidateDates, setCandidateDates] = useState<string[]>([]);
+  const [datePreset, setDatePreset] = useState<{ date: string; nonce: number } | null>(null);
+  const presetNonce = useRef(0);
+  const presetDate = (date: string) => {
+    presetNonce.current += 1;
+    setDatePreset({ date, nonce: presetNonce.current });
+  };
   // ② 공연 정보: 제목·공연장 이름·회차
   const [title, setTitle] = useState("");
   const [titleError, setTitleError] = useState<string>();
@@ -175,6 +183,10 @@ export default function PerformanceRegisterPage() {
     }
     if (unmounted.current) return; // 화면을 떠난 뒤의 응답은 버린다
     setPosterUrl(result?.status === "OK" ? (result.posterUrl ?? null) : null);
+    const dates = result?.status === "OK" ? (result.sessionCandidates ?? []).map((c) => c.date) : [];
+    setCandidateDates(dates);
+    if (dates.length > 0 && sessions.length === 0) presetDate(dates[0]);
+    else if (dates.length === 0) setDatePreset(null);
     // 오류·시간 초과·읽기 실패는 기록하지 않아 같은 링크로 다시 시도할 수 있다
     if (result && result.status !== "FETCH_FAILED") previewedUrl.current = url;
     // 사용자가 쓴 값은 덮어쓰지 않는다 — 제목·공연장이 모두 비어 있거나, 이전 링크에서 미리 채운 값 그대로일 때만 바꾼다
@@ -268,6 +280,10 @@ export default function PerformanceRegisterPage() {
     setSessions((prev) => [...prev, normalized].sort(compareLocalDateTime));
     setSessionInput("");
     setSessionError(undefined);
+    // 아직 회차가 없는 다음 후보 날짜를 날짜 칸에 미리 채운다
+    const covered = new Set([...sessions, normalized].map((s) => s.slice(0, 10)));
+    const next = candidateDates.find((d) => !covered.has(d));
+    if (next) presetDate(next);
   };
 
   const removeSession = (value: string) => setSessions((prev) => prev.filter((s) => s !== value));
@@ -424,6 +440,7 @@ export default function PerformanceRegisterPage() {
               legend="회차 날짜·시간 (한국 시간)"
               value={sessionInput}
               onChange={setSessionInput}
+              datePreset={datePreset}
               invalid={!!sessionError}
               describedBy={`perf-session-hint${sessionError ? " perf-session-error" : ""}`}
             />
@@ -439,9 +456,21 @@ export default function PerformanceRegisterPage() {
           {/* 안내는 오류가 있어도 계속 보이고 aria-describedby로 연결된다 */}
           {autoFill?.periodStart && (
             <p className={ui.hint}>
-              링크에 적힌 공연 기간: {periodText(autoFill.periodStart, autoFill.periodEnd)} · 회차 일시는 링크에서 읽을 수
-              없어 직접 입력해 주세요.
+              링크에 적힌 공연 기간: {periodText(autoFill.periodStart, autoFill.periodEnd)} ·{" "}
+              {candidateDates.length > 0
+                ? "회차 시각은 링크에서 읽을 수 없어 직접 골라 주세요. 날짜는 공연 기간에 맞춰 미리 채워 뒀어요."
+                : "회차 일시는 링크에서 읽을 수 없어 직접 입력해 주세요."}
             </p>
+          )}
+          {candidateDates.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2" role="group" aria-label="공연 기간 날짜 선택">
+              <span className={ui.hint}>날짜 바로 채우기:</span>
+              {candidateDates.map((d) => (
+                <button key={d} type="button" className={button.outline} onClick={() => presetDate(d)}>
+                  {dotDate(d)}
+                </button>
+              ))}
+            </div>
           )}
           <p id="perf-session-hint" className={ui.hint}>
             {/* TODO: Hint 지우기 */}

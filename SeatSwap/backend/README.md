@@ -26,6 +26,7 @@
 - **회원탈퇴·개인정보처리방침(2026-10-13, `feature/withdraw`, V17)은 구현 완료**: `DELETE /api/users/me`, 익명화와 진행 중 교환 자동 정리. 자세한 규칙은 아래 '회원탈퇴·개인정보처리방침 (V17)' 절.
 - **링크 기반 공연 정보 미리보기(2026-10-12, `feature/link-autofill`)는 구현 완료**(`GET /api/performances/preview`, DB 변경 없음). 자세한 규칙은 아래 '링크 공연정보 미리보기' 절.
 - **공연 포스터 표시(2026-10-13, `feature/poster`, DB 변경 없음)는 구현 완료**(`GET /api/performances/{id}/poster`, 미리보기 응답의 `posterUrl`). 자세한 규칙은 아래 '공연 포스터 표시' 절.
+- **회차 날짜 미리 채우기(2026-10-13, `feature/session-prefill`, DB 변경 없음)는 구현 완료**(미리보기 응답의 `sessionCandidates`, 공연 기간 2일 이하만 날짜). 자세한 규칙은 아래 '회차 날짜 후보' 절.
 - STOMP 스켈레톤(`config/WebSocketConfig`의 TODO)은 채팅 구현(V11, 2026-10-11)으로 대체됐다. 아래 '채팅 (V11)' 절 참고.
 - **티켓 등록(FR-03)은 구현 완료** (`TicketController`, `TicketService`, `SeatKeyNormalizer`). 좌석 1개를 텍스트(구역 필수, 열·번은 숫자 또는 문자)로 등록한다. 같은 회차·구역·열·번의 활성 티켓은 1개(DB `uk_ticket_active_seat`), 사용자당 활성 티켓 20개 상한(`users` 행 FOR UPDATE로 직렬화), 회차 당일 끝(다음날 0시 KST)까지만 등록할 수 있다. 교환 희망 범위·매칭·예약은 아래 교환 항목 참고. 내릴 때 예약 잠금이면 `TicketService.ensureCanDeactivate`가 409 `TICKET_RESERVED`로 막는다.
 - **교환 희망 조건 등록(FR-04 교환 요청)은 구현 완료** (`ExchangeRequestController`, `ExchangeRequestService`, `WantSeatExpander`, Flyway V4). 티켓 하나에 미삭제 요청 1개(범위별 추가금 유형·희망 회차 우선순위·희망 좌석 범위)를 등록·조회·수정·소프트 삭제한다. 범위는 (구역, 열 from~to, 번 from~to)로 입력하면 개별 좌석으로 펼쳐 `exchange_want_seat`에 저장한다. **매칭 후보 조회**(`GET /api/exchange/requests/{id}/candidates`, 읽기 전용)는 구현됐다. 티켓을 내리면(`DELETE /api/tickets/{id}`) 그 티켓의 교환 요청은 CLOSED로 바뀐다.
@@ -57,7 +58,7 @@
 | GET | /api/users/me | 내 정보 조회 |
 | GET | /api/performances | 공연 목록 (제목 검색 query, page, size, asOf) |
 | GET | /api/performances/lookup | 링크(sourceUrl)로 기존 공연 조회 ({exists, performanceId}) |
-| GET | /api/performances/preview?sourceUrl= | 링크 공개 페이지에서 제목·공연장·공연 기간을 읽어 미리 채울 값을 돌려준다(저장하지 않음). 200 항상 `{status, site, title, venueName, periodStart, periodEnd}`. 자세한 규칙은 '링크 공연정보 미리보기' 절 |
+| GET | /api/performances/preview?sourceUrl= | 링크 공개 페이지에서 제목·공연장·공연 기간을 읽어 미리 채울 값을 돌려준다(저장하지 않음). 200 항상 `{status, site, title, venueName, periodStart, periodEnd, posterUrl, sessionCandidates}`. 자세한 규칙은 '링크 공연정보 미리보기' 절과 '회차 날짜 후보' 절 |
 | GET | /api/performances/{id} | 공연 상세 |
 | GET | /api/performances/{id}/poster | 공연 포스터 주소 `{posterUrl}`(문자열 또는 null). 로그인 필요, 공연이 없으면 404. 자세한 규칙은 '공연 포스터 표시' 절 |
 | POST | /api/performances | 공연 등록 (201, 같은 링크가 있으면 409 + performanceId) |
@@ -75,7 +76,7 @@
 
 | Method | Path | 설명 |
 |---|---|---|
-| GET | /api/performances/preview?sourceUrl= | 로그인 필요. 200 항상 `{status, site, title, venueName, periodStart, periodEnd}`. `status`는 OK·UNSUPPORTED_SITE·NO_INFO·FETCH_FAILED, `site`는 yes24·ticketlink·melon·null |
+| GET | /api/performances/preview?sourceUrl= | 로그인 필요. 200 항상 `{status, site, title, venueName, periodStart, periodEnd, posterUrl, sessionCandidates}`. `status`는 OK·UNSUPPORTED_SITE·NO_INFO·FETCH_FAILED, `site`는 yes24·ticketlink·melon·null |
 
 - 링크 형식 오류는 400(기존 `SourceKeyResolver` 검증). 사용자당 분당 10회를 넘으면 429 `PREVIEW_RATE_LIMITED`와 `Retry-After`를 준다(형식 오류 400도 횟수에 센다). 사이트별 분당 30회·동시 실행 4개를 넘으면 429가 아니라 즉시 `FETCH_FAILED`다.
 - 읽은 문자열은 태그를 지우고 공백을 정리하며 제어 문자를 뺀다. 제목 200자, 공연장 100자를 넘으면 그 필드만 null이다.
@@ -86,6 +87,15 @@
 - 사용자가 준 URL은 요청하지 않는다. `SourceKeyResolver.resolve`의 키가 `yes24:{숫자 id}`·`ticketlink:{id}`·`melon:{id}`일 때만 진행하고, 고정 템플릿 3종으로 URL을 직접 만든다. 그 밖(`url:` 일반 키, 인터파크, 잘못된 id)은 UNSUPPORTED_SITE이며 요청하지 않는다.
 - `PageFetcher`(JDK HttpClient): https만 허용하고 리다이렉트를 따라가지 않는다(3xx는 FETCH_FAILED). 응답 전에 DNS 해석 주소가 모두 공인 IP인지 확인한다(루프백·사설·링크로컬·CGNAT·멀티캐스트·IPv6 ULA·IPv4-mapped 차단). 연결 5초, 전체 10초, 본문 2 MiB 상한, Content-Type `text/html`, `Accept-Encoding: identity`, User-Agent `SeatSwapBot/0.1 (+portfolio project; contact: ...)`, 쿠키·인증 없음.
 - 알려진 한계: 검증한 IP로 연결을 고정(pinning)하지 않는다. 대상이 코드에 고정된 공개 도메인 3개라 DNS를 공격자가 바꿀 수 없다는 전제에 기댄다.
+
+### 회차 날짜 후보 (sessionCandidates, 2026-10-13, `feature/session-prefill`, DB 변경 없음)
+
+- 응답 `sessionCandidates`는 `[{date:"yyyy-MM-dd", time:null}]`이며 항상 배열이다(없으면 `[]`). 공연 기간(`periodStart`·`periodEnd`)의 시작·종료가 모두 있고 시작~종료가 **2일 이하**(시작·종료 포함, 상수 `PerformancePreviewResponse.MAX_PERIOD_DAYS_FOR_CANDIDATES`=2)일 때만 그 날짜들을 담는다. 3일 이상, 기간 없음, 시작>종료면 빈 배열이다(회차 수를 날짜로 알 수 없다).
+- `time`은 지금 항상 null이다. 세 사이트의 회차 시각은 Ajax라 읽지 못하며, 나중에 AI 등 상세정보 출처가 붙으면 같은 필드를 채워 내려 주도록 구조만 열어 두었다(구현 없음).
+- 생성은 `PerformancePreviewResponse.ok`가 `candidatesFromPeriod`로 한다. 실패·NO_INFO 응답(`empty`)은 항상 빈 배열이다.
+- 새 외부 요청은 없다. 기존 파싱 결과의 기간으로 계산하므로 SSRF 규칙·속도 제한·캐시는 그대로다. 포스터 스위치가 꺼져 `posterUrl`만 null이 돼도 후보는 유지된다(`withoutPoster`).
+- 테스트: 단위 `PerformancePreviewResponseTest`(하루·이틀은 날짜만, 3일 이상·기간 없음·역전은 빈 배열, `withoutPoster`가 후보 유지), 컨트롤러 슬라이스(응답 JSON의 `sessionCandidates` 형태). 전체 백엔드 테스트 수치는 이 문서에 기록하지 않았다.
+- 알려진 한계: 시각은 직접 입력한다. 3일 이상 공연(뮤지컬 등)은 날짜 후보가 없다. 하루에 여러 회차(낮·밤)인 2일 공연은 후보가 날짜당 1개라 같은 날짜를 다시 골라 추가해야 한다. 공연 기간이 실제 회차 날짜와 다를 수 있다(휴연일 등).
 
 ### 구조와 테스트
 
@@ -1093,5 +1103,6 @@ docker rm -f seatswap-tmp-match
 6. 브라우저 수동 점검(차단·신고·정지 화면 포함), trust_score 컬럼 정리 여부 결정, 7일 경과 알림(미구현)
 7. (완료, 2026-10-12, 미병합) 소셜 로그인(V14).
 8. (완료, 2026-10-13, 미병합) 예약 제안·예약 수락·채팅 알림(V15), 벨 위치(데스크톱은 '내 매칭' 오른쪽). 예약 버튼은 채팅 화면에만 있다.
-9. (완료, 2026-10-13, `feature/withdraw`, V17, 미병합) 회원탈퇴·개인정보처리방침·푸터. 다음 요청(미착수, 사용자): 포스터 표시, 회차 정보 자동 채우기. 그 뒤 7일 경과 알림. 회원탈퇴 후속: 정지 중 제한 로그인, 소셜 전용 계정 재인증, 인증 사진 정리 작업.
+9. (완료, 2026-10-13, `feature/withdraw`, V17, 미병합) 회원탈퇴·개인정보처리방침·푸터. 다음 요청(미착수): AI 상세정보 읽기로 회차 시각 채우기(구조만 열림). 그 뒤 7일 경과 알림. 회원탈퇴 후속: 정지 중 제한 로그인, 소셜 전용 계정 재인증, 인증 사진 정리 작업.
 10. (완료, 2026-10-13, `feature/profile-edit`, V16) 마이페이지 닉네임 수정·소셜 계정 연결·해제.
+11. (완료, 2026-10-13, `feature/session-prefill`, DB 변경 없음, 미병합) 회차 날짜 미리 채우기(`sessionCandidates`, 공연 기간 2일 이하만 날짜). 시각은 직접 입력이다.

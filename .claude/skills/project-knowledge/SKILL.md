@@ -77,10 +77,10 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 - **관리자 페이지(구현됨, V12)**: 관리자는 DB에서 `users.role=ADMIN`을 직접 부여하고 `/api/admin/**`는 ADMIN만, 프론트 `/admin`은 `AdminRoute`. ①공연 수정 제안(`performance_edit_proposal`): 제목·공연장만, 관리자 승인으로만 공연 수정, 사용자당 PENDING 3건, 알림 없음(`/my/edit-proposals`). ②좌석 소유 인증(`seat_claim`): 사진(jpeg/png/webp ≤5 MiB, `seatswap.upload.dir`) 업로드→관리자 승인 시 기존 활성 티켓 INACTIVE(요청 CLOSED, CHATTING 매칭 취소, 예약 잠금이면 409), 처리 후 사진 삭제, 사용자당 PENDING 5건(`/my/seat-claims`). 상세는 wiki/decisions/admin-design.md.
 
 ### 3.7 공연 등록
-- 로그인 사용자 누구나 등록. 필드: 티켓팅 링크(sourceUrl), 제목, 공연장 이름(텍스트 필수 1~100자, 공백 정리), 회차(직접 입력, 10분 단위, 과거 불가). 중복 판정은 링크 정규화 값 `source_key`(utf8mb4_bin) unique: 인터파크·멜론·YES24·티켓링크는 `{site}:{productId}`, 그 외는 호스트+경로+정렬 쿼리+프래그먼트. 중복 409 + performanceId.
+- 로그인 사용자 누구나 등록. 필드: 티켓팅 링크(sourceUrl), 제목, 공연장 이름(텍스트 필수 1~100자, 공백 정리), 회차(시각은 직접 입력, 10분 단위, 과거 불가. 2일 이하 링크 공연은 날짜 칸을 미리 채움). 중복 판정은 링크 정규화 값 `source_key`(utf8mb4_bin) unique: 인터파크·멜론·YES24·티켓링크는 `{site}:{productId}`, 그 외는 호스트+경로+정렬 쿼리+프래그먼트. 중복 409 + performanceId.
 - **공연은 등록 후 아무도 수정·삭제하지 못한다**(제목·공연장·회차 추가/수정/삭제 모두 불가). 변경은 관리자 페이지의 '수정 제안'(제목·공연장만, 승인으로만 반영)으로만(정책 메모 `산출물/04_요구사항정의서/FR-02_공연정보_정정정책_후속과제.md`).
 - 공연 목록 검색은 제목만. 공연장 별도 테이블·검색·정식 등록(VERIFIED)·필터는 없다. 등록 화면은 3단계(①링크 중복 확인 ②공연 정보 ③확인·등록).
-- **링크 기반 자동 입력(구현됨)**: `GET /api/performances/preview`로 링크에서 제목·공연장·공연 기간을 읽어(회차 시각은 세 사이트 모두 Ajax라 읽지 못함, 직접 입력) 다음 단계에 미리 채우고 '이 정보가 맞나요?'를 묻고, 아니면 직접 수정 후 등록. 공개 페이지(JSON-LD·og)만 읽고 자동 등록은 없으며 직접 입력은 항상 가능. 대상은 YES24·티켓링크(JSON-LD)·멜론(본문 HTML), 인터파크는 robots.txt로 제외. SSRF 방어: 사용자 URL을 요청하지 않고 `SourceKeyResolver` 키(`site:숫자id`)로 고정 템플릿 URL만 만들며, 리다이렉트 불가·공인 IP·https·2 MiB·10초·사용자당 분당 10회·10분 캐시. 구현은 `service/linkinfo/`. 로그인·캡차 우회와 내부 API 조사는 하지 않는다.
+- **링크 기반 자동 입력(구현됨)**: `GET /api/performances/preview`로 링크에서 제목·공연장·공연 기간을 읽어(회차 시각은 세 사이트 모두 Ajax라 읽지 못함, 직접 입력) 다음 단계에 미리 채우고 '이 정보가 맞나요?'를 묻고, 아니면 직접 수정 후 등록. 공개 페이지(JSON-LD·og)만 읽고 자동 등록은 없으며 직접 입력은 항상 가능. 대상은 YES24·티켓링크(JSON-LD)·멜론(본문 HTML), 인터파크는 robots.txt로 제외. SSRF 방어: 사용자 URL을 요청하지 않고 `SourceKeyResolver` 키(`site:숫자id`)로 고정 템플릿 URL만 만들며, 리다이렉트 불가·공인 IP·https·2 MiB·10초·사용자당 분당 10회·10분 캐시. 구현은 `service/linkinfo/`. 로그인·캡차 우회와 내부 API 조사는 하지 않는다. **회차 날짜 미리 채우기(구현됨, DB 변경 없음, 2026-10-13)**: 미리보기 응답 `sessionCandidates`(`[{date, time:null}]`, 항상 배열)는 공연 기간 시작·종료가 모두 있고 2일 이하일 때만 날짜를 담는다. 등록 2단계는 첫 날짜를 날짜 칸에 채우고 '날짜 바로 채우기'로 바꾸며, 회차 추가 때 다음 후보 날짜를 채운다. 시각은 직접 고르고 회차는 자동 등록하지 않는다. 구현은 `PerformancePreviewResponse.candidatesFromPeriod`, `SessionDateTimePicker.datePreset`. 상세는 백엔드 README '회차 날짜 후보' 절.
 
 - **공연 포스터 표시(구현, DB 변경 없음)**: 서버는 이미지를 저장·프록시하지 않고 링크 페이지의 og:image(없으면 JSON-LD `Event.image`)에서 **주소 문자열만** 읽는다. 브라우저가 원 사이트에서 직접 불러온다(인라인 링크). 허용 호스트는 사이트별 고정(YES24 `tkfile.yes24.com`, 티켓링크 `image.toast.com`, 멜론 `cdnticket.melon.co.kr`), https만. 로드 실패(핫링크 차단 포함)나 주소 없음이면 포스터 영역을 숨기고 대체 링크는 두지 않는다. 출처는 텍스트로만 표기한다. 공연 상세는 `GET /api/performances/{id}/poster`, 등록 2단계는 미리보기 `posterUrl`을 쓴다. 스위치 `seatswap.poster.enabled`(기본 true). 권리 확인은 공개 운영 전 해야 한다(요구사항 §7 Q-26). 상세: `wiki/decisions/poster-display-design.md`.
 
@@ -142,6 +142,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 | 닉네임 수정·소셜 계정 연결·해제(마이페이지, 본인이 명시적으로 연결, 로그인 세션 확정) | 구현 (V16) |
 | 링크 기반 공연 정보 자동 입력(제목·공연장·공연 기간) | 구현 (DB 변경 없음) |
 | 공연 포스터 표시(인라인 링크, 허용 호스트 3종, 로드 실패 시 숨김) | 구현 (DB 변경 없음, 미병합) |
+| 회차 날짜 미리 채우기(공연 기간 2일 이하만 날짜, 시각은 직접 입력) | 구현 (DB 변경 없음, `feature/session-prefill`, 미병합) |
 | 관리자 페이지·공연 수정 제안·내 티켓 인증 | 구현 (V12) |
 | 회원탈퇴(모달·확인, 익명화, 진행 중 교환 자동 정리)·개인정보처리방침 `/privacy`·푸터·가입 화면 방침 안내 | 구현 (V17, 미병합) |
 
@@ -192,6 +193,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 | 소셜 로그인 | `GET /api/auth/social/providers`(활성 제공자, 인증 불필요), `GET /api/auth/social/{google\|kakao\|naver}/authorize`(302, state 쿠키 `ss_oauth`), `GET .../{provider}/callback`(항상 302: 성공 `/auth/callback#code=`, 실패 `/login?socialError=`), `POST /api/auth/social/exchange {code}`(→ TokenResponse, 일회용 60초, 정지 재검사). IP당 분당 30회(429 `SOCIAL_RATE_LIMITED`) |
 | 공연 | `GET /api/performances`(제목 검색·페이지, asOf로 기준 시각 고정)·`/{id}`·`/lookup`(링크 중복 확인), `POST /api/performances` |
 | 공연 포스터 | `GET /api/performances/{id}/poster` → `{posterUrl}`(로그인 필요, 없으면 null, 공연 없으면 404). 링크 미리보기 응답에도 `posterUrl` 추가. 실패·제한·스위치 꺼짐은 오류 없이 null |
+| 회차 날짜 후보 | `GET /api/performances/preview` 응답의 `sessionCandidates`(`[{date, time:null}]`, 항상 배열, 공연 기간 2일 이하일 때만 날짜. `time`은 지금 항상 null이며 AI 상세정보 출처가 채울 자리) |
 | 티켓 | `POST /api/tickets {sessionId, zone, row, col}`, `GET /api/tickets/me`, `DELETE /api/tickets/{id}` |
 | 교환 요청 | `POST /api/exchange/requests {ticketId, wantSessions[{sessionId,priority}], ranges[{zone,rowFrom,rowTo,colFrom,colTo,extraType,extraAmount}]}`, `GET .../me`, `PATCH`·`DELETE .../{id}`, `GET .../{id}/candidates` |
 | 매칭 | `POST /api/exchange/requests/{id}/proposals {targetRequestId}`, `POST /api/exchange/matches/{id}/reserve`(예약 제안)·`reserve/accept`(예약 수락)·`reserve/decline`(예약 제안 거절, 제안받은 쪽)·`reserve/withdraw`(제안 철회, 제안자)·`unreserve`(예약 취소)·`complete`(교환 수락)·`reject`·`cancel`, `GET /api/exchange/matches/me?role=SENT\|RECEIVED\|ALL&status&page&size`, `GET /api/exchange/matches/{id}` |
@@ -231,6 +233,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 - 브라우저 수동 점검·실서버 연동은 교환 화면 전반에서 아직 충분히 하지 않았다.
 - 예약 제안·채팅 알림 한계(2026-10-13): 예약-취소 남용 방지 없음(차단·신고로 다룸), 정렬용 `(user_id, created_at)` 인덱스 없음(알림이 매칭당 1행 수준이라 불필요로 판단, 실측 아님), 읽음 가드와 알림 되살리기가 겹치는 극히 약한 창, 일부 경로 REPEATABLE READ 패턴 유지. 알림 목록 정렬은 `created_at DESC, id DESC`, 채팅 읽음은 포인터 뒤에 상대 메시지가 남아 있으면 처리하지 않는다. 브라우저 확인은 Playwright 수준.
 - 7일 경과 알림은 위 4절 미구현 항목이다.
+- 회차 날짜 미리 채우기 한계(2026-10-13): 시각은 직접 입력(세 사이트 회차 시각은 Ajax), 3일 이상 공연은 날짜 후보 없음(AI 상세정보 출처는 후속, 구조만 열림), 하루 여러 회차인 2일 공연은 날짜당 후보 1개라 같은 날짜를 직접 추가해야 함, 공연 기간과 실제 회차 날짜가 다를 수 있음(화면은 확인 문구로 안내).
 - 공연 포스터 표시 한계(2026-10-13): 인라인 링크의 저작권 확정 판례 없음, 포스터 저작물성과 티켓 3사 약관 미확인(공개 운영 전 확인, 요구사항 §7 Q-26, 요청이 오면 `seatswap.poster.enabled=false`), 허용 호스트는 실측 기준이라 CDN이 바뀌면 포스터가 안 뜸, YES24는 포스터 없는 공연이 많음, 인터파크 미지원, 핫링크 차단 시 안 보임, 삭제·표시 중단 요청은 방침 문의처로 받는데 방침 문구는 아직 없음. 상세는 `wiki/decisions/poster-display-design.md`.
 - 회원탈퇴 한계(2026-10-13): 정지 중 탈퇴는 API만 허용(토큰 없으면 방침 §8 문의처), 소셜 전용 계정은 재인증 없이 확인 문구만으로 탈퇴, 인증 사진 삭제 실패 시 고아 파일(정리 작업 없음), 교착 창 2개는 503 후 재시도, 보관 기간의 법적 근거 미확인(공개 운영 전 전문가 검토), 가입 시 동의 기록 없음, 탈퇴 속도 제한은 메모리. 상세는 `wiki/decisions/withdraw-privacy-design.md`.
 - 프로필·소셜 연결 한계(2026-10-13): 연결 확정 코드·티켓·속도 제한이 메모리(단일 인스턴스)다. 같은 이름 쿠키라 탭 A의 연결 시작과 탭 B의 소셜 로그인이 겹치면 A 콜백이 INVALID_STATE가 된다. 티켓이 URL 쿼리에 실리고(1회용·60초), JWT 클레임에 자리표시 이메일 원문이 남는다(화면에는 안 나옴). 비밀번호·이메일 변경과 소셜 가입자의 비밀번호 설정은 없다. 실제 제공자 키로 미검증.

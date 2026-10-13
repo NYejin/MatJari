@@ -46,6 +46,8 @@ type SessionDateTimePickerProps = {
   describedBy?: string;
   /** 마운트 시 날짜 칸으로 포커스 (수정 폼이 열릴 때) */
   autoFocus?: boolean;
+  /** 날짜 칸만 미리 채운다(시각은 사용자가 고른다). nonce 가 바뀔 때마다 한 번 적용 — 같은 날짜를 다시 눌러도 다시 채운다 */
+  datePreset?: { date: string; nonce: number } | null;
 };
 
 export default function SessionDateTimePicker({
@@ -57,6 +59,7 @@ export default function SessionDateTimePicker({
   invalid = false,
   describedBy,
   autoFocus = false,
+  datePreset = null,
 }: SessionDateTimePickerProps) {
   const [parts, setParts] = useState<Parts>(() => parseValue(value));
   const [prevValue, setPrevValue] = useState(value);
@@ -73,6 +76,13 @@ export default function SessionDateTimePicker({
       setParts(parseValue(value));
       setNeedsMinute(isOffStep(value));
     }
+  }
+
+  // 날짜 미리 채우기: 부모가 값을 비운 직후에도 적용되도록 값 동기화 다음에 처리한다
+  const [appliedNonce, setAppliedNonce] = useState<number | null>(null);
+  if (datePreset && datePreset.nonce !== appliedNonce) {
+    setAppliedNonce(datePreset.nonce);
+    setParts((p) => ({ ...p, date: datePreset.date }));
   }
 
   useEffect(() => {

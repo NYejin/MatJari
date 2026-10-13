@@ -25,6 +25,7 @@
 - **마이페이지 닉네임 수정·소셜 계정 연결·해제(2026-10-13, `feature/profile-edit`, V16)는 구현 완료**: 자세한 규칙은 아래 '프로필 수정·소셜 계정 연결 (V16)' 절.
 - **회원탈퇴·개인정보처리방침(2026-10-13, `feature/withdraw`, V17)은 구현 완료**: `DELETE /api/users/me`, 익명화와 진행 중 교환 자동 정리. 자세한 규칙은 아래 '회원탈퇴·개인정보처리방침 (V17)' 절.
 - **링크 기반 공연 정보 미리보기(2026-10-12, `feature/link-autofill`)는 구현 완료**(`GET /api/performances/preview`, DB 변경 없음). 자세한 규칙은 아래 '링크 공연정보 미리보기' 절.
+- **공연 포스터 표시(2026-10-13, `feature/poster`, DB 변경 없음)는 구현 완료**(`GET /api/performances/{id}/poster`, 미리보기 응답의 `posterUrl`). 자세한 규칙은 아래 '공연 포스터 표시' 절.
 - STOMP 스켈레톤(`config/WebSocketConfig`의 TODO)은 채팅 구현(V11, 2026-10-11)으로 대체됐다. 아래 '채팅 (V11)' 절 참고.
 - **티켓 등록(FR-03)은 구현 완료** (`TicketController`, `TicketService`, `SeatKeyNormalizer`). 좌석 1개를 텍스트(구역 필수, 열·번은 숫자 또는 문자)로 등록한다. 같은 회차·구역·열·번의 활성 티켓은 1개(DB `uk_ticket_active_seat`), 사용자당 활성 티켓 20개 상한(`users` 행 FOR UPDATE로 직렬화), 회차 당일 끝(다음날 0시 KST)까지만 등록할 수 있다. 교환 희망 범위·매칭·예약은 아래 교환 항목 참고. 내릴 때 예약 잠금이면 `TicketService.ensureCanDeactivate`가 409 `TICKET_RESERVED`로 막는다.
 - **교환 희망 조건 등록(FR-04 교환 요청)은 구현 완료** (`ExchangeRequestController`, `ExchangeRequestService`, `WantSeatExpander`, Flyway V4). 티켓 하나에 미삭제 요청 1개(범위별 추가금 유형·희망 회차 우선순위·희망 좌석 범위)를 등록·조회·수정·소프트 삭제한다. 범위는 (구역, 열 from~to, 번 from~to)로 입력하면 개별 좌석으로 펼쳐 `exchange_want_seat`에 저장한다. **매칭 후보 조회**(`GET /api/exchange/requests/{id}/candidates`, 읽기 전용)는 구현됐다. 티켓을 내리면(`DELETE /api/tickets/{id}`) 그 티켓의 교환 요청은 CLOSED로 바뀐다.
@@ -58,6 +59,7 @@
 | GET | /api/performances/lookup | 링크(sourceUrl)로 기존 공연 조회 ({exists, performanceId}) |
 | GET | /api/performances/preview?sourceUrl= | 링크 공개 페이지에서 제목·공연장·공연 기간을 읽어 미리 채울 값을 돌려준다(저장하지 않음). 200 항상 `{status, site, title, venueName, periodStart, periodEnd}`. 자세한 규칙은 '링크 공연정보 미리보기' 절 |
 | GET | /api/performances/{id} | 공연 상세 |
+| GET | /api/performances/{id}/poster | 공연 포스터 주소 `{posterUrl}`(문자열 또는 null). 로그인 필요, 공연이 없으면 404. 자세한 규칙은 '공연 포스터 표시' 절 |
 | POST | /api/performances | 공연 등록 (201, 같은 링크가 있으면 409 + performanceId) |
 
 ## 링크 공연정보 미리보기 (2026-10-12, `feature/link-autofill`)
@@ -90,6 +92,48 @@
 - 구조: `service/linkinfo/PageFetcher`, `LinkInfoParsers`(사이트별 파서 3종과 `ParsedInfo`), `PerformancePreviewService`(속도 제한 → resolve → 키 판별 → 캐시 → 세마포어 → fetch → parse), `dto/response/PerformancePreviewResponse`. 설정은 `seatswap.linkinfo.*`(application.yml). 컨트롤러는 `PerformanceController`의 `/preview`, 429 핸들러는 `GlobalExceptionHandler`.
 - 테스트 신규 32건: 파서 10, PageFetcher 9, 서비스 8, 컨트롤러 슬라이스 5. 외부 인터넷 접속 테스트는 없다(파서는 실측 구조를 줄인 fixture로 검증).
 - 알려진 한계: 사이트 HTML이 바뀌면 NO_INFO가 된다(어댑터 취약성). 속도 제한·캐시·세마포어는 단일 인스턴스 메모리다. 티켓링크·멜론 상품 페이지는 공연장이 비어 있을 수 있다.
+
+## 공연 포스터 표시 (2026-10-13, `feature/poster`, DB 변경 없음)
+
+링크 공개 페이지의 포스터 이미지 **주소 문자열만** 읽어 돌려주고, 이미지는 브라우저가 원 사이트에서 직접 불러온다(인라인 링크). 서버는 이미지를 요청·저장·프록시하지 않으므로 이미지에 대한 SSRF 면이 없다. DB에 저장하지 않는다. 설계 근거와 한계는 [공연 포스터 표시 설계 근거](../../wiki/decisions/poster-display-design.md).
+
+### API
+
+| Method | Path | 설명 |
+|---|---|---|
+| GET | /api/performances/preview?sourceUrl= | 응답에 `posterUrl`(문자열 또는 null) 추가. 나머지 필드와 규칙은 '링크 공연정보 미리보기' 절과 같다 |
+| GET | /api/performances/{id}/poster | 로그인 필요. `{posterUrl}`(문자열 또는 null). 공연이 없으면 404. 공연의 `sourceUrl`로 미리보기와 같은 읽기 경로를 쓴다 |
+
+- 포스터는 부가 정보다. 읽기 실패, 사이트 제한, 스위치 꺼짐은 오류 없이 `posterUrl: null`이다.
+
+### 허용 호스트와 주소 검증 (`LinkInfoParsers.posterUrl`)
+
+- 사이트별 고정 허용 목록(2026-10-13 실측): YES24 `tkfile.yes24.com`, 티켓링크 `image.toast.com`, 멜론 `cdnticket.melon.co.kr`. 다른 사이트의 허용 호스트도 거부한다.
+- 읽는 순서: `og:image`, 없으면 JSON-LD `Event.image`의 첫 값.
+- 주소 규칙: https만 인정한다(`//`로 시작하면 https로 보정). userinfo·비표준 포트·공백·제어 문자·비ASCII 문자는 거부하고, 2048자를 넘으면 거부한다. 경로에 `noimage`가 든 자리표시 이미지는 거부한다(YES24는 포스터가 없을 때 `_noimage.gif`를 og:image로 준다).
+
+### 속도 제한과 스위치 (`PerformancePreviewService.poster`)
+
+- 상세용 조회는 미리보기와 같은 캐시(10분, 키 `site:id`)·사이트 분당 30회·동시 실행 4개를 쓴다. 사용자 제한은 별도로 분당 `seatswap.poster.user-per-minute`(기본 60)다. 제한에 걸리면 429가 아니라 조용히 `null`이다.
+- 설정 `seatswap.poster.enabled`(기본 true, 환경변수 `SEATSWAP_POSTER_ENABLED`)가 false면 포스터 요청과 주소 응답을 전혀 하지 않는다(미리보기의 `posterUrl`도 null). 사이트 쪽에서 중단 요청이 오면 즉시 끄는 스위치다.
+
+| 키 | 기본값 | 설명 |
+|---|---|---|
+| `seatswap.poster.enabled` | true | 포스터 기능 전체 스위치. false면 포스터 요청·주소를 전혀 내지 않는다 |
+| `seatswap.poster.user-per-minute` | 60 | 사용자별 분당 포스터 조회 상한(넘으면 조용히 null) |
+
+### 테스트
+
+- 단위·슬라이스: 파서(허용 호스트 허용·거부, JSON-LD 폴백), 서비스 `poster()`(스위치가 꺼져 있으면 이미지 주소 요청 0회), 컨트롤러 JSON 형태.
+- 외부 인터넷 접속 테스트는 없다. 실제 페이지의 포스터 로드는 브라우저(Playwright)로 확인했다.
+
+### 알려진 한계
+
+1. 인라인(임베디드) 링크의 저작권 판단에 확정 판례가 없고, 포스터의 저작물성과 티켓 3사 이용약관은 확인하지 못했다. 공개 운영 전 약관 확인과 전문가 검토가 필요하고(요구사항 문서 §7 Q-26), 요청이 오면 `seatswap.poster.enabled=false`로 끈다.
+2. 허용 호스트는 2026-10-13 실측 기준이다. 사이트가 CDN을 바꾸면 포스터가 안 뜬다(실패 시 영역을 숨기므로 화면은 깨지지 않는다).
+3. YES24는 포스터가 없는 공연이 많다. 인터파크는 robots.txt 때문에 지원하지 않는다.
+4. 사이트가 핫링크를 막으면 포스터는 보이지 않는다. 대체 링크는 두지 않는다.
+5. 포스터 삭제·표시 중단 요청은 개인정보처리방침의 문의처로 받는다. 방침에는 아직 관련 문구가 없다.
 
 ## 티켓 API
 

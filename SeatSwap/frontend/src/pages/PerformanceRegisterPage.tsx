@@ -15,6 +15,7 @@ import {
 } from "../api/dateTime";
 import TextField from "../components/TextField";
 import SessionDateTimePicker from "../components/SessionDateTimePicker";
+import PosterImage from "../components/PosterImage";
 import { button, linkButton, liveRegionClass, ui } from "../components/ui";
 
 // FR-02 공연 등록 (보호 라우트 /performances/new) — 단계형:
@@ -123,6 +124,8 @@ export default function PerformanceRegisterPage() {
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
   const [autoFill, setAutoFill] = useState<AutoFillNote | null>(null);
+  /** 링크에서 읽은 포스터 이미지 주소(표시만, 저장하지 않는다) */
+  const [posterUrl, setPosterUrl] = useState<string | null>(null);
   // ② 공연 정보: 제목·공연장 이름·회차
   const [title, setTitle] = useState("");
   const [titleError, setTitleError] = useState<string>();
@@ -171,6 +174,7 @@ export default function PerformanceRegisterPage() {
       setReading(false);
     }
     if (unmounted.current) return; // 화면을 떠난 뒤의 응답은 버린다
+    setPosterUrl(result?.status === "OK" ? (result.posterUrl ?? null) : null);
     // 오류·시간 초과·읽기 실패는 기록하지 않아 같은 링크로 다시 시도할 수 있다
     if (result && result.status !== "FETCH_FAILED") previewedUrl.current = url;
     // 사용자가 쓴 값은 덮어쓰지 않는다 — 제목·공연장이 모두 비어 있거나, 이전 링크에서 미리 채운 값 그대로일 때만 바꾼다
@@ -376,6 +380,8 @@ export default function PerformanceRegisterPage() {
   } else if (step === 1) {
     body = (
       <div className={cls.stepBody}>
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div className="flex min-w-0 flex-1 flex-col gap-4">
         <p className={ui.notice} role="status">
           {autoFill?.kind === "filled"
             ? "링크에서 읽은 정보예요. 맞는지 확인하고, 다르면 고쳐 주세요."
@@ -409,6 +415,9 @@ export default function PerformanceRegisterPage() {
           hint={`티켓팅 사이트에 표시된 공연장 이름 (${VENUE_MAX}자 이하). 등록 후에는 수정할 수 없어요.`}
           maxLength={VENUE_MAX}
         />
+        </div>
+        <PosterImage key={posterUrl ?? "none"} url={posterUrl} title={title || "공연"} className="self-start" />
+        </div>
         <form id="perf-sessions" className="flex flex-col gap-2" onSubmit={addSession} noValidate>
           <div className="flex flex-wrap items-end gap-2">
             <SessionDateTimePicker

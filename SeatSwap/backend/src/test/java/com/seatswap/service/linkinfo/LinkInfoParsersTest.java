@@ -141,4 +141,42 @@ class LinkInfoParsersTest {
         assertNull(parse("yes24", "<html></html>").title());
         assertNull(parse("unknown", "<html></html>").title());
     }
+
+    // ---- 포스터 주소 ----
+
+    private static String og(String content) {
+        return "<html><head><meta property=\"og:image\" content=\"" + content + "\"></head></html>";
+    }
+
+    @org.junit.jupiter.api.Test
+    void poster_allowedHostsOnly() {
+        assertEquals("https://cdnticket.melon.co.kr/resource/a.jpg",
+                LinkInfoParsers.posterUrl("melon", Jsoup.parse(og("https://cdnticket.melon.co.kr/resource/a.jpg"))));
+        assertEquals("https://image.toast.com/aaaaab/ticketlink/x.jpg",
+                LinkInfoParsers.posterUrl("ticketlink", Jsoup.parse(og("https://image.toast.com/aaaaab/ticketlink/x.jpg"))));
+        // 프로토콜 상대 주소는 https 로 보정
+        assertEquals("https://tkfile.yes24.com/upload/p.jpg",
+                LinkInfoParsers.posterUrl("yes24", Jsoup.parse(og("//tkfile.yes24.com/upload/p.jpg"))));
+    }
+
+    @org.junit.jupiter.api.Test
+    void poster_rejectsOtherHostsSchemesAndPlaceholders() {
+        assertNull(LinkInfoParsers.posterUrl("melon", Jsoup.parse(og("https://evil.example.com/a.jpg"))));
+        assertNull(LinkInfoParsers.posterUrl("melon", Jsoup.parse(og("http://cdnticket.melon.co.kr/a.jpg"))));
+        assertNull(LinkInfoParsers.posterUrl("melon", Jsoup.parse(og("https://cdnticket.melon.co.kr.evil.com/a.jpg"))));
+        assertNull(LinkInfoParsers.posterUrl("melon", Jsoup.parse(og("https://user@cdnticket.melon.co.kr/a.jpg"))));
+        assertNull(LinkInfoParsers.posterUrl("melon", Jsoup.parse(og("https://cdnticket.melon.co.kr:8443/a.jpg"))));
+        assertNull(LinkInfoParsers.posterUrl("melon", Jsoup.parse(og("javascript:alert(1)"))));
+        assertNull(LinkInfoParsers.posterUrl("yes24", Jsoup.parse(og("//tkfile.yes24.com/upload/PerfBlog/_noimage.gif"))));
+        // 다른 사이트의 허용 호스트도 쓰지 않는다
+        assertNull(LinkInfoParsers.posterUrl("yes24", Jsoup.parse(og("https://image.toast.com/a.jpg"))));
+        assertNull(LinkInfoParsers.posterUrl("interpark", Jsoup.parse(og("https://cdnticket.melon.co.kr/a.jpg"))));
+        assertNull(LinkInfoParsers.posterUrl("melon", Jsoup.parse("<html></html>")));
+    }
+
+    @org.junit.jupiter.api.Test
+    void poster_fallsBackToJsonLdImage() {
+        String html = ld("{\"@type\":\"Event\",\"name\":\"x\",\"image\":[\"https://image.toast.com/aaaaab/ticketlink/y.jpg\"]}");
+        assertEquals("https://image.toast.com/aaaaab/ticketlink/y.jpg", LinkInfoParsers.posterUrl("ticketlink", Jsoup.parse(html)));
+    }
 }

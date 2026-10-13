@@ -63,6 +63,19 @@ public class PerformanceController {
         return previewService.preview(principal.userId(), sourceUrl);
     }
 
+    /**
+     * 공연 상세용 포스터 이미지 주소 {posterUrl|null}. 서버는 링크 페이지에서 주소 문자열만 읽고 이미지는 브라우저가 원 사이트에서 직접 불러온다.
+     * 못 읽거나 제한에 걸리거나 스위치(seatswap.poster.enabled)가 꺼져 있으면 posterUrl=null.
+     */
+    @GetMapping("/{id}/poster")
+    public java.util.Map<String, String> poster(@PathVariable Long id,
+                                                @AuthenticationPrincipal AuthUserPrincipal principal) {
+        PerformanceDetailResponse detail = performanceService.get(id, principal.userId());
+        java.util.Map<String, String> body = new java.util.LinkedHashMap<>();
+        body.put("posterUrl", previewService.poster(principal.userId(), detail.sourceUrl()));
+        return body;
+    }
+
     @GetMapping("/{id}")
     public PerformanceDetailResponse get(@PathVariable Long id,
                                          @AuthenticationPrincipal AuthUserPrincipal principal) {

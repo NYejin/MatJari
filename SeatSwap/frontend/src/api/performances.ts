@@ -41,6 +41,12 @@ export const performancesApi = {
     return data;
   },
 
+  /** GET /api/performances/{id}/poster — 포스터 이미지 주소(없으면 null). 실패해도 화면은 포스터만 숨긴다 */
+  async poster(id: number, signal?: AbortSignal): Promise<string | null> {
+    const { data } = await apiClient.get<{ posterUrl: string | null }>(`/performances/${id}/poster`, { signal });
+    return data.posterUrl ?? null;
+  },
+
   /** POST /api/performances → 201 상세. 이미 등록된 공연이면 409 {message, performanceId} */
   async create(payload: PerformanceCreateRequest): Promise<PerformanceDetail> {
     const { data } = await apiClient.post<PerformanceDetail>("/performances", payload);

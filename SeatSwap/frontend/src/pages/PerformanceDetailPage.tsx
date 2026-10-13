@@ -6,6 +6,7 @@ import { compareLocalDateTime, formatKstDateTime, isPastKst } from "../api/dateT
 import type { PerformanceDetail } from "../types/performance";
 import { button, input, linkButton, liveRegionClass, ui } from "../components/ui";
 import TextField from "../components/TextField";
+import PosterImage from "../components/PosterImage";
 import {
   EDIT_ERROR_MESSAGES,
   EDIT_REASON_MAX,
@@ -144,9 +145,21 @@ export default function PerformanceDetailPage() {
 
 function InfoSection({ detail }: { detail: PerformanceDetail }) {
   const link = parseTicketingLink(detail.sourceUrl);
+  // 포스터는 부가 정보 — 못 가져오면 조용히 없는 것으로 둔다(오류 표시·대체 링크 없음)
+  const [posterUrl, setPosterUrl] = useState<string | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    setPosterUrl(null);
+    performancesApi
+      .poster(detail.id, controller.signal)
+      .then((url) => setPosterUrl(url))
+      .catch(() => setPosterUrl(null));
+    return () => controller.abort();
+  }, [detail.id]);
 
   return (
-    <section className={`${ui.card} flex flex-col gap-4`} aria-labelledby="perf-title">
+    <section className={`${ui.card} flex flex-col gap-4 md:flex-row md:items-start md:justify-between`} aria-labelledby="perf-title">
+      <div className="flex min-w-0 flex-1 flex-col gap-4">
       <h1 id="perf-title" className={cls.title}>
         {detail.title}
       </h1>
@@ -170,6 +183,8 @@ function InfoSection({ detail }: { detail: PerformanceDetail }) {
           )}
         </dd>
       </dl>
+      </div>
+      <PosterImage key={posterUrl ?? "none"} url={posterUrl} title={detail.title} className="self-start" />
     </section>
   );
 }

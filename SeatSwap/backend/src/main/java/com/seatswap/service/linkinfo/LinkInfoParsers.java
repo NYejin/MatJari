@@ -215,6 +215,58 @@ final class LinkInfoParsers {
         return build(title, venue, start, end);
     }
 
+    // ---- 포스터 이미지 주소 (문자열만 읽는다. 서버는 이미지를 요청하지 않는다) ----
+
+    static final int POSTER_URL_MAX = 2048;
+    /** 사이트별 이미지 호스트 허용 목록(2026-10-13 실측: YES24 tkfile.yes24.com, 티켓링크 image.toast.com, 멜론 cdnticket.melon.co.kr). */
+    private static final java.util.Map<String, java.util.Set<String>> POSTER_HOSTS = java.util.Map.of(
+            "yes24", java.util.Set.of("tkfile.yes24.com"),
+            "ticketlink", java.util.Set.of("image.toast.com"),
+            "melon", java.util.Set.of("cdnticket.melon.co.kr"));
+
+    /** og:image, 없으면 JSON-LD Event.image 첫 값. 허용 호스트의 https 이미지가 아니거나 'noimage' 자리표시 이미지면 null. */
+    static String posterUrl(String site, Document doc) {
+        java.util.Set<String> hosts = POSTER_HOSTS.get(site);
+        if (hosts == null) {
+            return null;
+        }
+        String url = normalizePoster(meta(doc, "og:image"), hosts);
+        if (url == null) {
+            JsonNode event = findEvent(doc);
+            JsonNode image = event == null ? null : event.get("image");
+            if (image != null && image.isArray() && !image.isEmpty()) {
+                image = image.get(0);
+            }
+            url = normalizePoster(text(image), hosts);
+        }
+        return url;
+    }
+
+    private static String normalizePoster(String raw, java.util.Set<String> hosts) {
+        if (raw == null) {
+            return null;
+        }
+        String s = raw.strip();
+        if (s.startsWith("//")) {
+            s = "https:" + s;
+        }
+        if (s.isEmpty() || s.length() > POSTER_URL_MAX || !s.matches("\\A[\\x21-\\x7E]+\\z")) {
+            return null; // 공백·제어·비ASCII 문자가 든 주소는 쓰지 않는다
+        }
+        java.net.URI uri;
+        try {
+            uri = new java.net.URI(s);
+        } catch (java.net.URISyntaxException e) {
+            return null;
+        }
+        if (!"https".equals(uri.getScheme()) || uri.getUserInfo() != null || (uri.getPort() != -1 && uri.getPort() != 443)
+                || uri.getHost() == null || !hosts.contains(uri.getHost().toLowerCase(java.util.Locale.ROOT))
+                || uri.getRawPath() == null || uri.getRawPath().toLowerCase(java.util.Locale.ROOT).contains("noimage")) {
+            return null;
+        }
+        return s;
+    }
+
     // ---- 공통 ----
 
     private static ParsedInfo build(String title, String venue, LocalDate start, LocalDate end) {

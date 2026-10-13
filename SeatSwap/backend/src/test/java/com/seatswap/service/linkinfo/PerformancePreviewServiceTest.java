@@ -69,7 +69,7 @@ class PerformancePreviewServiceTest {
 
     private PerformancePreviewService service(int cacheMax, int userPerMin, int sitePerMin, int concurrent) {
         return new PerformancePreviewService(new SourceKeyResolver(), fetcher, clock, 600, cacheMax,
-                userPerMin, sitePerMin, concurrent);
+                userPerMin, sitePerMin, concurrent, true, 60);
     }
 
     @Test
@@ -199,5 +199,22 @@ class PerformancePreviewServiceTest {
         when(fetcher.fetch(any())).thenAnswer(i -> Jsoup.parse(YES24_HTML));
         assertEquals("OK", s.preview(2L, "https://ticket.yes24.com/Perf/2").status());
         verify(fetcher, never()).fetch(URI.create("http://169.254.169.254/"));
+    }
+
+    @Test
+    void posterReturnsOnlyUrlStringAndCanBeSwitchedOff() {
+        String html = YES24_HTML.replace("<head>", "<head><meta property=\"og:image\" content=\"//tkfile.yes24.com/upload/p.jpg\">");
+        when(fetcher.fetch(any())).thenAnswer(i -> Jsoup.parse(html));
+        PerformancePreviewService on = service(200, 100, 100, 4);
+        assertEquals("https://tkfile.yes24.com/upload/p.jpg", on.poster(1L, "https://ticket.yes24.com/Perf/1"));
+        assertEquals("https://tkfile.yes24.com/upload/p.jpg", on.preview(1L, "https://ticket.yes24.com/Perf/1").posterUrl());
+
+        PerformancePreviewService off = new PerformancePreviewService(new SourceKeyResolver(), fetcher, clock, 600, 200,
+                100, 100, 4, false, 60);
+        org.mockito.Mockito.clearInvocations(fetcher);
+        assertNull(off.poster(1L, "https://ticket.yes24.com/Perf/9"));
+        assertNull(off.preview(1L, "https://ticket.yes24.com/Perf/9").posterUrl());
+        // 스위치가 꺼져 있으면 poster()는 아예 요청하지 않는다
+        verify(fetcher, times(1)).fetch(any());
     }
 }

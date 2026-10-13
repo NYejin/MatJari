@@ -7,7 +7,6 @@ import {
   // TODO: 지우기
   // SESSION_TIME_STEP_HINT,
   SESSION_TIME_STEP_SECONDS,
-  compareLocalDateTime,
   formatKstDateTime,
   isPastKst,
   normalizeLocalDateTime,
@@ -16,7 +15,7 @@ import {
 import TextField from "../components/TextField";
 import SessionDateTimePicker from "../components/SessionDateTimePicker";
 import PosterImage from "../components/PosterImage";
-import { button, linkButton, liveRegionClass, ui } from "../components/ui";
+import { button, input, linkButton, liveRegionClass, ui } from "../components/ui";
 
 // FR-02 공연 등록 (보호 라우트 /performances/new) — 단계형:
 // ① 티켓팅 링크(이미 등록됐는지 확인) ② 공연 정보(제목·공연장 이름·회차) ③ 확인 후 등록.
@@ -32,6 +31,17 @@ const SESSIONS_MAX = 100;
 /** 링크 정보 읽기 전체 제한 시간 — 넘으면 중단하고 그냥 다음 단계로 */
 const PREVIEW_TIMEOUT_MS = 15_000;
 
+/** 회차 한 줄. value는 시각을 정했으면 "yyyy-MM-ddTHH:mm", 날짜만 채운 줄이면 "yyyy-MM-dd" */
+type SessionRow = { id: number; value: string };
+const hasTime = (value: string) => value.length > 10;
+const dateOf = (value: string) => value.slice(0, 10);
+/** 날짜만 있는 값은 문자열 비교로 같은 날의 시각 있는 값보다 앞에 놓인다(타임존 계산 없음) */
+const compareRow = (a: SessionRow, b: SessionRow) => (a.value < b.value ? -1 : a.value > b.value ? 1 : 0);
+/** 날짜만 채운 줄의 표시: "2026.10.11 · 시각을 골라 주세요" */
+const rowLabel = (value: string) => (hasTime(value) ? formatKstDateTime(value) : `${dotDate(value)} · 시각을 골라 주세요`);
+/** 개별 날짜 버튼을 처음에 보여주는 개수 */
+const CANDIDATE_PREVIEW = 5;
+
 /** 2단계 상단 안내 — 링크에서 읽은 결과 */
 type AutoFillNote = { kind: "filled" | "none" | "unsupported" | "failed"; periodStart: string | null; periodEnd: string | null };
 
@@ -41,6 +51,9 @@ function periodText(start: string, end: string | null): string {
   return end && end !== start ? `${dotDate(start)} ~ ${dotDate(end)}` : dotDate(start);
 }
 
+/** yyyy-MM-dd → M/d (버튼 문구용) */
+const dotShort = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
+
 const cls = {
   steps: "flex flex-wrap gap-x-3 gap-y-1",
   /** 단계 표시 — 현재/그 외 중 완성된 문자열 하나. surface 배경 위라 gray-500(4.47:1) 대신 gray-700.
@@ -49,7 +62,7 @@ const cls = {
   stepOther: "text-sm/[normal] text-gray-700",
   stepBody: "flex flex-col gap-4",
   actions: "flex flex-wrap justify-between gap-2",
-  sessionList: "flex flex-col divide-y divide-gray-200",
+  sessionList: "flex max-h-80 flex-col divide-y divide-gray-200 overflow-y-auto rounded-[10px] border border-gray-200 px-3",
   sessionRow: "flex min-h-11 items-center justify-between gap-3 py-1.5",
   summary: "grid grid-cols-[auto_1fr] gap-x-4 gap-y-2",
   summaryTerm: "text-sm/[normal] font-semibold text-gray-700",
@@ -140,7 +153,12 @@ export default function PerformanceRegisterPage() {
   const [venueName, setVenueName] = useState("");
   const [venueError, setVenueError] = useState<string>();
   const [sessionInput, setSessionInput] = useState("");
-  const [sessions, setSessions] = useState<string[]>([]);
+  const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const rowId = useRef(0);
+  const [showAllCandidates, setShowAllCandidates] = useState(false);
+  const [bulkTime, setBulkTime] = useState("");
+  /** 기간 전체 채우기·시각 한번에 넣기의 결과 안내(낭독) */
+  const [bulkNote, setBulkNote] = useState("");
   const [sessionError, setSessionError] = useState<string>();
   // ③ 등록
   const [submitting, setSubmitting] = useState(false);
@@ -185,6 +203,7 @@ export default function PerformanceRegisterPage() {
     setPosterUrl(result?.status === "OK" ? (result.posterUrl ?? null) : null);
     const dates = result?.status === "OK" ? (result.sessionCandidates ?? []).map((c) => c.date) : [];
     setCandidateDates(dates);
+    setShowAllCandidates(false);
     if (dates.length > 0 && sessions.length === 0) presetDate(dates[0]);
     else if (dates.length === 0) setDatePreset(null);
     // 오류·시간 초과·읽기 실패는 기록하지 않아 같은 링크로 다시 시도할 수 있다
@@ -269,7 +288,7 @@ export default function PerformanceRegisterPage() {
       setSessionError("이미 지난 시각이에요. 앞으로 있을 회차만 등록할 수 있어요.");
       return;
     }
-    if (sessions.includes(normalized)) {
+    if (sessions.some((r) => r.value === normalized)) {
       setSessionError("이미 추가한 회차예요.");
       return;
     }
@@ -277,16 +296,101 @@ export default function PerformanceRegisterPage() {
       setSessionError(`회차는 한 번에 ${SESSIONS_MAX}개까지 등록할 수 있어요.`);
       return;
     }
-    setSessions((prev) => [...prev, normalized].sort(compareLocalDateTime));
+    rowId.current += 1;
+    setSessions((prev) => [...prev, { id: rowId.current, value: normalized }].sort(compareRow));
     setSessionInput("");
     setSessionError(undefined);
     // 아직 회차가 없는 다음 후보 날짜를 날짜 칸에 미리 채운다
-    const covered = new Set([...sessions, normalized].map((s) => s.slice(0, 10)));
+    const covered = new Set([...sessions.map((r) => r.value), normalized].map(dateOf));
     const next = candidateDates.find((d) => !covered.has(d));
     if (next) presetDate(next);
   };
 
-  const removeSession = (value: string) => setSessions((prev) => prev.filter((s) => s !== value));
+  const removeSession = (id: number) => {
+    setSessions((prev) => prev.filter((r) => r.id !== id));
+    setBulkNote("");
+  };
+
+  /** 공연 기간 전체 날짜를 날짜만 채운 회차 줄로 만든다. 이미 있는 날짜는 건너뛰고 기존 입력은 지우지 않는다 */
+  const fillAllCandidates = () => {
+    const have = new Set(sessions.map((r) => dateOf(r.value)));
+    const toAdd = candidateDates.filter((d) => !have.has(d));
+    if (toAdd.length === 0) {
+      setBulkNote("공연 기간의 모든 날짜가 이미 회차에 있어요.");
+      return;
+    }
+    if (sessions.length + toAdd.length > SESSIONS_MAX) {
+      setSessionError(`회차는 한 번에 ${SESSIONS_MAX}개까지 등록할 수 있어요. 지금 ${sessions.length}개라 ${toAdd.length}개를 더 채울 수 없어요. 줄을 삭제하고 다시 시도해 주세요.`);
+      return;
+    }
+    const rows = toAdd.map((d) => ({ id: ++rowId.current, value: d }));
+    setSessions((prev) => [...prev, ...rows].sort(compareRow));
+    setSessionError(undefined);
+    setBulkNote(
+      `${toAdd.length}개 날짜를 회차로 채웠어요. 채운 날짜는 확인 후 고치세요. 쉬는 날이 있으면 그 줄을 삭제하세요. 시각은 줄마다 고르거나 '모든 회차 시각 한번에 넣기'를 쓰세요.`,
+    );
+  };
+
+  /** 값이 있는 시각(10분 단위 검사)을 날짜에 붙인다. 오류면 문구를 돌려준다 */
+  const withTime = (date: string, time: string): { value: string } | { error: string } => {
+    const value = `${date}T${time}`;
+    const err = validateSessionTimeStep(value);
+    return err ? { error: err } : { value: normalizeLocalDateTime(value)! };
+  };
+
+  /** 시각이 비어 있는 줄에만 같은 시각을 넣는다 */
+  const applyBulkTime = () => {
+    if (!bulkTime) {
+      setBulkNote("넣을 시각을 먼저 골라 주세요.");
+      return;
+    }
+    const probe = withTime("2000-01-01", bulkTime);
+    if ("error" in probe) {
+      setBulkNote(probe.error);
+      return;
+    }
+    const targets = sessions.filter((r) => !hasTime(r.value));
+    if (targets.length === 0) {
+      setBulkNote("시각이 비어 있는 줄이 없어요.");
+      return;
+    }
+    // 같은 날짜에 같은 시각이 이미 있으면 중복이라 건너뛴다
+    const existing = new Set(sessions.map((r) => r.value));
+    let applied = 0;
+    const next = sessions.map((r) => {
+      if (hasTime(r.value)) return r;
+      const v = `${r.value}T${bulkTime}`;
+      if (existing.has(v)) return r;
+      existing.add(v);
+      applied += 1;
+      return { ...r, value: v };
+    });
+    setSessions(next);
+    setSessionError(undefined);
+    setBulkNote(`${applied}개 줄에 ${bulkTime} 시각을 넣었어요. 이미 시각이 있는 줄은 그대로 뒀어요.`);
+  };
+
+  /** 한 줄의 시각을 직접 바꾼다(비우면 날짜만 남긴다) */
+  const setRowTime = (id: number, time: string) => {
+    const row = sessions.find((r) => r.id === id);
+    if (!row) return;
+    const date = dateOf(row.value);
+    if (!time) {
+      setSessions((prev) => prev.map((r) => (r.id === id ? { ...r, value: date } : r)));
+      return;
+    }
+    const res = withTime(date, time);
+    if ("error" in res) {
+      setSessionError(res.error);
+      return;
+    }
+    if (sessions.some((r) => r.id !== id && r.value === res.value)) {
+      setSessionError("이미 추가한 회차예요.");
+      return;
+    }
+    setSessionError(undefined);
+    setSessions((prev) => prev.map((r) => (r.id === id ? { ...r, value: res.value } : r)));
+  };
 
   /** 제목·공연장·회차를 모두 검사. 처음 오류가 있는 칸으로 포커스를 옮긴다 */
   const confirmInfo = () => {
@@ -297,7 +401,8 @@ export default function PerformanceRegisterPage() {
     let sErr: string | undefined;
     if (sessions.length === 0) sErr = "회차를 1개 이상 추가해주세요.";
     // 단계를 오가는 사이 지난 회차가 생겼으면 알려준다
-    else if (sessions.some((s) => isPastKst(s))) sErr = "지난 회차가 있어요. 삭제한 뒤 진행해주세요.";
+    else if (sessions.some((r) => !hasTime(r.value))) sErr = "시각이 비어 있는 회차가 있어요. 시각을 고르거나 그 줄을 삭제해주세요.";
+    else if (sessions.some((r) => isPastKst(r.value))) sErr = "지난 회차가 있어요. 삭제한 뒤 진행해주세요.";
     setTitleError(tErr);
     setVenueError(vErr);
     setSessionError(sErr);
@@ -318,7 +423,7 @@ export default function PerformanceRegisterPage() {
         sourceUrl: sourceUrl.trim(),
         title: title.trim(),
         venueName: venueName.trim(),
-        sessions,
+        sessions: sessions.map((r) => r.value),
       });
       navigate(`/performances/${created.id}`, { replace: true });
     } catch (err) {
@@ -462,14 +567,32 @@ export default function PerformanceRegisterPage() {
                 : "회차 일시는 링크에서 읽을 수 없어 직접 입력해 주세요."}
             </p>
           )}
+          {candidateDates.length > 1 && (
+            <div className="flex flex-col items-start gap-1">
+              <button type="button" className={button.solid} onClick={fillAllCandidates}>
+                {`${dotShort(candidateDates[0])}~${dotShort(candidateDates[candidateDates.length - 1])}, ${candidateDates.length}일 모두 회차로 채우기`}
+              </button>
+              <p className={ui.hint}>날짜마다 회차 한 줄이 만들어져요. 이미 있는 날짜는 건너뛰고, 기존 입력은 지우지 않아요.</p>
+            </div>
+          )}
           {candidateDates.length > 0 && (
             <div className="flex flex-wrap items-center gap-2" role="group" aria-label="공연 기간 날짜 선택">
               <span className={ui.hint}>날짜 바로 채우기:</span>
-              {candidateDates.map((d) => (
+              {(showAllCandidates ? candidateDates : candidateDates.slice(0, CANDIDATE_PREVIEW)).map((d) => (
                 <button key={d} type="button" className={button.outline} onClick={() => presetDate(d)}>
                   {dotDate(d)}
                 </button>
               ))}
+              {candidateDates.length > CANDIDATE_PREVIEW && (
+                <button
+                  type="button"
+                  className={button.outline}
+                  aria-expanded={showAllCandidates}
+                  onClick={() => setShowAllCandidates((v) => !v)}
+                >
+                  {showAllCandidates ? "접기" : `더 보기 (${candidateDates.length - CANDIDATE_PREVIEW}개)`}
+                </button>
+              )}
             </div>
           )}
           <p id="perf-session-hint" className={ui.hint}>
@@ -481,16 +604,45 @@ export default function PerformanceRegisterPage() {
         <p className={ui.status} role="status">
           {sessions.length > 0 ? `추가한 회차 ${sessions.length}개` : "아직 추가한 회차가 없어요."}
         </p>
+        <p className={ui.notice} role="status" hidden={!bulkNote}>
+          {bulkNote}
+        </p>
+        {sessions.length > 1 && (
+          <div className="flex flex-wrap items-end gap-2" role="group" aria-label="모든 회차 시각 한번에 넣기">
+            <label className="flex flex-col gap-1 text-sm/[normal] font-semibold text-gray-700">
+              모든 회차 시각 한번에 넣기
+              <input
+                type="time"
+                step={SESSION_TIME_STEP_SECONDS}
+                className={input.normal}
+                value={bulkTime}
+                onChange={(e) => setBulkTime(e.target.value)}
+              />
+            </label>
+            <button type="button" className={button.outline} onClick={applyBulkTime}>
+              적용
+            </button>
+            <p className={`${ui.hint} basis-full`}>시각이 비어 있는 줄에만 채워요. 이미 시각이 있는 줄은 바뀌지 않아요.</p>
+          </div>
+        )}
         {sessions.length > 0 && (
           <ul className={cls.sessionList} aria-label="추가한 회차">
-            {sessions.map((s) => (
-              <li key={s} className={cls.sessionRow}>
-                <span className={ui.body}>{formatKstDateTime(s)}</span>
+            {sessions.map((r) => (
+              <li key={r.id} className={cls.sessionRow}>
+                <span className={`${ui.body} min-w-0 flex-1`}>{rowLabel(r.value)}</span>
+                <input
+                  type="time"
+                  step={SESSION_TIME_STEP_SECONDS}
+                  className={input.normal + " !w-auto shrink-0"}
+                  aria-label={`${dotDate(dateOf(r.value))} 회차 시각`}
+                  value={hasTime(r.value) ? r.value.slice(11, 16) : ""}
+                  onChange={(e) => setRowTime(r.id, e.target.value)}
+                />
                 <button
                   type="button"
                   className={button.outline}
-                  onClick={() => removeSession(s)}
-                  aria-label={`${formatKstDateTime(s)} 회차 삭제`}
+                  onClick={() => removeSession(r.id)}
+                  aria-label={`${rowLabel(r.value)} 회차 삭제`}
                 >
                   삭제
                 </button>
@@ -524,8 +676,8 @@ export default function PerformanceRegisterPage() {
           <dt className={cls.summaryTerm}>회차</dt>
           <dd className={cls.summaryDesc}>
             <ul>
-              {sessions.map((s) => (
-                <li key={s}>{formatKstDateTime(s)}</li>
+              {sessions.map((r) => (
+                <li key={r.id}>{formatKstDateTime(r.value)}</li>
               ))}
             </ul>
           </dd>

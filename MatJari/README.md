@@ -114,3 +114,35 @@ docker compose -f docker-compose.prod.yml up -d --build
 - 공개 인터넷에 열 때: Cloudflare Zero Trust에서 터널을 만들고(서비스 `http://web:80`) `.env`에 `TUNNEL_TOKEN`, `SOCIAL_COOKIE_SECURE=true`를 넣은 뒤 `--profile tunnel`을 붙여 올린다. 공유기 포트포워딩은 필요 없다.
 - 데이터는 Docker 볼륨(`mysql_data`, `upload_data`)에 있다. `down -v`는 DB까지 지운다. 백업: `docker compose -f docker-compose.prod.yml exec mysql mysqldump -u root -p matjari > backup.sql`.
 - 한계: 백엔드가 프록시 뒤라 IP별 속도 제한(소셜·인증번호 발송)이 접속자 전체에 합쳐서 적용된다. 시연·소규모에서는 문제없지만 공개 운영 전에 신뢰 프록시 헤더 처리가 필요하다.
+
+## 자동 배포 (CI/CD, 집 PC)
+
+`master`에 병합하면 GitHub이 테스트를 돌리고, 통과하면 **내 PC의 self-hosted runner**가 운영 compose를 새로 올린다. PC가 GitHub에 먼저 접속해 작업을 받아 가는 방식이라 포트 개방이나 고정 IP가 필요 없다.
+
+| 단계 | 워크플로 | 어디서 | 언제 |
+|---|---|---|---|
+| CI | `.github/workflows/ci.yml` | GitHub 서버 | 모든 PR, master 푸시. 백엔드 전체 테스트(임시 MySQL 통합 테스트 포함)와 프런트 `tsc`·빌드 |
+| CD | `.github/workflows/deploy.yml` | **내 PC** (runner) | master 푸시의 CI가 **성공한 뒤에만**. `MatJari/deploy/deploy.ps1` 실행 |
+
+배포는 `backend`·`web`만 다시 빌드해 올린다. DB(`mysql`)·터널(`matjari-tunnel`)·`.env`는 그대로라 데이터와 접속 주소는 유지된다. 재기동하는 동안 몇 초에서 수십 초 접속이 끊긴다(시연 중 병합 주의).
+
+### 처음 한 번 설정 (집 PC)
+1. **배포 전용 clone**을 만든다. 개발 중인 작업 폴더에서 돌리면 브랜치가 master로 바뀌어 작업을 망가뜨리므로 폴더를 분리한다.
+   ```
+   git clone https://github.com/NYejin/MatJari.git C:\matjari-deploy
+   copy <지금 운영 .env 경로> C:\matjari-deploy\MatJari\.env
+   ```
+   compose 프로젝트 이름이 `matjari-prod`로 고정이라 폴더가 달라도 같은 컨테이너·볼륨을 쓴다.
+2. **runner 설치**: 저장소 Settings → Actions → Runners → New self-hosted runner → Windows x64의 안내대로 `C:\actions-runner` 같은 폴더에 설치하고 설정한다. 설정 중 **추가 라벨에 `matjari-deploy`** 를 넣는다. 서비스로 등록하면 부팅 때 자동 시작된다. 서비스 계정은 기본(NETWORK SERVICE)이 아니라 **내 Windows 계정**으로 지정한다(기본 계정은 Docker Desktop을 쓸 수 없다). Docker Desktop은 로그인 시 자동 시작으로 켜 둔다.
+3. **Actions 변수**: Settings → Secrets and variables → Actions → Variables → New repository variable. 이름 `DEPLOY_DIR`, 값 `C:\matjari-deploy`.
+4. **public 저장소 보안 설정(필수)**: Settings → Actions → General → "Fork pull request workflows from outside collaborators"를 **Require approval for all outside collaborators**로 바꾼다. 배포 워크플로는 `pull_request`로는 돌지 않고 master 푸시의 CI 성공 뒤에만 도는 구조이니 바꾸지 말 것. master에는 브랜치 보호(PR 필수)를 거는 것을 권장한다.
+
+### 쓰는 법
+- 평소: PR을 올리면 CI가 돈다. 병합하면 CI가 한 번 더 돌고, 성공하면 자동으로 배포된다(전체 15~20분).
+- 수동 배포: 저장소 Actions → Deploy → Run workflow. PC에서 직접 하려면 `C:\matjari-deploy`에서 `.\MatJari\deploy\deploy.ps1`(`-DryRun`으로 하는 일만 확인).
+- 배포가 실패하면 Actions 로그의 마지막에 백엔드 로그 40줄이 나온다. 이전 버전으로 되돌리려면 `C:\matjari-deploy`에서 `git checkout <이전 커밋>` 후 `docker compose -f MatJari/docker-compose.prod.yml up -d --build backend web`.
+
+### 한계
+- PC가 꺼져 있거나 Docker Desktop이 꺼져 있으면 배포가 대기한다(켜지면 실행).
+- 자동 롤백·무중단 배포는 없다. DB 마이그레이션(Flyway)은 백엔드가 기동할 때 적용되므로 되돌릴 수 없는 마이그레이션은 병합 전에 주의한다.
+- CI의 통합 테스트는 GitHub 서버에서 15분 안팎 걸린다(무료 사용 시간은 public 저장소라 제한이 없다고 알려져 있으나 정책은 바뀔 수 있다).

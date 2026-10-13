@@ -212,6 +212,7 @@ DB는 Flyway V1~V20, 21개 테이블(email_verification·social_account·perform
 - 열린 매칭 시스템 취소(`OpenMatchCanceller`)는 티켓 id↑ → 매칭 id↑ 순서로 잠그고 호출 트랜잭션을 READ_COMMITTED로 연다. 후보 SQL의 차단 제외는 `NOT EXISTS` 두 개로 나눠 쓴다(OR는 전체 인덱스 스캔).
 - CHATTING을 벗어나는 모든 UPDATE(취소·거절·종료·요청 수정/삭제·티켓 내리기·차단·정지·시스템 취소·수락으로 RESERVED 전이)는 같은 문장에서 `reserve_proposed_*`를 NULL로 비운다(V15 CHECK: CHATTING이 아니면 제안 컬럼은 NULL).
 - 재사용 알림(`CHAT_MESSAGE`·`RESERVATION_PROPOSED`)의 쓰기는 **PK 행을 먼저 갱신**하고 없을 때만 `INSERT … ON DUPLICATE KEY UPDATE`로 만든다. 유니크 키 upsert를 먼저 하면 '읽은 알림 삭제'(PK 먼저 잠금)와 MySQL에서 교착한다.
+- **배포(집 PC)**: `master` 병합 → GitHub CI(`ci.yml`) 성공 → 내 PC의 self-hosted runner가 `MatJari/deploy/deploy.ps1`로 `backend`·`web`만 다시 올린다(`deploy.yml`). 배포 전용 clone(`DEPLOY_DIR`)에서만 돌리고 개발 작업 폴더에서는 돌리지 않는다. 배포 워크플로는 `pull_request`로는 절대 돌지 않게 유지한다(저장소가 public이라 외부 코드가 내 PC에서 실행되는 것을 막기 위해 master 푸시의 CI 성공 뒤에만 실행). 설정은 `MatJari/README.md` '자동 배포(CI/CD)' 절.
 - 소스코드 수정분 전달은 `MMDD-순번_수정내역영문.zip`, 문서(계획서/요구사항정의서 등)는 압축 없이 단일 파일.
 
 ## 기술 스택·범위 제외

@@ -1,0 +1,42 @@
+# CD: master 푸시의 CI가 성공하면 내 PC(self-hosted runner)에서 운영 compose 를 새로 올린다.
+#
+# 보안(저장소가 public): 이 워크플로는 pull_request 이벤트로는 절대 돌지 않는다. CI 워크플로의 완료 이벤트(workflow_run)를
+# 쓰되, 'master 브랜치 푸시'에서 시작해 '성공'한 경우만 실행한다(포크·PR 코드는 내 PC에서 실행되지 않는다).
+# runner 설정(포크 PR 승인 요구 등)은 MatJari/README.md '자동 배포(CI/CD)' 절을 따른다.
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: 내 PC에 배포
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'master')
+    runs-on: [self-hosted, windows, matjari-deploy]
+    timeout-minutes: 30
+    steps:
+      # 코드를 새로 받지 않는다. 지금 서버를 돌리는 폴더(DEPLOY_DIR, .env 가 있는 곳)에서 pull 하고 compose 를 올린다.
+      # DEPLOY_DIR 은 저장소 Settings > Secrets and variables > Actions > Variables 에 등록한다(저장소 루트 경로).
+      - name: 배포 스크립트 실행
+        shell: powershell
+        env:
+          DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
+        run: |
+          if (-not $env:DEPLOY_DIR) { throw 'Actions 변수 DEPLOY_DIR 이 없습니다(저장소 루트 경로).' }
+          & "$env:DEPLOY_DIR\MatJari\deploy\deploy.ps1"
+          if ($LASTEXITCODE -ne 0) { throw "deploy.ps1 실패(종료 코드 $LASTEXITCODE)" }

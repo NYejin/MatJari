@@ -14,6 +14,7 @@ import {
 import TextField from "../components/TextField";
 import { authFormClasses as ui } from "../components/authFormClasses";
 import SocialLoginButtons from "../components/SocialLoginButtons";
+import WithdrawDialog from "../components/WithdrawDialog";
 import { socialErrorMessage } from "../api/socialAuth";
 
 // FR-01 회원가입/로그인 — 로그인 화면
@@ -48,6 +49,10 @@ export default function LoginPage() {
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // 이용 정지 중 로그인(비밀번호 확인됨)이 준 탈퇴 전용 토큰 — 저장하지 않고 이 화면 메모리에만 둔다
+  const [withdrawToken, setWithdrawToken] = useState<string | null>(null);
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [withdrawnNotice, setWithdrawnNotice] = useState<string | null>(null);
 
   // 히스토리 state에서 notice/email을 제거해 새로고침·뒤로가기 시 다시 표시되지 않게 한다 (from은 유지)
   const hasOneTimeState = stateNotice !== undefined || prefillEmail !== undefined;
@@ -87,6 +92,8 @@ export default function LoginPage() {
     if (Object.keys(errors).length > 0) return;
     clearSuspensionNotice();
     setSuspendedNotice(null);
+    setWithdrawToken(null);
+    setWithdrawnNotice(null);
 
     setSubmitting(true);
     try {
@@ -98,6 +105,7 @@ export default function LoginPage() {
       if (suspension) {
         setFieldErrors({});
         setFormError(suspensionMessage(suspension));
+        setWithdrawToken(suspension.withdrawToken ?? null);
         setSubmitting(false);
         return;
       }
@@ -125,6 +133,12 @@ export default function LoginPage() {
         {suspendedNotice && (
           <p className={ui.formError} role="alert">
             {suspendedNotice}
+          </p>
+        )}
+
+        {withdrawnNotice && (
+          <p className={ui.notice} role="status">
+            {withdrawnNotice}
           </p>
         )}
 
@@ -167,12 +181,36 @@ export default function LoginPage() {
             </p>
           )}
 
+          {withdrawToken && (
+            <div className="flex flex-col gap-2">
+              <p className={ui.notice}>정지 중에도 계정을 탈퇴할 수 있어요. 탈퇴하면 되돌릴 수 없어요.</p>
+              <button type="button" className={ui.link} onClick={() => setWithdrawOpen(true)}>
+                이 계정 탈퇴하기
+              </button>
+            </div>
+          )}
+
           <button type="submit" className={ui.submit} disabled={submitting} aria-busy={submitting}>
             {submitting ? "로그인 중..." : "로그인"}
           </button>
         </form>
 
         <SocialLoginButtons />
+
+        {withdrawOpen && withdrawToken && (
+          <WithdrawDialog
+            passwordLoginEnabled
+            withdrawToken={withdrawToken}
+            onClose={() => setWithdrawOpen(false)}
+            onWithdrawn={() => {
+              setWithdrawOpen(false);
+              setWithdrawToken(null);
+              setFormError(null);
+              setPassword("");
+              setWithdrawnNotice("탈퇴가 완료됐어요. 그동안 이용해 주셔서 고마워요.");
+            }}
+          />
+        )}
 
         <p className={ui.footer}>
           아직 계정이 없나요?{" "}

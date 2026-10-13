@@ -106,7 +106,8 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         AuthUserPrincipal principal;
         Instant expiresAt;
         try {
-            if (!jwtTokenProvider.validateToken(token) || jwtTokenProvider.isRefreshToken(token)) {
+            if (!jwtTokenProvider.validateToken(token) || jwtTokenProvider.isRefreshToken(token)
+                    || jwtTokenProvider.isWithdrawToken(token)) {
                 throw reject(sessionId, "unauthorized");
             }
             principal = userDetailsService.loadUserById(jwtTokenProvider.getUserId(token));

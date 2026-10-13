@@ -14,18 +14,21 @@ export const WITHDRAW_CONFIRM_TEXT = "탈퇴합니다";
 interface Props {
   /** 비밀번호로 로그인할 수 있는 계정인가 (서버가 안 주면 true로 간주) */
   passwordLoginEnabled: boolean;
+  /** 이용 정지 중 로그인으로 받은 탈퇴 전용 토큰. 있으면 로그인 상태 없이 이 토큰으로 탈퇴한다 */
+  withdrawToken?: string;
   onClose: () => void;
   onWithdrawn: () => void;
 }
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-function errorMessage(err: unknown, passwordMode: boolean): string {
+function errorMessage(err: unknown, passwordMode: boolean, tokenMode: boolean): string {
   if (getErrorCode(err) === "ADMIN_CANNOT_WITHDRAW") {
     return "관리자 계정은 바로 탈퇴할 수 없어요. 운영자에게 관리자 권한 해제를 요청한 뒤 다시 시도해 주세요.";
   }
   if (axios.isAxiosError(err)) {
     const status = err.response?.status;
+    if (tokenMode && status === 401) return "시간이 지나 인증이 만료됐어요. 로그인 화면에서 다시 시도해 주세요.";
     if (status === 429) return "시도가 너무 많아요. 잠시 후 다시 시도해 주세요.";
     if (status === 400) {
       return passwordMode
@@ -36,7 +39,7 @@ function errorMessage(err: unknown, passwordMode: boolean): string {
   return parseApiError(err, "탈퇴하지 못했어요. 잠시 후 다시 시도해 주세요.").message;
 }
 
-export default function WithdrawDialog({ passwordLoginEnabled, onClose, onWithdrawn }: Props) {
+export default function WithdrawDialog({ passwordLoginEnabled, withdrawToken, onClose, onWithdrawn }: Props) {
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | undefined>();
   const [submitting, setSubmitting] = useState(false);
@@ -84,11 +87,13 @@ export default function WithdrawDialog({ passwordLoginEnabled, onClose, onWithdr
     setSubmitting(true);
     setError(undefined);
     try {
-      await usersApi.withdraw(passwordLoginEnabled ? { password: value } : { confirmText: value });
+      const body = passwordLoginEnabled ? { password: value } : { confirmText: value };
+      if (withdrawToken) await usersApi.withdrawSuspended(withdrawToken, body);
+      else await usersApi.withdraw(body);
       closedRef.current = true;
       onWithdrawn();
     } catch (err) {
-      setError(errorMessage(err, passwordLoginEnabled));
+      setError(errorMessage(err, passwordLoginEnabled, !!withdrawToken));
       setSubmitting(false);
     }
   };

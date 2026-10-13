@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -43,6 +44,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(properties = {"seatswap.email-verification.ip-per10-min=100000", "seatswap.email-verification.email-per10-min=100000",
         "seatswap.email-verification.global-per-hour=100000"})
 @AutoConfigureMockMvc
+// 이 클래스만의 컨텍스트(목 발송기·한도 설정)라 끝나면 닫아 커넥션 풀을 돌려준다(MySQL 기본 최대 연결 수 보호)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class EmailVerificationMysqlTest {
 
     private static final String PASSWORD = "password123";

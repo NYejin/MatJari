@@ -61,6 +61,24 @@ public class SocialAccountService {
     }
 
     /**
+     * 탈퇴 재인증을 시작한다: **이미 연결된** 제공자에 대해 같은 링크 티켓 흐름을 연다(연결 모드와 같은 authorize → 콜백이 `/me#linkCode=` 로 일회용 코드를 넘김).
+     * 이 코드는 연결 확정이 아니라 회원탈퇴 요청의 reauthCode 로 쓴다. 연결돼 있지 않은 제공자는 409 SOCIAL_NOT_LINKED, 꺼진 제공자는 404.
+     * 사용자당 분당 link-per-minute 회(연결 시작과 같은 버킷).
+     */
+    public SocialLinkResponse startReauth(Long userId, String providerPath) {
+        rateLimiter.acquire("l:" + userId, properties.getLinkPerMinute());
+        SocialProvider provider = SocialProvider.fromPath(providerPath).orElseThrow(SocialAuthException::providerDisabled);
+        if (!properties.isEnabled(provider)) {
+            throw SocialAuthException.providerDisabled();
+        }
+        if (!socialAccountRepository.existsByUserIdAndProvider(userId, provider)) {
+            throw new SocialAuthException(HttpStatus.CONFLICT, "SOCIAL_NOT_LINKED", "연결되어 있지 않은 소셜 계정이에요.");
+        }
+        String ticket = ticketStore.issue(userId, provider);
+        return new SocialLinkResponse("/api/auth/social/" + provider.getPath() + "/authorize?link=" + ticket);
+    }
+
+    /**
      * 연결을 확정한다. 코드를 먼저 소비(불일치여도 소진)한 뒤 코드의 사용자와 인증 주체가 다르면 400 INVALID_LINK_CODE
      * (없음·만료·다른 사용자 모두 같은 응답). 사용자당 분당 link-per-minute 회(별도 버킷).
      * 이 메서드는 트랜잭션이 아니며 저장은 {@link SocialAccountLinker#link}(users FOR UPDATE) 한 트랜잭션이다.

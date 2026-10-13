@@ -163,6 +163,30 @@ class UserSocialControllerSliceTest {
                 .andExpect(status().isTooManyRequests()).andExpect(header().string("Retry-After", "9"));
     }
 
+    // ---------------- POST /api/users/me/social/{provider}/reauth (탈퇴 재인증) ----------------
+
+    @Test
+    void 재인증_시작은_인증_주체로_서비스를_부르고_authorizeUrl과_no_store를_돌려준다() throws Exception {
+        when(socialAccountService.startReauth(1L, "google"))
+                .thenReturn(new SocialLinkResponse("/api/auth/social/google/authorize?link=TICKET"));
+        mockMvc.perform(post("/api/users/me/social/google/reauth").header("Authorization", AUTH))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.authorizeUrl").value("/api/auth/social/google/authorize?link=TICKET"));
+    }
+
+    @Test
+    void 재인증_시작의_오류_409_404() throws Exception {
+        when(socialAccountService.startReauth(1L, "kakao"))
+                .thenThrow(new SocialAuthException(HttpStatus.CONFLICT, "SOCIAL_NOT_LINKED", "연결되어 있지 않은 소셜 계정이에요."));
+        mockMvc.perform(post("/api/users/me/social/kakao/reauth").header("Authorization", AUTH))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("SOCIAL_NOT_LINKED"));
+        when(socialAccountService.startReauth(1L, "naver")).thenThrow(SocialAuthException.providerDisabled());
+        mockMvc.perform(post("/api/users/me/social/naver/reauth").header("Authorization", AUTH))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(post("/api/users/me/social/google/reauth")).andExpect(status().isUnauthorized());
+    }
+
     // ---------------- POST /api/users/me/social/confirm ----------------
 
     @Test

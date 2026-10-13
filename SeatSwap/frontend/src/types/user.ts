@@ -15,4 +15,6 @@ export interface User {
 export interface WithdrawRequest {
   password?: string;
   confirmText?: string;
+  /** 소셜 전용 계정: 연결된 소셜 계정으로 방금 다시 인증해 받은 일회용 코드 */
+  reauthCode?: string;
 }

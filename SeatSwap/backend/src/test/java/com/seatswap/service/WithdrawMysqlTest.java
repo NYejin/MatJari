@@ -82,6 +82,10 @@ class WithdrawMysqlTest {
     private MockMvc mockMvc;
     @Autowired
     private JdbcTemplate jdbc;
+    @Autowired
+    private com.seatswap.service.social.SocialLinkConfirmStore reauthStore;
+    @Autowired
+    private com.seatswap.service.social.SocialProperties socialProperties;
 
     private long seq;
     private long colSeq;
@@ -232,6 +236,37 @@ class WithdrawMysqlTest {
         mockMvc.perform(delete("/api/users/me").header("Authorization", tToken).contentType(MediaType.APPLICATION_JSON).content("{\"password\":\"" + PASSWORD + "\"}"))
                 .andExpect(status().isTooManyRequests()).andExpect(jsonPath("$.code").value("WITHDRAW_RATE_LIMITED"));
         assertThat(jdbc.queryForObject("SELECT withdrawn_at FROM users WHERE id = ?", Object.class, t)).isNull();
+    }
+
+    @Test
+    void 연결된_제공자가_켜져_있으면_소셜_전용_계정은_재인증_코드로만_탈퇴한다() throws Exception {
+        seq++;
+        jdbc.update("INSERT INTO users (created_at, email, nickname, password, password_login_enabled, role) VALUES (NOW(6), ?, '소셜', ?, 0, 'USER')",
+                "r" + seq + "@social.seatswap.invalid", encodedPassword);
+        long s = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update("INSERT INTO social_account (user_id, provider, provider_user_id) VALUES (?, 'GOOGLE', 'g-reauth')", s);
+        String token = "Bearer " + jwt.generateAccessToken(s, "r@x.com");
+        socialProperties.getGoogle().setClientId("g-client");
+        try {
+            // 확인 문구만으로는 안 된다(액세스 토큰만 훔친 경우)
+            mockMvc.perform(delete("/api/users/me").header("Authorization", token).contentType(MediaType.APPLICATION_JSON).content("{\"confirmText\":\"탈퇴합니다\"}"))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.reauthCode").exists());
+            assertThat(count("SELECT COUNT(*) FROM users WHERE id = " + s + " AND withdrawn_at IS NOT NULL")).isZero();
+            // 다른 계정(제공자 사용자 id 불일치)으로 인증한 코드도 안 된다
+            String wrong = reauthStore.issue(s, com.seatswap.domain.SocialProvider.GOOGLE, "someone-else");
+            mockMvc.perform(delete("/api/users/me").header("Authorization", token).contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"confirmText\":\"탈퇴합니다\",\"reauthCode\":\"" + wrong + "\"}"))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.reauthCode").exists());
+            // 연결된 계정으로 방금 인증한 코드면 된다
+            String code = reauthStore.issue(s, com.seatswap.domain.SocialProvider.GOOGLE, "g-reauth");
+            mockMvc.perform(delete("/api/users/me").header("Authorization", token).contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"confirmText\":\"탈퇴합니다\",\"reauthCode\":\"" + code + "\"}"))
+                    .andExpect(status().isNoContent());
+            assertThat(count("SELECT COUNT(*) FROM users WHERE id = " + s + " AND withdrawn_at IS NOT NULL")).isEqualTo(1);
+            assertThat(count("SELECT COUNT(*) FROM social_account WHERE user_id = " + s)).isZero();
+        } finally {
+            socialProperties.getGoogle().setClientId("");
+        }
     }
 
     // ------------------------------------------------------------------ 동시성

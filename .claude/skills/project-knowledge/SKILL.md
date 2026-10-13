@@ -112,7 +112,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 - 서버 전송 경로의 속도 제한(사용자별 429 `CHAT_RATE_LIMITED`)과 본문 정규화 세부 규칙은 backend 코드·`ChatService` 주석을 따른다.
 
 ### 3.11 회원탈퇴·개인정보처리방침 (구현, V17 `users.withdrawn_at`)
-- `DELETE /api/users/me`: 비밀번호 로그인 계정은 비밀번호, 소셜 전용 계정은 확인 문구 '탈퇴합니다'를 보내야 한다. ADMIN은 409 `ADMIN_CANNOT_WITHDRAW`. 이용 정지 중에도 이 API는 허용한다(필터 예외, 단 정지 중엔 로그인이 막혀 정지 전 토큰이 있을 때만 쓸 수 있음).
+- `DELETE /api/users/me`: 비밀번호 로그인 계정은 비밀번호, 소셜 전용 계정은 확인 문구 '탈퇴합니다'와 연결된 소셜 계정으로 방금 다시 인증한 `reauthCode`(연결된 제공자가 모두 꺼져 있으면 생략)를 보내야 한다. ADMIN은 409 `ADMIN_CANNOT_WITHDRAW`. 이용 정지 중에도 이 API는 허용한다(필터 예외; 비밀번호가 맞는 정지 로그인은 403 본문에 탈퇴 전용 10분 토큰 `withdrawToken`을 준다, 소셜 전용 정지 계정은 문의처).
 - 한 트랜잭션: PENDING 좌석 인증 요청 거절 → 열린 매칭(CHATTING·RESERVED) 시스템 취소와 예약 잠금 해제 → OPEN 요청 CLOSED·활성 티켓 INACTIVE(2차 정리 포함) → `social_account` 전부 삭제 → users 익명화(이메일 `withdrawn.{id}@withdrawn.seatswap.invalid`, 닉네임 '탈퇴한 회원', 무작위 비밀번호, 비밀번호 로그인 불가, `withdrawn_at` 기록) → 수신자 알림 삭제 → 커밋 뒤 STOMP 연결 종료.
 - 진행 중 교환은 예약 중이어도 모두 자동 정리한다(사용자 결정). 채팅·읽음 상태·교환 이력·차단·신고·제재·PENDING 공연 수정 제안은 지우지 않고, 닉네임이 '탈퇴한 회원'으로 보인다.
 - 인증 차단: 탈퇴 계정은 기존 액세스 토큰·STOMP CONNECT·로그인·refresh·소셜 교환·소셜 연결 확정이 모두 거절된다. 같은 이메일·같은 소셜 계정으로 새로 가입할 수 있다.
@@ -191,7 +191,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 |---|---|
 | 인증 | `POST /api/auth/signup`·`login`·`refresh`, `GET /api/users/me` -> `{id, email, emailPlaceholder, nickname, role, passwordLoginEnabled}` |
 | 프로필·소셜 연결 | `PATCH /api/users/me {nickname}`, `GET /api/users/me/social`(`{accounts, providers, canUnlink}`), `POST /api/users/me/social/{provider}/link`(`{authorizeUrl}`, 60초 1회 티켓), `POST /api/users/me/social/confirm {code}`(60초 1회 확정 코드, 확정 사용자와 코드 사용자가 같을 때만 저장), `DELETE /api/users/me/social/{provider}`(204 멱등, 마지막 로그인 수단이면 409 `LAST_LOGIN_METHOD`). 모두 로그인 필요 |
-| 회원탈퇴 | `DELETE /api/users/me {password?, confirmText?}`(204, 본인 확인, 분당 5회 429 `WITHDRAW_RATE_LIMITED`, ADMIN 409 `ADMIN_CANNOT_WITHDRAW`, 이미 탈퇴한 계정 401). 로그인 필요 |
+| 회원탈퇴 | `DELETE /api/users/me {password?, confirmText?, reauthCode?}`(204, 본인 확인, 분당 5회 429 `WITHDRAW_RATE_LIMITED`, ADMIN 409 `ADMIN_CANNOT_WITHDRAW`, 이미 탈퇴한 계정 401). 로그인 필요 |
 | 소셜 로그인 | `GET /api/auth/social/providers`(활성 제공자, 인증 불필요), `GET /api/auth/social/{google\|kakao\|naver}/authorize`(302, state 쿠키 `ss_oauth`), `GET .../{provider}/callback`(항상 302: 성공 `/auth/callback#code=`, 실패 `/login?socialError=`), `POST /api/auth/social/exchange {code}`(→ TokenResponse, 일회용 60초, 정지 재검사). IP당 분당 30회(429 `SOCIAL_RATE_LIMITED`) |
 | 공연 | `GET /api/performances`(제목 검색·페이지, asOf로 기준 시각 고정)·`/{id}`·`/lookup`(링크 중복 확인), `POST /api/performances` |
 | 공연 포스터 | `GET /api/performances/{id}/poster` → `{posterUrl}`(로그인 필요, 없으면 null, 공연 없으면 404). 링크 미리보기 응답에도 `posterUrl` 추가. 실패·제한·스위치 꺼짐은 오류 없이 null |

@@ -11,6 +11,7 @@ import {
 import { formatKstDateTime } from "../api/dateTime";
 import { getErrorCode, parseApiError } from "../api/errors";
 import { usePagedList } from "../hooks/usePagedList";
+import SessionChangesView from "../components/SessionChangesView";
 import { button, FOCUS_RING, input, liveRegionClass, ui } from "../components/ui";
 
 // 관리자 — 공연 수정 제안 처리 (/admin/performance-edit-proposals, AdminRoute).
@@ -159,6 +160,7 @@ function ProposalCard({ proposal: p, onDone }: { proposal: AdminEditProposal; on
           to={p.newVenueName}
         />
       )}
+      <SessionChangesView changes={p.sessionChanges ?? []} />
       {p.reason && <p className={`${ui.body} break-words`}>사유: {p.reason}</p>}
       <p className={ui.muted}>
         {p.proposerNickname} · {formatKstDateTime(p.createdAt)} 제안

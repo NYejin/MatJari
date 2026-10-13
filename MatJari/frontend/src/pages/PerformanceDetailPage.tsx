@@ -15,6 +15,7 @@ import {
   editProposalsApi,
 } from "../api/editProposals";
 import { getErrorCode } from "../api/errors";
+import SessionEditor, { checkSessionChanges, initialSessionRows, type SessionRow } from "../components/SessionEditor";
 // FR-02 공연 상세 (보호 라우트 /performances/:id) — 읽기 전용.
 // 공연은 등록 후 아무도 수정·삭제할 수 없다 (수정은 아래 "정보가 틀렸어요" 수정 제안을 관리자가 승인할 때만).
 // 티켓 영역: 이 공연 티켓 등록(/tickets/new?performanceId=) 진입.
@@ -226,13 +227,14 @@ function SessionsSection({ detail }: { detail: PerformanceDetail }) {
 }
 
 // ---- 수정 제안 ("정보가 틀렸어요", 접이식) ----
-// 공연은 직접 수정할 수 없다. 제목·공연장 중 바뀐 것만 적어 제안하면 관리자가 검토한다 (회차·링크는 대상 아님).
+// 공연은 직접 수정할 수 없다. 제목·공연장·회차 중 바뀐 것만 적어 제안하면 관리자가 검토한다 (링크는 대상 아님).
 
 function EditProposalSection({ detail }: { detail: PerformanceDetail }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [venue, setVenue] = useState("");
   const [reason, setReason] = useState("");
+  const [rows, setRows] = useState<SessionRow[]>(() => initialSessionRows(detail.sessions));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -243,8 +245,13 @@ function EditProposalSection({ detail }: { detail: PerformanceDetail }) {
     if (busy) return;
     const newTitle = title.trim();
     const newVenueName = venue.trim();
-    if (!newTitle && !newVenueName) {
-      setError("바뀐 제목이나 공연장 중 하나는 적어 주세요.");
+    const check = checkSessionChanges(rows);
+    if (Object.keys(check.rowErrors).length > 0 || check.formError) {
+      setError("회차 입력을 확인해 주세요.");
+      return;
+    }
+    if (!newTitle && !newVenueName && check.changes.length === 0) {
+      setError("바뀐 제목, 공연장, 회차 중 하나는 적어 주세요.");
       return;
     }
     setBusy(true);
@@ -255,22 +262,25 @@ function EditProposalSection({ detail }: { detail: PerformanceDetail }) {
         newTitle: newTitle || null,
         newVenueName: newVenueName || null,
         reason: reason.trim() || null,
+        ...(check.changes.length > 0 ? { sessionChanges: check.changes } : {}),
       });
       setDone(true);
       setOpen(false);
       setTitle("");
       setVenue("");
       setReason("");
+      setRows(initialSessionRows(detail.sessions));
     } catch (err) {
       const code = getErrorCode(err);
       const parsed = parseApiError(err, "제안을 보내지 못했습니다.");
       setFieldErrors(parsed.fieldErrors);
-      setError((code && EDIT_ERROR_MESSAGES[code]) || parsed.message);
+      setError((code && EDIT_ERROR_MESSAGES[code]) || parsed.fieldErrors.sessionChanges || parsed.message);
     } finally {
       setBusy(false);
     }
   };
 
+  const sessionCheck = checkSessionChanges(rows);
   const panelId = "edit-proposal-panel";
   return (
     <section className={`${ui.card} flex flex-col gap-3`} aria-labelledby="edit-proposal-title">
@@ -302,7 +312,7 @@ function EditProposalSection({ detail }: { detail: PerformanceDetail }) {
 
       {open && (
         <form id={panelId} onSubmit={(e) => void submit(e)} className="flex flex-col gap-4" noValidate>
-          <p className={ui.hint}>공연 정보는 직접 고칠 수 없어요. 제목·공연장 중 바뀐 것만 적어 제안해 주세요.</p>
+          <p className={ui.hint}>공연 정보는 직접 고칠 수 없어요. 제목·공연장·회차 중 바뀐 것만 적어 제안해 주세요.</p>
           <p className={`${ui.body} break-words`}>
             현재 제목: <strong>{detail.title}</strong>
             <br />
@@ -323,6 +333,13 @@ function EditProposalSection({ detail }: { detail: PerformanceDetail }) {
             maxLength={EDIT_VENUE_MAX}
             error={fieldErrors.newVenueName}
             onChange={(e) => setVenue(e.target.value)}
+          />
+          <SessionEditor
+            rows={rows}
+            onChange={setRows}
+            rowErrors={sessionCheck.rowErrors}
+            formError={sessionCheck.formError}
+            disabled={busy}
           />
           <div className="flex flex-col gap-1.5">
             <label htmlFor="edit-reason" className={ui.label}>

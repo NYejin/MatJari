@@ -82,6 +82,8 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 - 공연 목록 검색은 제목만. 공연장 별도 테이블·검색·정식 등록(VERIFIED)·필터는 없다. 등록 화면은 3단계(①링크 중복 확인 ②공연 정보 ③확인·등록).
 - **링크 기반 자동 입력(구현됨)**: `GET /api/performances/preview`로 링크에서 제목·공연장·공연 기간을 읽어(회차 시각은 세 사이트 모두 Ajax라 읽지 못함, 직접 입력) 다음 단계에 미리 채우고 '이 정보가 맞나요?'를 묻고, 아니면 직접 수정 후 등록. 공개 페이지(JSON-LD·og)만 읽고 자동 등록은 없으며 직접 입력은 항상 가능. 대상은 YES24·티켓링크(JSON-LD)·멜론(본문 HTML), 인터파크는 robots.txt로 제외. SSRF 방어: 사용자 URL을 요청하지 않고 `SourceKeyResolver` 키(`site:숫자id`)로 고정 템플릿 URL만 만들며, 리다이렉트 불가·공인 IP·https·2 MiB·10초·사용자당 분당 10회·10분 캐시. 구현은 `service/linkinfo/`. 로그인·캡차 우회와 내부 API 조사는 하지 않는다.
 
+- **공연 포스터 표시(구현, DB 변경 없음)**: 서버는 이미지를 저장·프록시하지 않고 링크 페이지의 og:image(없으면 JSON-LD `Event.image`)에서 **주소 문자열만** 읽는다. 브라우저가 원 사이트에서 직접 불러온다(인라인 링크). 허용 호스트는 사이트별 고정(YES24 `tkfile.yes24.com`, 티켓링크 `image.toast.com`, 멜론 `cdnticket.melon.co.kr`), https만. 로드 실패(핫링크 차단 포함)나 주소 없음이면 포스터 영역을 숨기고 대체 링크는 두지 않는다. 출처는 텍스트로만 표기한다. 공연 상세는 `GET /api/performances/{id}/poster`, 등록 2단계는 미리보기 `posterUrl`을 쓴다. 스위치 `seatswap.poster.enabled`(기본 true). 권리 확인은 공개 운영 전 해야 한다(요구사항 §7 Q-26). 상세: `wiki/decisions/poster-display-design.md`.
+
 ### 3.8 인증
 - 이메일 가입·로그인, JWT access/refresh (`POST /api/auth/signup|login|refresh`). 인증 사용자 식별은 토큰 **userId** 기준(삭제된 사용자·파싱 오류만 401).
 - **소셜 로그인(구현, V14 `social_account`)**: 카카오·구글·네이버 3종, 백엔드가 Authorization Code를 직접 처리(구글·카카오 PKCE, 네이버는 state 쿠키). 같은 소셜 계정이면 그 사용자로 로그인하고, 없으면 가입한다. 제공자가 준 **검증된** 이메일이 기존 `users`에 있으면 **자동 연결하지 않고** `EMAIL_EXISTS`로 막는다. 이메일이 없거나 미검증이면 `{provider}.{providerUserId}@social.seatswap.invalid` 자리표시 이메일과 무작위 비밀번호 해시로 가입하므로 비밀번호 로그인은 안 된다. 콜백은 60초짜리 일회용 로그인 코드를 `/auth/callback#code=`(프래그먼트)로 넘기고, 프런트가 `POST /api/auth/social/exchange`로 JWT를 받는다. 실패는 `/login?socialError=` 코드로 안내한다. 정지·차단 규칙은 일반 사용자와 같다. 상세는 CLAUDE.md '소셜 로그인' 절과 백엔드 README '소셜 로그인 (V14)' 절.
@@ -139,6 +141,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 | 소셜 로그인(카카오·구글·네이버, 자동 연결 없음) | 구현 (V14) |
 | 닉네임 수정·소셜 계정 연결·해제(마이페이지, 본인이 명시적으로 연결, 로그인 세션 확정) | 구현 (V16) |
 | 링크 기반 공연 정보 자동 입력(제목·공연장·공연 기간) | 구현 (DB 변경 없음) |
+| 공연 포스터 표시(인라인 링크, 허용 호스트 3종, 로드 실패 시 숨김) | 구현 (DB 변경 없음, 미병합) |
 | 관리자 페이지·공연 수정 제안·내 티켓 인증 | 구현 (V12) |
 | 회원탈퇴(모달·확인, 익명화, 진행 중 교환 자동 정리)·개인정보처리방침 `/privacy`·푸터·가입 화면 방침 안내 | 구현 (V17, 미병합) |
 
@@ -188,6 +191,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 | 회원탈퇴 | `DELETE /api/users/me {password?, confirmText?}`(204, 본인 확인, 분당 5회 429 `WITHDRAW_RATE_LIMITED`, ADMIN 409 `ADMIN_CANNOT_WITHDRAW`, 이미 탈퇴한 계정 401). 로그인 필요 |
 | 소셜 로그인 | `GET /api/auth/social/providers`(활성 제공자, 인증 불필요), `GET /api/auth/social/{google\|kakao\|naver}/authorize`(302, state 쿠키 `ss_oauth`), `GET .../{provider}/callback`(항상 302: 성공 `/auth/callback#code=`, 실패 `/login?socialError=`), `POST /api/auth/social/exchange {code}`(→ TokenResponse, 일회용 60초, 정지 재검사). IP당 분당 30회(429 `SOCIAL_RATE_LIMITED`) |
 | 공연 | `GET /api/performances`(제목 검색·페이지, asOf로 기준 시각 고정)·`/{id}`·`/lookup`(링크 중복 확인), `POST /api/performances` |
+| 공연 포스터 | `GET /api/performances/{id}/poster` → `{posterUrl}`(로그인 필요, 없으면 null, 공연 없으면 404). 링크 미리보기 응답에도 `posterUrl` 추가. 실패·제한·스위치 꺼짐은 오류 없이 null |
 | 티켓 | `POST /api/tickets {sessionId, zone, row, col}`, `GET /api/tickets/me`, `DELETE /api/tickets/{id}` |
 | 교환 요청 | `POST /api/exchange/requests {ticketId, wantSessions[{sessionId,priority}], ranges[{zone,rowFrom,rowTo,colFrom,colTo,extraType,extraAmount}]}`, `GET .../me`, `PATCH`·`DELETE .../{id}`, `GET .../{id}/candidates` |
 | 매칭 | `POST /api/exchange/requests/{id}/proposals {targetRequestId}`, `POST /api/exchange/matches/{id}/reserve`(예약 제안)·`reserve/accept`(예약 수락)·`reserve/decline`(예약 제안 거절, 제안받은 쪽)·`reserve/withdraw`(제안 철회, 제안자)·`unreserve`(예약 취소)·`complete`(교환 수락)·`reject`·`cancel`, `GET /api/exchange/matches/me?role=SENT\|RECEIVED\|ALL&status&page&size`, `GET /api/exchange/matches/{id}` |
@@ -208,7 +212,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 | `/login`, `/signup` | 인증 |
 | `/auth/callback` | 소셜 로그인 후 중간 화면. 프래그먼트 `#code=`를 읽어 URL을 정리하고 `POST /api/auth/social/exchange`로 토큰을 저장한 뒤 `/`로 이동한다(코드가 없거나 실패하면 `/login?socialError=INVALID_LOGIN_CODE`). 로그인·가입 화면 하단 '또는' 구분선 아래에 활성 제공자 버튼이 있고, 로그인 화면은 `?socialError=`를 한국어 안내로 표시한다 |
 | `/privacy` | 개인정보처리방침(공개). 운영자·문의 이메일·시행일은 `VITE_PRIVACY_*`, 미설정이면 '설정 필요' 강조 |
-| `/performances/new` | 공연 등록(3단계), `/performances/:id` 공연 상세(읽기 전용, 보호 라우트, '이 공연 티켓 등록' 버튼) |
+| `/performances/new` | 공연 등록(3단계), `/performances/:id` 공연 상세(읽기 전용, 보호 라우트, '이 공연 티켓 등록' 버튼, 포스터는 정보 카드 오른쪽) |
 | `/me` | 마이페이지: 닉네임 인라인 수정(저장하면 헤더 즉시 반영), 이메일(자리표시면 '소셜 계정으로 가입해 이메일이 없어요'), '소셜 계정 연결' 카드(연결·해제, 해제 불가면 사유 안내), 신뢰도 점수 표시, 내 티켓·내 매칭·교환 이력 링크, 회원탈퇴 버튼은 모달(`WithdrawDialog`)을 연다 |
 | `/tickets/new`, `/tickets` | 티켓 등록 / 내 티켓(내리기·교환 조건 진입) |
 | `/tickets/:ticketId/exchange` | 희망 조건 폼: 범위 카드(구역·열·번 범위, 카드마다 추가금 라디오 4개, 카드 복제, 클라이언트 겹침 경고), 요청 단위 희망 회차 우선순위, 총 N석 합집합 미리보기와 5,000석·50범위 경고, 마감 회차 선택 불가 |
@@ -227,6 +231,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 - 브라우저 수동 점검·실서버 연동은 교환 화면 전반에서 아직 충분히 하지 않았다.
 - 예약 제안·채팅 알림 한계(2026-10-13): 예약-취소 남용 방지 없음(차단·신고로 다룸), 정렬용 `(user_id, created_at)` 인덱스 없음(알림이 매칭당 1행 수준이라 불필요로 판단, 실측 아님), 읽음 가드와 알림 되살리기가 겹치는 극히 약한 창, 일부 경로 REPEATABLE READ 패턴 유지. 알림 목록 정렬은 `created_at DESC, id DESC`, 채팅 읽음은 포인터 뒤에 상대 메시지가 남아 있으면 처리하지 않는다. 브라우저 확인은 Playwright 수준.
 - 7일 경과 알림은 위 4절 미구현 항목이다.
+- 공연 포스터 표시 한계(2026-10-13): 인라인 링크의 저작권 확정 판례 없음, 포스터 저작물성과 티켓 3사 약관 미확인(공개 운영 전 확인, 요구사항 §7 Q-26, 요청이 오면 `seatswap.poster.enabled=false`), 허용 호스트는 실측 기준이라 CDN이 바뀌면 포스터가 안 뜸, YES24는 포스터 없는 공연이 많음, 인터파크 미지원, 핫링크 차단 시 안 보임, 삭제·표시 중단 요청은 방침 문의처로 받는데 방침 문구는 아직 없음. 상세는 `wiki/decisions/poster-display-design.md`.
 - 회원탈퇴 한계(2026-10-13): 정지 중 탈퇴는 API만 허용(토큰 없으면 방침 §8 문의처), 소셜 전용 계정은 재인증 없이 확인 문구만으로 탈퇴, 인증 사진 삭제 실패 시 고아 파일(정리 작업 없음), 교착 창 2개는 503 후 재시도, 보관 기간의 법적 근거 미확인(공개 운영 전 전문가 검토), 가입 시 동의 기록 없음, 탈퇴 속도 제한은 메모리. 상세는 `wiki/decisions/withdraw-privacy-design.md`.
 - 프로필·소셜 연결 한계(2026-10-13): 연결 확정 코드·티켓·속도 제한이 메모리(단일 인스턴스)다. 같은 이름 쿠키라 탭 A의 연결 시작과 탭 B의 소셜 로그인이 겹치면 A 콜백이 INVALID_STATE가 된다. 티켓이 URL 쿼리에 실리고(1회용·60초), JWT 클레임에 자리표시 이메일 원문이 남는다(화면에는 안 나옴). 비밀번호·이메일 변경과 소셜 가입자의 비밀번호 설정은 없다. 실제 제공자 키로 미검증.
 - 소셜 로그인 한계(2026-10-12): 실제 카카오·구글·네이버 키로 미검증(카카오 PKCE·is_email_verified, 네이버 client_secret 필수 여부 등), 로그인 코드·속도 제한·사용된 state는 메모리(단일 인스턴스), 프록시 뒤 배포 때 `server.forward-headers-strategy` 필요, 일반 가입에 이메일 인증이 없어 타인 이메일을 먼저 쓰면 그 사람의 소셜 로그인이 EMAIL_EXISTS로 막힌다(기존 한계), 기존 계정에 소셜을 붙이는 연결 UI는 없다.

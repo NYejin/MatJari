@@ -67,8 +67,11 @@ public class PerformancePreviewService {
     private final int userPerMinute;
     private final int sitePerMinute;
     private final Semaphore concurrency;
+    private final boolean posterEnabled;
+    private final int posterPerMinute;
     private final Map<Object, ArrayDeque<Long>> userWindows = new ConcurrentHashMap<>();
     private final Map<Object, ArrayDeque<Long>> siteWindows = new ConcurrentHashMap<>();
+    private final Map<Object, ArrayDeque<Long>> posterWindows = new ConcurrentHashMap<>();
     private final Map<String, CacheEntry> cache;
 
     public PerformancePreviewService(SourceKeyResolver sourceKeyResolver, PageFetcher pageFetcher, Clock clock,
@@ -76,7 +79,11 @@ public class PerformancePreviewService {
                                      @Value("${seatswap.linkinfo.cache-max-entries:200}") int cacheMaxEntries,
                                      @Value("${seatswap.linkinfo.user-per-minute:10}") int userPerMinute,
                                      @Value("${seatswap.linkinfo.site-per-minute:30}") int sitePerMinute,
-                                     @Value("${seatswap.linkinfo.max-concurrent:4}") int maxConcurrent) {
+                                     @Value("${seatswap.linkinfo.max-concurrent:4}") int maxConcurrent,
+                                     @Value("${seatswap.poster.enabled:true}") boolean posterEnabled,
+                                     @Value("${seatswap.poster.user-per-minute:60}") int posterPerMinute) {
+        this.posterEnabled = posterEnabled;
+        this.posterPerMinute = posterPerMinute;
         this.sourceKeyResolver = sourceKeyResolver;
         this.pageFetcher = pageFetcher;
         this.clock = clock;
@@ -94,6 +101,34 @@ public class PerformancePreviewService {
 
     public PerformancePreviewResponse preview(Long userId, String sourceUrl) {
         acquireUserSlot(userId);
+        return load(sourceUrl);
+    }
+
+    /**
+     * 공연 상세 화면용 포스터 주소. 미리보기와 같은 캐시·사이트 속도 제한·동시 실행 제한을 쓰되 사용자 제한은 따로(분당 posterPerMinute)다.
+     * 반환은 이미지 주소 문자열 하나뿐이며(없으면 null) 서버는 이미지를 요청·저장하지 않는다. 설정 {@code seatswap.poster.enabled=false}면 아무 요청도 없이 null.
+     */
+    public String poster(Long userId, String sourceUrl) {
+        if (!posterEnabled) {
+            return null;
+        }
+        long retryAfter = acquireWindow(posterWindows, userId, posterPerMinute);
+        if (retryAfter > 0) {
+            return null; // 포스터는 부가 정보라 제한에 걸리면 조용히 없는 것으로 둔다
+        }
+        try {
+            return load(sourceUrl).posterUrl();
+        } catch (SeatSwapException e) {
+            return null;
+        }
+    }
+
+    private PerformancePreviewResponse load(String sourceUrl) {
+        PerformancePreviewResponse r = loadRaw(sourceUrl);
+        return posterEnabled ? r : r.withoutPoster();
+    }
+
+    private PerformancePreviewResponse loadRaw(String sourceUrl) {
         String key = sourceKeyResolver.resolve(sourceUrl); // 형식 오류는 FieldValidationException(400)
         Matcher m = KEY.matcher(key);
         if (!m.matches()) {
@@ -117,7 +152,8 @@ public class PerformancePreviewService {
             LinkInfoParsers.ParsedInfo info = LinkInfoParsers.parse(site, doc);
             PerformancePreviewResponse response = info.title() == null
                     ? PerformancePreviewResponse.empty(STATUS_NO_INFO, site)
-                    : PerformancePreviewResponse.ok(site, info.title(), info.venue(), info.periodStart(), info.periodEnd());
+                    : PerformancePreviewResponse.ok(site, info.title(), info.venue(), info.periodStart(), info.periodEnd(),
+                            LinkInfoParsers.posterUrl(site, doc));
             cachePut(key, response);
             return response;
         } catch (RuntimeException e) { // FetchFailedException 및 예상 밖 파싱 오류: 미리보기는 실패해도 등록을 막지 않는다

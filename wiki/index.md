@@ -34,11 +34,13 @@ SeatSwap 프로젝트의 결정 근거, 함정, 조사 결과, 용어를 모은 
 
 - [회원탈퇴·개인정보처리방침 설계 근거](decisions/withdraw-privacy-design.md): 익명화 범위와 이유(채팅·교환 이력·신고·제재는 보존), 물리 삭제·채팅 삭제 등 대안 비교, 탈퇴 잠금 순서를 users 먼저에서 뒤로 바꾼 이유, 보관 기간 조사 요약, 한계 8개와 추가 관찰.
 
+- [공연 포스터 표시 설계 근거](decisions/poster-display-design.md): 서버가 이미지를 저장·프록시하지 않고 주소만 읽어 인라인 링크로 보여 주는 이유, DB에 저장하지 않고 재조회한 이유, 택하지 않은 대안, 로드 실패 시 숨김과 대체 링크 없음, 저작권 조사 요약과 미확인 항목, 한계.
+
 ## 함정
 
 - [프런트 함정](gotchas/frontend-react-pitfalls.md): StrictMode에서 중단된 요청이 가드를 풀지 못해 로딩에 머무는 문제(신고 상세·소셜 콜백), 객체 키 조회의 `__proto__` 함정.
 
-- [링크 가져오기 함정](gotchas/link-fetch-pitfalls.md): 티켓팅 사이트 robots.txt가 오류 페이지를 돌려주는 경우, Java HttpClient는 IP 고정이 안 되는 점.
+- [링크 가져오기 함정](gotchas/link-fetch-pitfalls.md): 티켓팅 사이트 robots.txt가 오류 페이지를 돌려주는 경우, Java HttpClient는 IP 고정이 안 되는 점, 포스터 주소의 noimage 자리표시와 핫링크 차단.
 
 - [잠금 순서와 인덱스·유니크 키 함정](gotchas/lock-order-and-index-pitfalls.md): 교환 도메인(MySQL)의 잠금 순서 규약, 인덱스·유니크 키로 겪은 교착, Hibernate flush 순서와 유니크 키, 알림 쓰기 규칙과 dedup_key 함정, 교환 완료 갭 잠금 교착 가능성, 채팅 전송 잠금·읽음 포인터 교착·조회 힌트·속도 제한 함정, 관리자 기능의 좌석 키 보조 인덱스 FOR UPDATE 교착과 PENDING 전용 생성 컬럼 유니크, 차단 후보 제외 NOT EXISTS 분리, READ_COMMITTED 활성 제재 중복 직렬화, users 잠금 금지, 예약 제안/수락의 upsert 대 삭제 교착(PK 먼저)과 벌크 JPQL의 제안 컬럼 우회, 프로필·소셜 연결(V16)의 users 잠금 순서와 확정 코드 소비 순서, 회원 탈퇴(V17)의 users 잠금 위치와 교착 창 2개.
 

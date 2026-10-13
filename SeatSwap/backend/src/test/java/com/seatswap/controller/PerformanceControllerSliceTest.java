@@ -239,11 +239,11 @@ class PerformanceControllerSliceTest {
     void previewOkShape() throws Exception {
         when(previewService.preview(1L, "https://ticket.yes24.com/Perf/1")).thenReturn(
                 PerformancePreviewResponse.ok("yes24", "공연 A", "홀", java.time.LocalDate.of(2026, 10, 11),
-                        java.time.LocalDate.of(2026, 10, 13)));
+                        java.time.LocalDate.of(2026, 10, 13), "https://tkfile.yes24.com/p.jpg"));
         mockMvc.perform(auth(get("/api/performances/preview").param("sourceUrl", "https://ticket.yes24.com/Perf/1")))
                 .andExpect(status().isOk())
                 .andExpect(content().json("{\"status\":\"OK\",\"site\":\"yes24\",\"title\":\"공연 A\","
-                        + "\"venueName\":\"홀\",\"periodStart\":\"2026-10-11\",\"periodEnd\":\"2026-10-13\"}", true));
+                        + "\"venueName\":\"홀\",\"periodStart\":\"2026-10-11\",\"periodEnd\":\"2026-10-13\",\"posterUrl\":\"https://tkfile.yes24.com/p.jpg\"}", true));
     }
 
     @Test

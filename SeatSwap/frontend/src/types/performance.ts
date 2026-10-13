@@ -43,6 +43,8 @@ export interface PerformancePreview {
   /** yyyy-MM-dd */
   periodStart: string | null;
   periodEnd: string | null;
+  /** 포스터 이미지 주소(허용 호스트의 https). 서버는 이미지를 받지 않는다. 없으면 null */
+  posterUrl: string | null;
 }
 
 export interface PerformanceListParams {

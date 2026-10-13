@@ -36,7 +36,7 @@
 
 ## 현재 구현 현황
 
-DB는 Flyway V1~V17, 20개 테이블(social_account·performance_edit_proposal·seat_claim·user_block·abuse_report·user_sanction 포함, users·performance·performance_session·ticket·exchange_request·exchange_want_range·exchange_want_seat·exchange_want_session·exchange_match·exchange_ticket_lock·exchange_history·notification·chat_message·chat_read_state). **구현 완료**: 가입·로그인(JWT, 소셜 로그인 카카오·구글·네이버 V14), 마이페이지 닉네임 수정과 소셜 계정 연결·해제(V16), 회원탈퇴(V17)·개인정보처리방침(`/privacy`)·푸터, 공연 등록·목록·상세(등록 후 수정 불가), 티켓 등록·내리기, 교환 희망 조건(범위별 추가금·소프트 삭제), 후보 조회, 제안·거절·채팅 종료, 예약 제안·예약 수락·예약 거절·제안 철회·예약 취소(채팅 화면 예약 블록, V15), 교환 수락→교환 완료(기존 티켓 EXCHANGED+새 티켓, 교환 이력 기록, 교환된 좌석 안내), 내 매칭 조회, 교환 화면 5개(티켓 등록·내 티켓·희망 조건 폼·후보 목록·내 매칭), 알림 6종(새 제안·예약 제안·예약 제안 거절·상대 예약 수락·상대 예약 취소·새 채팅 메시지: 헤더 벨 말풍선, 알림 페이지, 읽은 알림 삭제, STOMP 실시간 푸시 + 연결이 끊겼을 때만 30초 폴링. 벨은 데스크톱에서 '내 매칭' 오른쪽, 햄버거 폭에서는 햄버거 왼쪽), 매칭별 채팅(채팅 화면에서 REST로 보내고 STOMP 사용자 큐로 받기, 읽음 표시, 종료 후 읽기 전용), 링크 기반 공연정보 자동 입력(제목·공연장·공연 기간, 회차 시각 제외), 관리자 페이지(공연 수정 제안 처리·내 티켓 인증 확인), 교환 이력 조회(`GET /api/exchange/history`, 마이페이지 '교환 이력' 화면 `/exchange/history`: 본인 이력만 최신순, 교환 당시 스냅샷, 읽기 전용). 차단·신고·이용 정지와 관리자 신고 관리. **미구현**: 7일 경과 알림. 다음 마이그레이션 번호는 V18부터. 상세 수치는 [STATS.md](STATS.md), 이력은 [HISTORY.md](HISTORY.md).
+DB는 Flyway V1~V17, 20개 테이블(social_account·performance_edit_proposal·seat_claim·user_block·abuse_report·user_sanction 포함, users·performance·performance_session·ticket·exchange_request·exchange_want_range·exchange_want_seat·exchange_want_session·exchange_match·exchange_ticket_lock·exchange_history·notification·chat_message·chat_read_state). **구현 완료**: 가입·로그인(JWT, 소셜 로그인 카카오·구글·네이버 V14), 마이페이지 닉네임 수정과 소셜 계정 연결·해제(V16), 회원탈퇴(V17)·개인정보처리방침(`/privacy`)·푸터, 공연 등록·목록·상세(등록 후 수정 불가), 티켓 등록·내리기, 교환 희망 조건(범위별 추가금·소프트 삭제), 후보 조회, 제안·거절·채팅 종료, 예약 제안·예약 수락·예약 거절·제안 철회·예약 취소(채팅 화면 예약 블록, V15), 교환 수락→교환 완료(기존 티켓 EXCHANGED+새 티켓, 교환 이력 기록, 교환된 좌석 안내), 내 매칭 조회, 교환 화면 5개(티켓 등록·내 티켓·희망 조건 폼·후보 목록·내 매칭), 알림 6종(새 제안·예약 제안·예약 제안 거절·상대 예약 수락·상대 예약 취소·새 채팅 메시지: 헤더 벨 말풍선, 알림 페이지, 읽은 알림 삭제, STOMP 실시간 푸시 + 연결이 끊겼을 때만 30초 폴링. 벨은 데스크톱에서 '내 매칭' 오른쪽, 햄버거 폭에서는 햄버거 왼쪽), 매칭별 채팅(채팅 화면에서 REST로 보내고 STOMP 사용자 큐로 받기, 읽음 표시, 종료 후 읽기 전용), 링크 기반 공연정보 자동 입력(제목·공연장·공연 기간, 회차 시각 제외), 공연 포스터 표시(DB 변경 없음), 관리자 페이지(공연 수정 제안 처리·내 티켓 인증 확인), 교환 이력 조회(`GET /api/exchange/history`, 마이페이지 '교환 이력' 화면 `/exchange/history`: 본인 이력만 최신순, 교환 당시 스냅샷, 읽기 전용). 차단·신고·이용 정지와 관리자 신고 관리. **미구현**: 7일 경과 알림. 다음 마이그레이션 번호는 V18부터. 상세 수치는 [STATS.md](STATS.md), 이력은 [HISTORY.md](HISTORY.md).
 
 ## 제품·교환 규칙 (확정)
 
@@ -105,6 +105,15 @@ DB는 Flyway V1~V17, 20개 테이블(social_account·performance_edit_proposal·
 - 대상은 YES24(`ticket.yes24.com/Perf/{id}`, 모바일 `m.ticket.yes24.com/Perf/{id}`와 `PerfInfo.aspx?IdPerf={id}`도 같은 공연으로 인식)·티켓링크(`/product/{id}`)는 JSON-LD `Event`, 멜론 PC(`prodId`)는 본문 HTML이다. 멜론 모바일 주소는 404라 미지원이다. 인터파크는 robots.txt 때문에 제외(UNSUPPORTED_SITE)하며, 안내 문구에서도 지원 사이트를 'YES24·티켓링크·멜론티켓'으로만 밝힌다. 로그인·캡차 우회와 내부 API 호출은 하지 않는다.
 - **SSRF 방어 = 사용자 URL을 요청하지 않는다**: `SourceKeyResolver` 키가 `yes24|ticketlink|melon:{숫자id}`일 때만 고정 템플릿으로 URL을 만들어 요청한다. 리다이렉트 불가, 공인 IP만, https, 본문 2 MiB·10초 제한, 사용자당 분당 10회(429 `PREVIEW_RATE_LIMITED`)·사이트당 분당 30회·동시 4개·10분 캐시. 연결 IP 고정(pinning)은 하지 않는다(대상이 고정 공개 도메인 3개라는 전제).
 - 구현은 `service/linkinfo/`(PageFetcher·LinkInfoParsers·PerformancePreviewService). 상세는 [wiki/decisions/link-autofill-design.md](wiki/decisions/link-autofill-design.md).
+
+### 공연 포스터 표시 (구현됨, DB 변경 없음)
+- **서버는 포스터 이미지를 저장·복제·프록시하지 않는다.** 링크 페이지의 `og:image`(없으면 JSON-LD `Event.image`의 첫 값)에서 **이미지 주소 문자열만** 읽어 응답에 담고, 브라우저가 원 사이트에서 직접 불러온다(인라인 링크). DB에도 저장하지 않는다(주소가 바뀌거나 만료될 수 있다). 등록 2단계는 미리보기 응답의 `posterUrl`을, 공연 상세는 `GET /api/performances/{id}/poster`(로그인 필요, 공연의 sourceUrl로 같은 읽기 경로를 쓴다)를 쓴다.
+- **허용 호스트(2026-10-13 실측)**: YES24 `tkfile.yes24.com`, 티켓링크 `image.toast.com`, 멜론 `cdnticket.melon.co.kr`. 사이트별로 고정하고 https만 인정한다(`//`는 https로 보정). userinfo·비표준 포트·공백·제어 문자·비ASCII 문자·2048자 초과는 거부하며, 경로에 `noimage`가 든 자리표시 이미지(YES24는 포스터가 없을 때 `_noimage.gif`를 준다)는 포스터 없음으로 처리한다.
+- **속도 제한과 스위치**: 상세용 조회는 미리보기와 같은 캐시(10분)·사이트 분당 30회·동시 4개를 쓰고, 사용자 제한은 별도(`seatswap.poster.user-per-minute`, 분당 60)다. 제한에 걸리면 429가 아니라 조용히 null이다. 설정 `seatswap.poster.enabled`(기본 true, 환경변수 `SEATSWAP_POSTER_ENABLED`)가 false면 포스터 주소를 요청하지도 응답하지도 않는다. 사이트에서 중단 요청이 오면 즉시 끈다.
+- **화면**: 공연 상세는 공연 정보 카드 오른쪽(좁은 화면은 아래), 등록 2단계는 제목·공연장 입력 오른쪽에 둔다. `PosterImage`가 주소를 프런트에서도 허용 호스트·https로 다시 검증하고 `referrerpolicy="no-referrer"`로 불러온다. 아래에 "포스터 이미지 출처: {YES24|티켓링크|멜론티켓} · 저작권은 원 권리자에게 있어요"를 텍스트로만 쓰고 새 링크는 두지 않는다.
+- **로드 실패(핫링크 차단 포함)나 주소 없음이면 포스터 영역 전체(캡션 포함)를 숨기고 대체 링크는 두지 않는다**(사용자 지시 2026-10-12). Referer 위조나 서버 대리 다운로드 같은 우회는 하지 않는다.
+- **권리 한계**: 인라인 링크의 저작권 판단에 확정 판례가 없고, 포스터의 저작물성과 티켓 3사 이용약관은 확인하지 못했다. 공개 운영 전 약관 확인과 전문가 검토가 필요하다(요구사항 문서 §7 Q-26). 삭제·표시 중단 요청은 개인정보처리방침의 문의처로 받는다(방침에는 아직 문구가 없다).
+- 상세는 [wiki/decisions/poster-display-design.md](wiki/decisions/poster-display-design.md).
 
 ### 채팅 (구현됨, V11 `chat_message`·`chat_read_state`)
 - 매칭 한 건마다 참여자 둘이 나누는 텍스트 채팅이다. 참여자가 아니면 404. 채팅은 매칭 상태(CHATTING·RESERVED·COMPLETED·CANCELED)와 무관하게 매칭 단위로 열린다.
@@ -219,16 +228,18 @@ DB는 Flyway V1~V17, 20개 테이블(social_account·performance_edit_proposal·
 
 ## 후속 작업 목록
 
-사용자가 정한 6개 기능(채팅, 실시간 알림 푸시, 링크 자동 입력, 관리자 페이지, 교환 이력 조회, 차단·신고)은 모두 완료됐다. 소셜 로그인(카카오·구글·네이버, V14)과 예약 제안·수락·채팅 알림(V15)도 구현했다(미병합). 남은 것: 7일 경과 알림(미구현), 브라우저 수동 점검, `trust_score` 컬럼 정리 여부 결정, 실제 제공자 키 연동 검증.
+사용자가 정한 6개 기능(채팅, 실시간 알림 푸시, 링크 자동 입력, 관리자 페이지, 교환 이력 조회, 차단·신고)은 모두 완료됐다. 소셜 로그인(카카오·구글·네이버, V14)과 예약 제안·수락·채팅 알림(V15)도 구현했다(미병합). 남은 것: 회차 정보 자동 채우기(요청됨), 7일 경과 알림(미구현), 브라우저 수동 점검, `trust_score` 컬럼 정리 여부 결정, 실제 제공자 키 연동 검증.
 
 - **구현 완료(2026-10-13, V15, 미병합)**: 예약 방식 변경(예약 버튼은 채팅 화면에서만, 예약 제안 → 상대 수락으로 RESERVED), 채팅 새 메시지 알림(헤더 벨), 벨 위치(데스크톱은 '내 매칭' 오른쪽).
 - **구현 완료(2026-10-13, V16, 미병합)**: 마이페이지 닉네임 수정·소셜 계정 연결·해제.
 - **구현 완료(2026-10-13, V17, 미병합)**: 회원탈퇴·개인정보처리방침(`/privacy`)·푸터.
-- **요청됨·미착수(사용자 요청)**: 포스터 표시, 회차 정보 자동 채우기. 그 뒤 7일 경과 알림.
+- **구현 완료(2026-10-13, DB 변경 없음, 미병합)**: 공연 포스터 표시(`feature/poster`, '공연 포스터 표시' 절).
+- **요청됨·미착수(사용자 요청)**: 회차 정보 자동 채우기. 그 뒤 7일 경과 알림.
 - **회원탈퇴 후속**: 정지 중 사용자가 토큰 없이도 탈퇴할 수 있는 경로(정지 중 제한 로그인), 소셜 전용 계정의 재인증(지금은 확인 문구만), 인증 사진 삭제 실패 시 정리 작업, 채팅 보관 기간(지금은 운영 기간 동안), 보관 기간의 법적 근거 검토(공개 운영 전 전문가 검토 필요).
 
 ## 확인 필요 (열린 질문만)
 
 - (해결) 신고 처리용 최소 관리자 기능의 범위는 신고 목록·상세(채팅 근거)·처리·이용 정지·차단 현황으로 확정해 구현했다.
 - 회원탈퇴 정책 질문(소셜 재인증, 보관 기간 법적 근거)은 wiki/decisions/withdraw-privacy-design.md의 한계 목록을 따른다.
+- 포스터 표시의 약관·저작권 확인(요구사항 문서 §7 Q-26): 공개 운영 전에 확인한다. 상세는 wiki/decisions/poster-display-design.md의 한계.
 - 요구사항 문서 §7의 미해결 항목(Q-2~4, Q-6~8, Q-11~13): [후속요구사항 문서](산출물/04_요구사항정의서/후속요구사항_제안알림_교환됨_공연정보입력.md) §7 참고.

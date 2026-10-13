@@ -52,3 +52,6 @@ llm-wiki 스킬, researcher·wiki-curator 에이전트, `scripts/lint-wiki.mjs`�
 
 ## [2026-10-13] ingest | 회원탈퇴·개인정보처리방침 반영
 회원탈퇴(V17, `feature/withdraw`, 미병합)를 반영했다. 결정 페이지 `withdraw-privacy-design.md`를 추가해 익명화 범위와 이유, 대안 비교, 탈퇴 잠금 순서(users 먼저 폐기), 보관 기간 조사 요약, 한계 8개와 추가 관찰을 적었다. 함정 페이지 15절, 용어집 '회원 탈퇴' 절, 색인을 갱신했다.
+
+## [2026-10-13] ingest | 공연 포스터 표시 반영
+공연 포스터 표시(DB 변경 없음, 브랜치 `feature/poster`, 미병합) 구현 사실을 반영했다. 결정 페이지 `poster-display-design.md`를 추가하고, 함정 페이지 `link-fetch-pitfalls.md`에 3절(noimage 자리표시, 핫링크 차단, CDN 변경)을 더했다. 목차에 결정 페이지를 등록했다. 허용 호스트는 2026-10-13 한 시점의 실측이고, 약관 확인이 빠져 있어 confidence는 medium이다.

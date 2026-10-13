@@ -163,6 +163,12 @@ class StompAuthChannelInterceptorTest {
         assertThatThrownBy(() -> interceptor.preSend(frame(StompCommand.CONNECT, "s4", null, null, "Bearer refresh"), null))
                 .isInstanceOf(StompRejectedException.class);
 
+        socket("s4b");
+        validToken("wd", 98L, Duration.ofMinutes(1));
+        when(tokens.isWithdrawToken("wd")).thenReturn(true);   // 정지 중 로그인이 주는 탈퇴 전용 토큰은 STOMP 에 쓸 수 없다
+        assertThatThrownBy(() -> interceptor.preSend(frame(StompCommand.CONNECT, "s4b", null, null, "Bearer wd"), null))
+                .isInstanceOf(StompRejectedException.class);
+
         socket("s5");
         validToken("ghost", 99L, Duration.ofMinutes(1));
         when(users.loadUserById(99L)).thenThrow(new UsernameNotFoundException("none"));

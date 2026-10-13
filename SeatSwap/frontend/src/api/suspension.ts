@@ -8,6 +8,11 @@ const NOTICE_KEY = "suspensionNotice";
 export interface Suspension {
   /** "yyyy-MM-ddTHH:mm:ss"(KST) 또는 null(무기한) */
   until: string | null;
+  /**
+   * 로그인에서 비밀번호가 맞았을 때만 오는 탈퇴 전용 단기 토큰. 회원탈퇴(DELETE /api/users/me) 외에는 쓸 수 없다.
+   * 저장하지 않고 로그인 화면의 메모리에만 둔다.
+   */
+  withdrawToken?: string | null;
 }
 
 /** 오류가 ACCOUNT_SUSPENDED 403이면 until을, 아니면 null */
@@ -17,7 +22,10 @@ export function parseSuspension(error: unknown): Suspension | null {
   if (typeof data !== "object" || data === null) return null;
   const body = data as Record<string, unknown>;
   if (body.code !== "ACCOUNT_SUSPENDED") return null;
-  return { until: typeof body.until === "string" && body.until ? body.until : null };
+  return {
+    until: typeof body.until === "string" && body.until ? body.until : null,
+    withdrawToken: typeof body.withdrawToken === "string" && body.withdrawToken ? body.withdrawToken : null,
+  };
 }
 
 /** "이용이 정지된 계정입니다. 2026년 10월 19일 오후 3:05까지" / "이용이 정지된 계정입니다. 무기한" */

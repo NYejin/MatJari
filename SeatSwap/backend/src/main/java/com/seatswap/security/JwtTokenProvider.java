@@ -24,19 +24,23 @@ public class JwtTokenProvider {
     private static final String CLAIM_TYPE = "type";
     private static final String TYPE_ACCESS = "access";
     private static final String TYPE_REFRESH = "refresh";
+    private static final String TYPE_WITHDRAW = "withdraw";
 
     private final SecretKey key;
     private final long accessTokenValidityMs;
     private final long refreshTokenValidityMs;
+    private final long withdrawTokenValidityMs;
 
     public JwtTokenProvider(
             @Value("${jwt.secret}") String secret,
             @Value("${jwt.access-token-validity-ms}") long accessTokenValidityMs,
-            @Value("${jwt.refresh-token-validity-ms}") long refreshTokenValidityMs
+            @Value("${jwt.refresh-token-validity-ms}") long refreshTokenValidityMs,
+            @Value("${jwt.withdraw-token-validity-ms:600000}") long withdrawTokenValidityMs
     ) {
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         this.accessTokenValidityMs = accessTokenValidityMs;
         this.refreshTokenValidityMs = refreshTokenValidityMs;
+        this.withdrawTokenValidityMs = withdrawTokenValidityMs;
     }
 
     public String generateAccessToken(Long userId, String email) {
@@ -45,6 +49,14 @@ public class JwtTokenProvider {
 
     public String generateRefreshToken(Long userId, String email) {
         return buildToken(userId, email, TYPE_REFRESH, refreshTokenValidityMs);
+    }
+
+    /**
+     * 이용 정지 중인 계정이 비밀번호를 확인한 뒤 받는 탈퇴 전용 토큰(기본 10분). 회원탈퇴(DELETE /api/users/me) 외의 어떤 API·STOMP 에도 쓸 수 없다.
+     * JwtAuthenticationFilter 가 이 요청에서만 인증으로 인정하고, 재발급(refresh)·STOMP 는 type 이 달라 거부한다.
+     */
+    public String generateWithdrawToken(Long userId, String email) {
+        return buildToken(userId, email, TYPE_WITHDRAW, withdrawTokenValidityMs);
     }
 
     private String buildToken(Long userId, String email, String type, long validityMs) {
@@ -68,6 +80,10 @@ public class JwtTokenProvider {
         } catch (JwtException | IllegalArgumentException e) {
             return false;
         }
+    }
+
+    public boolean isWithdrawToken(String token) {
+        return TYPE_WITHDRAW.equals(parseClaims(token).get(CLAIM_TYPE, String.class));
     }
 
     public boolean isRefreshToken(String token) {

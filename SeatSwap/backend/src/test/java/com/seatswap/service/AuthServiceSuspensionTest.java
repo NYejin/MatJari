@@ -59,6 +59,24 @@ class AuthServiceSuspensionTest {
     }
 
     @Test
+    void 정지_중_로그인은_비밀번호가_맞았을_때만_탈퇴_전용_토큰을_응답에_싣는다() {
+        when(passwordEncoder.matches("password123", "encoded")).thenReturn(true);
+        doThrow(new AccountSuspendedException(null)).when(checker).assertNotSuspended(5L);
+        when(jwt.generateWithdrawToken(5L, "a@b.com")).thenReturn("wd-token");
+
+        assertThatThrownBy(() -> authService.login(new LoginRequest("a@b.com", "password123")))
+                .isInstanceOfSatisfying(AccountSuspendedException.class,
+                        e -> assertThat(e.toBody()).containsEntry("withdrawToken", "wd-token").containsEntry("code", "ACCOUNT_SUSPENDED"));
+        verify(jwt, never()).generateAccessToken(5L, "a@b.com");
+        verify(jwt, never()).generateRefreshToken(5L, "a@b.com");
+    }
+
+    @Test
+    void 정지_예외_본문은_토큰이_없으면_withdrawToken_키가_없다() {
+        assertThat(new AccountSuspendedException(null).toBody()).doesNotContainKey("withdrawToken");
+    }
+
+    @Test
     void 비밀번호가_틀리면_정지_여부를_드러내지_않고_일반_로그인_실패다() {
         when(passwordEncoder.matches("password123", "encoded")).thenReturn(false);
 

@@ -218,4 +218,37 @@ class JwtAuthenticationFilterTest {
         assertThat(runSuspended("PATCH", "/api/users/me", writer3)).isNull();
         verify(writer3).writeSuspended(any(), any());
     }
+
+    /** 탈퇴 전용 토큰(정지 중 로그인이 주는 단기 토큰)으로 요청을 보내 인증 결과를 본다. */
+    private Authentication runWithdrawToken(String method, String path) throws Exception {
+        when(tokenProvider.validateToken("wd")).thenReturn(true);
+        when(tokenProvider.isWithdrawToken("wd")).thenReturn(true);
+        when(tokenProvider.getUserId("wd")).thenReturn(5L);
+        org.mockito.Mockito.doReturn(AuthUserPrincipal.of(5L, "s@b.com")).when(userDetailsService).loadUserByIdAllowingSuspended(5L);
+        MockHttpServletRequest request = new MockHttpServletRequest(method, path);
+        request.addHeader("Authorization", "Bearer wd");
+        AtomicReference<Authentication> seen = new AtomicReference<>();
+        MockFilterChain chain = new MockFilterChain() {
+            @Override
+            public void doFilter(jakarta.servlet.ServletRequest req, jakarta.servlet.ServletResponse res) {
+                seen.set(SecurityContextHolder.getContext().getAuthentication());
+            }
+        };
+        filter.doFilter(request, new MockHttpServletResponse(), chain);
+        return seen.get();
+    }
+
+    @Test
+    void withdrawTokenAuthenticatesOnlyForWithdrawRequest() throws Exception {
+        Authentication auth = runWithdrawToken("DELETE", "/api/users/me");
+        assertThat(auth).isNotNull();
+        assertThat(((AuthUserPrincipal) auth.getPrincipal()).userId()).isEqualTo(5L);
+
+        SecurityContextHolder.clearContext();
+        assertThat(runWithdrawToken("GET", "/api/users/me")).isNull();
+        assertThat(runWithdrawToken("PATCH", "/api/users/me")).isNull();
+        assertThat(runWithdrawToken("DELETE", "/api/users/me/social/kakao")).isNull();
+        assertThat(runWithdrawToken("GET", "/api/tickets")).isNull();
+        verify(userDetailsService, never()).loadUserById(any());
+    }
 }

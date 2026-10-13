@@ -20,7 +20,8 @@ import java.io.IOException;
 
 /**
  * Authorization: Bearer {accessToken} 헤더를 읽어 SecurityContext에 인증 정보(AuthUserPrincipal)를 채운다.
- * refresh token으로는 일반 API 접근을 허용하지 않는다 (isRefreshToken 체크).
+ * 액세스 토큰만 일반 API 를 연다(refresh·탈퇴 전용 토큰은 type 클레임이 달라 거절). 탈퇴 전용 토큰은 정지 중 로그인이 주는 단기 토큰이며
+ * DELETE /api/users/me 에서만 인증으로 인정한다.
  * 토큰이 없거나 무효이면 인증 정보를 채우지 않고 통과시킨다 — 401 응답은 JwtAuthenticationEntryPoint 책임.
  */
 @Slf4j
@@ -52,15 +53,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (header != null && header.startsWith(PREFIX)) {
             String token = header.substring(PREFIX.length());
             try {
-                if (jwtTokenProvider.validateToken(token) && !jwtTokenProvider.isRefreshToken(token)) {
+                boolean valid = jwtTokenProvider.validateToken(token);
+                if (valid && jwtTokenProvider.isWithdrawToken(token)) {
+                    if (isWithdraw(request)) {
+                        authenticate(request, userDetailsService.loadUserByIdAllowingSuspended(jwtTokenProvider.getUserId(token)));
+                    }
+                } else if (valid && !jwtTokenProvider.isRefreshToken(token)) {
                     // 식별은 토큰 sub(userId) 기준 — email 클레임은 변경될 수 있어 식별자로 쓰지 않는다
                     Long userId = jwtTokenProvider.getUserId(token);
                     AuthUserPrincipal principal = userDetailsService.loadUserById(userId);
 
-                    UsernamePasswordAuthenticationToken authentication =
-                            new UsernamePasswordAuthenticationToken(principal, null, principal.authorities());
-                    authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                    SecurityContextHolder.getContext().setAuthentication(authentication);
+                    authenticate(request, principal);
                 }
             } catch (AccountSuspendedException e) {
                 // 이용 정지: 401 이 아니라 403 ACCOUNT_SUSPENDED (프론트가 토큰 재발급을 시도하지 않게 구분).
@@ -70,10 +73,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     try {
                         Long userId = jwtTokenProvider.getUserId(token);
                         AuthUserPrincipal principal = userDetailsService.loadUserByIdAllowingSuspended(userId);
-                        UsernamePasswordAuthenticationToken authentication =
-                                new UsernamePasswordAuthenticationToken(principal, null, principal.authorities());
-                        authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                        SecurityContextHolder.getContext().setAuthentication(authentication);
+                        authenticate(request, principal);
                     } catch (UsernameNotFoundException ignored) {
                         // 그 사이 탈퇴됨 -> 미인증(401)
                     }
@@ -93,6 +93,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private static void authenticate(HttpServletRequest request, AuthUserPrincipal principal) {
+        UsernamePasswordAuthenticationToken authentication =
+                new UsernamePasswordAuthenticationToken(principal, null, principal.authorities());
+        authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+        SecurityContextHolder.getContext().setAuthentication(authentication);
     }
 
     private static boolean isLogout(HttpServletRequest request) {

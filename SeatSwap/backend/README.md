@@ -503,6 +503,8 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 
 `until`은 기간이 있으면 `yyyy-MM-ddTHH:mm:ss`, 무기한이면 null이다. 로그인(비밀번호가 맞은 뒤에만 검사)·토큰 재발급도 같은 403이다. `/api/auth/logout`은 정지 중에도 204로 동작한다.
 
+**정지 중 제한 로그인(탈퇴 전용 토큰)**: `POST /api/auth/login`에서 **비밀번호가 맞고 정지 중이면** 같은 403 본문에 `"withdrawToken":"…"`이 더해진다(비밀번호가 틀리면 일반 로그인 실패라 정지 여부도 알리지 않는다). 이 토큰은 JWT `type=withdraw`, 유효 10분(`jwt.withdraw-token-validity-ms`, 환경변수 `JWT_WITHDRAW_TOKEN_VALIDITY_MS`)이고, `JwtAuthenticationFilter`가 `DELETE /api/users/me`에서만 인증으로 인정한다(다른 경로는 미인증 401, `/api/auth/refresh`·STOMP CONNECT는 거부). 탈퇴 자체의 비밀번호 확인·속도 제한·처리는 일반 탈퇴와 같다. 소셜 전용 계정은 비밀번호 로그인이 없어 이 경로가 없다.
+
 ### 차단 규칙
 - 차단은 **방향이 하나**(blocker → blocked)지만 **효과는 양방향**이다. 누가 차단했든 ① 서로 후보에서 빠지고 ② 새 제안은 막힌다(후보 재검증 422 `NOT_A_CANDIDATE`) ③ 둘 사이의 열린 매칭(CHATTING·RESERVED)은 차단 시점에 시스템 취소(`canceled_by_id` NULL)되고 예약 잠금이 풀린다 ④ 취소된 매칭의 채팅은 읽기 전용이다 ⑤ COMPLETED 매칭과 교환 이력은 그대로다.
 - 차단당한 쪽에는 알리지 않는다. 열린 매칭은 기존 취소 표시(상대가 채팅을 종료했어요와 같은 문구)로만 보인다.

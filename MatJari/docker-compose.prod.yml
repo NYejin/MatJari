@@ -2,7 +2,8 @@
 #  - 밖으로 열리는 포트는 web(nginx) 하나뿐이다. DB(3306)·백엔드(8080)는 컨테이너 내부 네트워크에서만 쓴다.
 #  - 프런트는 빌드된 정적 파일을 nginx 가 서빙하고 /api, /ws 를 백엔드로 넘긴다(같은 출처).
 #  - SQL 로그를 끄고, 필수 비밀값이 비어 있으면 기동하지 않는다.
-# 실행: cp .env.example .env 로 값을 채운 뒤  docker compose -f docker-compose.prod.yml up -d --build
+# 실행: cp .env.example .env 로 값을 채운 뒤  docker compose -f docker-compose.prod.yml up -d
+# (이미지는 ghcr.io 에서 받는다. 소스에서 직접 빌드하려면 -f docker-compose.build.yml 을 덧붙이고 up -d --build)
 # 공개 인터넷에 열 때(Cloudflare Tunnel):  ... --profile tunnel up -d --build  (.env 의 TUNNEL_TOKEN 필요)
 name: matjari-prod
 services:
@@ -25,7 +26,8 @@ services:
       retries: 20
 
   backend:
-    build: ./backend
+    # GitHub CI 가 master 병합 때 만들어 ghcr.io 에 올린 이미지(소스 빌드는 docker-compose.build.yml 을 덧붙여 쓴다)
+    image: ${IMAGE_PREFIX:-ghcr.io/nyejin}/matjari-backend:${IMAGE_TAG:-latest}
     restart: unless-stopped
     depends_on:
       mysql:
@@ -64,14 +66,7 @@ services:
       - upload_data:/data/seat-claims
 
   web:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile.prod
-      args:
-        VITE_API_BASE_URL: /api
-        VITE_PRIVACY_OPERATOR: ${VITE_PRIVACY_OPERATOR:-}
-        VITE_PRIVACY_CONTACT_EMAIL: ${VITE_PRIVACY_CONTACT_EMAIL:-}
-        VITE_PRIVACY_EFFECTIVE_DATE: ${VITE_PRIVACY_EFFECTIVE_DATE:-}
+    image: ${IMAGE_PREFIX:-ghcr.io/nyejin}/matjari-web:${IMAGE_TAG:-latest}
     restart: unless-stopped
     depends_on:
       - backend

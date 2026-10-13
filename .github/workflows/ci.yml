@@ -1,5 +1,6 @@
 # CI: PR과 master 푸시마다 백엔드 테스트(실제 MySQL 통합 테스트 포함)와 프런트 빌드를 GitHub 서버에서 돌린다.
-# 배포(deploy.yml)는 master 푸시의 이 CI가 성공한 뒤에만 내 PC에서 실행된다.
+# 배포: master 푸시에서 테스트가 모두 통과하면 도커 이미지(backend·web)를 ghcr.io 에 올린다. 내 PC 는 이 이미지를 가져가
+# 교체할 뿐 GitHub 의 코드를 실행하지 않는다(MatJari/deploy/update.ps1, self-hosted runner 없음).
 name: CI
 
 on:
@@ -12,7 +13,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # PR 은 새 푸시가 오면 이전 실행을 취소하지만 master 는 이미지 푸시가 중간에 끊기지 않게 취소하지 않는다
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   backend:
@@ -83,3 +85,50 @@ jobs:
         run: |
           npm ci
           npm run build
+
+  # master 푸시에서만, 테스트와 빌드가 통과한 뒤에만 실행. PR·포크에서는 실행되지 않으므로 이미지를 올릴 수 없다.
+  publish:
+    name: 이미지 빌드·푸시
+    needs: [backend, frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    env:
+      # 개인정보처리방침 화면에 굳는 값(저장소 Settings > Secrets and variables > Actions > Variables). 비어 있으면 '설정 필요'로 보인다
+      VITE_PRIVACY_OPERATOR: ${{ vars.VITE_PRIVACY_OPERATOR }}
+      VITE_PRIVACY_CONTACT_EMAIL: ${{ vars.VITE_PRIVACY_CONTACT_EMAIL }}
+      VITE_PRIVACY_EFFECTIVE_DATE: ${{ vars.VITE_PRIVACY_EFFECTIVE_DATE }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ghcr.io 로그인
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: 이미지 빌드와 푸시 (latest + sha 태그)
+        run: |
+          OWNER=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          PREFIX="ghcr.io/$OWNER"
+          TAG="sha-${GITHUB_SHA::7}"
+          SOURCE="https://github.com/$GITHUB_REPOSITORY"
+
+          docker build -t "$PREFIX/matjari-backend:latest" -t "$PREFIX/matjari-backend:$TAG" \
+            --label "org.opencontainers.image.source=$SOURCE" --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            MatJari/backend
+
+          docker build -f MatJari/frontend/Dockerfile.prod \
+            -t "$PREFIX/matjari-web:latest" -t "$PREFIX/matjari-web:$TAG" \
+            --label "org.opencontainers.image.source=$SOURCE" --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --build-arg VITE_API_BASE_URL=/api \
+            --build-arg "VITE_PRIVACY_OPERATOR=$VITE_PRIVACY_OPERATOR" \
+            --build-arg "VITE_PRIVACY_CONTACT_EMAIL=$VITE_PRIVACY_CONTACT_EMAIL" \
+            --build-arg "VITE_PRIVACY_EFFECTIVE_DATE=$VITE_PRIVACY_EFFECTIVE_DATE" \
+            MatJari/frontend
+
+          for image in matjari-backend matjari-web; do
+            docker push "$PREFIX/$image:latest"
+            docker push "$PREFIX/$image:$TAG"
+          done
+          echo "올린 이미지: $PREFIX/matjari-backend, $PREFIX/matjari-web (태그 latest, $TAG)"

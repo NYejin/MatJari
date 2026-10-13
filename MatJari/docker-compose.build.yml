@@ -1,0 +1,15 @@
+# 운영 compose 를 이미지 대신 소스에서 직접 빌드할 때 덧붙인다(GitHub 이미지를 쓰지 않는 로컬 점검·클라우드 첫 설치 등).
+#   docker compose -f docker-compose.prod.yml -f docker-compose.build.yml up -d --build
+# VITE_* 값은 빌드 때 화면에 고정된다(.env 에서 읽는다).
+services:
+  backend:
+    build: ./backend
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_API_BASE_URL: /api
+        VITE_PRIVACY_OPERATOR: ${VITE_PRIVACY_OPERATOR:-}
+        VITE_PRIVACY_CONTACT_EMAIL: ${VITE_PRIVACY_CONTACT_EMAIL:-}
+        VITE_PRIVACY_EFFECTIVE_DATE: ${VITE_PRIVACY_EFFECTIVE_DATE:-}

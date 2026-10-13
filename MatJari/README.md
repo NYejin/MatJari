@@ -117,32 +117,41 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 ## 자동 배포 (CI/CD, 집 PC)
 
-`master`에 병합하면 GitHub이 테스트를 돌리고, 통과하면 **내 PC의 self-hosted runner**가 운영 compose를 새로 올린다. PC가 GitHub에 먼저 접속해 작업을 받아 가는 방식이라 포트 개방이나 고정 IP가 필요 없다.
+`master`에 병합하면 GitHub이 테스트를 돌리고, 통과하면 **도커 이미지(`backend`, `web`)를 ghcr.io에 올린다.** 집 PC는 몇 분마다 새 이미지가 있는지 확인해 가져와 교체한다. **PC가 GitHub의 코드를 실행하지 않는다**(self-hosted runner를 쓰지 않는 이유: public 저장소에서는 포크 PR로 내 PC에 코드가 실행될 위험이 있어서). 포트 개방이나 고정 IP도 필요 없다.
 
-| 단계 | 워크플로 | 어디서 | 언제 |
+| 단계 | 어디서 | 무엇을 | 언제 |
 |---|---|---|---|
-| CI | `.github/workflows/ci.yml` | GitHub 서버 | 모든 PR, master 푸시. 백엔드 전체 테스트(임시 MySQL 통합 테스트 포함)와 프런트 `tsc`·빌드 |
-| CD | `.github/workflows/deploy.yml` | **내 PC** (runner) | master 푸시의 CI가 **성공한 뒤에만**. `MatJari/deploy/deploy.ps1` 실행 |
+| CI | GitHub 서버 (`.github/workflows/ci.yml`) | 백엔드 전체 테스트(임시 MySQL 통합 테스트 포함), 프런트 `tsc`·빌드 | 모든 PR, master 푸시 |
+| 이미지 | GitHub 서버 (`ci.yml`의 `publish`) | `ghcr.io/nyejin/matjari-backend`·`matjari-web`을 `latest`와 `sha-xxxxxxx` 태그로 푸시 | **master 푸시에서 테스트가 모두 통과했을 때만** (PR·포크는 안 올림) |
+| 갱신 | 내 PC (`MatJari/deploy/update.ps1`) | 이미지 pull → 바뀐 컨테이너만 교체 → 응답 확인 | 작업 스케줄러가 5분마다 |
 
-배포는 `backend`·`web`만 다시 빌드해 올린다. DB(`mysql`)·터널(`matjari-tunnel`)·`.env`는 그대로라 데이터와 접속 주소는 유지된다. 재기동하는 동안 몇 초에서 수십 초 접속이 끊긴다(시연 중 병합 주의).
+갱신은 `backend`·`web`만 다룬다. DB(`mysql`)·터널(`matjari-tunnel`)·`.env`는 그대로라 데이터와 접속 주소는 유지된다. 이미지가 그대로면 아무것도 재시작하지 않는다. 교체할 때는 백엔드가 몇 초에서 수십 초 끊긴다(시연 중 병합 주의). 병합부터 서버 반영까지는 CI 15~20분 + 이미지 빌드 몇 분 + 확인 주기(5분)만큼 걸린다.
 
-### 처음 한 번 설정 (집 PC)
-1. **배포 전용 clone**을 만든다. 개발 중인 작업 폴더에서 돌리면 브랜치가 master로 바뀌어 작업을 망가뜨리므로 폴더를 분리한다.
+### 처음 한 번 설정
+1. **Actions 변수**(개인정보처리방침 화면에 굳는 값): Settings → Secrets and variables → Actions → Variables에 `VITE_PRIVACY_OPERATOR`, `VITE_PRIVACY_CONTACT_EMAIL`, `VITE_PRIVACY_EFFECTIVE_DATE`. 값을 바꾸면 다음 master 푸시의 CI가 새 이미지를 만들 때 반영된다.
+2. **보안 설정**: Settings → Actions → General → "Approval for running fork pull request workflows"를 **Require approval for all external contributors**로 둔다(비밀값 노출 방지). PR이 `.github/`를 건드렸으면 승인하지 않는다.
+3. **첫 이미지 올리기**: 이 PR을 병합하면 CI가 끝난 뒤 저장소 오른쪽 **Packages**에 이미지 2개가 생긴다. 처음에는 비공개일 수 있다.
+   - **공개로 전환(권장)**: 각 패키지 → Package settings → Change visibility → Public. 소스가 이미 public이고 비밀값은 `.env`에만 있어 이미지에 들어가지 않는다.
+   - **비공개 유지**: `read:packages` 권한만 가진 토큰(PAT)을 만들어 PC에서 `docker login ghcr.io -u <깃허브 아이디>`를 한 번 한다.
+4. **PC에 배포 전용 clone**을 만든다(개발 폴더에서 돌리면 브랜치가 master로 바뀐다). compose 파일을 최신으로 유지하는 용도다.
    ```
    git clone https://github.com/NYejin/MatJari.git C:\matjari-deploy
    copy <지금 운영 .env 경로> C:\matjari-deploy\MatJari\.env
    ```
    compose 프로젝트 이름이 `matjari-prod`로 고정이라 폴더가 달라도 같은 컨테이너·볼륨을 쓴다.
-2. **runner 설치**: 저장소 Settings → Actions → Runners → New self-hosted runner → Windows x64의 안내대로 `C:\actions-runner` 같은 폴더에 설치하고 설정한다. 설정 중 **추가 라벨에 `matjari-deploy`** 를 넣는다. 서비스로 등록하면 부팅 때 자동 시작된다. 서비스 계정은 기본(NETWORK SERVICE)이 아니라 **내 Windows 계정**으로 지정한다(기본 계정은 Docker Desktop을 쓸 수 없다). Docker Desktop은 로그인 시 자동 시작으로 켜 둔다.
-3. **Actions 변수**: Settings → Secrets and variables → Actions → Variables → New repository variable. 이름 `DEPLOY_DIR`, 값 `C:\matjari-deploy`.
-4. **public 저장소 보안 설정(필수)**: Settings → Actions → General → "Fork pull request workflows from outside collaborators"를 **Require approval for all outside collaborators**로 바꾼다. 배포 워크플로는 `pull_request`로는 돌지 않고 master 푸시의 CI 성공 뒤에만 도는 구조이니 바꾸지 말 것. master에는 브랜치 보호(PR 필수)를 거는 것을 권장한다.
+5. **한 번 직접 실행해서 확인**(PowerShell): `C:\matjari-deploy\MatJari\deploy\update.ps1` (`-DryRun`은 하는 일만 출력). 지금 돌고 있는 `backend`·`web`이 이미지 기반으로 교체되고 마지막에 "배포 완료: 정상 응답"이 나오면 된다.
+6. **작업 스케줄러 등록**: `C:\matjari-deploy\MatJari\deploy\register-update-task.ps1`을 실행한다(5분마다 + 로그인 때. `-IntervalMinutes 10`, `-Unregister`, `-WhatIf` 지원). 내 Windows 계정으로 실행되고 Docker Desktop이 켜져 있어야 한다. Docker Desktop은 로그인 시 자동 시작으로 켜 둔다.
 
 ### 쓰는 법
-- 평소: PR을 올리면 CI가 돈다. 병합하면 CI가 한 번 더 돌고, 성공하면 자동으로 배포된다(전체 15~20분).
-- 수동 배포: 저장소 Actions → Deploy → Run workflow. PC에서 직접 하려면 `C:\matjari-deploy`에서 `.\MatJari\deploy\deploy.ps1`(`-DryRun`으로 하는 일만 확인).
-- 배포가 실패하면 Actions 로그의 마지막에 백엔드 로그 40줄이 나온다. 이전 버전으로 되돌리려면 `C:\matjari-deploy`에서 `git checkout <이전 커밋>` 후 `docker compose -f MatJari/docker-compose.prod.yml up -d --build backend web`.
+- 평소: PR을 올리면 CI가 돈다. 병합하면 CI → 이미지 푸시 → (PC가) 확인 주기 안에 자동 교체.
+- 지금 바로 반영하고 싶을 때: PC에서 `update.ps1`을 직접 실행하거나 `Start-ScheduledTask -TaskName matjari-update`.
+- 로그: `C:\matjari-deploy\update.log`(마지막 2000줄만 유지). 교체가 실패하면 백엔드 로그 40줄이 같이 나온다.
+- **되돌리기**: GitHub Packages에서 이전 커밋의 태그(`sha-xxxxxxx`)를 찾아 `.env`의 `IMAGE_TAG=sha-xxxxxxx`로 고치고 `update.ps1`을 실행한다. 이미지만 돌아가고 DB는 되돌아가지 않는다. 다시 최신으로 가려면 `IMAGE_TAG=latest`.
+- **소스에서 직접 빌드**(이미지를 쓰지 않을 때): `docker compose -f docker-compose.prod.yml -f docker-compose.build.yml up -d --build`.
 
 ### 한계
-- PC가 꺼져 있거나 Docker Desktop이 꺼져 있으면 배포가 대기한다(켜지면 실행).
-- 자동 롤백·무중단 배포는 없다. DB 마이그레이션(Flyway)은 백엔드가 기동할 때 적용되므로 되돌릴 수 없는 마이그레이션은 병합 전에 주의한다.
-- CI의 통합 테스트는 GitHub 서버에서 15분 안팎 걸린다(무료 사용 시간은 public 저장소라 제한이 없다고 알려져 있으나 정책은 바뀔 수 있다).
+- PC가 꺼져 있거나 Docker Desktop이 꺼져 있으면 갱신되지 않고, 켜진 뒤 다음 주기에 반영된다.
+- 반영 지연(위 참고)과 교체 중 짧은 끊김이 있다. 자동 롤백·무중단 배포는 없다.
+- DB 마이그레이션(Flyway)은 새 백엔드가 뜰 때 적용되므로 되돌릴 수 없는 마이그레이션은 병합 전에 주의한다.
+- `.env` 값은 PC의 파일이라 병합으로 바뀌지 않는다. 새 설정값이 필요한 변경은 서버 PC의 `.env`를 직접 고쳐야 한다.
+- CI 이미지 빌드는 GitHub 서버의 리눅스(amd64)다. Windows Docker Desktop(WSL 기반)에서 그대로 돈다.

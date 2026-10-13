@@ -67,3 +67,6 @@ llm-wiki 스킬, researcher·wiki-curator 에이전트, `scripts/lint-wiki.mjs`�
 
 ## [2026-10-13] ingest | 신뢰도 점수 제거 반영
 신뢰도 점수 컬럼 제거(V18, `feature/remove-trust-score`, 병합됨)를 반영했다. `block-report-design.md`의 남은 것 목록에서 `trust_score` 정리를 끝난 일로 바꾸고 갱신일을 고쳤다. 신뢰도 점수는 매칭에 쓰지 않는다는 기존 결정과 충돌하지 않는다. 색인(index.md)은 바꿀 설명이 없어 그대로 두었다.
+
+## [2026-10-13] ingest | 후속 4건 구현 반영
+정지 중 제한 로그인(탈퇴 전용 토큰)·소셜 전용 탈퇴 재인증·좌석 인증 사진 정리 작업·후보 keyset 조각 조회를 반영했다. `withdraw-privacy-design.md`의 한계 1~3과 다음 할 일을 구현 사실에 맞게 고치고, `admin-design.md`의 사진 정리와 `lock-order-and-index-pitfalls.md`의 keyset 전환 메모는 각 기능 브랜치가 갱신했다.

@@ -43,6 +43,20 @@ public class CustomUserDetailsService implements UserDetailsService {
         return AuthUserPrincipal.of(user.getId(), user.getEmail(), user.getRole());
     }
 
+    /**
+     * 이용 정지 검사를 건너뛰는 로딩. 정지 중에도 허용하는 회원탈퇴(DELETE /api/users/me) 경로 전용이며,
+     * 사용자 없음·탈퇴 계정은 {@link #loadUserById(Long)}와 똑같이 거절한다.
+     */
+    @Transactional(readOnly = true)
+    public AuthUserPrincipal loadUserByIdAllowingSuspended(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UsernameNotFoundException("사용자를 찾을 수 없습니다: id=" + userId));
+        if (user.isWithdrawn()) {
+            throw new UsernameNotFoundException("탈퇴한 사용자입니다: id=" + userId);
+        }
+        return AuthUserPrincipal.of(user.getId(), user.getEmail(), user.getRole());
+    }
+
     @Override
     public UserDetails loadUserByUsername(String email) {
         User user = userRepository.findByEmail(email)

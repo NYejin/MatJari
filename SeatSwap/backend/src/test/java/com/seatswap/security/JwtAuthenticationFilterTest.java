@@ -182,4 +182,40 @@ class JwtAuthenticationFilterTest {
         verify(userDetailsService, never()).loadUserByUsername(anyString());
         verify(tokenProvider, never()).getEmail(anyString());
     }
+
+    private Authentication runSuspended(String method, String path, SecurityErrorResponseWriter writer) throws Exception {
+        when(tokenProvider.validateToken("susp")).thenReturn(true);
+        when(tokenProvider.isRefreshToken("susp")).thenReturn(false);
+        when(tokenProvider.getUserId("susp")).thenReturn(5L);
+        org.mockito.Mockito.doThrow(new com.seatswap.exception.AccountSuspendedException(null)).when(userDetailsService).loadUserById(5L);
+        org.mockito.Mockito.doReturn(AuthUserPrincipal.of(5L, "s@b.com")).when(userDetailsService).loadUserByIdAllowingSuspended(5L);
+        JwtAuthenticationFilter f = new JwtAuthenticationFilter(tokenProvider, userDetailsService, writer);
+        MockHttpServletRequest request = new MockHttpServletRequest(method, path);
+        request.addHeader("Authorization", "Bearer susp");
+        AtomicReference<Authentication> seen = new AtomicReference<>();
+        MockFilterChain chain = new MockFilterChain() {
+            @Override
+            public void doFilter(jakarta.servlet.ServletRequest req, jakarta.servlet.ServletResponse res) {
+                seen.set(SecurityContextHolder.getContext().getAuthentication());
+            }
+        };
+        f.doFilter(request, new MockHttpServletResponse(), chain);
+        return seen.get();
+    }
+
+    @Test
+    void suspendedUserCanWithdrawButNothingElse() throws Exception {
+        SecurityErrorResponseWriter writer = mock(SecurityErrorResponseWriter.class);
+        Authentication auth = runSuspended("DELETE", "/api/users/me", writer);
+        assertThat(auth).isNotNull();
+        assertThat(((AuthUserPrincipal) auth.getPrincipal()).userId()).isEqualTo(5L);
+        verify(writer, never()).writeSuspended(any(), any());
+
+        SecurityErrorResponseWriter writer2 = mock(SecurityErrorResponseWriter.class);
+        assertThat(runSuspended("GET", "/api/users/me", writer2)).isNull();
+        verify(writer2).writeSuspended(any(), any());
+        SecurityErrorResponseWriter writer3 = mock(SecurityErrorResponseWriter.class);
+        assertThat(runSuspended("PATCH", "/api/users/me", writer3)).isNull();
+        verify(writer3).writeSuspended(any(), any());
+    }
 }

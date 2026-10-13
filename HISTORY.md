@@ -13,6 +13,10 @@
 
 ## 이력
 
+### 2026-10-14
+- [구현] 공연 수정 제안에 회차 수정 추가(회차 추가·시각 변경·삭제, V20 `session_changes`): 생성·승인 두 시점 검사, 사용 중인 회차 삭제는 422 `SESSION_IN_USE`, 승인 때 충돌은 409 `SESSION_EDIT_CONFLICT` — `feature/session-edit-proposal`
+- [구현] 연속된 공연 기간(100일 이하) 전체를 회차 날짜로 자동 입력('기간 전체 채우기'·'시각 한번에 넣기'), 날짜 후보 상한 2일→100일 — `feature/session-edit-proposal`
+
 ### 2026-10-13
 - [결정] 후속 기능으로 **[빠른 교환]**(채팅 없이 교환)을 나중에 만들기로 함. 지금은 메모만 하고 설계·구현하지 않는다 — CLAUDE.md '후속 작업 목록'
 - [결정] 서비스 이름을 SeatSwap에서 **맞자리**(영문 MatJari)로 변경: 해외에 같은 이름의 서비스가 있어서. 소스 폴더 `SeatSwap/`→`MatJari/`, 자바 패키지 `com.seatswap`→`com.matjari`, 설정·환경변수 접두어 `seatswap.*`/`SEATSWAP_*`→`matjari.*`/`MATJARI_*`, DB 이름·사용자 `seatswap`→`matjari`, 헤더 로고·파비콘·화면 문구 교체. 이 이름 변경 이전의 기록(작업일지·이 문서의 과거 항목·위키 로그)은 옛 이름 그대로 둔다 — `feature/rename-matjari`

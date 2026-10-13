@@ -244,7 +244,8 @@ class PerformanceControllerSliceTest {
                 .andExpect(status().isOk())
                 .andExpect(content().json("{\"status\":\"OK\",\"site\":\"yes24\",\"title\":\"공연 A\","
                         + "\"venueName\":\"홀\",\"periodStart\":\"2026-10-11\",\"periodEnd\":\"2026-10-13\",\"posterUrl\":\"https://tkfile.yes24.com/p.jpg\","
-                        + "\"sessionCandidates\":[]}", true));
+                        + "\"sessionCandidates\":[{\"date\":\"2026-10-11\",\"time\":null},{\"date\":\"2026-10-12\",\"time\":null},"
+                        + "{\"date\":\"2026-10-13\",\"time\":null}]}", true));
     }
 
     @Test

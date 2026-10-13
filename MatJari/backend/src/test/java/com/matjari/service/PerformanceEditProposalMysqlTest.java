@@ -4,6 +4,7 @@ import com.matjari.dto.response.PageResponse;
 import com.matjari.dto.response.PerformanceEditProposalDtos.AdminEditProposal;
 import com.matjari.dto.response.PerformanceEditProposalDtos.CreateRequest;
 import com.matjari.dto.response.PerformanceEditProposalDtos.EditProposal;
+import com.matjari.dto.response.PerformanceEditProposalDtos.SessionChangeRequest;
 import com.matjari.exception.BusinessRuleException;
 import com.matjari.exception.ConflictException;
 import com.matjari.exception.FieldValidationException;
@@ -18,6 +19,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -62,7 +65,7 @@ class PerformanceEditProposalMysqlTest {
     void reset() {
         assertThat(jdbc.queryForObject("SELECT DATABASE()", String.class)).endsWith("_it");
         jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
-        for (String t : List.of("performance_edit_proposal", "performance_session", "performance", "users")) {
+        for (String t : List.of("performance_edit_proposal", "ticket", "performance_session", "performance", "users")) {
             jdbc.execute("TRUNCATE TABLE " + t);
         }
         jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
@@ -386,5 +389,194 @@ class PerformanceEditProposalMysqlTest {
 
         assertThat(results).as(results.toString()).noneMatch(r -> r instanceof Exception);
         assertThat(results).hasSize(8);
+    }
+
+    // ------------------------------------------------------------------ 회차 변경 (V20)
+
+    private static LocalDateTime future(int days, int hour) {
+        return LocalDateTime.now(ZoneId.of("Asia/Seoul")).plusDays(days).withHour(hour).withMinute(0).withSecond(0).withNano(0);
+    }
+
+    private long session(long performanceId, LocalDateTime startsAt) {
+        jdbc.update("INSERT INTO performance_session (performance_id, starts_at, created_at) VALUES (?, ?, NOW(6))",
+                performanceId, startsAt);
+        return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    private void ticketOn(long sessionId, long userId) {
+        jdbc.update("INSERT INTO ticket (user_id, performance_session_id, zone_label, zone_key, row_label, row_key, col_label, col_key, "
+                + "status, created_at, updated_at) VALUES (?, ?, 'A', 'A', '1', '1', '1', '1', 'ACTIVE', NOW(6), NOW(6))", userId, sessionId);
+    }
+
+    private List<LocalDateTime> sessionTimes(long performanceId) {
+        return jdbc.queryForList("SELECT starts_at FROM performance_session WHERE performance_id = ? ORDER BY starts_at",
+                LocalDateTime.class, performanceId);
+    }
+
+    private static CreateRequest sessions(SessionChangeRequest... changes) {
+        return new CreateRequest(null, null, "회차가 달라요", List.of(changes));
+    }
+
+    private static SessionChangeRequest add(LocalDateTime t) {
+        return new SessionChangeRequest("ADD", null, t);
+    }
+
+    private static SessionChangeRequest change(long id, LocalDateTime t) {
+        return new SessionChangeRequest("CHANGE", id, t);
+    }
+
+    private static SessionChangeRequest remove(long id) {
+        return new SessionChangeRequest("REMOVE", id, null);
+    }
+
+    private void assertSessionsField(Runnable action) {
+        assertThatThrownBy(action::run).isInstanceOfSatisfying(FieldValidationException.class,
+                e -> assertThat(e.getErrors()).containsKey("sessionChanges"));
+    }
+
+    @Test
+    void 회차만_제안해도_승인하면_추가_변경_삭제가_반영되고_기존_시각이_기록된다() {
+        long u = user("제안자", "USER");
+        long perf = performance("제목", "공연장");
+        LocalDateTime d1 = future(10, 19);
+        LocalDateTime d2 = future(11, 19);
+        LocalDateTime d3 = future(12, 19);
+        long s1 = session(perf, d1);
+        long s2 = session(perf, d2);
+        long s3 = session(perf, d3);
+        LocalDateTime moved = future(13, 18);
+        LocalDateTime added = future(14, 19);
+
+        EditProposal p = service.create(u, perf, sessions(change(s1, moved), remove(s2), add(added)));
+
+        assertThat(p.newTitle()).isNull();
+        assertThat(p.sessionChanges()).hasSize(3);
+        assertThat(p.sessionChanges().get(0).currentStartsAt()).isEqualTo(d1);   // 처리 전에는 현재 시각
+        assertThat(p.sessionChanges().get(2).currentStartsAt()).isNull();         // ADD 는 기존 시각 없음
+        assertThat(sessionTimes(perf)).containsExactly(d1, d2, d3);               // 승인 전에는 그대로
+
+        AdminEditProposal approved = service.approve(admin, p.id());
+
+        assertThat(approved.status()).isEqualTo("APPROVED");
+        assertThat(sessionTimes(perf)).containsExactly(d3, moved, added);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM performance_session WHERE id = ?", Long.class, s2)).isZero();
+        assertThat(jdbc.queryForObject("SELECT starts_at FROM performance_session WHERE id = ?", LocalDateTime.class, s1))
+                .isEqualTo(moved);                                                  // 같은 회차 id 에서 시각만 바뀐다
+        assertThat(approved.sessionChanges().get(0).currentStartsAt()).isEqualTo(d1);  // 승인 뒤에는 기록된 기존 시각
+        assertThat(approved.sessionChanges().get(1).currentStartsAt()).isEqualTo(d2);
+        assertThat(approved.sessionChanges().get(1).startsAt()).isNull();
+        assertThat(perfTitle(perf)).isEqualTo("제목");
+        // 승인된 제안을 다시 읽어도 기록된 기존 시각이 보인다(회차 2 는 이미 삭제됨)
+        EditProposal reread = service.listMine(u, 0, 20).content().get(0);
+        assertThat(reread.sessionChanges().get(1).currentStartsAt()).isEqualTo(d2);
+    }
+
+    @Test
+    void 제목과_회차를_함께_제안하면_둘_다_반영된다() {
+        long u = user("제안자", "USER");
+        long perf = performance("옛 제목", "공연장");
+        long s1 = session(perf, future(10, 19));
+        LocalDateTime moved = future(12, 20);
+
+        EditProposal p = service.create(u, perf,
+                new CreateRequest("새 제목", null, null, List.of(change(s1, moved))));
+        service.approve(admin, p.id());
+
+        assertThat(perfTitle(perf)).isEqualTo("새 제목");
+        assertThat(sessionTimes(perf)).containsExactly(moved);
+    }
+
+    @Test
+    void 회차_변경_입력_검증은_400_sessionChanges다() {
+        long u = user("제안자", "USER");
+        long perf = performance("제목", "공연장");
+        long other = performance("다른 공연", "다른 곳");
+        long s1 = session(perf, future(10, 19));
+        long s2 = session(perf, future(11, 19));
+        long foreign = session(other, future(10, 19));
+
+        assertSessionsField(() -> service.create(u, perf, sessions(change(foreign, future(20, 19)))));   // 다른 공연 회차
+        assertSessionsField(() -> service.create(u, perf, sessions(change(999_999L, future(20, 19))))); // 없는 회차
+        assertSessionsField(() -> service.create(u, perf, sessions(add(LocalDateTime.now(ZoneId.of("Asia/Seoul")).minusDays(1).withMinute(0)))));  // 지난 시각
+        assertSessionsField(() -> service.create(u, perf, sessions(add(future(20, 19).withMinute(5)))));  // 10분 단위 아님
+        assertSessionsField(() -> service.create(u, perf, sessions(add(future(20, 19)), add(future(20, 19)))));  // 새 시각끼리 중복
+        assertSessionsField(() -> service.create(u, perf, sessions(add(future(10, 19)))));                // 남는 회차와 같은 시각
+        assertSessionsField(() -> service.create(u, perf, sessions(remove(s1), remove(s2))));            // 회차가 0개가 됨
+        assertSessionsField(() -> service.create(u, perf, sessions(change(s1, future(20, 19)), remove(s1))));  // 같은 회차 두 번
+        assertSessionsField(() -> service.create(u, perf, sessions(change(s1, future(11, 19)))));        // 맞바꾸기는 나눠서
+        assertSessionsField(() -> service.create(u, perf, sessions(new SessionChangeRequest("FIX", s1, null))));
+        assertSessionsField(() -> service.create(u, perf, sessions(new SessionChangeRequest("CHANGE", s1, null))));
+        List<SessionChangeRequest> tooMany = new ArrayList<>();
+        for (int i = 0; i < 21; i++) {
+            tooMany.add(add(future(30 + i, 19)));
+        }
+        assertSessionsField(() -> service.create(u, perf, new CreateRequest(null, null, null, tooMany)));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM performance_edit_proposal", Long.class)).isZero();
+    }
+
+    @Test
+    void 같은_시각으로_바꾸는_변경만_있으면_EDIT_NO_CHANGE다() {
+        long u = user("제안자", "USER");
+        long perf = performance("제목", "공연장");
+        LocalDateTime d1 = future(10, 19);
+        long s1 = session(perf, d1);
+
+        assertThatThrownBy(() -> service.create(u, perf, sessions(change(s1, d1))))
+                .isInstanceOfSatisfying(BusinessRuleException.class, e -> assertThat(e.getCode()).isEqualTo("EDIT_NO_CHANGE"));
+    }
+
+    @Test
+    void 티켓이_걸린_회차_삭제_제안은_422_SESSION_IN_USE다() {
+        long u = user("제안자", "USER");
+        long holder = user("보유자", "USER");
+        long perf = performance("제목", "공연장");
+        long s1 = session(perf, future(10, 19));
+        long s2 = session(perf, future(11, 19));
+        ticketOn(s1, holder);
+
+        assertThatThrownBy(() -> service.create(u, perf, sessions(remove(s1))))
+                .isInstanceOfSatisfying(BusinessRuleException.class, e -> assertThat(e.getCode()).isEqualTo("SESSION_IN_USE"));
+        // 티켓이 걸려도 시각 변경은 된다(회차 id 가 그대로라 티켓·희망 조건이 유지된다)
+        EditProposal p = service.create(u, perf, sessions(change(s1, future(15, 19)), remove(s2)));
+        service.approve(admin, p.id());
+        assertThat(sessionTimes(perf)).containsExactly(future(15, 19));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ticket WHERE performance_session_id = ?", Long.class, s1)).isEqualTo(1);
+    }
+
+    @Test
+    void 승인_사이에_상태가_바뀌면_409_SESSION_EDIT_CONFLICT이고_제안은_PENDING으로_남는다() {
+        long u = user("제안자", "USER");
+        long holder = user("보유자", "USER");
+        long perf = performance("제목", "공연장");
+        long s1 = session(perf, future(10, 19));
+        long s2 = session(perf, future(11, 19));
+        EditProposal p = service.create(u, perf, sessions(remove(s2)));
+        ticketOn(s2, holder);   // 제안 뒤 승인 전에 티켓이 걸림
+
+        assertThatThrownBy(() -> service.approve(admin, p.id())).isInstanceOfSatisfying(ConflictException.class,
+                e -> assertThat(e.getDetails()).containsEntry("code", "SESSION_EDIT_CONFLICT"));
+
+        assertThat(jdbc.queryForObject("SELECT status FROM performance_edit_proposal WHERE id = ?", String.class, p.id()))
+                .isEqualTo("PENDING");
+        assertThat(sessionTimes(perf)).hasSize(2);
+        assertThat(service.reject(admin, p.id(), "티켓이 걸려 있어요").status()).isEqualTo("REJECTED");
+        assertThat(s1).isPositive();
+    }
+
+    @Test
+    void 관리자_목록에도_회차_변경과_현재_시각이_보인다() {
+        long u = user("제안자", "USER");
+        long perf = performance("제목", "공연장");
+        LocalDateTime d1 = future(10, 19);
+        long s1 = session(perf, d1);
+        session(perf, future(11, 19));
+        service.create(u, perf, sessions(change(s1, future(12, 20))));
+
+        AdminEditProposal listed = service.listForAdmin("PENDING", 0, 20).content().get(0);
+
+        assertThat(listed.sessionChanges()).hasSize(1);
+        assertThat(listed.sessionChanges().get(0).type()).isEqualTo("CHANGE");
+        assertThat(listed.sessionChanges().get(0).currentStartsAt()).isEqualTo(d1);
+        assertThat(listed.sessionChanges().get(0).startsAt()).isEqualTo(future(12, 20));
     }
 }

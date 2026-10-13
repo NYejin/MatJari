@@ -10,10 +10,13 @@ import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 /**
- * 공연 수정 제안 (V12). 사용자가 공연 제목·공연장 이름 중 하나 이상의 새 값을 제안하고 관리자가 승인/거절한다.
- * 회차·링크는 수정 대상이 아니다. 승인하면 승인 시점의 이전 값(제목·공연장 둘 다)을 old_* 에 스냅샷한다.
+ * 공연 수정 제안 (V12, V20). 사용자가 공연 제목·공연장 이름·회차(추가·시각 변경·삭제) 중 하나 이상의 변경을 제안하고 관리자가 승인/거절한다.
+ * 링크는 수정 대상이 아니다. 회차 변경은 session_changes(JSON)에 담는다. 승인하면 승인 시점의 이전 값(제목·공연장 둘 다)을 old_* 에 스냅샷한다.
  *
  * DB 제약: 한 사용자가 한 공연에 PENDING 은 1건(uk_performance_edit_proposal_pending, 생성 컬럼 pending_proposer_id 는
  * DB 가 계산하므로 매핑하지 않는다). 사용자당 PENDING 합계 상한·'현재 값과 같음' 판정은 서비스가 한다.
@@ -49,6 +52,11 @@ public class PerformanceEditProposal {
     /** 제안한 새 공연장 이름. 바꾸지 않으면 NULL. */
     @Column(name = "new_venue_name", updatable = false, length = Performance.VENUE_NAME_MAX_LENGTH)
     private String newVenueName;
+
+    /** 제안한 회차 변경(V20, JSON). 없으면 NULL. 승인 때 CHANGE·REMOVE 항목에 기존 시각(oldStartsAt)을 기록한다. */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "session_changes", columnDefinition = "json")
+    private List<SessionChange> sessionChanges;
 
     @Column(updatable = false, length = REASON_MAX_LENGTH)
     private String reason;
@@ -93,6 +101,12 @@ public class PerformanceEditProposal {
      */
     public static PerformanceEditProposal create(Performance performance, Long proposerId,
                                                  String newTitle, String newVenueName, String reason) {
+        return create(performance, proposerId, newTitle, newVenueName, null, reason);
+    }
+
+    public static PerformanceEditProposal create(Performance performance, Long proposerId,
+                                                 String newTitle, String newVenueName,
+                                                 List<SessionChange> sessionChanges, String reason) {
         if (performance == null || proposerId == null) {
             throw new IllegalArgumentException("performance 와 proposerId 는 필수입니다.");
         }
@@ -101,12 +115,31 @@ public class PerformanceEditProposal {
         p.proposerId = proposerId;
         p.newTitle = optionalText(newTitle, Performance.TITLE_MAX_LENGTH, "newTitle");
         p.newVenueName = optionalText(newVenueName, Performance.VENUE_NAME_MAX_LENGTH, "newVenueName");
-        if (p.newTitle == null && p.newVenueName == null) {
-            throw new IllegalArgumentException("새 제목과 새 공연장 이름 중 하나 이상이 필요합니다.");
+        p.sessionChanges = sessionChanges == null || sessionChanges.isEmpty() ? null : List.copyOf(sessionChanges);
+        if (p.newTitle == null && p.newVenueName == null && p.sessionChanges == null) {
+            throw new IllegalArgumentException("새 제목·새 공연장 이름·회차 변경 중 하나 이상이 필요합니다.");
         }
         p.reason = optionalText(reason, REASON_MAX_LENGTH, "reason");
         p.status = AdminReviewStatus.PENDING;
         return p;
+    }
+
+    /** 항상 non-null. */
+    public List<SessionChange> sessionChangesOrEmpty() {
+        return sessionChanges == null ? List.of() : sessionChanges;
+    }
+
+    /** 승인 때 호출: CHANGE·REMOVE 항목에 기존 시각을 기록한다(JSON 컬럼이라 새 목록으로 바꿔야 변경으로 인식된다). */
+    public void recordOldSessionTimes(Map<Long, LocalDateTime> currentStartsBySessionId) {
+        if (sessionChanges == null) {
+            return;
+        }
+        List<SessionChange> updated = new ArrayList<>();
+        for (SessionChange c : sessionChanges) {
+            LocalDateTime old = c.sessionId() == null ? null : currentStartsBySessionId.get(c.sessionId());
+            updated.add(old == null ? c : c.withOldStartsAt(old.toString()));
+        }
+        this.sessionChanges = List.copyOf(updated);
     }
 
     public boolean isPending() {
@@ -160,5 +193,23 @@ public class PerformanceEditProposal {
             throw new IllegalArgumentException(field + "는 " + maxLength + "자 이하여야 합니다.");
         }
         return cleaned;
+    }
+
+    /**
+     * 회차 변경 하나(JSON 원소). type = ADD / CHANGE / REMOVE. startsAt·oldStartsAt 은 오프셋 없는 로컬 시각 문자열(ISO, 초 포함 가능).
+     * ADD: sessionId 없음 / CHANGE: sessionId + 새 startsAt / REMOVE: sessionId 만.
+     */
+    public record SessionChange(String type, Long sessionId, String startsAt, String oldStartsAt) {
+        public static final String ADD = "ADD";
+        public static final String CHANGE = "CHANGE";
+        public static final String REMOVE = "REMOVE";
+
+        public SessionChange withOldStartsAt(String old) {
+            return new SessionChange(type, sessionId, startsAt, old);
+        }
+
+        public LocalDateTime startsAtTime() {
+            return startsAt == null ? null : LocalDateTime.parse(startsAt);
+        }
     }
 }

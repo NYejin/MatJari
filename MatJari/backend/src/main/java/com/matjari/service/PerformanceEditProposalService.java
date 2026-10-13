@@ -3,17 +3,22 @@ package com.matjari.service;
 import com.matjari.domain.AdminReviewStatus;
 import com.matjari.domain.Performance;
 import com.matjari.domain.PerformanceEditProposal;
+import com.matjari.domain.PerformanceEditProposal.SessionChange;
+import com.matjari.domain.PerformanceSession;
 import com.matjari.domain.User;
 import com.matjari.dto.response.PageResponse;
 import com.matjari.dto.response.PerformanceEditProposalDtos.AdminEditProposal;
 import com.matjari.dto.response.PerformanceEditProposalDtos.CreateRequest;
 import com.matjari.dto.response.PerformanceEditProposalDtos.EditProposal;
+import com.matjari.dto.response.PerformanceEditProposalDtos.SessionChangeRequest;
+import com.matjari.dto.response.PerformanceEditProposalDtos.SessionChangeView;
 import com.matjari.exception.BusinessRuleException;
 import com.matjari.exception.ConflictException;
 import com.matjari.exception.FieldValidationException;
 import com.matjari.exception.NotFoundException;
 import com.matjari.repository.PerformanceEditProposalRepository;
 import com.matjari.repository.PerformanceRepository;
+import com.matjari.repository.PerformanceSessionRepository;
 import com.matjari.repository.UserRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
@@ -23,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -31,7 +37,12 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 공연 수정 제안: 사용자가 제목·공연장 변경을 제안하고 관리자가 승인/거절한다(회차·링크는 대상 아님, 알림 없음).
+ * 공연 수정 제안: 사용자가 제목·공연장·회차(추가·시각 변경·삭제) 변경을 제안하고 관리자가 승인/거절한다(링크는 대상 아님, 알림 없음).
+ *
+ * 회차 변경 규칙(생성·승인 두 시점에 같은 검사): 이 공연의 회차만, 같은 회차는 한 번만, 최대 20개, 변경 뒤 회차가 1개 이상,
+ * 새 시각은 10분 단위·지난 시각 불가(생성 때만)·남는 회차의 현재 시각과 겹치면 안 됨(시각 맞바꾸기는 하나씩 나눠 제안),
+ * 삭제는 티켓·교환 희망·좌석 인증 요청이 걸리지 않은 회차만. 생성 때 위반은 400 {sessionChanges: ...} / 422 SESSION_IN_USE,
+ * 승인 때 위반(그 사이 상태가 달라짐)은 409 SESSION_EDIT_CONFLICT(제안은 PENDING 으로 남아 거절할 수 있다).
  *
  * 오류: 없는 공연 404 / 형식·길이 400 {필드: 메시지} / 현재 값과 같음 422 EDIT_NO_CHANGE / 같은 공연에 내 PENDING 이 있음
  * 409 EDIT_PROPOSAL_ALREADY_PENDING / 내 PENDING 3건 이상 422 EDIT_PROPOSAL_LIMIT_REACHED / 이미 처리됨 409 PROPOSAL_ALREADY_REVIEWED.
@@ -44,20 +55,27 @@ import java.util.Set;
 public class PerformanceEditProposalService {
 
     static final int MAX_PENDING_PER_USER = 3;
+    static final int MAX_SESSION_CHANGES = 20;
     static final int DEFAULT_PAGE_SIZE = 20;
     static final int MAX_PAGE_SIZE = 50;
 
     private final PerformanceEditProposalRepository proposalRepository;
     private final PerformanceRepository performanceRepository;
     private final UserRepository userRepository;
+    private final PerformanceSessionRepository sessionRepository;
+    private final SessionTimePolicy sessionTimePolicy;
     private final Clock clock;
 
     public PerformanceEditProposalService(PerformanceEditProposalRepository proposalRepository,
                                           PerformanceRepository performanceRepository,
-                                          UserRepository userRepository, Clock clock) {
+                                          UserRepository userRepository,
+                                          PerformanceSessionRepository sessionRepository,
+                                          SessionTimePolicy sessionTimePolicy, Clock clock) {
         this.proposalRepository = proposalRepository;
         this.performanceRepository = performanceRepository;
         this.userRepository = userRepository;
+        this.sessionRepository = sessionRepository;
+        this.sessionTimePolicy = sessionTimePolicy;
         this.clock = clock;
     }
 
@@ -67,8 +85,9 @@ public class PerformanceEditProposalService {
         String newTitle = clean(request.newTitle(), Performance.TITLE_MAX_LENGTH, "newTitle", "새 제목");
         String newVenue = clean(request.newVenueName(), Performance.VENUE_NAME_MAX_LENGTH, "newVenueName", "새 공연장 이름");
         String reason = clean(request.reason(), PerformanceEditProposal.REASON_MAX_LENGTH, "reason", "사유");
-        if (newTitle == null && newVenue == null) {
-            throw new FieldValidationException("newTitle", "새 제목이나 새 공연장 이름 중 하나는 입력해야 합니다.");
+        List<SessionChange> sessionChanges = parseSessionChanges(request.sessionChanges());
+        if (newTitle == null && newVenue == null && sessionChanges.isEmpty()) {
+            throw new FieldValidationException("newTitle", "새 제목, 새 공연장 이름, 회차 변경 중 하나는 입력해야 합니다.");
         }
 
         User user = userRepository.findByIdForUpdate(userId)
@@ -84,7 +103,19 @@ public class PerformanceEditProposalService {
         if (newVenue != null && newVenue.equals(performance.getVenueName())) {
             newVenue = null;
         }
-        if (newTitle == null && newVenue == null) {
+        // 회차: 현재 시각과 같은 시각으로 바꾸는 항목은 뺀 뒤, 남은 변경이 지금 회차에 적용 가능한지 확인한다.
+        List<PerformanceSession> sessions = sessionRepository.findByPerformance_IdOrderByStartsAtAsc(performanceId);
+        sessionChanges = dropNoOpChanges(sessionChanges, sessions);
+        if (!sessionChanges.isEmpty()) {
+            PlanError error = checkSessionPlan(sessionChanges, sessions);
+            if (error != null) {
+                if (error.inUse()) {
+                    throw new BusinessRuleException("SESSION_IN_USE", error.message());
+                }
+                throw new FieldValidationException("sessionChanges", error.message());
+            }
+        }
+        if (newTitle == null && newVenue == null && sessionChanges.isEmpty()) {
             throw new BusinessRuleException("EDIT_NO_CHANGE", "현재 정보와 같아서 제안할 내용이 없어요.");
         }
         if (proposalRepository.existsPending(user.getId(), performanceId)) {
@@ -97,8 +128,8 @@ public class PerformanceEditProposalService {
         }
         try {
             PerformanceEditProposal saved = proposalRepository.saveAndFlush(
-                    PerformanceEditProposal.create(performance, user.getId(), newTitle, newVenue, reason));
-            return toUser(saved);
+                    PerformanceEditProposal.create(performance, user.getId(), newTitle, newVenue, sessionChanges, reason));
+            return toUser(saved, currentStarts(List.of(saved)));
         } catch (DataIntegrityViolationException e) {
             if (DataIntegrityViolations.isViolationOf(e, PerformanceEditProposal.UNIQUE_PENDING)) {
                 throw alreadyPending();
@@ -110,7 +141,8 @@ public class PerformanceEditProposalService {
     @Transactional(readOnly = true)
     public PageResponse<EditProposal> listMine(Long userId, int page, int size) {
         Page<PerformanceEditProposal> result = proposalRepository.findMine(userId, pageRequest(page, size));
-        return new PageResponse<>(result.getContent().stream().map(this::toUser).toList(), result.getNumber(),
+        Map<Long, LocalDateTime> starts = currentStarts(result.getContent());
+        return new PageResponse<>(result.getContent().stream().map(p -> toUser(p, starts)).toList(), result.getNumber(),
                 result.getSize(), result.getTotalElements(), result.getTotalPages());
     }
 
@@ -127,7 +159,8 @@ public class PerformanceEditProposalService {
         }
         Page<PerformanceEditProposal> result = proposalRepository.findForAdmin(filter, pageRequest(page, size));
         Map<Long, String> nicknames = nicknames(result.getContent());
-        return new PageResponse<>(result.getContent().stream().map(p -> toAdmin(p, nicknames)).toList(),
+        Map<Long, LocalDateTime> starts = currentStarts(result.getContent());
+        return new PageResponse<>(result.getContent().stream().map(p -> toAdmin(p, nicknames, starts)).toList(),
                 result.getNumber(), result.getSize(), result.getTotalElements(), result.getTotalPages());
     }
 
@@ -140,12 +173,33 @@ public class PerformanceEditProposalService {
         Long performanceId = proposal.getPerformance().getId();
         Performance performance = performanceRepository.findByIdForUpdate(performanceId)
                 .orElseThrow(() -> new NotFoundException("공연을 찾을 수 없습니다."));
+        // 회차 변경은 승인 시점의 회차에 다시 맞춰 본다(공연 행을 잠근 뒤라 그 사이 다른 승인은 끼어들 수 없다).
+        List<PerformanceSession> sessions = sessionRepository.findByPerformance_IdOrderByStartsAtAsc(performanceId);
+        List<SessionChange> changes = proposal.sessionChangesOrEmpty();
+        if (!changes.isEmpty()) {
+            PlanError error = checkSessionPlan(changes, sessions);
+            if (error != null) {
+                throw sessionConflict(error.message());
+            }
+        }
+        Map<Long, LocalDateTime> before = new HashMap<>();
+        sessions.forEach(x -> before.put(x.getId(), x.getStartsAt()));
         // 승인 시점의 현재 값을 스냅샷한 뒤 반영한다.
         proposal.approve(adminId, performance.getTitle(), performance.getVenueName(), null, now());
-        performance.applyApprovedEdit(proposal.getNewTitle(), proposal.getNewVenueName());
-        proposalRepository.saveAndFlush(proposal);
-        performanceRepository.flush();
-        return toAdmin(proposal, nicknames(List.of(proposal)));
+        proposal.recordOldSessionTimes(before);
+        if (proposal.getNewTitle() != null || proposal.getNewVenueName() != null) {
+            performance.applyApprovedEdit(proposal.getNewTitle(), proposal.getNewVenueName());
+        }
+        try {
+            applySessionChanges(performance, changes, sessions);
+            proposalRepository.saveAndFlush(proposal);
+            performanceRepository.flush();
+        } catch (DataIntegrityViolationException e) {
+            // 삭제하려는 회차에 방금 티켓이 걸리는 등 DB 제약에 걸린 경우
+            throw sessionConflict("승인하는 사이 회차 정보가 바뀌어 반영할 수 없어요. 이 제안은 거절해 주세요.");
+        }
+        Map<Long, LocalDateTime> starts = currentStarts(List.of(proposal));
+        return toAdmin(proposal, nicknames(List.of(proposal)), starts);
     }
 
     @Transactional
@@ -154,7 +208,7 @@ public class PerformanceEditProposalService {
         PerformanceEditProposal proposal = lockPending(proposalId);
         proposal.reject(adminId, cleanNote, now());
         proposalRepository.saveAndFlush(proposal);
-        return toAdmin(proposal, nicknames(List.of(proposal)));
+        return toAdmin(proposal, nicknames(List.of(proposal)), currentStarts(List.of(proposal)));
     }
 
     /** 제안 행을 FOR UPDATE 로 잠그고 PENDING 인지 확인한다. 트랜잭션의 첫 쿼리여야 한다. */
@@ -209,19 +263,178 @@ public class PerformanceEditProposalService {
         return map;
     }
 
-    private EditProposal toUser(PerformanceEditProposal p) {
+    private EditProposal toUser(PerformanceEditProposal p, Map<Long, LocalDateTime> starts) {
         Performance perf = p.getPerformance();
         return new EditProposal(p.getId(), perf.getId(), perf.getTitle(), perf.getTitle(), perf.getVenueName(),
                 p.getNewTitle(), p.getNewVenueName(), p.getReason(), p.getStatus().name(), p.getReviewNote(),
-                p.getCreatedAt(), p.getReviewedAt());
+                p.getCreatedAt(), p.getReviewedAt(), views(p, starts));
     }
 
-    private AdminEditProposal toAdmin(PerformanceEditProposal p, Map<Long, String> nicknames) {
+    private AdminEditProposal toAdmin(PerformanceEditProposal p, Map<Long, String> nicknames,
+                                      Map<Long, LocalDateTime> starts) {
         Performance perf = p.getPerformance();
         return new AdminEditProposal(p.getId(), perf.getId(), perf.getTitle(), perf.getTitle(), perf.getVenueName(),
                 p.getNewTitle(), p.getNewVenueName(), p.getReason(), p.getStatus().name(), p.getReviewNote(),
                 p.getCreatedAt(), p.getReviewedAt(), p.getProposerId(), nicknames.get(p.getProposerId()),
                 p.getOldTitle(), p.getOldVenueName(),
-                p.getReviewedById() == null ? null : nicknames.get(p.getReviewedById()));
+                p.getReviewedById() == null ? null : nicknames.get(p.getReviewedById()), views(p, starts));
+    }
+
+    // ---- 회차 변경 ----
+
+    /** 처리되지 않은 제안의 기존 시각을 보여 주려고 현재 회차 시각을 한 번에 읽는다(승인된 제안은 스냅샷을 쓴다). */
+    private Map<Long, LocalDateTime> currentStarts(List<PerformanceEditProposal> proposals) {
+        Set<Long> ids = new HashSet<>();
+        for (PerformanceEditProposal p : proposals) {
+            if (p.getStatus() != AdminReviewStatus.APPROVED) {
+                p.sessionChangesOrEmpty().stream().map(SessionChange::sessionId).filter(x -> x != null).forEach(ids::add);
+            }
+        }
+        Map<Long, LocalDateTime> map = new HashMap<>();
+        if (!ids.isEmpty()) {
+            sessionRepository.findAllById(ids).forEach(x -> map.put(x.getId(), x.getStartsAt()));
+        }
+        return map;
+    }
+
+    private static List<SessionChangeView> views(PerformanceEditProposal p, Map<Long, LocalDateTime> starts) {
+        List<SessionChangeView> list = new ArrayList<>();
+        for (SessionChange c : p.sessionChangesOrEmpty()) {
+            LocalDateTime current = null;
+            if (c.sessionId() != null) {
+                current = c.oldStartsAt() != null ? LocalDateTime.parse(c.oldStartsAt()) : starts.get(c.sessionId());
+            }
+            list.add(new SessionChangeView(c.type(), c.sessionId(), c.startsAtTime(), current));
+        }
+        return list;
+    }
+
+    /** 요청의 회차 변경을 DB 를 보지 않고 가능한 만큼 검증·정리한다(400 {sessionChanges: 메시지}). */
+    private List<SessionChange> parseSessionChanges(List<SessionChangeRequest> requested) {
+        if (requested == null || requested.isEmpty()) {
+            return List.of();
+        }
+        if (requested.size() > MAX_SESSION_CHANGES) {
+            throw new FieldValidationException("sessionChanges", "회차 변경은 한 번에 " + MAX_SESSION_CHANGES + "개까지 제안할 수 있어요.");
+        }
+        List<SessionChange> result = new ArrayList<>();
+        Set<Long> seenIds = new HashSet<>();
+        for (SessionChangeRequest r : requested) {
+            if (r == null || r.type() == null) {
+                throw new FieldValidationException("sessionChanges", "회차 변경의 종류(ADD, CHANGE, REMOVE)가 필요해요.");
+            }
+            String type = r.type().strip().toUpperCase(Locale.ROOT);
+            switch (type) {
+                case SessionChange.ADD -> {
+                    if (r.sessionId() != null) {
+                        throw new FieldValidationException("sessionChanges", "추가할 회차에는 회차 번호를 넣을 수 없어요.");
+                    }
+                    result.add(new SessionChange(type, null,
+                            sessionTimePolicy.normalize(r.startsAt(), "sessionChanges").toString(), null));
+                }
+                case SessionChange.CHANGE, SessionChange.REMOVE -> {
+                    if (r.sessionId() == null) {
+                        throw new FieldValidationException("sessionChanges", "바꾸거나 삭제할 회차를 골라 주세요.");
+                    }
+                    if (!seenIds.add(r.sessionId())) {
+                        throw new FieldValidationException("sessionChanges", "같은 회차를 두 번 바꿀 수 없어요.");
+                    }
+                    String startsAt = null;
+                    if (type.equals(SessionChange.CHANGE)) {
+                        startsAt = sessionTimePolicy.normalize(r.startsAt(), "sessionChanges").toString();
+                    }
+                    result.add(new SessionChange(type, r.sessionId(), startsAt, null));
+                }
+                default -> throw new FieldValidationException("sessionChanges",
+                        "회차 변경의 종류는 ADD, CHANGE, REMOVE 중 하나여야 해요.");
+            }
+        }
+        return result;
+    }
+
+    /** 현재 시각과 같은 시각으로 바꾸는 CHANGE 는 바꿀 것이 없으니 뺀다(없는 회차는 그대로 두어 plan 검사가 잡는다). */
+    private static List<SessionChange> dropNoOpChanges(List<SessionChange> changes, List<PerformanceSession> sessions) {
+        Map<Long, LocalDateTime> current = new HashMap<>();
+        sessions.forEach(x -> current.put(x.getId(), x.getStartsAt()));
+        List<SessionChange> kept = new ArrayList<>();
+        for (SessionChange c : changes) {
+            if (SessionChange.CHANGE.equals(c.type()) && c.startsAtTime().equals(current.get(c.sessionId()))) {
+                continue;
+            }
+            kept.add(c);
+        }
+        return kept;
+    }
+
+    private record PlanError(boolean inUse, String message) {}
+
+    /** 변경 목록이 지금 회차 목록에 적용 가능한지 판정한다. 문제가 없으면 null. */
+    private PlanError checkSessionPlan(List<SessionChange> changes, List<PerformanceSession> sessions) {
+        Map<Long, PerformanceSession> byId = new HashMap<>();
+        sessions.forEach(x -> byId.put(x.getId(), x));
+        Set<Long> removed = new HashSet<>();
+        List<LocalDateTime> newTimes = new ArrayList<>();
+        int adds = 0;
+        for (SessionChange c : changes) {
+            if (!SessionChange.ADD.equals(c.type()) && !byId.containsKey(c.sessionId())) {
+                return new PlanError(false, "이 공연에 없는 회차예요. 화면을 새로고침해 주세요.");
+            }
+            switch (c.type()) {
+                case SessionChange.REMOVE -> removed.add(c.sessionId());
+                case SessionChange.CHANGE -> newTimes.add(c.startsAtTime());
+                default -> {
+                    adds++;
+                    newTimes.add(c.startsAtTime());
+                }
+            }
+        }
+        if (sessions.size() - removed.size() + adds < 1) {
+            return new PlanError(false, "회차는 최소 1개가 남아야 해요.");
+        }
+        if (new HashSet<>(newTimes).size() != newTimes.size()) {
+            return new PlanError(false, "같은 시각의 회차를 두 번 넣었어요.");
+        }
+        for (PerformanceSession x : sessions) {
+            if (!removed.contains(x.getId()) && newTimes.contains(x.getStartsAt())) {
+                return new PlanError(false, x.getStartsAt().toString().replace('T', ' ')
+                        + " 회차가 이미 있어요. 시각을 맞바꾸려면 하나씩 나눠서 제안해 주세요.");
+            }
+        }
+        if (!removed.isEmpty() && !sessionRepository.findInUseIds(removed).isEmpty()) {
+            return new PlanError(true, "티켓이나 교환 희망 조건이 걸린 회차는 삭제를 제안할 수 없어요.");
+        }
+        return null;
+    }
+
+    /** 삭제 -> 시각 변경 -> 추가 순서로 반영한다(삭제한 시각을 다른 회차가 이어받을 수 있게 단계마다 flush). */
+    private void applySessionChanges(Performance performance, List<SessionChange> changes,
+                                     List<PerformanceSession> sessions) {
+        if (changes.isEmpty()) {
+            return;
+        }
+        Map<Long, PerformanceSession> byId = new HashMap<>();
+        sessions.forEach(x -> byId.put(x.getId(), x));
+        for (SessionChange c : changes) {
+            if (SessionChange.REMOVE.equals(c.type())) {
+                sessionRepository.delete(byId.get(c.sessionId()));
+            }
+        }
+        sessionRepository.flush();
+        for (SessionChange c : changes) {
+            if (SessionChange.CHANGE.equals(c.type())) {
+                byId.get(c.sessionId()).changeStartsAt(c.startsAtTime());
+            }
+        }
+        sessionRepository.flush();
+        for (SessionChange c : changes) {
+            if (SessionChange.ADD.equals(c.type())) {
+                sessionRepository.save(PerformanceSession.create(performance, c.startsAtTime()));
+            }
+        }
+        sessionRepository.flush();
+    }
+
+    private static ConflictException sessionConflict(String message) {
+        return new ConflictException(message, Map.of("code", "SESSION_EDIT_CONFLICT"));
     }
 }

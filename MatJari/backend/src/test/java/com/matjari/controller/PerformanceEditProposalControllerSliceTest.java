@@ -5,6 +5,7 @@ import com.matjari.domain.UserRole;
 import com.matjari.dto.response.PageResponse;
 import com.matjari.dto.response.PerformanceEditProposalDtos.AdminEditProposal;
 import com.matjari.dto.response.PerformanceEditProposalDtos.CreateRequest;
+import com.matjari.dto.response.PerformanceEditProposalDtos;
 import com.matjari.dto.response.PerformanceEditProposalDtos.EditProposal;
 import com.matjari.exception.BusinessRuleException;
 import com.matjari.exception.ConflictException;
@@ -84,12 +85,12 @@ class PerformanceEditProposalControllerSliceTest {
     }
 
     private static EditProposal proposal() {
-        return new EditProposal(5L, 100L, "옛 제목", "옛 제목", "옛 공연장", "새 제목", null, "오타", "PENDING", null, AT, null);
+        return new EditProposal(5L, 100L, "옛 제목", "옛 제목", "옛 공연장", "새 제목", null, "오타", "PENDING", null, AT, null, java.util.List.of());
     }
 
     private static AdminEditProposal adminProposal() {
         return new AdminEditProposal(5L, 100L, "새 제목", "새 제목", "옛 공연장", "새 제목", null, "오타", "APPROVED", null,
-                AT, AT, 1L, "제안자", "옛 제목", "옛 공연장", "관리자");
+                AT, AT, 1L, "제안자", "옛 제목", "옛 공연장", "관리자", java.util.List.of());
     }
 
     @Test
@@ -103,8 +104,54 @@ class PerformanceEditProposalControllerSliceTest {
                 .andExpect(content().json("""
                         {"id":5,"performanceId":100,"performanceTitle":"옛 제목","currentTitle":"옛 제목",
                          "currentVenueName":"옛 공연장","newTitle":"새 제목","newVenueName":null,"reason":"오타",
-                         "status":"PENDING","reviewNote":null,"createdAt":"2026-10-12T09:30:05","reviewedAt":null}
+                         "status":"PENDING","reviewNote":null,"createdAt":"2026-10-12T09:30:05","reviewedAt":null,"sessionChanges":[]}
                         """, true));
+    }
+
+    @Test
+    void 회차_변경_본문을_받아_서비스에_넘기고_응답에_회차_변경을_담는다() throws Exception {
+        EditProposal withSessions = new EditProposal(5L, 100L, "제목", "제목", "공연장", null, null, "회차", "PENDING", null, AT, null,
+                List.of(new PerformanceEditProposalDtos.SessionChangeView("CHANGE", 7L,
+                                LocalDateTime.of(2026, 11, 2, 19, 0), LocalDateTime.of(2026, 11, 1, 19, 0)),
+                        new PerformanceEditProposalDtos.SessionChangeView("REMOVE", 8L, null, LocalDateTime.of(2026, 11, 3, 19, 0))));
+        when(service.create(eq(1L), eq(100L), any(CreateRequest.class))).thenReturn(withSessions);
+
+        mockMvc.perform(as("user", post("/api/performances/100/edit-proposals")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"회차\",\"sessionChanges\":["
+                                + "{\"type\":\"CHANGE\",\"sessionId\":7,\"startsAt\":\"2026-11-02T19:00\"},"
+                                + "{\"type\":\"REMOVE\",\"sessionId\":8},"
+                                + "{\"type\":\"ADD\",\"startsAt\":\"2026-11-04T19:00:00\"}]}")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.sessionChanges.length()").value(2))
+                .andExpect(jsonPath("$.sessionChanges[0].type").value("CHANGE"))
+                .andExpect(jsonPath("$.sessionChanges[0].sessionId").value(7))
+                .andExpect(jsonPath("$.sessionChanges[0].startsAt").value("2026-11-02T19:00:00"))
+                .andExpect(jsonPath("$.sessionChanges[0].currentStartsAt").value("2026-11-01T19:00:00"))
+                .andExpect(jsonPath("$.sessionChanges[1].startsAt").doesNotExist());
+
+        org.mockito.ArgumentCaptor<CreateRequest> captor = org.mockito.ArgumentCaptor.forClass(CreateRequest.class);
+        verify(service).create(eq(1L), eq(100L), captor.capture());
+        List<PerformanceEditProposalDtos.SessionChangeRequest> sent = captor.getValue().sessionChanges();
+        org.assertj.core.api.Assertions.assertThat(sent).hasSize(3);
+        org.assertj.core.api.Assertions.assertThat(sent.get(0))
+                .isEqualTo(new PerformanceEditProposalDtos.SessionChangeRequest("CHANGE", 7L, LocalDateTime.of(2026, 11, 2, 19, 0)));
+        org.assertj.core.api.Assertions.assertThat(sent.get(2))
+                .isEqualTo(new PerformanceEditProposalDtos.SessionChangeRequest("ADD", null, LocalDateTime.of(2026, 11, 4, 19, 0)));
+    }
+
+    @Test
+    void 회차_변경_없는_요청은_sessionChanges가_null이어도_된다() throws Exception {
+        when(service.create(eq(1L), eq(100L), any(CreateRequest.class))).thenReturn(proposal());
+
+        mockMvc.perform(as("user", post("/api/performances/100/edit-proposals")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"newTitle\":\"새 제목\"}")))
+                .andExpect(status().isCreated());
+
+        org.mockito.ArgumentCaptor<CreateRequest> captor = org.mockito.ArgumentCaptor.forClass(CreateRequest.class);
+        verify(service).create(eq(1L), eq(100L), captor.capture());
+        org.assertj.core.api.Assertions.assertThat(captor.getValue().sessionChanges()).isNull();
     }
 
     @Test

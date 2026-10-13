@@ -3,6 +3,7 @@ import { editProposalsApi, STATUS_LABEL, type EditProposal } from "../api/editPr
 import { formatKstDateTime } from "../api/dateTime";
 import { parseApiError } from "../api/errors";
 import { usePagedList } from "../hooks/usePagedList";
+import SessionChangesView from "../components/SessionChangesView";
 import { button, liveRegionClass, ui } from "../components/ui";
 
 // 내 공연 수정 제안 목록 (/my/edit-proposals, 보호 라우트). 처리 결과(승인·거절 사유)를 여기서 본다.
@@ -55,6 +56,7 @@ export default function MyEditProposalsPage() {
                 </div>
                 {p.newTitle && <Change label="제목" from={p.status === "APPROVED" ? null : p.currentTitle} to={p.newTitle} />}
                 {p.newVenueName && <Change label="공연장" from={p.status === "APPROVED" ? null : p.currentVenueName} to={p.newVenueName} />}
+                <SessionChangesView changes={p.sessionChanges ?? []} />
                 {p.reason && <p className={ui.body}>사유: {p.reason}</p>}
                 {p.reviewNote && <p className={ui.notice}>검토 의견: {p.reviewNote}</p>}
                 <p className={ui.muted}>

@@ -1,4 +1,4 @@
-// 맞자리 ERD -- 현재 스키마: V1~V19 (users, performance, performance_session, ticket + 교환 희망 4개 + 매칭·잠금 2개 + 교환 이력 1개 + 알림 1개 + 채팅 2개 + 관리자 2개(V12) + 차단·신고·정지 3개(V13) + 소셜 계정 1개(V14) + 이메일 인증번호 1개(V19) = 21개 테이블; V6·V7은 컬럼 변경만, V9는 ticket.status EXCHANGED 추가와 exchange_history 신설, V10은 notification 신설, V11은 chat_message·chat_read_state 신설, V12는 performance_edit_proposal·seat_claim 신설, V13은 user_block·abuse_report·user_sanction 신설, V14는 social_account 신설, V15는 exchange_match 예약 제안 2컬럼과 notification type 6종 확장(테이블 수 그대로), V16은 users.password_login_enabled 컬럼과 social_account (user_id, provider) 유니크 추가(테이블 수 그대로), V17은 users.withdrawn_at 컬럼 추가(회원탈퇴, 테이블 수 그대로), V18은 users.trust_score 컬럼 제거(폐기된 신뢰도 점수, 테이블 수 그대로))
+// 맞자리 ERD -- 현재 스키마: V1~V20 (users, performance, performance_session, ticket + 교환 희망 4개 + 매칭·잠금 2개 + 교환 이력 1개 + 알림 1개 + 채팅 2개 + 관리자 2개(V12) + 차단·신고·정지 3개(V13) + 소셜 계정 1개(V14) + 이메일 인증번호 1개(V19) = 21개 테이블; V6·V7은 컬럼 변경만, V9는 ticket.status EXCHANGED 추가와 exchange_history 신설, V10은 notification 신설, V11은 chat_message·chat_read_state 신설, V12는 performance_edit_proposal·seat_claim 신설, V13은 user_block·abuse_report·user_sanction 신설, V14는 social_account 신설, V15는 exchange_match 예약 제안 2컬럼과 notification type 6종 확장(테이블 수 그대로), V16은 users.password_login_enabled 컬럼과 social_account (user_id, provider) 유니크 추가(테이블 수 그대로), V17은 users.withdrawn_at 컬럼 추가(회원탈퇴, 테이블 수 그대로), V18은 users.trust_score 컬럼 제거(폐기된 신뢰도 점수, 테이블 수 그대로))
 // 2026-10-13: V19(V19__email_verification.sql) 구현(feature/email-verification) = email_verification(가입 전 이메일 인증번호: PK email, code_hash HMAC-SHA256 CHAR(64), attempts, sent_at, expires_at, idx_email_verification_expires). users와 FK 없음(가입 전 이메일), 가입 성공 시 행 삭제. 재실행 가능한 프로시저, 파괴적 단계 없음. 이 변경으로 ERD.png는 재생성하지 않았다(dot 미설치).
 // 생성: dot -Tpng erd.dot -o ERD.png   (한글 라벨: 나눔고딕 등 한글 폰트 필요)
 // 2026-10-07 방향 전환으로 좌석표 트랙(좌석표·수정 로그·신고·제재 테이블)과 후기 테이블을 제외하고 새로 작성. 이후 교환 테이블이 V4~V8로 구현되어 현재 색으로 추가됐다.
@@ -297,6 +297,7 @@ digraph MatJariERD {
       <TR><TD>FK</TD><TD ALIGN="LEFT">performance_id → performance (NN)</TD></TR>
       <TR><TD>FK</TD><TD ALIGN="LEFT">proposer_id → users (NN, 제안자)</TD></TR>
       <TR><TD> </TD><TD ALIGN="LEFT">new_title VARCHAR(200) NULL / new_venue_name VARCHAR(100) NULL (둘 중 하나 이상, 바꾸지 않은 쪽은 NULL)</TD></TR>
+      <TR><TD> </TD><TD ALIGN="LEFT">session_changes JSON NULL (V20, 회차 변경 목록 ADD/CHANGE/REMOVE; 제목·공연장·회차 변경 중 하나 이상)</TD></TR>
       <TR><TD> </TD><TD ALIGN="LEFT">reason VARCHAR(500) NULL</TD></TR>
       <TR><TD> </TD><TD ALIGN="LEFT">status (PENDING/APPROVED/REJECTED, NN, 기본 PENDING, bin + CHECK)</TD></TR>
       <TR><TD> </TD><TD ALIGN="LEFT">old_title / old_venue_name (APPROVED일 때만, 승인 시점 스냅샷)</TD></TR>

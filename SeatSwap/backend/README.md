@@ -440,14 +440,23 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 - 사용자당 PENDING 5건(422 `SEAT_CLAIM_LIMIT_REACHED`), 같은 좌석에 PENDING 1건(409 `SEAT_CLAIM_ALREADY_PENDING`). 이미 내 활성 티켓이면 409 `MY_TICKET_ALREADY_REGISTERED`, 회차가 마감됐으면 422 `SESSION_CLOSED`, 그 좌석에 등록된 티켓이 없으면 422 `SEAT_NOT_REGISTERED`.
 - 승인: 현재 그 좌석의 활성 티켓을 INACTIVE로 내리고, 그 티켓의 교환 요청을 CLOSED로 바꾸고, 그 티켓의 CHATTING 매칭을 시스템 취소한 뒤 요청을 APPROVED로 바꾼다. 예약 잠금 중이면 409 `TICKET_RESERVED`, 교환 완료된 티켓이면 409 `TICKET_EXCHANGED`로 승인할 수 없다. 이미 비어 있으면 승인은 성공하고 `resolved_ticket_id`는 NULL이다. 요청자는 승인 뒤 일반 티켓 등록으로 직접 등록한다(자동 등록 없음).
 - 이미 처리된 요청을 다시 승인·거절하려 하면 409 `CLAIM_ALREADY_REVIEWED`다.
-- 승인·거절 모두 **커밋 뒤에** 사진 파일을 지우고 `image_deleted_at`을 기록한다. 파일 삭제가 실패해도 처리 결과는 유지된다. 처리된 요청은 `imageAvailable=false`로 응답하고 사진 조회는 410이다.
+- 승인·거절 모두 **커밋 뒤에** 사진 파일을 지우고 `image_deleted_at`을 기록한다. 파일 삭제가 실패해도 처리 결과는 유지되고, 남은 파일은 아래 정리 작업이 지운다. 처리된 요청은 `imageAvailable=false`로 응답하고 사진 조회는 410이다.
 - 사진 응답 헤더: `Content-Disposition: inline`, `X-Content-Type-Options: nosniff`, `Cache-Control: private, no-store`. 본인과 ADMIN만 조회할 수 있고, 그 외에는 존재를 숨기려고 404를 준다.
 
 ### 잠금 순서
 - 인증 요청 행 FOR UPDATE → 티켓 id↑ → 요청 id↑ → 매칭. 좌석 키 보조 유니크 인덱스로 티켓에 FOR UPDATE를 걸면 PK부터 잠그는 `deactivate`와 교착이 나므로, 티켓은 id를 잠금 없이 읽고 PK로 잠근 뒤 상태를 다시 판단한다(`TicketService.deactivateLocked` 추출, 기존 동작 불변).
 
 ### 알려진 한계
-- 커밋 뒤 사진 삭제가 실패하거나 서버가 종료되면 고아 파일이 남는다(정리 스케줄러 없음).
+- 커밋 뒤 사진 삭제가 실패하거나 서버가 종료되면 파일이 남을 수 있다. 정리 작업이 주기적으로 지운다(아래 '사진 정리 작업'). 정리 사이에는 파일이 남아 있어도 조회는 불가능하다(처리된 요청은 410).
+- 정리 작업은 서버 한 대 기준이다(여러 대여도 없는 파일 삭제는 성공으로 보므로 안전). 파일 시각(마지막 수정)이 서버 시계와 어긋나면 grace 판정이 틀릴 수 있다.
+
+### 사진 정리 작업 (`SeatClaimImageCleanupService`)
+- `@Scheduled` fixedDelay(`SeatClaimImageCleanupScheduler`, 기본 1시간마다, 기동 5분 뒤 첫 실행)로 두 가지를 지운다.
+  1. **처리된 요청인데 사진이 남은 것**: `status<>PENDING AND image_deleted_at IS NULL AND reviewed_at < now-grace`인 요청의 파일을 지우고(이미 없어도 성공) `image_deleted_at`을 기록한다. 삭제에 실패하면 기록하지 않고 다음 주기에 다시 한다.
+  2. **요청 행이 없는 고아 파일**: 저장 디렉터리에서 UUID 이름이고 마지막 수정이 grace보다 오래된 일반 파일 중 `seat_claim.image_key`가 가리키지 않는 것을 지운다. 저장 직후 INSERT가 커밋되기 전의 짧은 틈을 지키려고 grace(기본 60분)보다 어린 파일은 보지 않는다.
+- PENDING 요청의 사진, UUID 형식이 아닌 이름, 하위 디렉터리, 심볼릭 링크는 건드리지 않는다. 한 번에 `batch`(기본 200)건까지만 하고 나머지는 다음 주기에 한다. 한 단계가 실패해도 다른 단계는 계속하고 로그에는 예외 종류와 건수만 남긴다.
+- 설정(`seatswap.upload.cleanup.*`, 환경변수 `SEATSWAP_UPLOAD_CLEANUP_ENABLED`·`_INTERVAL_MS`·`_INITIAL_DELAY_MS`·`_GRACE_MINUTES`·`_BATCH`): `enabled=false`로 끌 수 있다.
+- 테스트: `SeatClaimImageCleanupServiceTest` 6건(임시 디렉터리), `SeatClaimMysqlTest`의 정리 시나리오 1건(실제 MySQL).
 - 관리자 좌석 인증 목록의 holder 조회는 N+1이다(최대 100건).
 - 관리자가 자기 제안·자기 인증 요청을 승인하는 것은 409 `SELF_REVIEW`로 막는다(거절은 허용). 승인 시점에 좌석을 요청자 본인이 가졌다면 본인 티켓은 내리지 않고 승인만 완료한다(resolved 없음). 승인 트랜잭션은 READ COMMITTED로 돌려 예약 잠금 검사가 낡은 스냅샷을 읽지 않게 한다(검증에서 발견한 TOCTOU).
 - 이미지 저장소는 서버 로컬 디스크라 다중 인스턴스에서는 쓸 수 없다.

@@ -66,7 +66,7 @@ DB는 Flyway V1~V18, 20개 테이블(social_account·performance_edit_proposal·
 
 ### 후보 조회
 - 조건: 같은 공연 / 상대 티켓 회차 ∈ 내 희망 회차이고 내 티켓 회차 ∈ 상대 희망 회차 / 상대 좌석 ∈ 내 희망 좌석이고 내 좌석 ∈ 상대 희망 좌석 / 추가금 호환 / 상대 요청 OPEN·티켓 ACTIVE / 마감 지난 회차 제외 / 내 요청·같은 사용자 제외 / **예약으로 잠긴 티켓 제외**(예약이 취소되면 복귀) / 같은 쌍의 열린 매칭 제외 / 차단 사용자·정지 사용자 제외. 내 티켓이 잠겨 있으면 조회가 422 `TICKET_LOCKED`.
-- 정렬: 내 희망 회차 priority → 상대 요청 최신순. 응답에 신뢰도 필드는 없다. 페이징 `page&size`(기본 20, 최대 100); 후보가 수천 건을 넘으면 keyset 페이징 필요(후속).
+- 정렬: 내 희망 회차 priority → 상대 요청 최신순. 응답에 신뢰도 필드는 없다. 화면은 **keyset(커서) 조각** `GET /api/exchange/requests/{id}/candidates/scroll?cursor&size`(응답 `{content,size,hasNext,nextCursor}`, 전체 개수·offset 없음, 정렬 키 (priority, created_at, id)가 커서)로 읽고 "더 보기"로 이어 붙인다. 기존 `page&size`(기본 20, 최대 100) 엔드포인트는 호환용으로 남아 있다.
 - SQL은 `STRAIGHT_JOIN` 힌트를 유지한다(상대 요청 풀스캔 방지).
 
 ### 제안·취소
@@ -141,7 +141,7 @@ DB는 Flyway V1~V18, 20개 테이블(social_account·performance_edit_proposal·
 ### 관리자·공연 수정 제안·내 티켓 인증 (구현됨, V12 `performance_edit_proposal`·`seat_claim`)
 - 관리자는 DB에서 `users.role='ADMIN'`을 직접 부여한다. `/api/admin/**`는 서버가 ADMIN만 허용하고, 프론트는 `AdminRoute`(`/api/users/me`의 role)로 `/admin` 화면을 가린다. 헤더에는 ADMIN일 때만 '관리자' 링크가 보인다.
 - **공연 수정 제안**: 공연 상세 "정보가 틀렸어요"에서 **제목·공연장**(최소 하나)과 사유를 제안하면, 관리자가 현재 값→제안 값을 비교해 승인(공연에 반영)하거나 거절(사유)한다. **회차·링크는 수정 대상이 아니다.** 공연을 바꾸는 유일한 경로는 관리자 승인(`Performance.applyApprovedEdit`)이다. 사용자당 PENDING 3건, 한 사용자가 같은 공연에 낸 PENDING은 1건(다른 사용자는 같은 공연에 각자 낼 수 있다). 알림은 만들지 않고 제안자는 `/my/edit-proposals`에서 결과를 본다. 잠금 순서는 제안 행 → 공연 행.
-- **내 티켓 인증(좌석 소유 인증 요청)**: 이미 같은 좌석이 등록돼 있다는 안내의 '내 티켓 인증'에서 회차·좌석과 **예매내역 사진 1장**(jpeg/png/webp, ≤5 MiB)을 올리면 관리자가 사진·현재 그 좌석을 가진 티켓을 보고 승인/거절한다. **승인하면 현재 그 좌석의 활성 티켓을 시스템이 내린다**(요청 CLOSED, CHATTING 매칭 시스템 취소; 예약 잠금 중이면 승인 불가). 요청자는 이후 일반 티켓 등록으로 직접 등록한다. 사진은 서버 로컬 디스크(`seatswap.upload.dir`)에 UUID 이름으로 저장하고 본인·ADMIN만 조회하며, **처리(승인·거절)가 끝나면 커밋 뒤 삭제**한다. 사용자당 PENDING 5건. 잠금 순서는 인증 요청 행 → 티켓 id↑ → 요청 id↑ → 매칭.
+- **내 티켓 인증(좌석 소유 인증 요청)**: 이미 같은 좌석이 등록돼 있다는 안내의 '내 티켓 인증'에서 회차·좌석과 **예매내역 사진 1장**(jpeg/png/webp, ≤5 MiB)을 올리면 관리자가 사진·현재 그 좌석을 가진 티켓을 보고 승인/거절한다. **승인하면 현재 그 좌석의 활성 티켓을 시스템이 내린다**(요청 CLOSED, CHATTING 매칭 시스템 취소; 예약 잠금 중이면 승인 불가). 요청자는 이후 일반 티켓 등록으로 직접 등록한다. 사진은 서버 로컬 디스크(`seatswap.upload.dir`)에 UUID 이름으로 저장하고 본인·ADMIN만 조회하며, **처리(승인·거절)가 끝나면 커밋 뒤 삭제**한다. 삭제가 실패했거나 서버가 그 사이 멈춰 남은 사진·요청 행이 없는 고아 파일은 **정리 작업**(`SeatClaimImageCleanupService`, 기본 1시간마다, 기동 5분 뒤 첫 실행)이 60분 지난 것만 골라 지운다(PENDING 요청의 사진은 지우지 않는다; 설정 `seatswap.upload.cleanup.*`). 사용자당 PENDING 5건. 잠금 순서는 인증 요청 행 → 티켓 id↑ → 요청 id↑ → 매칭.
 - 상세는 [wiki/decisions/admin-design.md](wiki/decisions/admin-design.md).
 
 ### 차단·신고·이용 정지·관리자 관리 (구현됨, V13 `user_block`·`abuse_report`·`user_sanction`)
@@ -171,13 +171,13 @@ DB는 Flyway V1~V18, 20개 테이블(social_account·performance_edit_proposal·
 - **연결 해제**: `DELETE /api/users/me/social/{provider}`(연결이 없으면 멱등 204). 마지막 로그인 수단(비밀번호 로그인 불가이고 연결이 이것뿐)이면 409 `LAST_LOGIN_METHOD`다. 해제 가능 여부는 `GET /api/users/me/social`의 `canUnlink`로 알린다. 제공자가 지금 꺼져 있어도 해제는 된다.
 
 ### 회원탈퇴·개인정보처리방침 (구현됨, V17)
-- **API**: `DELETE /api/users/me` body `{password?, confirmText?}`(인증 필요, 성공 204). 본인 확인: 비밀번호 로그인 계정(`password_login_enabled`=1)은 비밀번호(불일치 400), 소셜 전용 계정은 `confirmText`가 정확히 `탈퇴합니다`여야 한다(아니면 400). ADMIN은 409 `ADMIN_CANNOT_WITHDRAW`(역할을 DB에서 해제한 뒤 탈퇴). 사용자당 분당 5회(성공·실패 모두 센다, 초과 429 `WITHDRAW_RATE_LIMITED`). 이미 탈퇴했거나 동시 탈퇴의 뒤쪽은 401.
+- **API**: `DELETE /api/users/me` body `{password?, confirmText?, reauthCode?}`(인증 필요, 성공 204). 본인 확인: 비밀번호 로그인 계정(`password_login_enabled`=1)은 비밀번호(불일치 400), 소셜 전용 계정은 `confirmText`가 정확히 `탈퇴합니다`여야 하고(아니면 400 `confirmText`) **연결된 소셜 계정으로 방금 다시 인증한 `reauthCode`도 있어야 한다**(없음·만료·다른 사용자·이 사용자에게 연결되지 않은 계정은 400 `reauthCode`; 재인증 코드는 1회용이라 불일치여도 소진). 재인증은 마이페이지 모달의 "OOO(으)로 본인 확인" → `POST /api/users/me/social/{provider}/reauth`(이미 연결된 제공자만, 아니면 409 `SOCIAL_NOT_LINKED`)로 연결 모드와 같은 authorize 흐름을 한 번 더 거쳐 `/me#linkCode=`로 돌아오며, 이 코드를 연결 확정이 아니라 탈퇴 요청에 쓴다. 연결된 제공자가 지금 하나도 켜져 있지 않으면 재인증 수단이 없어 확인 문구만으로 허용한다. ADMIN은 409 `ADMIN_CANNOT_WITHDRAW`(역할을 DB에서 해제한 뒤 탈퇴). 사용자당 분당 5회(성공·실패 모두 센다, 초과 429 `WITHDRAW_RATE_LIMITED`). 이미 탈퇴했거나 동시 탈퇴의 뒤쪽은 401.
 - **처리(한 트랜잭션)**: ①PENDING 좌석 인증 요청 거절(처리자는 본인, 사진은 커밋 뒤 삭제) ②열린 매칭(CHATTING·RESERVED) 시스템 취소와 예약 잠금 해제(`OpenMatchCanceller`) ③OPEN 요청 CLOSED, 활성 티켓 INACTIVE ④users 행 FOR UPDATE 후 같은 정리를 한 번 더(2차 정리) ⑤`social_account` 전부 삭제, users 익명화(이메일 `withdrawn.{id}@withdrawn.seatswap.invalid`, 닉네임 `탈퇴한 회원`, 무작위 BCrypt, `password_login_enabled`=0, `withdrawn_at`=KST 현재 시각, role 유지) ⑥수신자 알림 삭제 ⑦커밋 뒤 STOMP 연결 종료(실패는 삼킨다).
 - **보존**: 채팅·읽음 상태·교환 이력·차단·신고·제재·PENDING 공연 수정 제안은 지우지 않는다(FK 유지). 닉네임은 users에서 읽으므로 상대·관리자 화면에 '탈퇴한 회원'으로 나온다.
 - **잠금 순서(탈퇴)**: 인증 요청 → 티켓 id↑ → 매칭 id↑ → 요청 → users → 알림(요청이 매칭 뒤인 것은 알려진 좁은 교착 창이며 교착 감지기가 되돌려 503으로 끝난다). users 행은 티켓·매칭 잠금 **뒤에** 잡는다(개발 규칙 참고).
 - **인증 차단**: `CustomUserDetailsService`(`loadUserById`·`loadUserByUsername`)가 탈퇴 계정을 거절한다 → 기존 액세스 토큰 401, STOMP CONNECT 거부, 로그인·refresh·소셜 exchange·소셜 연결 확정 400, 소셜 연결 해제 401. 같은 이메일·같은 소셜 계정으로 새 계정을 만들 수 있다.
 - 관리자 제재 대상이 탈퇴한 사용자이면 409 `TARGET_WITHDRAWN`.
-- **이용 정지 중에도 탈퇴 API(`DELETE /api/users/me`)는 허용한다**(사용자 결정 2026-10-13; `JwtAuthenticationFilter`가 정지 예외에서 이 요청만 인증된 채로 통과시키고 `loadUserByIdAllowingSuspended`로 로딩). 다만 정지 중에는 로그인·토큰 재발급이 403이라 새 토큰을 받을 수 없고 화면(403이면 로그아웃)도 막혀 있어, 실제로는 정지 전에 받은 유효한 액세스 토큰이 있을 때만 쓸 수 있다. 토큰이 없는 정지 사용자는 방침 §8의 문의처로 요청한다(정지 중 로그인 허용은 후속).
+- **이용 정지 중에도 탈퇴 API(`DELETE /api/users/me`)는 허용한다**(사용자 결정 2026-10-13; `JwtAuthenticationFilter`가 정지 예외에서 이 요청만 인증된 채로 통과시키고 `loadUserByIdAllowingSuspended`로 로딩). 정지 중에는 로그인·토큰 재발급이 403이지만, **비밀번호 로그인에서 비밀번호가 맞으면 403 본문에 `withdrawToken`(탈퇴 전용 토큰, type=`withdraw`, 10분, 설정 `jwt.withdraw-token-validity-ms`)을 함께 준다.** 이 토큰은 `DELETE /api/users/me`에서만 인증으로 인정되고(필터), 재발급·STOMP·다른 API에는 쓸 수 없으며 저장하지 않는다. 로그인 화면이 "이 계정 탈퇴하기"를 보여 주고 탈퇴 모달에서 비밀번호를 다시 받는다. 비밀번호 로그인이 없는 소셜 전용 정지 사용자는 이 경로가 없어 방침 §8의 문의처로 요청한다(후속).
 - **프런트**: 마이페이지 '회원탈퇴' 버튼이 모달(`WithdrawDialog`, 안내·본인 확인)을 연다. 성공하면 홈에서 "탈퇴가 완료됐어요" 안내를 한 번 보인다. 푸터(채팅 화면 제외)와 공개 라우트 `/privacy`(개인정보처리방침)가 있다. 방침의 운영자·문의 이메일·시행일은 빌드 환경변수 `VITE_PRIVACY_OPERATOR`·`VITE_PRIVACY_CONTACT_EMAIL`·`VITE_PRIVACY_EFFECTIVE_DATE`로 받고, 비어 있으면 '설정 필요'로 강조한다. 가입 화면에는 방침 링크와 "가입하면 동의한 것으로 봐요, 만 14세 미만은 가입할 수 없어요" 안내를 둔다(동의 체크박스·동의 기록은 없다).
 - **방침의 보유 기간**: 계정 정보는 탈퇴 즉시 삭제·익명화, 인증 사진은 처리가 끝나면 삭제, 받은 알림은 탈퇴할 때 삭제. 채팅·교환 이력·차단·신고·제재는 익명화해 서비스 운영 기간 동안 보관하고 서비스 종료 시 파기한다(자동 파기 스케줄은 없다).
 - 상세와 한계는 [wiki/decisions/withdraw-privacy-design.md](wiki/decisions/withdraw-privacy-design.md).
@@ -236,8 +236,9 @@ DB는 Flyway V1~V18, 20개 테이블(social_account·performance_edit_proposal·
 - **구현 완료(2026-10-13, V17, 병합됨)**: 회원탈퇴·개인정보처리방침(`/privacy`)·푸터.
 - **구현 완료(2026-10-13, DB 변경 없음, 병합됨)**: 공연 포스터 표시(`feature/poster`, '공연 포스터 표시' 절).
 - **구현 완료(2026-10-13, DB 변경 없음, 병합됨)**: 회차 날짜 미리 채우기(`feature/session-prefill`, '링크 기반 공연정보 자동 입력' 절). 2일 이하 공연만 날짜를 채우고 시각은 직접 고른다.
+- **구현 완료(2026-10-13, DB 변경 없음)**: 후속 4건 — ①정지 중 제한 로그인(`feature/suspended-withdraw-login`: 비밀번호가 맞는 정지 로그인이 탈퇴 전용 10분 토큰 `withdrawToken`을 받아 탈퇴만 가능, '회원탈퇴·개인정보처리방침' 절) ②소셜 전용 계정 탈퇴 재인증(`feature/social-withdraw-reauth`, 같은 절) ③좌석 인증 사진 정리 작업(`feature/claim-image-cleanup`, '관리자·공연 수정 제안·내 티켓 인증' 절) ④후보 keyset 조각 조회(`feature/candidates-keyset`, '후보 조회' 절).
 - **예정(미착수, 구조만 열림)**: AI가 상세정보를 읽어 회차 시각(과 3일 이상 공연의 회차)을 채우는 출처. `sessionCandidates.time`이 자리다. 7일 경과 알림은 보류했다.
-- **회원탈퇴 후속**: 정지 중 사용자가 토큰 없이도 탈퇴할 수 있는 경로(정지 중 제한 로그인), 소셜 전용 계정의 재인증(지금은 확인 문구만), 인증 사진 삭제 실패 시 정리 작업, 채팅 보관 기간(지금은 운영 기간 동안), 보관 기간의 법적 근거 검토(공개 운영 전 전문가 검토 필요).
+- **회원탈퇴 후속**: 소셜 전용 정지 사용자의 탈퇴 경로(정지 중 제한 로그인은 비밀번호 계정만 구현), 채팅 보관 기간(지금은 운영 기간 동안), 보관 기간의 법적 근거 검토(공개 운영 전 전문가 검토 필요). 소셜 전용 계정의 탈퇴 재인증과 인증 사진 정리 작업은 구현됐다(2026-10-13).
 
 ## 확인 필요 (열린 질문만)
 

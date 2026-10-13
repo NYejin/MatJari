@@ -7,9 +7,14 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Stream;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -99,6 +104,40 @@ public class SeatClaimImageStore {
             log.warn("Seat claim image delete failed: {}", e.getClass().getSimpleName());
             return false;
         }
+    }
+
+    /**
+     * 저장 디렉터리에서 마지막 수정이 {@code olderThan} 보다 오래된 파일의 키(UUID 이름)를 최대 {@code limit}개 돌려준다.
+     * UUID 형식이 아닌 이름·하위 디렉터리·심볼릭 링크는 건드리지 않는다(정리 작업이 엉뚱한 파일을 지우지 않게). 디렉터리가 없으면 빈 목록.
+     */
+    public List<String> listKeysOlderThan(Instant olderThan, int limit) {
+        List<String> keys = new ArrayList<>();
+        if (!Files.isDirectory(root)) {
+            return keys;
+        }
+        try (Stream<Path> files = Files.list(root)) {
+            for (Path path : (Iterable<Path>) files::iterator) {
+                String name = path.getFileName().toString();
+                if (!isValidKey(name)) {
+                    continue;
+                }
+                BasicFileAttributes attrs;
+                try {
+                    attrs = Files.readAttributes(path, BasicFileAttributes.class, java.nio.file.LinkOption.NOFOLLOW_LINKS);
+                } catch (IOException e) {
+                    continue;   // 그 사이 지워졌거나 읽을 수 없는 파일은 건너뛴다
+                }
+                if (attrs.isRegularFile() && attrs.lastModifiedTime().toInstant().isBefore(olderThan)) {
+                    keys.add(name);
+                    if (keys.size() >= limit) {
+                        break;
+                    }
+                }
+            }
+        } catch (IOException | RuntimeException e) {
+            log.warn("Seat claim image listing failed: {}", e.getClass().getSimpleName());
+        }
+        return keys;
     }
 
     private Path resolve(String key) {

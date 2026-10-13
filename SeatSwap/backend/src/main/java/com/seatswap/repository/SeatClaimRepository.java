@@ -10,6 +10,9 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 public interface SeatClaimRepository extends JpaRepository<SeatClaim, Long> {
@@ -58,6 +61,18 @@ public interface SeatClaimRepository extends JpaRepository<SeatClaim, Long> {
     @Query("select c.id from SeatClaim c where c.claimantId = :userId "
             + "and c.status = com.seatswap.domain.AdminReviewStatus.PENDING order by c.id")
     java.util.List<Long> findPendingIdsByClaimant(@Param("userId") Long userId);
+
+    /**
+     * 처리(승인·거절)가 끝난 지 {@code cutoff} 보다 오래됐는데 사진 삭제가 기록되지 않은 요청 id(오름차순). 커밋 뒤 삭제가 실패했거나
+     * 서버가 그 사이 멈춘 경우다. 정리 작업이 쓴다(잠금 없는 SELECT).
+     */
+    @Query("select c.id from SeatClaim c where c.status <> com.seatswap.domain.AdminReviewStatus.PENDING "
+            + "and c.imageDeletedAt is null and c.reviewedAt < :cutoff order by c.id")
+    List<Long> findProcessedIdsWithImage(@Param("cutoff") LocalDateTime cutoff, Pageable pageable);
+
+    /** 주어진 키 중 요청 행이 가리키고 있는 것. 디스크에는 있는데 여기에 없는 키가 고아 파일이다. */
+    @Query("select c.imageKey from SeatClaim c where c.imageKey in :keys")
+    List<String> findExistingImageKeys(@Param("keys") Collection<String> keys);
 
     long countByClaimantIdAndStatus(Long claimantId, AdminReviewStatus status);
 

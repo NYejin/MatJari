@@ -45,6 +45,14 @@ public class UserSocialController {
                 .body(socialAccountService.startLink(principal.userId(), provider));
     }
 
+    /** 탈퇴 재인증 시작: 이미 연결된 제공자로 다시 인증한다(응답은 연결 시작과 같은 authorizeUrl). 연결이 없으면 409 SOCIAL_NOT_LINKED. */
+    @PostMapping("/{provider}/reauth")
+    public ResponseEntity<SocialLinkResponse> reauth(@AuthenticationPrincipal AuthUserPrincipal principal,
+                                                     @PathVariable String provider) {
+        return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, NO_STORE)
+                .body(socialAccountService.startReauth(principal.userId(), provider));
+    }
+
     /** 연결 확정: 콜백이 프래그먼트로 넘긴 일회용 코드를 로그인한 본인이 제출한다(없음·만료·다른 사용자 400 INVALID_LINK_CODE). */
     @PostMapping("/confirm")
     public ResponseEntity<SocialConfirmResponse> confirm(@AuthenticationPrincipal AuthUserPrincipal principal,

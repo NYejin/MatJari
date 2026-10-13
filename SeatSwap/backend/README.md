@@ -334,6 +334,10 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 |---|---|---|
 | GET | /api/exchange/requests/{id}/candidates?page=0&size=20 | 내 요청과 서로 조건이 맞는 상대 요청 목록. size 기본 20, 최대 100(초과·0 이하는 보정), page 0부터(음수 400) |
 
+| GET | /api/exchange/requests/{id}/candidates/scroll?cursor=&size=20 | **keyset(커서) 조각.** 같은 판정·정렬이지만 전체 개수와 OFFSET이 없다. 처음엔 cursor를 비우고 응답 `{content,size,hasNext,nextCursor}`의 nextCursor를 그대로 다음 요청에 넣는다(`hasNext=false`면 끝). 잘못된 cursor는 400 `{cursor}` 필드 오류. size 기본 20, 최대 100(보정) |
+
+keyset 조각의 내부: 저장소에 `size+1`건을 요청해 다음 조각 유무를 알고, 마지막 행의 `(wantPriority, requestedAt, requestId)`를 URL-safe Base64 불투명 커서로 만든다. SQL은 목록 쿼리(`STRAIGHT_JOIN`·제외 조건 포함)에 `AND (wsa.priority > ? OR (wsa.priority = ? AND (b.created_at < ? OR (b.created_at = ? AND b.id < ?))))`만 더하고 `LIMIT ?`만 쓴다(`b.id`가 PK라 정렬 키가 유일해 겹침·누락이 없다). 조각 사이에 후보가 닫히거나 새로 생겨도 커서 뒤의 행만 읽으므로 중복 없이 이어지고, 커서보다 앞(더 최신)에 새로 생긴 후보는 처음부터 다시 읽을 때 보인다. 권한·상태 검증(403/404/409/422)은 `page` 방식과 같은 메서드를 쓴다. 테스트: `ExchangeCandidateQueryTest`(실제 MySQL) keyset 5건(offset 방식과 같은 순서, 우선순위·시각·id 동률, 조각 크기 1~20, 조각 사이 변경, 커서 해석), `ExchangeCandidateServiceTest` 4건, 컨트롤러 슬라이스 2건.
+
 오류(403/404 구분은 같은 `/api/exchange/requests/{id}` 계열 API와 일관되게 유지한다. 티켓 API의 존재 비노출 404와는 다르다): 남의 요청 403 `{message}`, 없는 요청 404 `{message}`, 요청 CLOSED 또는 내 티켓 INACTIVE 422 `{code: TICKET_NOT_ACTIVE}`, 내 티켓 회차 마감 422 `{code: SESSION_CLOSED}`, 인증 없음 401.
 
 판정(전부 만족해야 후보):
@@ -440,14 +444,23 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 - 사용자당 PENDING 5건(422 `SEAT_CLAIM_LIMIT_REACHED`), 같은 좌석에 PENDING 1건(409 `SEAT_CLAIM_ALREADY_PENDING`). 이미 내 활성 티켓이면 409 `MY_TICKET_ALREADY_REGISTERED`, 회차가 마감됐으면 422 `SESSION_CLOSED`, 그 좌석에 등록된 티켓이 없으면 422 `SEAT_NOT_REGISTERED`.
 - 승인: 현재 그 좌석의 활성 티켓을 INACTIVE로 내리고, 그 티켓의 교환 요청을 CLOSED로 바꾸고, 그 티켓의 CHATTING 매칭을 시스템 취소한 뒤 요청을 APPROVED로 바꾼다. 예약 잠금 중이면 409 `TICKET_RESERVED`, 교환 완료된 티켓이면 409 `TICKET_EXCHANGED`로 승인할 수 없다. 이미 비어 있으면 승인은 성공하고 `resolved_ticket_id`는 NULL이다. 요청자는 승인 뒤 일반 티켓 등록으로 직접 등록한다(자동 등록 없음).
 - 이미 처리된 요청을 다시 승인·거절하려 하면 409 `CLAIM_ALREADY_REVIEWED`다.
-- 승인·거절 모두 **커밋 뒤에** 사진 파일을 지우고 `image_deleted_at`을 기록한다. 파일 삭제가 실패해도 처리 결과는 유지된다. 처리된 요청은 `imageAvailable=false`로 응답하고 사진 조회는 410이다.
+- 승인·거절 모두 **커밋 뒤에** 사진 파일을 지우고 `image_deleted_at`을 기록한다. 파일 삭제가 실패해도 처리 결과는 유지되고, 남은 파일은 아래 정리 작업이 지운다. 처리된 요청은 `imageAvailable=false`로 응답하고 사진 조회는 410이다.
 - 사진 응답 헤더: `Content-Disposition: inline`, `X-Content-Type-Options: nosniff`, `Cache-Control: private, no-store`. 본인과 ADMIN만 조회할 수 있고, 그 외에는 존재를 숨기려고 404를 준다.
 
 ### 잠금 순서
 - 인증 요청 행 FOR UPDATE → 티켓 id↑ → 요청 id↑ → 매칭. 좌석 키 보조 유니크 인덱스로 티켓에 FOR UPDATE를 걸면 PK부터 잠그는 `deactivate`와 교착이 나므로, 티켓은 id를 잠금 없이 읽고 PK로 잠근 뒤 상태를 다시 판단한다(`TicketService.deactivateLocked` 추출, 기존 동작 불변).
 
 ### 알려진 한계
-- 커밋 뒤 사진 삭제가 실패하거나 서버가 종료되면 고아 파일이 남는다(정리 스케줄러 없음).
+- 커밋 뒤 사진 삭제가 실패하거나 서버가 종료되면 파일이 남을 수 있다. 정리 작업이 주기적으로 지운다(아래 '사진 정리 작업'). 정리 사이에는 파일이 남아 있어도 조회는 불가능하다(처리된 요청은 410).
+- 정리 작업은 서버 한 대 기준이다(여러 대여도 없는 파일 삭제는 성공으로 보므로 안전). 파일 시각(마지막 수정)이 서버 시계와 어긋나면 grace 판정이 틀릴 수 있다.
+
+### 사진 정리 작업 (`SeatClaimImageCleanupService`)
+- `@Scheduled` fixedDelay(`SeatClaimImageCleanupScheduler`, 기본 1시간마다, 기동 5분 뒤 첫 실행)로 두 가지를 지운다.
+  1. **처리된 요청인데 사진이 남은 것**: `status<>PENDING AND image_deleted_at IS NULL AND reviewed_at < now-grace`인 요청의 파일을 지우고(이미 없어도 성공) `image_deleted_at`을 기록한다. 삭제에 실패하면 기록하지 않고 다음 주기에 다시 한다.
+  2. **요청 행이 없는 고아 파일**: 저장 디렉터리에서 UUID 이름이고 마지막 수정이 grace보다 오래된 일반 파일 중 `seat_claim.image_key`가 가리키지 않는 것을 지운다. 저장 직후 INSERT가 커밋되기 전의 짧은 틈을 지키려고 grace(기본 60분)보다 어린 파일은 보지 않는다.
+- PENDING 요청의 사진, UUID 형식이 아닌 이름, 하위 디렉터리, 심볼릭 링크는 건드리지 않는다. 한 번에 `batch`(기본 200)건까지만 하고 나머지는 다음 주기에 한다. 한 단계가 실패해도 다른 단계는 계속하고 로그에는 예외 종류와 건수만 남긴다.
+- 설정(`seatswap.upload.cleanup.*`, 환경변수 `SEATSWAP_UPLOAD_CLEANUP_ENABLED`·`_INTERVAL_MS`·`_INITIAL_DELAY_MS`·`_GRACE_MINUTES`·`_BATCH`): `enabled=false`로 끌 수 있다.
+- 테스트: `SeatClaimImageCleanupServiceTest` 6건(임시 디렉터리), `SeatClaimMysqlTest`의 정리 시나리오 1건(실제 MySQL).
 - 관리자 좌석 인증 목록의 holder 조회는 N+1이다(최대 100건).
 - 관리자가 자기 제안·자기 인증 요청을 승인하는 것은 409 `SELF_REVIEW`로 막는다(거절은 허용). 승인 시점에 좌석을 요청자 본인이 가졌다면 본인 티켓은 내리지 않고 승인만 완료한다(resolved 없음). 승인 트랜잭션은 READ COMMITTED로 돌려 예약 잠금 검사가 낡은 스냅샷을 읽지 않게 한다(검증에서 발견한 TOCTOU).
 - 이미지 저장소는 서버 로컬 디스크라 다중 인스턴스에서는 쓸 수 없다.
@@ -502,6 +515,8 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 ```
 
 `until`은 기간이 있으면 `yyyy-MM-ddTHH:mm:ss`, 무기한이면 null이다. 로그인(비밀번호가 맞은 뒤에만 검사)·토큰 재발급도 같은 403이다. `/api/auth/logout`은 정지 중에도 204로 동작한다.
+
+**정지 중 제한 로그인(탈퇴 전용 토큰)**: `POST /api/auth/login`에서 **비밀번호가 맞고 정지 중이면** 같은 403 본문에 `"withdrawToken":"…"`이 더해진다(비밀번호가 틀리면 일반 로그인 실패라 정지 여부도 알리지 않는다). 이 토큰은 JWT `type=withdraw`, 유효 10분(`jwt.withdraw-token-validity-ms`, 환경변수 `JWT_WITHDRAW_TOKEN_VALIDITY_MS`)이고, `JwtAuthenticationFilter`가 `DELETE /api/users/me`에서만 인증으로 인정한다(다른 경로는 미인증 401, `/api/auth/refresh`·STOMP CONNECT는 거부). 탈퇴 자체의 비밀번호 확인·속도 제한·처리는 일반 탈퇴와 같다. 소셜 전용 계정은 비밀번호 로그인이 없어 이 경로가 없다.
 
 ### 차단 규칙
 - 차단은 **방향이 하나**(blocker → blocked)지만 **효과는 양방향**이다. 누가 차단했든 ① 서로 후보에서 빠지고 ② 새 제안은 막힌다(후보 재검증 422 `NOT_A_CANDIDATE`) ③ 둘 사이의 열린 매칭(CHATTING·RESERVED)은 차단 시점에 시스템 취소(`canceled_by_id` NULL)되고 예약 잠금이 풀린다 ④ 취소된 매칭의 채팅은 읽기 전용이다 ⑤ COMPLETED 매칭과 교환 이력은 그대로다.
@@ -684,10 +699,13 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
-| DELETE | /api/users/me | 회원 탈퇴(로그인 필요). 본문 `{password?, confirmText?}`. 성공 204, 기존 토큰은 즉시 무효 |
+| DELETE | /api/users/me | 회원 탈퇴(로그인 필요). 본문 `{password?, confirmText?, reauthCode?}`. 성공 204, 기존 토큰은 즉시 무효 |
+| POST | /api/users/me/social/{provider}/reauth | 소셜 전용 계정의 탈퇴 재인증 시작. 이미 연결된 제공자만(아니면 409 `SOCIAL_NOT_LINKED`, 꺼진 제공자 404, 분당 10회). 응답은 연결 시작과 같은 `{authorizeUrl}` |
 
 - 비밀번호 로그인 계정(`password_login_enabled`=1): `password` 필수. BCrypt로 검사하며 72바이트 초과·빈 값·불일치는 400 `비밀번호가 올바르지 않습니다.`.
 - 소셜 전용 계정: `confirmText`가 정확히 `탈퇴합니다`여야 한다(아니면 400, 응답 `{confirmText}`).
+- **소셜 재인증(`reauthCode`)**: 연결된 제공자 중 지금 켜져 있는 것이 하나라도 있으면 `reauthCode`도 있어야 한다. 액세스 토큰만 훔친 사람이 되돌릴 수 없는 탈퇴를 하지 못하게 하려는 장치다. 흐름은 연결 모드를 재사용한다: `POST /api/users/me/social/{provider}/reauth`가 링크 티켓을 발급하고(이미 연결된 제공자만), 제공자 인증 뒤 콜백이 `/me#linkCode=…`(연결 확정 코드, 60초)로 돌려보낸다. 이 코드를 연결 확정이 아니라 탈퇴 요청의 `reauthCode`로 낸다. 서버는 `confirmText`를 먼저 확인하고, 코드를 **소비한 뒤**(불일치여도 소진) 코드의 사용자 = 요청 사용자이고 `social_account(user, provider, providerUserId)`가 실제로 있는지 본다. 실패는 모두 같은 400 `{reauthCode}`다(확인 문구가 틀리면 코드는 소비하지 않는다). 연결된 제공자가 모두 꺼져 있으면 재인증 수단이 없으므로 확인 문구만으로 허용한다.
+- 테스트: `WithdrawServiceTest` 6건 추가(코드 필수·성공·다른 사용자/미연결 계정 코드·문구 오류 때 코드 미소비·제공자 꺼짐·비밀번호 계정), `WithdrawMysqlTest` 재인증 시나리오 1건, `SocialAccountServiceTest`·`UserSocialControllerSliceTest` 재인증 시작 각 3건·2건.
 - ADMIN: 409 `ADMIN_CANNOT_WITHDRAW`. 역할을 DB에서 USER로 내린 뒤 탈퇴한다.
 - 사용자당 분당 5회(성공·실패 모두 센다, 서비스 내부 메모리 슬라이딩 윈도). 초과 429 `WITHDRAW_RATE_LIMITED`(`retryAfterSeconds` + `Retry-After` 헤더).
 - 이미 탈퇴한 계정(동시 탈퇴의 뒤쪽 포함)은 401.
@@ -727,9 +745,9 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 
 ### 알려진 한계
 
-1. 이용 정지 중 탈퇴는 API만 허용한다(`JwtAuthenticationFilter` 정지 예외에 `DELETE /api/users/me` 추가, 2026-10-13 결정). 정지 중에는 로그인이 막혀 정지 전 토큰이 있을 때만 쓸 수 있고, 아니면 방침 §8의 문의처로 요청한다.
-2. 소셜 전용 계정은 재인증 없이 확인 문구만으로 탈퇴한다(액세스 토큰이 탈취되면 되돌릴 수 없다). 후속으로 제공자 재인증 또는 이메일 확인을 검토한다.
-3. 인증 사진 삭제는 커밋 뒤 1회 시도하고 실패하면 로그만 남긴다(재시도·정리 작업 없음). 고아 파일이 남을 수 있고 조회는 불가하다. 방침은 "처리 끝나면 삭제"라고 적었으므로 정리 작업을 후속으로 둔다.
+1. 이용 정지 중 탈퇴는 허용한다(`JwtAuthenticationFilter` 정지 예외에 `DELETE /api/users/me` 추가, 2026-10-13 결정). 정지 중에도 비밀번호 로그인이 맞으면 403 본문의 탈퇴 전용 토큰(`withdrawToken`)으로 탈퇴할 수 있다. 소셜 전용 정지 계정은 이 경로가 없어 방침 §8의 문의처로 요청한다.
+2. 소셜 전용 계정은 연결된 소셜 계정으로 다시 인증한 `reauthCode`가 있어야 탈퇴한다(연결된 제공자가 모두 꺼져 있으면 확인 문구만). 재인증 코드는 연결 확정 코드와 같은 저장소·형식이라 목적 표지가 없고, 제공자의 "방금 인증"은 60초 코드 수명으로 갈음한다.
+3. 인증 사진 삭제는 커밋 뒤 1회 시도하고 실패하면 로그만 남기지만, 정리 작업(`SeatClaimImageCleanupService`, 기본 1시간마다)이 처리됐는데 남은 사진과 고아 파일을 지운다(PENDING 사진은 지우지 않음). 정리 사이에도 조회는 불가하다.
 4. 교착 창 2개는 감지기 의존이다(MySQL 교착 시 503, 재시도). ①본인이 두 탭에서 요청 수정·삭제와 탈퇴를 동시에 실행(요청→매칭 vs 티켓→매칭→요청) ②1차 정리와 users 잠금 사이에 본인이 새 티켓을 등록하고 상대가 그 티켓에 제안하는 밀리초 창. 불변식은 깨지지 않는다.
 5. 보관 기간의 법적 근거는 확정되지 않았다. 자동 파기 스케줄은 없다(방침은 '서비스 운영 기간 동안 보관, 종료 시 파기').
 6. 가입 시 동의 기록과 14세 미만 확인 수단은 없다(문구만).
@@ -786,7 +804,7 @@ AND NOT EXISTS (SELECT 1 FROM exchange_ticket_lock l WHERE l.ticket_id = tb.id)
   - 근거: 힌트가 없으면 요청이 적을 때(100~1,000건) 옵티마이저가 `exchange_request`(상대 요청)를 `type=ALL`로 전체 스캔하며 시작했다. 그러면 작업량이 전체 요청 수에 비례한다. 고정하면 작업량이 내 희망 좌석 수 x 희망 회차 수에 비례하고, 전체 요청 수에는 거의 영향을 받지 않는다.
   - 트레이드오프: 희망 좌석이 아주 많은 요청은 고정 순서가 약간 느리다(희망 2,400석, 요청 1,000건: DB 시간 12ms -> 27ms). 희망 좌석이 적은 요청은 8ms -> 1ms로 빨라진다. 통계가 바뀌어도 계획이 흔들리지 않는다는 점을 택했다.
   - EXPLAIN 요약(요청 4,001건 / 희망 좌석 200만 행 / 내 희망 5,000석): a·ta·psa const, wsa `ref`(PK), psb eq_ref, wa `ref`(PK 앞부분, Using index), tb eq_ref(`uk_ticket_active_seat`), b eq_ref(`uk_exchange_request_ticket`), wsb·wb eq_ref(PK, Using index), ub eq_ref(PK). `type=ALL` 없음. 정렬은 결과 집합의 filesort뿐.
-  - **keyset 페이징으로 바꿀 기준(재측정 후 판단):** ① 후보 요청의 서버 시간(DB)이 중앙값 300ms를 넘거나 p95가 1초를 넘을 때, ② 정상 사용자의 후보가 1만 건을 넘어 deep page(OFFSET)가 흔해질 때, ③ 희망 좌석 상한(5,000석)을 올릴 때. 전환 시 정렬 키(priority, created_at, id)를 커서로 쓰고 총계는 생략하거나 근사치로 바꾼다.
+  - **keyset 페이징으로 바꿀 기준(재측정 후 판단):** ① 후보 요청의 서버 시간(DB)이 중앙값 300ms를 넘거나 p95가 1초를 넘을 때, ② 정상 사용자의 후보가 1만 건을 넘어 deep page(OFFSET)가 흔해질 때, ③ 희망 좌석 상한(5,000석)을 올릴 때. **전환 완료(2026-10-13): 후보 화면은 keyset 조각(`/candidates/scroll`)을 쓴다. 기준 수치와 무관하게 호환용 `page` 엔드포인트를 남겨 두었다.** 전환 시 정렬 키(priority, created_at, id)를 커서로 쓰고 총계는 생략하거나 근사치로 바꾼다.
 - 인덱스는 V4로 충분하다(새 마이그레이션 불필요). 역조회 `exchange_want_seat (zone_key, row_key, col_key)`는 지금 쓰지 않는다.
 - **총계(COUNT)** 는 별도 쿼리로 한 번 더 돌린다. 결과에 영향이 없는 `users`(닉네임용, FK로 항상 존재) 조인을 뺀 `countSql()`을 쓰며 목록과 같은 판정 조인을 공유한다. `psa`는 FK로 항상 존재하지만 `psb.performance_id = psa.performance_id`(같은 공연 방어)에 쓰이므로 뺄 수 없다. 줄인 COUNT가 목록 전체 행 수와 같은지 `countMatchesListTotalAcrossMixedScenario`와 모든 개별 테스트의 count 단언으로 확인한다. 같은 읽기 전용 트랜잭션이라 목록과 총계는 한 연결을 쓴다(`listAndCountUseTheSameConnectionInsideAReadOnlyTransaction`로 확인; 서비스 전체의 트랜잭션 전파는 Spring 컨텍스트 테스트가 없어 이 메커니즘 수준의 검증이다).
 - 시각 처리: 일시는 `LocalDateTime`으로 바인딩·읽는다(`Timestamp` 변환 없음). 앱·DB 모두 KST 벽시계 값이라 서버 JVM 시간대에 의존하지 않는다.

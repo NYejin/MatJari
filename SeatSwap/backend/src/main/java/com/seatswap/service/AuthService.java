@@ -7,6 +7,7 @@ import com.seatswap.dto.request.RefreshRequest;
 import com.seatswap.dto.request.SignupRequest;
 import com.seatswap.dto.response.TokenResponse;
 import com.seatswap.dto.response.UserResponse;
+import com.seatswap.exception.AccountSuspendedException;
 import com.seatswap.exception.FieldValidationException;
 import com.seatswap.exception.SeatSwapException;
 import com.seatswap.repository.UserRepository;
@@ -124,7 +125,12 @@ public class AuthService {
             throw new SeatSwapException(LOGIN_FAIL_MESSAGE);
         }
         // 비밀번호가 맞은 뒤에만 정지 여부를 알려 준다(정지 여부로 계정 존재를 추측하지 못하게). 403 ACCOUNT_SUSPENDED
-        suspensionChecker.assertNotSuspended(user.getId());
+        try {
+            suspensionChecker.assertNotSuspended(user.getId());
+        } catch (AccountSuspendedException e) {
+            // 비밀번호까지 맞았으므로 정지 중에도 회원탈퇴만 할 수 있는 단기 토큰을 함께 준다(그 외 API 에는 쓸 수 없다)
+            throw e.withWithdrawToken(jwtTokenProvider.generateWithdrawToken(user.getId(), user.getEmail()));
+        }
 
         return issueTokens(user);
     }

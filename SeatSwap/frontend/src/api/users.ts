@@ -1,4 +1,5 @@
 import { apiClient } from "./client";
+import { authClient } from "./authClient";
 import type { User, WithdrawRequest } from "../types/user";
 
 // 백엔드 UserController (@RequestMapping("/api/users")). baseURL에 /api가 포함되어 있다.
@@ -21,5 +22,13 @@ export const usersApi = {
    */
   async withdraw(body: WithdrawRequest): Promise<void> {
     await apiClient.delete("/users/me", { data: body });
+  },
+
+  /**
+   * 이용 정지 중 로그인(403 ACCOUNT_SUSPENDED의 withdrawToken)으로 받은 탈퇴 전용 토큰으로 회원탈퇴한다.
+   * 로그인 상태가 아니므로 저장된 토큰·재발급 인터셉터를 거치지 않는 authClient로 Authorization을 직접 붙인다.
+   */
+  async withdrawSuspended(withdrawToken: string, body: WithdrawRequest): Promise<void> {
+    await authClient.delete("/users/me", { data: body, headers: { Authorization: `Bearer ${withdrawToken}` } });
   },
 };

@@ -18,4 +18,7 @@ public interface SocialAccountRepository extends JpaRepository<SocialAccount, Lo
     int deleteAllByUserId(@org.springframework.data.repository.query.Param("userId") Long userId);
 
     boolean existsByUserIdAndProvider(Long userId, SocialProvider provider);
+
+    /** 탈퇴 재인증: 제공자에서 방금 인증한 계정(제공자 사용자 id)이 이 사용자에게 연결된 그 계정인가. */
+    boolean existsByUserIdAndProviderAndProviderUserId(Long userId, SocialProvider provider, String providerUserId);
 }

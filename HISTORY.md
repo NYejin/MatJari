@@ -15,6 +15,12 @@
 
 ### 2026-10-13
 
+- [구현] 정지 중 제한 로그인(`feature/suspended-withdraw-login`, DB 변경 없음): 비밀번호가 맞는 정지 로그인의 403 본문에 탈퇴 전용 10분 토큰 `withdrawToken`을 더하고(JWT `type=withdraw`), `JwtAuthenticationFilter`가 `DELETE /api/users/me`에서만 인증으로 인정한다. 로그인 화면이 "이 계정 탈퇴하기"로 탈퇴 모달을 연다. 소셜 전용 정지 계정은 제외 — 브라우저 점검·API 점검 통과
+- [구현] 소셜 전용 계정 탈퇴 재인증(`feature/social-withdraw-reauth`, 정지 중 제한 로그인 위에 쌓임): 연결된 소셜 계정으로 다시 인증한 `reauthCode`가 있어야 탈퇴한다. `POST /api/users/me/social/{provider}/reauth`, 연결 모드 재사용, 연결된 제공자가 모두 꺼져 있으면 확인 문구만. 카카오 스텁으로 브라우저 점검 통과
+- [구현] 좌석 인증 사진 정리 작업(`feature/claim-image-cleanup`, DB 변경 없음): 처리됐는데 사진이 남은 요청과 요청 행이 없는 고아 파일을 주기적으로 지운다(60분 유예, PENDING 사진 보존). 컨테이너에서 작동 점검 통과
+- [구현] 후보 keyset 조각 조회(`feature/candidates-keyset`, DB 변경 없음): `GET /api/exchange/requests/{id}/candidates/scroll`(전체 개수·offset 없음), 후보 화면 "더 보기"가 커서로 이어 읽는다. 기존 `page` 엔드포인트는 호환용으로 유지. 후보 27명 시드로 API·화면 점검 통과
+- [운영] 전체 백엔드 테스트(임시 MySQL IT 포함) 1054건 통과(네 브랜치를 합친 임시 통합 브랜치에서 실행). 이 문서 브랜치는 네 기능이 건드리지 않은 공유 줄(한계·후속 목록, 이력)만 갱신한다
+
 - [결정] 네이버 로그인 이메일은 검증 여부를 알 수 없어 쓰지 않는다(항상 자리표시 이메일, EMAIL_EXISTS 판정 안 함). `SocialProfileParser`가 네이버 email을 버린다. 실제 키 응답으로 검증 표시를 확인하면 되돌릴 수 있다.
 - [구현] 신뢰도 점수 제거 V18: 폐기된 `users.trust_score` 컬럼을 DROP하는 `V18__drop_user_trust_score.sql`(컬럼이 있을 때만 드롭하는 재실행 가능한 프로시저, 테이블 20개 그대로), 엔티티 `User.trustScore`·`/api/users/me` 응답의 `trustScore`·마이페이지 '신뢰도 점수' 표시·프런트 `User` 타입 필드 삭제, 백엔드 테스트 수정(응답 JSON에서 trustScore 제거, 통합 테스트 INSERT에서 trust_score 제거) — `feature/remove-trust-score`, 미커밋, 작업일지 2026-10-13 '신뢰도 점수 제거'
 - [결정] 신뢰도 점수 컬럼 제거: 신뢰도·점수화는 매칭에 쓰지 않는다는 확정(CLAUDE.md '폐기된 안')에 따라 가입 때 0.0만 저장되던 `users.trust_score`를 없애고 마이페이지 표시도 지운다 — 사용자 결정(2026-10-13), 작업일지 2026-10-13 '신뢰도 점수 제거'

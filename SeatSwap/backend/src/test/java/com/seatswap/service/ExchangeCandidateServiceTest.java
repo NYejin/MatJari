@@ -138,6 +138,57 @@ class ExchangeCandidateServiceTest {
                 .isInstanceOfSatisfying(BusinessRuleException.class, e -> assertThat(e.getCode()).isEqualTo("SESSION_CLOSED"));
     }
 
+    // ---- keyset(커서) 조각
+
+    @Test
+    void sliceReturnsNextCursorOnlyWhenThereIsMoreAndPassesSizePlusOne() {
+        stub(900L, me, openSession, TicketStatus.ACTIVE, ExchangeRequestStatus.OPEN);
+        // size=2 -> 저장소에는 3개를 요청하고, 3개가 오면 다음 조각이 있다
+        when(candidateRepository.findCandidatesAfter(900L, TODAY_START, null, 3))
+                .thenReturn(List.of(row(1, "ANY", null, "ANY", null), row(2, "ANY", null, "ANY", null), row(3, "ANY", null, "ANY", null)));
+
+        var slice = service.findCandidateSlice(1L, 900L, null, 2);
+
+        assertThat(slice.content()).extracting(ExchangeCandidateResponse::requestId).containsExactly(1L, 2L);
+        assertThat(slice.hasNext()).isTrue();
+        var decoded = ExchangeCandidateRepository.Cursor.decode(slice.nextCursor());
+        assertThat(decoded.requestId()).isEqualTo(2L);
+        assertThat(decoded.priority()).isEqualTo(2);
+    }
+
+    @Test
+    void sliceEndsWithNullCursorAndUsesGivenCursor() {
+        stub(900L, me, openSession, TicketStatus.ACTIVE, ExchangeRequestStatus.OPEN);
+        var cursor = new ExchangeCandidateRepository.Cursor(1, LocalDateTime.of(2026, 10, 5, 9, 0), 40L);
+        when(candidateRepository.findCandidatesAfter(900L, TODAY_START, cursor, 21))
+                .thenReturn(List.of(row(5, "ANY", null, "ANY", null)));
+
+        var slice = service.findCandidateSlice(1L, 900L, cursor.encode(), 20);
+
+        assertThat(slice.hasNext()).isFalse();
+        assertThat(slice.nextCursor()).isNull();
+        assertThat(slice.content()).hasSize(1);
+    }
+
+    @Test
+    void sliceClampsSizeAndRejectsBrokenCursorBeforeAnyQuery() {
+        stub(900L, me, openSession, TicketStatus.ACTIVE, ExchangeRequestStatus.OPEN);
+        when(candidateRepository.findCandidatesAfter(900L, TODAY_START, null, 101)).thenReturn(List.of());
+        assertThat(service.findCandidateSlice(1L, 900L, "  ", 1000).size()).isEqualTo(100);
+
+        assertThatThrownBy(() -> service.findCandidateSlice(1L, 900L, "garbage", 20))
+                .isInstanceOfSatisfying(FieldValidationException.class, e -> assertThat(e.getField()).isEqualTo("cursor"));
+    }
+
+    @Test
+    void sliceKeepsTheSameAccessRulesAsPaging() {
+        stub(900L, other, openSession, TicketStatus.ACTIVE, ExchangeRequestStatus.OPEN);
+        assertThatThrownBy(() -> service.findCandidateSlice(1L, 900L, null, 20)).isInstanceOf(ForbiddenException.class);
+        when(requestRepository.findById(901L)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.findCandidateSlice(1L, 901L, null, 20)).isInstanceOf(NotFoundException.class);
+        verify(candidateRepository, never()).findCandidatesAfter(anyLong(), any(), any(), anyInt());
+    }
+
     @Test
     void todaysSessionIsStillSearchableUntilEndOfDay() {
         stub(900L, me, todaySession, TicketStatus.ACTIVE, ExchangeRequestStatus.OPEN);

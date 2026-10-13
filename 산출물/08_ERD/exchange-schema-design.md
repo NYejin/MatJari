@@ -326,7 +326,7 @@ WHERE a.id = :reqId AND a.status = 'OPEN'
   -- 상대 티켓이 이미 예약 잠금이면 제외 (확정 i: 잠긴 티켓은 후보 제외, 예약이 취소되면 잠금이 풀려 다시 후보로 복귀)
   AND NOT EXISTS (SELECT 1 FROM exchange_ticket_lock l WHERE l.ticket_id = tb.id)
 ORDER BY wsa.priority, psb.starts_at, tb.id      -- 사용자 회차 우선순위 -> 일시 -> 안정 정렬
-LIMIT :size OFFSET :offset;                      -- 후속: keyset(priority, starts_at, tb.id)
+LIMIT :size OFFSET :offset;                      -- keyset 조각은 README(`/candidates/scroll`): priority, b.created_at DESC, b.id DESC
 ```
 주의: 내 티켓이 잠겨 있거나 요청이 CLOSED면 서비스에서 후보 조회 자체를 막는다(쿼리에 넣지 않음). 점수·랭킹 없음: 정렬 키는 사용자가 정한 회차 우선순위와 일시뿐이다.
 

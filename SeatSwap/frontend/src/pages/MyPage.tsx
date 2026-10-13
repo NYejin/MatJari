@@ -5,6 +5,7 @@ import { useLogout } from "../hooks/useLogout";
 import NicknameEditor from "../components/NicknameEditor";
 import SocialLinkCard from "../components/SocialLinkCard";
 import WithdrawDialog from "../components/WithdrawDialog";
+import { clearTakenWithdrawReauthCode, takeWithdrawReauthCode } from "../api/socialLink";
 import { FOCUS_RING } from "../components/ui";
 
 // FR-01 회원 — 마이페이지 (보호 라우트 /me). 내 정보(/api/users/me) 표시 + 로그아웃.
@@ -59,7 +60,9 @@ export default function MyPage() {
   const { logout } = useAuth();
   const logoutAndGoHome = useLogout();
   const navigate = useNavigate();
-  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  // 소셜 전용 계정이 연결된 소셜 계정으로 다시 인증하고 돌아온 경우(/me#linkCode=): 코드를 탈퇴 모달에 넘기며 모달을 바로 연다
+  const [reauthCode] = useState<string | null>(() => takeWithdrawReauthCode());
+  const [withdrawOpen, setWithdrawOpen] = useState(reauthCode !== null);
 
   // "다시 시도" 버튼은 로딩이 시작되면 사라지므로, 누르는 순간 포커스를 카드로 옮기고
   // 결과가 나오면 다시 카드에 둔다 (포커스가 원래 카드 안에 있었을 때만)
@@ -174,7 +177,11 @@ export default function MyPage() {
       {withdrawOpen && profile && (
         <WithdrawDialog
           passwordLoginEnabled={profile.passwordLoginEnabled ?? true}
-          onClose={() => setWithdrawOpen(false)}
+          reauthCode={reauthCode ?? undefined}
+          onClose={() => {
+            clearTakenWithdrawReauthCode();
+            setWithdrawOpen(false);
+          }}
           onWithdrawn={handleWithdrawn}
         />
       )}

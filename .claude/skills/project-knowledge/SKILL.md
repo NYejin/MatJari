@@ -58,7 +58,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 - 제외: 예약 잠금 티켓(예약이 취소되면 복귀), 같은 쌍의 열린 매칭. 내 티켓이 잠겨 있으면 후보 조회 422 `TICKET_LOCKED`.
 - 정렬: 내 희망 회차 priority -> 상대 요청 최신순(점수·랭킹·신뢰도 없음, '같은 회차 우선'은 적용하지 않음).
 - 응답: 상대 좌석·회차·닉네임, `myExtra*`(내 범위에서 상대 좌석이 속한 범위의 추가금), `extraType/extraAmount`(상대 범위에서 내 좌석이 속한 범위의 추가금), `settlementHint`(POS–NEG이고 금액 범위가 겹칠 때 {min,max}, 참고값). 신뢰도 필드 없음.
-- SQL은 `STRAIGHT_JOIN` 힌트로 옵티마이저의 풀스캔을 막는다. 후보가 수천 건을 넘으면 keyset 페이징·총계 생략이 필요(후속).
+- SQL은 `STRAIGHT_JOIN` 힌트로 옵티마이저의 풀스캔을 막는다. 후보 화면은 keyset(커서) 조각 `GET .../candidates/scroll`(전체 개수·offset 없음; `page&size` 엔드포인트는 호환용)으로 읽는다.
 - **차단·제재 제외**: 차단(양방향)과 이용 정지 사용자의 티켓은 후보에서 제외한다(V13).
 - 후보 카드의 '예약 중' 뱃지는 **폐기**한다. 후보에서는 예약 잠긴 티켓을 뺀다. 예약 중 정보는 예약한 두 사람의 내 매칭 카드에서만 보이고, 예약 전부터 같은 자리로 채팅 중이던 다른 사용자의 카드에는 '(다른 사용자와 예약 중인 좌석)' 문구만 뜬다.
 
@@ -112,7 +112,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 - 서버 전송 경로의 속도 제한(사용자별 429 `CHAT_RATE_LIMITED`)과 본문 정규화 세부 규칙은 backend 코드·`ChatService` 주석을 따른다.
 
 ### 3.11 회원탈퇴·개인정보처리방침 (구현, V17 `users.withdrawn_at`)
-- `DELETE /api/users/me`: 비밀번호 로그인 계정은 비밀번호, 소셜 전용 계정은 확인 문구 '탈퇴합니다'를 보내야 한다. ADMIN은 409 `ADMIN_CANNOT_WITHDRAW`. 이용 정지 중에도 이 API는 허용한다(필터 예외, 단 정지 중엔 로그인이 막혀 정지 전 토큰이 있을 때만 쓸 수 있음).
+- `DELETE /api/users/me`: 비밀번호 로그인 계정은 비밀번호, 소셜 전용 계정은 확인 문구 '탈퇴합니다'와 연결된 소셜 계정으로 방금 다시 인증한 `reauthCode`(연결된 제공자가 모두 꺼져 있으면 생략)를 보내야 한다. ADMIN은 409 `ADMIN_CANNOT_WITHDRAW`. 이용 정지 중에도 이 API는 허용한다(필터 예외; 비밀번호가 맞는 정지 로그인은 403 본문에 탈퇴 전용 10분 토큰 `withdrawToken`을 준다, 소셜 전용 정지 계정은 문의처).
 - 한 트랜잭션: PENDING 좌석 인증 요청 거절 → 열린 매칭(CHATTING·RESERVED) 시스템 취소와 예약 잠금 해제 → OPEN 요청 CLOSED·활성 티켓 INACTIVE(2차 정리 포함) → `social_account` 전부 삭제 → users 익명화(이메일 `withdrawn.{id}@withdrawn.seatswap.invalid`, 닉네임 '탈퇴한 회원', 무작위 비밀번호, 비밀번호 로그인 불가, `withdrawn_at` 기록) → 수신자 알림 삭제 → 커밋 뒤 STOMP 연결 종료.
 - 진행 중 교환은 예약 중이어도 모두 자동 정리한다(사용자 결정). 채팅·읽음 상태·교환 이력·차단·신고·제재·PENDING 공연 수정 제안은 지우지 않고, 닉네임이 '탈퇴한 회원'으로 보인다.
 - 인증 차단: 탈퇴 계정은 기존 액세스 토큰·STOMP CONNECT·로그인·refresh·소셜 교환·소셜 연결 확정이 모두 거절된다. 같은 이메일·같은 소셜 계정으로 새로 가입할 수 있다.
@@ -191,7 +191,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 |---|---|
 | 인증 | `POST /api/auth/signup`·`login`·`refresh`, `GET /api/users/me` -> `{id, email, emailPlaceholder, nickname, role, passwordLoginEnabled}` |
 | 프로필·소셜 연결 | `PATCH /api/users/me {nickname}`, `GET /api/users/me/social`(`{accounts, providers, canUnlink}`), `POST /api/users/me/social/{provider}/link`(`{authorizeUrl}`, 60초 1회 티켓), `POST /api/users/me/social/confirm {code}`(60초 1회 확정 코드, 확정 사용자와 코드 사용자가 같을 때만 저장), `DELETE /api/users/me/social/{provider}`(204 멱등, 마지막 로그인 수단이면 409 `LAST_LOGIN_METHOD`). 모두 로그인 필요 |
-| 회원탈퇴 | `DELETE /api/users/me {password?, confirmText?}`(204, 본인 확인, 분당 5회 429 `WITHDRAW_RATE_LIMITED`, ADMIN 409 `ADMIN_CANNOT_WITHDRAW`, 이미 탈퇴한 계정 401). 로그인 필요 |
+| 회원탈퇴 | `DELETE /api/users/me {password?, confirmText?, reauthCode?}`(204, 본인 확인, 분당 5회 429 `WITHDRAW_RATE_LIMITED`, ADMIN 409 `ADMIN_CANNOT_WITHDRAW`, 이미 탈퇴한 계정 401). 로그인 필요 |
 | 소셜 로그인 | `GET /api/auth/social/providers`(활성 제공자, 인증 불필요), `GET /api/auth/social/{google\|kakao\|naver}/authorize`(302, state 쿠키 `ss_oauth`), `GET .../{provider}/callback`(항상 302: 성공 `/auth/callback#code=`, 실패 `/login?socialError=`), `POST /api/auth/social/exchange {code}`(→ TokenResponse, 일회용 60초, 정지 재검사). IP당 분당 30회(429 `SOCIAL_RATE_LIMITED`) |
 | 공연 | `GET /api/performances`(제목 검색·페이지, asOf로 기준 시각 고정)·`/{id}`·`/lookup`(링크 중복 확인), `POST /api/performances` |
 | 공연 포스터 | `GET /api/performances/{id}/poster` → `{posterUrl}`(로그인 필요, 없으면 null, 공연 없으면 404). 링크 미리보기 응답에도 `posterUrl` 추가. 실패·제한·스위치 꺼짐은 오류 없이 null |
@@ -237,7 +237,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 - 7일 경과 알림은 4절의 보류 항목이다(2026-10-13 결정).
 - 회차 날짜 미리 채우기 한계(2026-10-13): 시각은 직접 입력(세 사이트 회차 시각은 Ajax), 3일 이상 공연은 날짜 후보 없음(AI 상세정보 출처는 후속, 구조만 열림), 하루 여러 회차인 2일 공연은 날짜당 후보 1개라 같은 날짜를 직접 추가해야 함, 공연 기간과 실제 회차 날짜가 다를 수 있음(화면은 확인 문구로 안내).
 - 공연 포스터 표시 한계(2026-10-13): 인라인 링크의 저작권 확정 판례 없음, 포스터 저작물성과 티켓 3사 약관 미확인(공개 운영 전 확인, 요구사항 §7 Q-26, 요청이 오면 `seatswap.poster.enabled=false`), 허용 호스트는 실측 기준이라 CDN이 바뀌면 포스터가 안 뜸, YES24는 포스터 없는 공연이 많음, 인터파크 미지원, 핫링크 차단 시 안 보임, 삭제·표시 중단 요청은 방침 문의처로 받는데 방침 문구는 아직 없음. 상세는 `wiki/decisions/poster-display-design.md`.
-- 회원탈퇴 한계(2026-10-13): 정지 중 탈퇴는 API만 허용(토큰 없으면 방침 §8 문의처), 소셜 전용 계정은 재인증 없이 확인 문구만으로 탈퇴, 인증 사진 삭제 실패 시 고아 파일(정리 작업 없음), 교착 창 2개는 503 후 재시도, 보관 기간의 법적 근거 미확인(공개 운영 전 전문가 검토), 가입 시 동의 기록 없음, 탈퇴 속도 제한은 메모리. 상세는 `wiki/decisions/withdraw-privacy-design.md`.
+- 회원탈퇴 한계(2026-10-13): 소셜 전용 정지 계정은 탈퇴 경로가 없어 방침 §8 문의처(비밀번호 계정은 정지 로그인의 `withdrawToken`으로 탈퇴, 소셜 전용 계정의 재인증은 구현됨), 교착 창 2개는 503 후 재시도, 보관 기간의 법적 근거 미확인(공개 운영 전 전문가 검토), 가입 시 동의 기록 없음, 탈퇴 속도 제한은 메모리. 인증 사진은 정리 작업이 주기적으로 지운다. 상세는 `wiki/decisions/withdraw-privacy-design.md`.
 - 프로필·소셜 연결 한계(2026-10-13): 연결 확정 코드·티켓·속도 제한이 메모리(단일 인스턴스)다. 같은 이름 쿠키라 탭 A의 연결 시작과 탭 B의 소셜 로그인이 겹치면 A 콜백이 INVALID_STATE가 된다. 티켓이 URL 쿼리에 실리고(1회용·60초), JWT 클레임에 자리표시 이메일 원문이 남는다(화면에는 안 나옴). 비밀번호·이메일 변경과 소셜 가입자의 비밀번호 설정은 없다. 실제 제공자 키로 미검증.
 - 소셜 로그인: 네이버 이메일은 검증 여부를 알 수 없어 쓰지 않는다(항상 자리표시 이메일, 2026-10-13).
 - 소셜 로그인 한계(2026-10-12): 실제 카카오·구글·네이버 키로 미검증(카카오 PKCE·is_email_verified, 네이버 client_secret 필수 여부 등), 로그인 코드·속도 제한·사용된 state는 메모리(단일 인스턴스), 프록시 뒤 배포 때 `server.forward-headers-strategy` 필요, 일반 가입에 이메일 인증이 없어 타인 이메일을 먼저 쓰면 그 사람의 소셜 로그인이 EMAIL_EXISTS로 막힌다(기존 한계), 기존 계정에 소셜을 붙이는 연결은 마이페이지에서 본인이 명시적으로 할 때만 한다(3.8절).

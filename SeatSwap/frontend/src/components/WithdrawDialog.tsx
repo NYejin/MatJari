@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import { Link } from "react-router-dom";
 import { usersApi } from "../api/users";
 import { getErrorCode, parseApiError } from "../api/errors";
+import { PROVIDER_LABELS, fetchSocialLinks, requestSocialReauth } from "../api/socialLink";
+import type { SocialProvider } from "../api/socialAuth";
 import axios from "axios";
 import TextField from "./TextField";
 import { button, ui } from "./ui";
@@ -14,18 +16,23 @@ export const WITHDRAW_CONFIRM_TEXT = "탈퇴합니다";
 interface Props {
   /** 비밀번호로 로그인할 수 있는 계정인가 (서버가 안 주면 true로 간주) */
   passwordLoginEnabled: boolean;
+  /** 이용 정지 중 로그인으로 받은 탈퇴 전용 토큰. 있으면 로그인 상태 없이 이 토큰으로 탈퇴한다 */
+  withdrawToken?: string;
+  /** 소셜 전용 계정이 연결된 소셜 계정으로 방금 다시 인증해 받은 일회용 코드(마이페이지가 주소에서 읽어 넘긴다) */
+  reauthCode?: string;
   onClose: () => void;
   onWithdrawn: () => void;
 }
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-function errorMessage(err: unknown, passwordMode: boolean): string {
+function errorMessage(err: unknown, passwordMode: boolean, tokenMode: boolean): string {
   if (getErrorCode(err) === "ADMIN_CANNOT_WITHDRAW") {
     return "관리자 계정은 바로 탈퇴할 수 없어요. 운영자에게 관리자 권한 해제를 요청한 뒤 다시 시도해 주세요.";
   }
   if (axios.isAxiosError(err)) {
     const status = err.response?.status;
+    if (tokenMode && status === 401) return "시간이 지나 인증이 만료됐어요. 로그인 화면에서 다시 시도해 주세요.";
     if (status === 429) return "시도가 너무 많아요. 잠시 후 다시 시도해 주세요.";
     if (status === 400) {
       return passwordMode
@@ -36,10 +43,14 @@ function errorMessage(err: unknown, passwordMode: boolean): string {
   return parseApiError(err, "탈퇴하지 못했어요. 잠시 후 다시 시도해 주세요.").message;
 }
 
-export default function WithdrawDialog({ passwordLoginEnabled, onClose, onWithdrawn }: Props) {
+export default function WithdrawDialog({ passwordLoginEnabled, withdrawToken, reauthCode, onClose, onWithdrawn }: Props) {
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | undefined>();
   const [submitting, setSubmitting] = useState(false);
+  // 소셜 전용 계정의 재인증: 연결돼 있고 지금 켜져 있는 제공자로 다시 인증해야 한다(없으면 확인 문구만). null = 불러오는 중
+  const [code, setCode] = useState<string | undefined>(reauthCode);
+  const [reauthProviders, setReauthProviders] = useState<SocialProvider[] | null>(passwordLoginEnabled ? [] : null);
+  const [reauthBusy, setReauthBusy] = useState<SocialProvider | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   // 열기 전 포커스 위치 — 닫을 때 복원
   const openerRef = useRef<Element | null>(null);
@@ -56,7 +67,37 @@ export default function WithdrawDialog({ passwordLoginEnabled, onClose, onWithdr
     };
   }, []);
 
-  const confirmed = passwordLoginEnabled ? value.length > 0 : value === WITHDRAW_CONFIRM_TEXT;
+  useEffect(() => {
+    if (passwordLoginEnabled) return;
+    let active = true;
+    fetchSocialLinks()
+      .then((s) => {
+        if (active) setReauthProviders(s.accounts.map((a) => a.provider).filter((p) => s.providers.includes(p)));
+      })
+      .catch(() => {
+        // 못 불러오면 확인 문구 단계로 보낸다. 재인증이 필요한 계정이면 서버가 거절하고 안내한다
+        if (active) setReauthProviders([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [passwordLoginEnabled]);
+
+  const needsReauth = !passwordLoginEnabled && !code && reauthProviders !== null && reauthProviders.length > 0;
+  const reauthLoading = !passwordLoginEnabled && !code && reauthProviders === null;
+  const confirmed = passwordLoginEnabled ? value.length > 0 : value === WITHDRAW_CONFIRM_TEXT && !needsReauth && !reauthLoading;
+
+  const startReauth = async (provider: SocialProvider) => {
+    if (reauthBusy || submitting) return;
+    setReauthBusy(provider);
+    setError(undefined);
+    try {
+      window.location.assign(await requestSocialReauth(provider));
+    } catch (err) {
+      setError(parseApiError(err, "본인 확인을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.").message);
+      setReauthBusy(null);
+    }
+  };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === "Escape") {
@@ -84,11 +125,20 @@ export default function WithdrawDialog({ passwordLoginEnabled, onClose, onWithdr
     setSubmitting(true);
     setError(undefined);
     try {
-      await usersApi.withdraw(passwordLoginEnabled ? { password: value } : { confirmText: value });
+      const body = passwordLoginEnabled ? { password: value } : { confirmText: value, reauthCode: code };
+      if (withdrawToken) await usersApi.withdrawSuspended(withdrawToken, body);
+      else await usersApi.withdraw(body);
       closedRef.current = true;
       onWithdrawn();
     } catch (err) {
-      setError(errorMessage(err, passwordLoginEnabled));
+      if (!passwordLoginEnabled && parseApiError(err, "").fieldErrors.reauthCode) {
+        // 재인증 코드가 만료됐거나 맞지 않다 -> 다시 소셜 계정으로 확인하게 한다
+        setCode(undefined);
+        setError("소셜 계정 본인 확인이 만료됐거나 맞지 않아요. 다시 확인해 주세요.");
+        setSubmitting(false);
+        return;
+      }
+      setError(errorMessage(err, passwordLoginEnabled, !!withdrawToken));
       setSubmitting(false);
     }
   };
@@ -137,6 +187,26 @@ export default function WithdrawDialog({ passwordLoginEnabled, onClose, onWithdr
               disabled={submitting}
               autoFocus
             />
+          ) : needsReauth || reauthLoading ? (
+            <div className="flex flex-col gap-2">
+              <p className={ui.body}>
+                {reauthLoading
+                  ? "연결된 소셜 계정을 확인하는 중..."
+                  : "본인 확인을 위해 연결된 소셜 계정으로 한 번 더 인증해 주세요. 인증하고 돌아오면 이 창이 다시 열려요."}
+              </p>
+              {(reauthProviders ?? []).map((provider) => (
+                <button
+                  key={provider}
+                  type="button"
+                  className={`${button.outline} min-h-12`}
+                  onClick={() => void startReauth(provider)}
+                  disabled={reauthBusy !== null || submitting}
+                  aria-busy={reauthBusy === provider}
+                >
+                  {reauthBusy === provider ? "이동하는 중..." : `${PROVIDER_LABELS[provider]}(으)로 본인 확인`}
+                </button>
+              ))}
+            </div>
           ) : (
             <TextField
               id="withdraw-confirm"
@@ -147,7 +217,11 @@ export default function WithdrawDialog({ passwordLoginEnabled, onClose, onWithdr
               spellCheck={false}
               value={value}
               onChange={(e) => setValue(e.target.value)}
-              hint={`소셜 계정은 비밀번호가 없어요. '${WITHDRAW_CONFIRM_TEXT}'를 그대로 입력해 주세요.`}
+              hint={
+                code
+                  ? `본인 확인이 끝났어요. '${WITHDRAW_CONFIRM_TEXT}'를 그대로 입력해 주세요.`
+                  : `소셜 계정은 비밀번호가 없어요. '${WITHDRAW_CONFIRM_TEXT}'를 그대로 입력해 주세요.`
+              }
               disabled={submitting}
               autoFocus
             />

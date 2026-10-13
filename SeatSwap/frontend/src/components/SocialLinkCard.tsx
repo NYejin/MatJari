@@ -6,7 +6,9 @@ import {
   PROVIDER_LABELS,
   confirmSocialLink,
   fetchSocialLinks,
+  clearWithdrawReauthPending,
   isSocialProvider,
+  isWithdrawReauthPending,
   requestSocialLink,
   socialLinkErrorMessage,
   unlinkSocial,
@@ -32,6 +34,8 @@ let confirmInflight: Promise<ConfirmResult> | null = null;
 
 /** 현재 주소의 `#linkCode=`를 읽고 즉시 주소에서 지운다 */
 function takeLinkCodeFromHash(): string | null {
+  // 회원탈퇴 재인증으로 돌아온 코드는 연결 확정용이 아니다(MyPage가 읽어 탈퇴 모달에 넘긴다)
+  if (isWithdrawReauthPending()) return null;
   const hash = window.location.hash;
   if (!hash) return null;
   const code = new URLSearchParams(hash.replace(/^#/, "")).get("linkCode");
@@ -119,6 +123,7 @@ export default function SocialLinkCard() {
   useEffect(() => {
     if (linkedParam === null && errorParam === null) return;
     if (errorParam !== null) {
+      clearWithdrawReauthPending();   // 재인증이 실패로 끝났다면 표시를 남기지 않는다
       setMessage({ kind: "error", text: socialLinkErrorMessage(errorParam, untilParam) });
     } else if (isSocialProvider(linkedParam)) {
       setMessage({ kind: "ok", text: `${PROVIDER_LABELS[linkedParam]} 계정을 연결했어요.` });
@@ -135,6 +140,7 @@ export default function SocialLinkCard() {
     if (busy) return;
     setBusy(provider);
     setMessage(null);
+    clearWithdrawReauthPending();
     try {
       const url = await requestSocialLink(provider);
       window.location.assign(url);

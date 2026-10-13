@@ -83,6 +83,21 @@ public class GlobalExceptionHandler {
                 .header("Retry-After", String.valueOf(e.getRetryAfterSeconds())).body(body);
     }
 
+    // 429 — 이메일 인증번호 발송 제한(EMAIL_CODE_COOLDOWN/EMAIL_CODE_RATE_LIMITED, Retry-After 포함), 발송 실패는 503 EMAIL_SEND_FAILED
+    @ExceptionHandler(com.seatswap.service.EmailVerificationService.EmailCodeRateLimitedException.class)
+    public ResponseEntity<Map<String, Object>> handleEmailCodeRateLimited(
+            com.seatswap.service.EmailVerificationService.EmailCodeRateLimitedException e) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("code", e.getCode());
+        body.put("message", e.getMessage());
+        if (e.getRetryAfterSeconds() <= 0) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(body);
+        }
+        body.put("retryAfterSeconds", e.getRetryAfterSeconds());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", String.valueOf(e.getRetryAfterSeconds())).body(body);
+    }
+
     // 소셜 로그인 REST 오류: 404 SOCIAL_PROVIDER_DISABLED / 400 INVALID_LOGIN_CODE / 429 SOCIAL_RATE_LIMITED(+Retry-After)
     @ExceptionHandler(com.seatswap.service.social.SocialAuthException.class)
     public ResponseEntity<Map<String, Object>> handleSocialAuth(com.seatswap.service.social.SocialAuthException e) {

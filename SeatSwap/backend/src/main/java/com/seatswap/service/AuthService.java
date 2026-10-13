@@ -46,6 +46,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final AccountSuspensionChecker suspensionChecker;
+    private final EmailVerificationService emailVerificationService;
 
     @Transactional
     public UserResponse signup(SignupRequest request) {
@@ -84,6 +85,10 @@ public class AuthService {
         if (userRepository.existsByEmail(email)) {
             throw new FieldValidationException("email", DUPLICATE_EMAIL_MESSAGE);
         }
+
+        // 이메일 인증번호(꺼져 있으면 건너뜀). 마지막 검증 단계로 두어 다른 입력 오류로 시도 횟수를 쓰지 않게 한다.
+        // 성공하면 인증 행을 지우며, 아래 저장이 실패해 롤백되면 되살아난다
+        emailVerificationService.verifyAndConsume(email, request.emailCode());
 
         User user = User.create(email, passwordEncoder.encode(password), nickname);
         try {

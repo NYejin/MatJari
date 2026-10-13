@@ -1,11 +1,15 @@
 package com.seatswap.controller;
 
+import com.seatswap.dto.request.EmailCodeRequest;
 import com.seatswap.dto.request.LoginRequest;
 import com.seatswap.dto.request.RefreshRequest;
 import com.seatswap.dto.request.SignupRequest;
+import com.seatswap.dto.response.EmailCodeResponse;
 import com.seatswap.dto.response.TokenResponse;
 import com.seatswap.dto.response.UserResponse;
 import com.seatswap.service.AuthService;
+import com.seatswap.service.EmailVerificationService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -17,10 +21,18 @@ import org.springframework.web.bind.annotation.*;
 public class AuthController {
 
     private final AuthService authService;
+    private final EmailVerificationService emailVerificationService;
 
     @PostMapping("/signup")
     public ResponseEntity<UserResponse> signup(@Valid @RequestBody SignupRequest request) {
         return ResponseEntity.ok(authService.signup(request));
+    }
+
+    /** 가입 전 이메일 인증번호 발송. 이미 가입된 이메일은 400 email, 너무 잦으면 429. */
+    @PostMapping("/signup/email-code")
+    public ResponseEntity<EmailCodeResponse> sendEmailCode(@Valid @RequestBody EmailCodeRequest request,
+                                                           HttpServletRequest http) {
+        return ResponseEntity.ok(emailVerificationService.sendCode(request.email(), http.getRemoteAddr()));
     }
 
     @PostMapping("/login")

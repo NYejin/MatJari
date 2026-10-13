@@ -10,6 +10,8 @@ import org.springframework.stereotype.Repository;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.List;
 
 /**
@@ -31,6 +33,41 @@ public class ExchangeCandidateRepository {
                       Long sessionId, LocalDateTime startsAt, String nickname, int wantPriority,
                       String extraType, Integer extraAmount, String myExtraType, Integer myExtraAmount,
                       LocalDateTime requestedAt) {}
+
+    /**
+     * keyset 위치: 정렬 키 (내 희망 회차 우선순위 ASC, 상대 요청 생성 시각 DESC, 상대 요청 id DESC)의 마지막으로 본 행.
+     * 문자열 형식(불투명)은 `priority|createdAt(ISO)|requestId` 를 URL-safe Base64 로 감싼 것이다.
+     */
+    public record Cursor(int priority, LocalDateTime createdAt, long requestId) {
+
+        public static Cursor of(Row last) {
+            return new Cursor(last.wantPriority(), last.requestedAt(), last.requestId());
+        }
+
+        public String encode() {
+            String raw = priority + "|" + createdAt + "|" + requestId;
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
+        }
+
+        /** 잘못된 문자열이면 IllegalArgumentException. */
+        public static Cursor decode(String text) {
+            try {
+                String raw = new String(Base64.getUrlDecoder().decode(text), StandardCharsets.UTF_8);
+                String[] parts = raw.split("\\|", -1);
+                if (parts.length != 3) {
+                    throw new IllegalArgumentException("cursor");
+                }
+                int priority = Integer.parseInt(parts[0]);
+                long id = Long.parseLong(parts[2]);
+                if (priority < 1 || id < 1) {
+                    throw new IllegalArgumentException("cursor");
+                }
+                return new Cursor(priority, LocalDateTime.parse(parts[1]), id);
+            } catch (RuntimeException e) {
+                throw new IllegalArgumentException("cursor", e);
+            }
+        }
+    }
 
     /** 한 요청 쌍의 양쪽 적용 추가금. my = 내(a) 쪽에서 상대 좌석을 포함한 범위, their = 상대(b) 쪽에서 내 좌석을 포함한 범위. 매칭 스냅샷으로 복사된다. */
     public record PairExtras(WantExtra my, WantExtra their) {}
@@ -87,9 +124,19 @@ public class ExchangeCandidateRepository {
                    b.created_at
             """;
 
-    private static final String ORDER = """
+    private static final String ORDER_BY = """
             ORDER BY wsa.priority ASC, b.created_at DESC, b.id DESC
-            LIMIT ? OFFSET ?
+            """;
+
+    private static final String ORDER = ORDER_BY + "LIMIT ? OFFSET ?\n";
+
+    /**
+     * keyset 조건: 정렬 키가 커서 행보다 뒤인 행만. (priority, created_at DESC, id DESC) 라 priority 는 크고, 같으면 created_at 은 작고,
+     * 그것도 같으면 id 가 작다. 바인딩 5개(priority, priority, createdAt, createdAt, id). b.id 는 PK 라 키가 유일해 행이 겹치거나 빠지지 않는다.
+     */
+    private static final String KEYSET_AFTER = """
+            AND (wsa.priority > ?
+                 OR (wsa.priority = ? AND (b.created_at < ? OR (b.created_at = ? AND b.id < ?))))
             """;
 
     /**
@@ -178,6 +225,12 @@ public class ExchangeCandidateRepository {
         return SELECT + FROM_CORE + JOIN_USERS + WHERE + additionalExclusions() + sanctionExclusion(now) + ORDER;
     }
 
+    /** keyset 목록 SQL(커서가 있으면 KEYSET_AFTER 를 붙인다; OFFSET 없이 LIMIT 만). 실행계획 확인용으로도 쓴다. */
+    public static String candidateKeysetSql(LocalDateTime now, boolean withCursor) {
+        return SELECT + FROM_CORE + JOIN_USERS + WHERE + additionalExclusions() + sanctionExclusion(now)
+                + (withCursor ? KEYSET_AFTER : "") + ORDER_BY + "LIMIT ?\n";
+    }
+
     /** COUNT 전용 SQL(users 조인 생략). 결과 행 수는 목록 쿼리 전체와 같아야 한다(테스트로 확인). */
     public static String countSql() {
         return countSql(LocalDateTime.now(DEFAULT_CLOCK));
@@ -200,6 +253,27 @@ public class ExchangeCandidateRepository {
                 rs.getString("my_extra_type"), (Integer) rs.getObject("my_extra_amount"),
                 rs.getObject("created_at", LocalDateTime.class)),
                 myRequestId, todayStart, limit, offset);
+    }
+
+    /**
+     * keyset 조각: 커서(null 이면 처음부터) 뒤의 후보를 limit 개 읽는다. 전체 개수를 세지 않고 offset 도 없다.
+     * 호출하는 쪽이 limit 을 size+1 로 주면 다음 조각이 있는지 알 수 있다.
+     */
+    public List<Row> findCandidatesAfter(Long myRequestId, LocalDateTime todayStart, Cursor cursor, int limit) {
+        String sql = candidateKeysetSql(now(), cursor != null);
+        org.springframework.jdbc.core.RowMapper<Row> mapper = (rs, i) -> new Row(
+                rs.getLong("request_id"), rs.getLong("ticket_id"),
+                rs.getString("zone_label"), rs.getString("row_label"), rs.getString("col_label"),
+                rs.getLong("session_id"), rs.getObject("starts_at", LocalDateTime.class),
+                rs.getString("nickname"), rs.getInt("want_priority"),
+                rs.getString("extra_type"), (Integer) rs.getObject("extra_amount"),
+                rs.getString("my_extra_type"), (Integer) rs.getObject("my_extra_amount"),
+                rs.getObject("created_at", LocalDateTime.class));
+        if (cursor == null) {
+            return jdbc.query(sql, mapper, myRequestId, todayStart, limit);
+        }
+        return jdbc.query(sql, mapper, myRequestId, todayStart,
+                cursor.priority(), cursor.priority(), cursor.createdAt(), cursor.createdAt(), cursor.requestId(), limit);
     }
 
     public long countCandidates(Long myRequestId, LocalDateTime todayStart) {

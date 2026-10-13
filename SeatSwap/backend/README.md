@@ -334,6 +334,10 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 |---|---|---|
 | GET | /api/exchange/requests/{id}/candidates?page=0&size=20 | 내 요청과 서로 조건이 맞는 상대 요청 목록. size 기본 20, 최대 100(초과·0 이하는 보정), page 0부터(음수 400) |
 
+| GET | /api/exchange/requests/{id}/candidates/scroll?cursor=&size=20 | **keyset(커서) 조각.** 같은 판정·정렬이지만 전체 개수와 OFFSET이 없다. 처음엔 cursor를 비우고 응답 `{content,size,hasNext,nextCursor}`의 nextCursor를 그대로 다음 요청에 넣는다(`hasNext=false`면 끝). 잘못된 cursor는 400 `{cursor}` 필드 오류. size 기본 20, 최대 100(보정) |
+
+keyset 조각의 내부: 저장소에 `size+1`건을 요청해 다음 조각 유무를 알고, 마지막 행의 `(wantPriority, requestedAt, requestId)`를 URL-safe Base64 불투명 커서로 만든다. SQL은 목록 쿼리(`STRAIGHT_JOIN`·제외 조건 포함)에 `AND (wsa.priority > ? OR (wsa.priority = ? AND (b.created_at < ? OR (b.created_at = ? AND b.id < ?))))`만 더하고 `LIMIT ?`만 쓴다(`b.id`가 PK라 정렬 키가 유일해 겹침·누락이 없다). 조각 사이에 후보가 닫히거나 새로 생겨도 커서 뒤의 행만 읽으므로 중복 없이 이어지고, 커서보다 앞(더 최신)에 새로 생긴 후보는 처음부터 다시 읽을 때 보인다. 권한·상태 검증(403/404/409/422)은 `page` 방식과 같은 메서드를 쓴다. 테스트: `ExchangeCandidateQueryTest`(실제 MySQL) keyset 5건(offset 방식과 같은 순서, 우선순위·시각·id 동률, 조각 크기 1~20, 조각 사이 변경, 커서 해석), `ExchangeCandidateServiceTest` 4건, 컨트롤러 슬라이스 2건.
+
 오류(403/404 구분은 같은 `/api/exchange/requests/{id}` 계열 API와 일관되게 유지한다. 티켓 API의 존재 비노출 404와는 다르다): 남의 요청 403 `{message}`, 없는 요청 404 `{message}`, 요청 CLOSED 또는 내 티켓 INACTIVE 422 `{code: TICKET_NOT_ACTIVE}`, 내 티켓 회차 마감 422 `{code: SESSION_CLOSED}`, 인증 없음 401.
 
 판정(전부 만족해야 후보):
@@ -786,7 +790,7 @@ AND NOT EXISTS (SELECT 1 FROM exchange_ticket_lock l WHERE l.ticket_id = tb.id)
   - 근거: 힌트가 없으면 요청이 적을 때(100~1,000건) 옵티마이저가 `exchange_request`(상대 요청)를 `type=ALL`로 전체 스캔하며 시작했다. 그러면 작업량이 전체 요청 수에 비례한다. 고정하면 작업량이 내 희망 좌석 수 x 희망 회차 수에 비례하고, 전체 요청 수에는 거의 영향을 받지 않는다.
   - 트레이드오프: 희망 좌석이 아주 많은 요청은 고정 순서가 약간 느리다(희망 2,400석, 요청 1,000건: DB 시간 12ms -> 27ms). 희망 좌석이 적은 요청은 8ms -> 1ms로 빨라진다. 통계가 바뀌어도 계획이 흔들리지 않는다는 점을 택했다.
   - EXPLAIN 요약(요청 4,001건 / 희망 좌석 200만 행 / 내 희망 5,000석): a·ta·psa const, wsa `ref`(PK), psb eq_ref, wa `ref`(PK 앞부분, Using index), tb eq_ref(`uk_ticket_active_seat`), b eq_ref(`uk_exchange_request_ticket`), wsb·wb eq_ref(PK, Using index), ub eq_ref(PK). `type=ALL` 없음. 정렬은 결과 집합의 filesort뿐.
-  - **keyset 페이징으로 바꿀 기준(재측정 후 판단):** ① 후보 요청의 서버 시간(DB)이 중앙값 300ms를 넘거나 p95가 1초를 넘을 때, ② 정상 사용자의 후보가 1만 건을 넘어 deep page(OFFSET)가 흔해질 때, ③ 희망 좌석 상한(5,000석)을 올릴 때. 전환 시 정렬 키(priority, created_at, id)를 커서로 쓰고 총계는 생략하거나 근사치로 바꾼다.
+  - **keyset 페이징으로 바꿀 기준(재측정 후 판단):** ① 후보 요청의 서버 시간(DB)이 중앙값 300ms를 넘거나 p95가 1초를 넘을 때, ② 정상 사용자의 후보가 1만 건을 넘어 deep page(OFFSET)가 흔해질 때, ③ 희망 좌석 상한(5,000석)을 올릴 때. **전환 완료(2026-10-13): 후보 화면은 keyset 조각(`/candidates/scroll`)을 쓴다. 기준 수치와 무관하게 호환용 `page` 엔드포인트를 남겨 두었다.** 전환 시 정렬 키(priority, created_at, id)를 커서로 쓰고 총계는 생략하거나 근사치로 바꾼다.
 - 인덱스는 V4로 충분하다(새 마이그레이션 불필요). 역조회 `exchange_want_seat (zone_key, row_key, col_key)`는 지금 쓰지 않는다.
 - **총계(COUNT)** 는 별도 쿼리로 한 번 더 돌린다. 결과에 영향이 없는 `users`(닉네임용, FK로 항상 존재) 조인을 뺀 `countSql()`을 쓰며 목록과 같은 판정 조인을 공유한다. `psa`는 FK로 항상 존재하지만 `psb.performance_id = psa.performance_id`(같은 공연 방어)에 쓰이므로 뺄 수 없다. 줄인 COUNT가 목록 전체 행 수와 같은지 `countMatchesListTotalAcrossMixedScenario`와 모든 개별 테스트의 count 단언으로 확인한다. 같은 읽기 전용 트랜잭션이라 목록과 총계는 한 연결을 쓴다(`listAndCountUseTheSameConnectionInsideAReadOnlyTransaction`로 확인; 서비스 전체의 트랜잭션 전파는 Spring 컨텍스트 테스트가 없어 이 메커니즘 수준의 검증이다).
 - 시각 처리: 일시는 `LocalDateTime`으로 바인딩·읽는다(`Timestamp` 변환 없음). 앱·DB 모두 KST 벽시계 값이라 서버 JVM 시간대에 의존하지 않는다.

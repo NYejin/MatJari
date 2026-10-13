@@ -4,6 +4,7 @@ import com.seatswap.dto.request.ExchangeRequestCreateRequest;
 import com.seatswap.dto.request.ExchangeRequestUpdateRequest;
 import com.seatswap.dto.response.ExchangeRequestResponse;
 import com.seatswap.security.AuthUserPrincipal;
+import com.seatswap.dto.response.CandidateSliceResponse;
 import com.seatswap.dto.response.ExchangeCandidateResponse;
 import com.seatswap.dto.response.PageResponse;
 import com.seatswap.service.ExchangeCandidateService;
@@ -64,6 +65,18 @@ public class ExchangeRequestController {
                                                               @RequestParam(defaultValue = "20") int size,
                                                               @AuthenticationPrincipal AuthUserPrincipal principal) {
         return exchangeCandidateService.findCandidates(principal.userId(), id, page, size);
+    }
+
+    /**
+     * 매칭 후보를 keyset(커서)으로 읽는다. 처음에는 cursor 를 비우고, 응답의 nextCursor 를 다음 요청에 그대로 넣는다(hasNext=false 면 끝).
+     * 같은 판정·정렬이며 전체 개수와 offset 이 없다. 잘못된 cursor 400, 그 밖의 오류는 /candidates 와 같다. size 기본 20, 최대 100.
+     */
+    @GetMapping("/{id}/candidates/scroll")
+    public CandidateSliceResponse candidateScroll(@PathVariable Long id,
+                                                  @RequestParam(required = false) String cursor,
+                                                  @RequestParam(defaultValue = "20") int size,
+                                                  @AuthenticationPrincipal AuthUserPrincipal principal) {
+        return exchangeCandidateService.findCandidateSlice(principal.userId(), id, cursor, size);
     }
 
     /** 소프트 삭제(DELETED) -> 204, 이미 삭제됐으면 멱등 204. CHATTING 매칭은 시스템 취소, RESERVED 가 있으면 409. 남의 요청 403, 없는 요청 404. */

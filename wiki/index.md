@@ -36,6 +36,8 @@ SeatSwap 프로젝트의 결정 근거, 함정, 조사 결과, 용어를 모은 
 
 - [공연 포스터 표시 설계 근거](decisions/poster-display-design.md): 서버가 이미지를 저장·프록시하지 않고 주소만 읽어 인라인 링크로 보여 주는 이유, DB에 저장하지 않고 재조회한 이유, 택하지 않은 대안, 로드 실패 시 숨김과 대체 링크 없음, 저작권 조사 요약과 미확인 항목, 한계.
 
+- [가입 이메일 인증번호 설계 근거](decisions/email-verification-design.md): 가입 전 인증을 택한 이유(남의 이메일 선점·소셜 EMAIL_EXISTS 차단), 코드 동봉 방식, 시도 횟수를 REQUIRES_NEW로 먼저 올리는 이유(롤백 우회 방지), HMAC 해시, 발송 제한, log 모드 운영 기동 거부, 택하지 않은 대안, 한계.
+
 ## 함정
 
 - [프런트 함정](gotchas/frontend-react-pitfalls.md): StrictMode에서 중단된 요청이 가드를 풀지 못해 로딩에 머무는 문제(신고 상세·소셜 콜백), 객체 키 조회의 `__proto__` 함정.

@@ -1,6 +1,6 @@
 ---
 name: project-knowledge
-description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙·기능 목록과 구현 상태·데이터 모델(Flyway V1~V18)·API/화면 요약. 기능 구현이나 설계 질문에 답하기 전에 먼저 참고한다. 결정이 바뀌면 이 문서의 해당 항목을 직접 고친다(이력은 HISTORY.md, 산출물/07_작업일지, wiki/).
+description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙·기능 목록과 구현 상태·데이터 모델(Flyway V1~V19)·API/화면 요약. 기능 구현이나 설계 질문에 답하기 전에 먼저 참고한다. 결정이 바뀌면 이 문서의 해당 항목을 직접 고친다(이력은 HISTORY.md, 산출물/07_작업일지, wiki/).
 ---
 
 # 프로젝트 지식 요약
@@ -26,7 +26,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 | Frontend | React + TypeScript + Vite + Tailwind CSS v4 (Tailwind 유틸리티만 사용, 브레이크포인트 640/768/1024px 고정, 브랜드색 primary #8A2BE2 / secondary #BEA886(글자색 금지) / accent #E8A33D) |
 | Backend | Spring Boot 3.3.13(Security 6.3.10) + JPA + Flyway, JWT 인증. WebSocket(STOMP, `/ws`)은 채팅 푸시에 구현됨(커스텀 CONNECT 인증 인터셉터, 사용자 큐만 구독) |
 | Frontend 추가 | `@stomp/stompjs` ^7.3(채팅 화면 전용), `VITE_WS_URL`(없으면 API 주소에서 계산) |
-| DB | MySQL 8.0 (Flyway V1~V18) |
+| DB | MySQL 8.0 (Flyway V1~V19) |
 | 배포 | `SeatSwap/docker-compose.yml`: mysql · backend · frontend 3개. 시간대 KST(Clock Asia/Seoul, TZ=Asia/Seoul) |
 
 - 이미지 인식 서비스(FastAPI/OpenCV/Tesseract)는 동결로 삭제됐다.
@@ -124,7 +124,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 
 | 기능 | 상태 |
 |---|---|
-| 회원가입·로그인·JWT·`GET/PATCH /api/users/me` | 구현 |
+| 회원가입(이메일 인증번호 포함)·로그인·JWT·`GET/PATCH /api/users/me` | 구현 |
 | 공연·회차 등록/조회(FR-02) | 구현 (수정·삭제 없음) |
 | 티켓 등록·내 티켓·내리기(FR-03) | 구현 |
 | 교환 희망 조건 등록·수정·삭제 | 구현 |
@@ -147,7 +147,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 | 회원탈퇴(모달·확인, 익명화, 진행 중 교환 자동 정리)·개인정보처리방침 `/privacy`·푸터·가입 화면 방침 안내 | 구현 (V17, 병합됨) |
 | 신뢰도 점수 제거(`users.trust_score` 컬럼, 응답 `trustScore`, 마이페이지 표시 삭제) | 구현 (V18, 미커밋) |
 
-## 5. 데이터 모델 (Flyway V1~V18, 20개 테이블 + flyway_schema_history)
+## 5. 데이터 모델 (Flyway V1~V19, 21개 테이블 + flyway_schema_history)
 
 기준 다이어그램 `산출물/08_ERD/erd.dot`, 설계 근거 `산출물/08_ERD/exchange-schema-design.md`. 규칙은 `erd-conventions` 스킬.
 
@@ -181,7 +181,8 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 - **V16**: `users.password_login_enabled`(일반 가입 1, 소셜 가입 0, 백필은 `social_account` 보유자 0)와 `social_account` UNIQUE(user_id, provider)(사용자당 제공자 1개). 재실행 가능한 프로시저 패턴, 파괴적 단계 없음. 다음 마이그레이션은 V17.
 - **V17**: `users.withdrawn_at` DATETIME(6) NULL 추가(인덱스·CHECK·백필 없음, 재실행 가능한 프로시저 패턴, 파괴적 단계 없음). 익명화 값은 서비스가 같은 트랜잭션에서 쓴다. 다음 마이그레이션은 V18.
 - **V18**: `users.trust_score` 컬럼 제거(폐기된 신뢰도 점수, 가입 때 0.0만 저장되던 값). 재실행 가능한 프로시저이며 컬럼이 있을 때만 DROP한다. 값은 복구되지 않고 되돌리기는 롤포워드만 가능하다. 엔티티 필드와 `/api/users/me`의 `trustScore`도 함께 없앴다. 테이블 수 20 그대로.
-- **다음**: V19부터. 현재 계획된 스키마 변경은 없다(7일 경과 알림은 보류).
+- **V19**: `email_verification`(가입 전 이메일 인증번호: PK email, code_hash HMAC-SHA256, attempts, sent_at, expires_at). users와 FK 없음, 가입 성공 시 행 삭제(1회용). 재실행 가능한 프로시저 패턴, 파괴적 단계 없음.
+- **다음**: V20부터. 현재 계획된 스키마 변경은 없다(7일 경과 알림은 보류).
 
 ## 6. API 요약
 

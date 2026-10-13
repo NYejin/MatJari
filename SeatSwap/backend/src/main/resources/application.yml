@@ -52,6 +52,13 @@ seatswap:
   upload:
     # 좌석 소유 인증 사진 저장 디렉터리(웹에서 직접 서빙하지 않는 경로). UUID 이름으로만 저장한다. 처리 후 파일은 삭제된다
     dir: ${SEATSWAP_UPLOAD_DIR:./data/seat-claims}
+    # 정리 작업: 처리 뒤 삭제가 실패해 남은 사진과 요청 행이 없는 고아 파일을 주기적으로 지운다(grace-minutes 보다 오래된 것만)
+    cleanup:
+      enabled: ${SEATSWAP_UPLOAD_CLEANUP_ENABLED:true}
+      interval-ms: ${SEATSWAP_UPLOAD_CLEANUP_INTERVAL_MS:3600000}
+      initial-delay-ms: ${SEATSWAP_UPLOAD_CLEANUP_INITIAL_DELAY_MS:300000}
+      grace-minutes: ${SEATSWAP_UPLOAD_CLEANUP_GRACE_MINUTES:60}
+      batch: ${SEATSWAP_UPLOAD_CLEANUP_BATCH:200}
   seat-claim:
     max-pending-per-user: ${SEATSWAP_SEAT_CLAIM_MAX_PENDING:5}
   websocket:

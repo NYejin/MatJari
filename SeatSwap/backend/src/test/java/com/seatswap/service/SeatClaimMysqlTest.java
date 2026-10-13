@@ -75,6 +75,8 @@ class SeatClaimMysqlTest {
     private TicketService ticketService;
     @Autowired
     private JdbcTemplate jdbc;
+    @Autowired
+    private SeatClaimImageCleanupService cleanupService;
 
     private long seq;
     private long performanceId;
@@ -288,6 +290,42 @@ class SeatClaimMysqlTest {
                 .as("삭제 실패면 삭제 시각을 기록하지 않는다").isTrue();
         Files.delete(file.resolve("x"));
         Files.delete(file);
+    }
+
+    @Test
+    void cleanupDeletesLeftoverImageOfProcessedClaimAndOrphansButKeepsPendingImages() throws Exception {
+        holder("A", 1);
+        holder("A", 2);
+        long processed = claim(claimant, "A", "1", "1").id();
+        long pending = claim(claimant, "A", "1", "2").id();
+        String processedKey = jdbc.queryForObject("SELECT image_key FROM seat_claim WHERE id = ?", String.class, processed);
+        String pendingKey = jdbc.queryForObject("SELECT image_key FROM seat_claim WHERE id = ?", String.class, pending);
+        claimService.reject(admin, processed, null);   // 파일 삭제와 기록까지 끝난다
+        // 삭제가 실패했던 상황을 만든다: 파일이 남고 기록이 없다
+        Path leftover = UPLOAD_DIR.resolve(processedKey);
+        Files.write(leftover, JPEG);
+        jdbc.update("UPDATE seat_claim SET image_deleted_at = NULL, reviewed_at = ? WHERE id = ?", LocalDateTime.now().minusHours(3), processed);
+        // 요청 행이 없는 오래된 고아 파일, 방금 만든 고아 파일(저장 직후일 수 있어 지우지 않는다)
+        String orphanKey = java.util.UUID.randomUUID().toString();
+        Files.write(UPLOAD_DIR.resolve(orphanKey), JPEG);
+        Files.setLastModifiedTime(UPLOAD_DIR.resolve(orphanKey),
+                java.nio.file.attribute.FileTime.from(java.time.Instant.now().minusSeconds(3 * 3600)));
+        String freshKey = java.util.UUID.randomUUID().toString();
+        Files.write(UPLOAD_DIR.resolve(freshKey), JPEG);
+        // 처리 중 요청의 사진도 오래돼 보이게 한다(그래도 지우면 안 된다)
+        Files.setLastModifiedTime(UPLOAD_DIR.resolve(pendingKey),
+                java.nio.file.attribute.FileTime.from(java.time.Instant.now().minusSeconds(3 * 3600)));
+
+        SeatClaimImageCleanupService.Result result = cleanupService.cleanup();
+
+        assertThat(result.processedFilesDeleted()).isEqualTo(1);
+        assertThat(result.orphanFilesDeleted()).isEqualTo(1);
+        assertThat(leftover).doesNotExist();
+        assertThat(jdbc.queryForObject("SELECT image_deleted_at IS NOT NULL FROM seat_claim WHERE id = ?", Boolean.class, processed)).isTrue();
+        assertThat(UPLOAD_DIR.resolve(orphanKey)).doesNotExist();
+        assertThat(files()).containsExactlyInAnyOrder(pendingKey, freshKey);
+        assertThat(jdbc.queryForObject("SELECT image_deleted_at IS NULL FROM seat_claim WHERE id = ?", Boolean.class, pending)).isTrue();
+        assertThat(cleanupService.cleanup()).as("다시 실행해도 더 지울 것이 없다").isEqualTo(new SeatClaimImageCleanupService.Result(0, 0));
     }
 
     // ------------------------------------------------------------------ 경쟁

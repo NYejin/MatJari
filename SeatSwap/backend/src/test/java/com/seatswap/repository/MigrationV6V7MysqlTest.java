@@ -133,8 +133,8 @@ class MigrationV6V7MysqlTest {
     }
 
     private static void seedV5(JdbcTemplate jdbc) {
-        jdbc.update("INSERT INTO users(id,email,password,nickname,role,created_at,trust_score) VALUES "
-                + "(1,'a@t','x','A','USER',NOW(6),0),(2,'b@t','x','B','USER',NOW(6),0),(3,'c@t','x','C','USER',NOW(6),0),(4,'d@t','x','D','USER',NOW(6),0)");
+        jdbc.update("INSERT INTO users(id,email,password,nickname,role,created_at) VALUES "
+                + "(1,'a@t','x','A','USER',NOW(6)),(2,'b@t','x','B','USER',NOW(6)),(3,'c@t','x','C','USER',NOW(6)),(4,'d@t','x','D','USER',NOW(6))");
         jdbc.update("INSERT INTO performance(id,registrant_id,source_key,source_url,title,venue_name,created_at,updated_at) VALUES (1,1,'k','http://x','T','V',NOW(6),NOW(6))");
         jdbc.update("INSERT INTO performance_session(id,performance_id,starts_at,created_at) VALUES (1,1,'2030-01-01 19:00:00',NOW(6)),(2,1,'2030-01-02 19:00:00',NOW(6))");
         jdbc.update("INSERT INTO ticket(id,user_id,performance_session_id,zone_label,zone_key,row_label,row_key,col_label,col_key,status,created_at,updated_at) VALUES "

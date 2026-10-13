@@ -1,6 +1,6 @@
-# 교환 도메인 스키마 설계안 (V3~V17 구현 완료; V8 한 명 예약 방식은 10절(V15로 '제안 -> 상대 수락'으로 대체), 알림 V10은 1.13절, 차단·신고·이용 정지 V13은 12절, 소셜 로그인 계정 V14는 13절, 예약 제안·알림 6종 V15는 14절, 비밀번호 로그인 가능 여부·사용자당 제공자 1개 V16은 15절, 회원 탈퇴 시각 V17은 16절)
+# 교환 도메인 스키마 설계안 (V3~V18 구현 완료; V8 한 명 예약 방식은 10절(V15로 '제안 -> 상대 수락'으로 대체), 알림 V10은 1.13절, 차단·신고·이용 정지 V13은 12절, 소셜 로그인 계정 V14는 13절, 예약 제안·알림 6종 V15는 14절, 비밀번호 로그인 가능 여부·사용자당 제공자 1개 V16은 15절, 회원 탈퇴 시각 V17은 16절, 신뢰도 점수 컬럼 제거 V18은 17절)
 
-작성 2026-10-08 / 브랜치 `docs/exchange-schema-design` / 상태: **V3~V17 구현 완료**(설계 확정 2026-10-08 사용자 답변 반영, 남은 확인 필요는 6절 끝). 현재 DB는 V1~V17(20개 테이블)이고 **다음 마이그레이션은 V18**이다. V17은 `users.withdrawn_at`(16절)이다. V15는 예약 제안 2컬럼과 알림 type 6종(14절)이다. V16은 `users.password_login_enabled`와 `social_account`의 사용자당 제공자 1개 유니크(15절)다. V12는 관리자 처리 대상 두 테이블(11절), V13은 차단·신고·이용 정지 세 테이블(12절), V14는 소셜 로그인 계정 `social_account`(13절)다. 교환 수락→교환 완료(`EXCHANGED`+새 티켓+`exchange_history`)는 V9로 구현 완료. `user_block`·`abuse_report`·`user_sanction`은 V13으로 구현 완료(1.6절, 12절). 채팅(`chat_message`·`chat_read_state`)은 V11로 구현 완료(1.9절). 알림(`notification`)은 V10으로 구현 완료(1.13절). 아래 인용문은 날짜순 구현 기록이며, 본문 중 '(대체됨)'·취소선·V4/V5 시점 표기는 이력이고 현행 기준은 9절(V6·V7)·10절(V8)·1.7절 표다.
+작성 2026-10-08 / 브랜치 `docs/exchange-schema-design` / 상태: **V3~V18 구현 완료**(설계 확정 2026-10-08 사용자 답변 반영, 남은 확인 필요는 6절 끝). 현재 DB는 V1~V18(20개 테이블)이고 **다음 마이그레이션은 V19**이다. V18은 `users.trust_score` 컬럼 제거(17절)다. V17은 `users.withdrawn_at`(16절)이다. V15는 예약 제안 2컬럼과 알림 type 6종(14절)이다. V16은 `users.password_login_enabled`와 `social_account`의 사용자당 제공자 1개 유니크(15절)다. V12는 관리자 처리 대상 두 테이블(11절), V13은 차단·신고·이용 정지 세 테이블(12절), V14는 소셜 로그인 계정 `social_account`(13절)다. 교환 수락→교환 완료(`EXCHANGED`+새 티켓+`exchange_history`)는 V9로 구현 완료. `user_block`·`abuse_report`·`user_sanction`은 V13으로 구현 완료(1.6절, 12절). 채팅(`chat_message`·`chat_read_state`)은 V11로 구현 완료(1.9절). 알림(`notification`)은 V10으로 구현 완료(1.13절). 아래 인용문은 날짜순 구현 기록이며, 본문 중 '(대체됨)'·취소선·V4/V5 시점 표기는 이력이고 현행 기준은 9절(V6·V7)·10절(V8)·1.7절 표다.
 
 > **구현 상태 (2026-10-08, 브랜치 `feature/ticket-register`, 미커밋)**: 1.1절 ticket 변경은 **V3로 구현 완료**(`V3__ticket_seat_columns.sql`, ticket 행이 있으면 SIGNAL 가드로 실패, 생성 컬럼 `active_flag`, `uk_ticket_active_seat`, `idx_ticket_user_status`; 정규화 키는 서비스 `SeatKeyNormalizer`가 NFKC·공백 제거·대문자·앞 0 제거·끝의 '열'/'번' 제거로 만든다). 티켓 등록 API(`POST /api/tickets`, `GET /api/tickets/me`, `DELETE /api/tickets/{id}`)도 구현됨. V4 희망 쪽은 아래 메모대로 구현 완료다.
 >
@@ -31,7 +31,7 @@
 > **구현 (2026-10-13, `feature/profile-edit`, V16)**: `users.password_login_enabled`(일반 가입 1, 소셜 가입 0, 백필 0)를 추가하고 `social_account`에 UNIQUE(user_id, provider)를 더했다. 테이블 수는 20 그대로다. 자세한 것은 15절. 다음 마이그레이션은 V17이다.
 > **구현 (2026-10-13, `feature/withdraw`, V17)**: `users.withdrawn_at`(NULL=활성, 값=탈퇴·익명화)을 추가했다. 테이블 수는 20 그대로다. 자세한 것은 16절. 다음 마이그레이션은 V18이다.
 
-설계 시점 기준선: V1+V2 (users, performance, performance_session, ticket 4개 테이블; 현재는 V1~V17, 20개 테이블). 이 문서의 SQL은 초안이며 마이그레이션 파일이 아니다(실제 SQL은 `SeatSwap/backend/src/main/resources/db/migration/`이 기준).
+설계 시점 기준선: V1+V2 (users, performance, performance_session, ticket 4개 테이블; 현재는 V1~V18, 20개 테이블). 이 문서의 SQL은 초안이며 마이그레이션 파일이 아니다(실제 SQL은 `SeatSwap/backend/src/main/resources/db/migration/`이 기준).
 좌석표(`SeatMapLayout`·`uid`·`section`)에 의존하지 않는다. 후기·신뢰도·신고 테이블은 만들지 않는다(신고는 8절에서 확장 여지만 언급).
 
 ---
@@ -391,7 +391,7 @@ LIMIT :size OFFSET :offset;                      -- 후속: keyset(priority, sta
 
 ## 4. Flyway 계획
 
-- (설계 시점 계획 — 실제로는 V3~V17로 나뉘어 구현됐고 **다음 번호는 V18**이다.) 당시 다음 번호는 V3. 파일은 둘로 나누는 것을 권장한다(MySQL DDL은 트랜잭션이 아니라 중간 실패 시 앞선 변경이 남으므로 실패 범위를 줄임).
+- (설계 시점 계획 — 실제로는 V3~V18로 나뉘어 구현됐고 **다음 번호는 V19**이다.) 당시 다음 번호는 V3. 파일은 둘로 나누는 것을 권장한다(MySQL DDL은 트랜잭션이 아니라 중간 실패 시 앞선 변경이 남으므로 실패 범위를 줄임).
   - `V3__ticket_seat_columns.sql`: 1.1의 ticket 변경.
   - `V4__exchange_domain.sql`: 1.2~1.10 신규 테이블(요청·희망·차단·매칭·잠금·채팅·이력). 신고 테이블 번호는 선점하지 않는다. (실제: V4 = 희망 4개, V5 = 매칭·잠금, V9 = exchange_history, V10 = notification, V11 = chat_message·chat_read_state, user_block은 V12 예정.)
 - **기존 ticket 행 이관·가드 필요 여부**
@@ -471,7 +471,7 @@ CREATE TABLE exchange_ticket_lock (
 ---
 
 ## 5. ERD 반영
-`산출물/08_ERD/erd.dot`은 현재 V1~V17의 20개 테이블(알림 `notification`은 V10, 채팅 `chat_message`·`chat_read_state`는 V11, `performance_edit_proposal`·`seat_claim`은 V12, `user_block`·`abuse_report`·`user_sanction`은 V13, `social_account`는 V14, 사용자당 제공자 1개와 `password_login_enabled`는 V16, `withdrawn_at`은 V17)을 파란 헤더(`#BDD7EE`)로 그린다. V13 세 테이블은 구현 완료라 예정 색(노란 배경 `#FFF2CC` / 주황 헤더 `#F4B183`)을 쓰지 않는다. 처음 작성 시에는 교환 테이블 전체가 예정 표기였고 구현되면서 현재 색으로 바뀌었다. `abuse_report.sanction_id`처럼 FK가 아닌 참조는 점선으로 그린다. 2026-10-12 V13 갱신도 dot이 없는 환경이라 PNG는 만들지 못했고 DOT 문법만 점검했다. `EXCHANGED`(ticket status)는 V9로 현재 색으로 표시한다. 이 환경에 graphviz `dot`이 없어 PNG 생성·렌더 확인은 못 했고 문법(따옴표, HTML 라벨 닫힘, 엣지 대상 노드 존재)만 점검했다. 한계: 레이아웃 겹침 여부는 `dot -Tpng erd.dot -o ERD.png` 실행 후 눈으로 확인해야 한다. chat_message와 잠금·이력 테이블까지 포함해 노드가 늘어 rankdir=LR에서 가로가 길어질 수 있다.
+`산출물/08_ERD/erd.dot`은 현재 V1~V18의 20개 테이블(알림 `notification`은 V10, 채팅 `chat_message`·`chat_read_state`는 V11, `performance_edit_proposal`·`seat_claim`은 V12, `user_block`·`abuse_report`·`user_sanction`은 V13, `social_account`는 V14, 사용자당 제공자 1개와 `password_login_enabled`는 V16, `withdrawn_at`은 V17, `trust_score` 컬럼 제거는 V18)을 파란 헤더(`#BDD7EE`)로 그린다. V13 세 테이블은 구현 완료라 예정 색(노란 배경 `#FFF2CC` / 주황 헤더 `#F4B183`)을 쓰지 않는다. 처음 작성 시에는 교환 테이블 전체가 예정 표기였고 구현되면서 현재 색으로 바뀌었다. `abuse_report.sanction_id`처럼 FK가 아닌 참조는 점선으로 그린다. 2026-10-12 V13 갱신도 dot이 없는 환경이라 PNG는 만들지 못했고 DOT 문법만 점검했다. `EXCHANGED`(ticket status)는 V9로 현재 색으로 표시한다. 이 환경에 graphviz `dot`이 없어 PNG 생성·렌더 확인은 못 했고 문법(따옴표, HTML 라벨 닫힘, 엣지 대상 노드 존재)만 점검했다. 한계: 레이아웃 겹침 여부는 `dot -Tpng erd.dot -o ERD.png` 실행 후 눈으로 확인해야 한다. chat_message와 잠금·이력 테이블까지 포함해 노드가 늘어 rankdir=LR에서 가로가 길어질 수 있다.
 
 ---
 
@@ -1216,3 +1216,18 @@ CHECK 3개 (V8 `ck_exchange_match_reserved`와 같은 안전망 성격, NULL 통
 - 한계: DB에 보관 기간을 강제하는 장치(자동 파기 스케줄)가 없다. 방침은 '서비스 운영 기간 동안 보관, 종료 때 파기'로 적었다. 되돌리기는 롤포워드(새 V 파일에서 컬럼을 DROP하면 익명화된 행은 그대로 남는다).
 - erd.dot에는 `users.withdrawn_at`을 a115b8d에서 반영했다. ERD.png는 이 환경에 graphviz가 없어 만들지 못했다(DOT 문법만 점검 대상).
 - 다음 마이그레이션은 V18이다.
+
+## 17. V18 — 폐기된 신뢰도 점수 컬럼 제거 (2026-10-13, `V18__drop_user_trust_score.sql`, `feature/remove-trust-score`)
+
+새 테이블은 없다(20개 그대로). 확정 사항: 신뢰도 점수는 매칭에 쓰지 않는다(CLAUDE.md '폐기된 안'). 가입 때 0.0만 저장되던 `users.trust_score`를 없앤다.
+
+### 17.1 변경
+
+| 대상 | 변경 | 제약·근거 |
+|---|---|---|
+| users.trust_score | V18에서 제거(DROP COLUMN, DOUBLE NULL) | 인덱스·FK·CHECK가 이 컬럼을 참조하지 않는다(V1에서 DOUBLE DEFAULT NULL로만 정의). 값은 사라지고 복구되지 않는다 |
+
+- 재실행 가능한 프로시저 패턴(INFORMATION_SCHEMA 가드, 컬럼이 있을 때만 DROP). 파괴적 단계이며 되돌리기는 롤포워드(새 V 파일에서 컬럼을 다시 추가)만 가능하다.
+- 엔티티 `User.trustScore`와 `/api/users/me` 응답의 `trustScore`를 함께 없앴다. 마이페이지 '신뢰도 점수' 표시도 삭제했다.
+- 테이블 수 20 그대로. 다음 마이그레이션은 V19다.
+

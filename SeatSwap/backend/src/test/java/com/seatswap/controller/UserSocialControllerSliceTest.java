@@ -81,7 +81,7 @@ class UserSocialControllerSliceTest {
     @Test
     void 닉네임_수정은_200과_UserResponse() throws Exception {
         when(userService.updateNickname(1L, "새닉네임"))
-                .thenReturn(new UserResponse(1L, null, "새닉네임", 0.0, UserRole.USER, true, false));
+                .thenReturn(new UserResponse(1L, null, "새닉네임", UserRole.USER, true, false));
         mockMvc.perform(patch("/api/users/me").header("Authorization", AUTH).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"nickname\":\"  새닉네임 \"}"))
                 .andExpect(status().isOk())

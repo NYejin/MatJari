@@ -20,10 +20,6 @@ const cls = {
   profileCard: "border-t-4 border-secondary-500 " + FOCUS_RING,
   nickname: "truncate text-xl/[normal] font-bold text-gray-900",
   email: "mt-1 truncate text-sm/[normal] text-gray-500",
-  scoreRow: "mt-5 flex items-baseline justify-between gap-3 border-t border-gray-200 pt-4",
-  scoreLabel: "text-sm/[normal] font-semibold text-gray-700",
-  /** 흰 배경 + primary-700 글자 7.67:1 */
-  scoreValue: "text-2xl/[normal] font-bold text-primary-700",
   /** 상태 라이브 영역 — 항상 렌더링하고 텍스트만 바꾼다 (비어 있으면 높이·여백 0) */
   status: "text-sm/[normal] text-gray-500 not-empty:mb-3",
   errorBox: "mt-3 rounded-[10px] bg-red-50 px-3.5 py-3 text-sm/[normal] text-red-700",
@@ -57,14 +53,6 @@ const ACTIVITY_LINKS = [
   { to: "/my/blocks", label: "차단 목록" },
   { to: "/my/reports", label: "내 신고 내역" },
 ] as const;
-
-/**
- * 신뢰도 점수는 소수 1자리. 값이 없으면(null) 대시.
- * 신규 회원은 백엔드 기본값 0.0이 그대로 표시된다 — 기획 결정 사항이므로 "-" 등으로 바꾸지 않는다.
- */
-function formatTrustScore(score: number | null): string {
-  return typeof score === "number" && Number.isFinite(score) ? score.toFixed(1) : "-";
-}
 
 export default function MyPage() {
   const { user, profile, profileStatus, profileError, reloadProfile } = useAuth();
@@ -119,10 +107,6 @@ export default function MyPage() {
         ) : (
           <p className={cls.email}>소셜 계정으로 가입해 이메일이 없어요</p>
         )}
-        <div className={cls.scoreRow}>
-          <span className={cls.scoreLabel}>신뢰도 점수</span>
-          <span className={cls.scoreValue}>{formatTrustScore(profile.trustScore)}</span>
-        </div>
       </>
     );
   } else if (profileStatus === "error") {

@@ -196,10 +196,10 @@ class MigrationV8MysqlTest {
      */
     private static void seedV7(JdbcTemplate jdbc) {
         for (int i = 1; i <= 8; i++) {
-            jdbc.update("INSERT INTO users(id,email,password,nickname,role,created_at,trust_score) VALUES (?,?,?,?,?,NOW(6),0)",
+            jdbc.update("INSERT INTO users(id,email,password,nickname,role,created_at) VALUES (?,?,?,?,?,NOW(6))",
                     i, "u" + i + "@t", "x", "U" + i, "USER");
         }
-        jdbc.update("INSERT INTO users(id,email,password,nickname,role,created_at,trust_score) VALUES (9,'h@t','x','H','USER',NOW(6),0)");
+        jdbc.update("INSERT INTO users(id,email,password,nickname,role,created_at) VALUES (9,'h@t','x','H','USER',NOW(6))");
         jdbc.update("INSERT INTO performance(id,registrant_id,source_key,source_url,title,venue_name,created_at,updated_at) VALUES (1,1,'k','http://x','T','V',NOW(6),NOW(6))");
         jdbc.update("INSERT INTO performance_session(id,performance_id,starts_at,created_at) VALUES (1,1,'2030-01-01 19:00:00',NOW(6))");
         for (int i = 1; i <= 8; i++) {

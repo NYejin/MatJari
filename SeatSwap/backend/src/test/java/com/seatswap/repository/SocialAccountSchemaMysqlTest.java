@@ -59,7 +59,7 @@ class SocialAccountSchemaMysqlTest {
         flyway("14").clean();
         assertThat(flyway("14").migrate().migrationsExecuted).as("V1~V14 전체 적용").isEqualTo(14);
         for (int i = 1; i <= 2; i++) {
-            jdbc.update("INSERT INTO users(id,email,password,nickname,role,created_at,trust_score) VALUES (?,?,?,?,'USER',NOW(6),0)",
+            jdbc.update("INSERT INTO users(id,email,password,nickname,role,created_at) VALUES (?,?,?,?,'USER',NOW(6))",
                     i, "u" + i + "@t", "x", "U" + i);
         }
     }

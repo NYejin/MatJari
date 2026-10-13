@@ -30,7 +30,6 @@ class UserServiceTest {
 
         assertThat(me.email()).isEqualTo("a@b.com");
         assertThat(me.nickname()).isEqualTo("닉네임");
-        assertThat(me.trustScore()).isEqualTo(0.0);
         assertThat(me.role()).isEqualTo(UserRole.USER);
     }
 

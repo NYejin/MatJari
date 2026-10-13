@@ -64,3 +64,6 @@ llm-wiki 스킬, researcher·wiki-curator 에이전트, `scripts/lint-wiki.mjs`�
 
 ## [2026-10-13] ingest | 네이버 이메일 미사용 결정 반영
 - 네이버 프로필의 이메일은 검증 여부를 알 수 없어(공식 문서 미확인, 조사 신뢰도 낮음) 쓰지 않기로 했다. 항상 자리표시 이메일로 가입하고 EMAIL_EXISTS 판정도 하지 않는다. 관련: [decisions/social-login-design.md](decisions/social-login-design.md)
+
+## [2026-10-13] ingest | 신뢰도 점수 제거 반영
+신뢰도 점수 컬럼 제거(V18, `feature/remove-trust-score`, 병합됨)를 반영했다. `block-report-design.md`의 남은 것 목록에서 `trust_score` 정리를 끝난 일로 바꾸고 갱신일을 고쳤다. 신뢰도 점수는 매칭에 쓰지 않는다는 기존 결정과 충돌하지 않는다. 색인(index.md)은 바꿀 설명이 없어 그대로 두었다.

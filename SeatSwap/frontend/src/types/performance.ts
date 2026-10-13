@@ -45,6 +45,8 @@ export interface PerformancePreview {
   periodEnd: string | null;
   /** 포스터 이미지 주소(허용 호스트의 https). 서버는 이미지를 받지 않는다. 없으면 null */
   posterUrl: string | null;
+  /** 회차 날짜 후보(공연 기간이 하루·이틀일 때만). time 은 지금은 항상 null — 시각은 직접 입력 */
+  sessionCandidates: { date: string; time: string | null }[];
 }
 
 export interface PerformanceListParams {

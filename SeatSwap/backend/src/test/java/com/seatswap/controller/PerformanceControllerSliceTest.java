@@ -243,7 +243,8 @@ class PerformanceControllerSliceTest {
         mockMvc.perform(auth(get("/api/performances/preview").param("sourceUrl", "https://ticket.yes24.com/Perf/1")))
                 .andExpect(status().isOk())
                 .andExpect(content().json("{\"status\":\"OK\",\"site\":\"yes24\",\"title\":\"공연 A\","
-                        + "\"venueName\":\"홀\",\"periodStart\":\"2026-10-11\",\"periodEnd\":\"2026-10-13\",\"posterUrl\":\"https://tkfile.yes24.com/p.jpg\"}", true));
+                        + "\"venueName\":\"홀\",\"periodStart\":\"2026-10-11\",\"periodEnd\":\"2026-10-13\",\"posterUrl\":\"https://tkfile.yes24.com/p.jpg\","
+                        + "\"sessionCandidates\":[]}", true));
     }
 
     @Test

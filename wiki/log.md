@@ -55,3 +55,6 @@ llm-wiki 스킬, researcher·wiki-curator 에이전트, `scripts/lint-wiki.mjs`�
 
 ## [2026-10-13] ingest | 공연 포스터 표시 반영
 공연 포스터 표시(DB 변경 없음, 브랜치 `feature/poster`, 미병합) 구현 사실을 반영했다. 결정 페이지 `poster-display-design.md`를 추가하고, 함정 페이지 `link-fetch-pitfalls.md`에 3절(noimage 자리표시, 핫링크 차단, CDN 변경)을 더했다. 목차에 결정 페이지를 등록했다. 허용 호스트는 2026-10-13 한 시점의 실측이고, 약관 확인이 빠져 있어 confidence는 medium이다.
+
+## [2026-10-13] ingest | 회차 날짜 미리 채우기 반영
+회차 날짜 미리 채우기(DB 변경 없음, 브랜치 `feature/session-prefill`, 미병합) 구현 사실을 반영했다. 결정 페이지 `link-autofill-design.md`에 6절(2일 이하만 날짜를 채우는 이유, 택하지 않은 대안, AI 상세정보 출처를 붙일 자리와 그때 정할 것, 한계)을 더했다. 시각은 Ajax라 여전히 직접 입력이고, 판단 근거는 구현 상수와 사용자 요청을 따랐다. 브라우저 점검은 Playwright 수준이라 confidence는 medium이다.

@@ -382,6 +382,113 @@ class ExchangeCandidateQueryTest {
         assertThat(all).doesNotHaveDuplicates().hasSize(7);
     }
 
+    /** keyset 으로 끝까지 읽은 요청 id 순서(조각 크기 size). 조각마다 다음 커서를 Row 에서 만든다. */
+    private List<Long> readAllByKeyset(Req me, int size) {
+        List<Long> all = new java.util.ArrayList<>();
+        ExchangeCandidateRepository.Cursor cursor = null;
+        for (int guard = 0; guard < 100; guard++) {
+            var rows = repository.findCandidatesAfter(me.id, TODAY, cursor, size + 1);
+            var page = rows.size() > size ? rows.subList(0, size) : rows;
+            page.forEach(r -> all.add(r.requestId()));
+            if (rows.size() <= size) {
+                return all;
+            }
+            cursor = ExchangeCandidateRepository.Cursor.decode(ExchangeCandidateRepository.Cursor.of(page.get(page.size() - 1)).encode());
+        }
+        throw new AssertionError("keyset 읽기가 끝나지 않는다");
+    }
+
+    @Test
+    void keysetReadsTheSameOrderAsOffsetPagingAcrossPriorityCreatedAtAndIdTies() {
+        long u1 = user("me");
+        Req a = request(u1, s1, "A", "1", "1", "ANY", null, List.of(), List.of());
+        jdbc.update("INSERT INTO exchange_want_session (request_id, performance_session_id, priority) VALUES (?,?,2),(?,?,1)",
+                a.id, s1, a.id, s2);
+        // 우선순위 1(s2)·2(s1) 두 회차에 상대를 섞어 만든다. 일부는 created_at 을 같게 맞춰 id 로만 구분되게 한다
+        java.util.List<Req> others = new java.util.ArrayList<>();
+        for (int col = 2; col <= 13; col++) {
+            insertSeat(a, "A", "1", String.valueOf(col));
+            long sessionId = col % 2 == 0 ? s1 : s2;
+            others.add(request(user("o" + col), sessionId, "A", "1", String.valueOf(col), "ANY", null, List.of(s1), List.of(seat("A", "1", "1"))));
+        }
+        for (int i = 0; i < others.size(); i++) {
+            // 4건씩 같은 시각(동률 -> id 내림차순), 뒤 그룹일수록 최신
+            jdbc.update("UPDATE exchange_request SET created_at = ? WHERE id = ?", BASE.minusDays(10).plusDays(i / 4), others.get(i).id);
+        }
+
+        List<Long> expected = repository.findCandidates(a.id, TODAY, 100, 0).stream().map(ExchangeCandidateRepository.Row::requestId).toList();
+        assertThat(expected).hasSize(12);
+
+        for (int size : new int[]{1, 2, 3, 5, 12, 20}) {
+            assertThat(readAllByKeyset(a, size)).as("size=" + size).containsExactlyElementsOf(expected);
+        }
+    }
+
+    @Test
+    void keysetWithoutCursorMatchesFirstPageAndFiltersStillApply() {
+        long u1 = user("me");
+        Req a = request(u1, s1, "A", "1", "1", "ANY", null, List.of(s1), List.of());
+        Req blockedOwner = null;
+        for (int col = 2; col <= 6; col++) {
+            insertSeat(a, "A", "1", String.valueOf(col));
+            Req r = request(user("o" + col), s1, "A", "1", String.valueOf(col), "ANY", null, List.of(s1), List.of(seat("A", "1", "1")));
+            if (col == 4) {
+                blockedOwner = r;
+            }
+        }
+        jdbc.update("UPDATE exchange_request SET status = 'CLOSED' WHERE id = ?", blockedOwner.id);   // 닫힌 요청은 keyset 에서도 빠진다
+
+        var first = repository.findCandidatesAfter(a.id, TODAY, null, 3);
+
+        assertThat(first).extracting(ExchangeCandidateRepository.Row::requestId)
+                .containsExactlyElementsOf(repository.findCandidates(a.id, TODAY, 3, 0).stream().map(ExchangeCandidateRepository.Row::requestId).toList());
+        assertThat(readAllByKeyset(a, 2)).doesNotContain(blockedOwner.id).hasSize(4);
+    }
+
+    @Test
+    void keysetIsStableWhenRowsAreInsertedOrRemovedBetweenSlices() {
+        long u1 = user("me");
+        Req a = request(u1, s1, "A", "1", "1", "ANY", null, List.of(s1), List.of());
+        java.util.List<Req> others = new java.util.ArrayList<>();
+        for (int col = 2; col <= 7; col++) {
+            insertSeat(a, "A", "1", String.valueOf(col));
+            others.add(request(user("o" + col), s1, "A", "1", String.valueOf(col), "ANY", null, List.of(s1), List.of(seat("A", "1", "1"))));
+        }
+        var firstSlice = repository.findCandidatesAfter(a.id, TODAY, null, 3);
+        var cursor = ExchangeCandidateRepository.Cursor.of(firstSlice.get(2));
+        // 첫 조각을 읽은 사이 이미 본 행이 닫히고, 새 후보가 생긴다(더 최신이라 커서보다 앞 = 이번 흐름에서는 건너뛴다)
+        jdbc.update("UPDATE exchange_request SET status = 'CLOSED' WHERE id = ?", firstSlice.get(0).requestId());
+        insertSeat(a, "A", "1", "8");
+        request(user("late"), s1, "A", "1", "8", "ANY", null, List.of(s1), List.of(seat("A", "1", "1")));
+
+        var rest = repository.findCandidatesAfter(a.id, TODAY, cursor, 10);
+
+        List<Long> restIds = rest.stream().map(ExchangeCandidateRepository.Row::requestId).toList();
+        assertThat(restIds).doesNotHaveDuplicates().doesNotContainAnyElementsOf(firstSlice.stream().map(ExchangeCandidateRepository.Row::requestId).toList());
+        assertThat(restIds).hasSize(3);   // 처음 6명 중 아직 못 본 3명. 새로 생긴 최신 후보는 커서 앞이라 포함되지 않는다
+    }
+
+    @Test
+    void keysetSqlHasNoOffsetOrCount() {
+        String sql = ExchangeCandidateRepository.candidateKeysetSql(TODAY, true);
+        assertThat(sql).doesNotContain("OFFSET").doesNotContain("COUNT(");
+        assertThat(sql).contains("STRAIGHT_JOIN").contains("wsa.priority > ?");
+        assertThat(ExchangeCandidateRepository.candidateKeysetSql(TODAY, false)).doesNotContain("wsa.priority > ?");
+    }
+
+    @Test
+    void cursorEncodesAndRejectsGarbage() {
+        var c = new ExchangeCandidateRepository.Cursor(2, LocalDateTime.of(2026, 10, 9, 1, 2, 3, 456000000), 77L);
+        assertThat(ExchangeCandidateRepository.Cursor.decode(c.encode())).isEqualTo(c);
+        for (String bad : new String[]{"", "x", "!!!", java.util.Base64.getUrlEncoder().encodeToString("1|nope|2".getBytes()),
+                java.util.Base64.getUrlEncoder().encodeToString("0|2026-10-09T01:02:03|2".getBytes()),
+                java.util.Base64.getUrlEncoder().encodeToString("1|2026-10-09T01:02:03|-5".getBytes()),
+                java.util.Base64.getUrlEncoder().encodeToString("1|2026-10-09T01:02:03".getBytes())}) {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> ExchangeCandidateRepository.Cursor.decode(bad))
+                    .as(bad).isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
     @Test
     void candidateQueryIsASingleSelectRegardlessOfResultSize() {
         long u1 = user("me");

@@ -145,6 +145,31 @@ class ExchangeRequestControllerSliceTest {
     }
 
     @Test
+    void candidateScrollReturnsSliceShapeAndPassesCursorAndSize() throws Exception {
+        var item = new ExchangeCandidateResponse(901L, 1001L, "B", "2", "3", 8L,
+                LocalDateTime.of(2026, 11, 2, 19, 0), "닉", 1, "X", null, "ANY", null, null,
+                LocalDateTime.of(2026, 10, 5, 9, 0, 1));
+        when(exchangeCandidateService.findCandidateSlice(1L, 900L, "abc", 5))
+                .thenReturn(new com.seatswap.dto.response.CandidateSliceResponse(List.of(item), 5, true, "next-cursor"));
+
+        mockMvc.perform(auth(get("/api/exchange/requests/900/candidates/scroll?cursor=abc&size=5")))
+                .andExpect(status().isOk())
+                .andExpect(content().json("{\"content\":[{\"requestId\":901}],\"size\":5,\"hasNext\":true,\"nextCursor\":\"next-cursor\"}"));
+        verify(exchangeCandidateService).findCandidateSlice(1L, 900L, "abc", 5);
+    }
+
+    @Test
+    void candidateScrollDefaultsToFirstSliceAndRequiresLogin() throws Exception {
+        when(exchangeCandidateService.findCandidateSlice(1L, 900L, null, 20))
+                .thenReturn(new com.seatswap.dto.response.CandidateSliceResponse(List.of(), 20, false, null));
+
+        mockMvc.perform(auth(get("/api/exchange/requests/900/candidates/scroll")))
+                .andExpect(status().isOk())
+                .andExpect(content().json("{\"content\":[],\"size\":20,\"hasNext\":false,\"nextCursor\":null}", true));
+        mockMvc.perform(get("/api/exchange/requests/900/candidates/scroll")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void candidatesMapErrorCodes() throws Exception {
         when(exchangeCandidateService.findCandidates(1L, 901L, 0, 20)).thenThrow(new ForbiddenException("본인"));
         when(exchangeCandidateService.findCandidates(1L, 902L, 0, 20)).thenThrow(new NotFoundException("없음"));

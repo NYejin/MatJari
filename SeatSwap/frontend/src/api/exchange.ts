@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { PageResponse } from "../types/page";
+import type { PageResponse, SliceResponse } from "../types/page";
 import type {
   ExchangeCandidate,
   ExchangeMatch,
@@ -50,6 +50,23 @@ export const exchangeApi = {
     const { data } = await apiClient.get<PageResponse<ExchangeCandidate>>(
       `/exchange/requests/${requestId}/candidates`,
       { params: { page, size }, signal }
+    );
+    return data;
+  },
+
+  /**
+   * GET /api/exchange/requests/{id}/candidates/scroll?cursor&size — keyset(커서) 방식. 전체 개수 없이 nextCursor로 이어 읽는다.
+   * 후보가 많아도 뒤쪽 조각이 느려지지 않는다. 처음에는 cursor를 비운다
+   */
+  async candidateScroll(
+    requestId: number,
+    cursor: string | null,
+    size = 20,
+    signal?: AbortSignal
+  ): Promise<SliceResponse<ExchangeCandidate>> {
+    const { data } = await apiClient.get<SliceResponse<ExchangeCandidate>>(
+      `/exchange/requests/${requestId}/candidates/scroll`,
+      { params: cursor ? { cursor, size } : { size }, signal }
     );
     return data;
   },

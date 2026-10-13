@@ -3,6 +3,7 @@ package com.seatswap.service;
 import com.seatswap.domain.ExchangeRequest;
 import com.seatswap.domain.ExtraType;
 import com.seatswap.domain.Ticket;
+import com.seatswap.dto.response.CandidateSliceResponse;
 import com.seatswap.dto.response.ExchangeCandidateResponse;
 import com.seatswap.dto.response.PageResponse;
 import com.seatswap.exception.BusinessRuleException;
@@ -53,7 +54,42 @@ public class ExchangeCandidateService {
             throw new FieldValidationException("page", "page는 0 이상이어야 합니다.");
         }
         int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+        LocalDateTime todayStart = validatedTodayStart(userId, requestId);
+        long offset = (long) page * pageSize;
+        List<ExchangeCandidateRepository.Row> rows =
+                candidateRepository.findCandidates(requestId, todayStart, pageSize, offset);
+        long total = candidateRepository.countCandidates(requestId, todayStart);
+        List<ExchangeCandidateResponse> content = rows.stream().map(ExchangeCandidateService::toResponse).toList();
+        int totalPages = (int) ((total + pageSize - 1) / pageSize);
+        return new PageResponse<>(content, page, pageSize, total, totalPages);
+    }
 
+    /**
+     * keyset(커서) 방식 조회. 같은 정렬·같은 판정이지만 전체 개수를 세지 않고 offset 을 쓰지 않아, 후보가 수천 건이어도 뒤쪽 조각 비용이 일정하다.
+     * 첫 조각은 cursor 를 비우고, 응답의 nextCursor 를 그대로 다음 요청에 넣는다. 잘못된 cursor 는 400(cursor 필드).
+     * 조각 사이에 후보가 생기거나 사라져도 커서 뒤의 행만 읽으므로 중복·누락 없이 이어진다(새로 생긴 후보가 커서보다 앞이면 다음 첫 조각에서 보인다).
+     */
+    @Transactional(readOnly = true)
+    public CandidateSliceResponse findCandidateSlice(Long userId, Long requestId, String cursorText, int size) {
+        int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+        ExchangeCandidateRepository.Cursor cursor = null;
+        if (cursorText != null && !cursorText.isBlank()) {
+            try {
+                cursor = ExchangeCandidateRepository.Cursor.decode(cursorText.trim());
+            } catch (IllegalArgumentException e) {
+                throw new FieldValidationException("cursor", "올바르지 않은 cursor입니다.");
+            }
+        }
+        LocalDateTime todayStart = validatedTodayStart(userId, requestId);
+        List<ExchangeCandidateRepository.Row> rows = candidateRepository.findCandidatesAfter(requestId, todayStart, cursor, pageSize + 1);
+        boolean hasNext = rows.size() > pageSize;
+        List<ExchangeCandidateRepository.Row> page = hasNext ? rows.subList(0, pageSize) : rows;
+        String next = hasNext ? ExchangeCandidateRepository.Cursor.of(page.get(page.size() - 1)).encode() : null;
+        return new CandidateSliceResponse(page.stream().map(ExchangeCandidateService::toResponse).toList(), pageSize, hasNext, next);
+    }
+
+    /** 권한·상태 검증(남의 요청 403, 없음 404, 삭제 409, 닫힘·마감 422, 내 티켓 잠김 422). 통과하면 오늘 0시(KST)를 돌려준다. */
+    private LocalDateTime validatedTodayStart(Long userId, Long requestId) {
         ExchangeRequest request = requestRepository.findById(requestId)
                 .orElseThrow(() -> new NotFoundException(REQUEST_NOT_FOUND_MESSAGE));
         Ticket ticket = ticketRepository.findWithSessionById(request.getTicket().getId())
@@ -76,14 +112,7 @@ public class ExchangeCandidateService {
             throw new BusinessRuleException(TICKET_LOCKED_CODE, TICKET_LOCKED_MESSAGE);
         }
 
-        LocalDateTime todayStart = now.toLocalDate().atStartOfDay();
-        long offset = (long) page * pageSize;
-        List<ExchangeCandidateRepository.Row> rows =
-                candidateRepository.findCandidates(requestId, todayStart, pageSize, offset);
-        long total = candidateRepository.countCandidates(requestId, todayStart);
-        List<ExchangeCandidateResponse> content = rows.stream().map(ExchangeCandidateService::toResponse).toList();
-        int totalPages = (int) ((total + pageSize - 1) / pageSize);
-        return new PageResponse<>(content, page, pageSize, total, totalPages);
+        return now.toLocalDate().atStartOfDay();
     }
 
     static ExchangeCandidateResponse toResponse(ExchangeCandidateRepository.Row r) {

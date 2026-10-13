@@ -6,7 +6,7 @@ import { getErrorStatus } from "../api/performances";
 import { formatKstDateTime } from "../api/dateTime";
 import { formatSeat } from "../api/seat";
 import { button, linkButton, liveRegionClass, ui } from "../components/ui";
-import { usePagedList } from "../hooks/usePagedList";
+import { useCursorList } from "../hooks/useCursorList";
 import type { ExchangeCandidate, ExchangeRequest } from "../types/exchange";
 
 // FR-04 매칭 후보 (보호 라우트 /exchange/requests/:requestId/candidates).
@@ -52,8 +52,9 @@ function CandidatesView({ requestId, validId }: { requestId: number; validId: bo
     return () => controller.abort();
   }, [requestId, validId]);
 
-  const { state, loadingMore, moreError, loadMore, reload } = usePagedList<ExchangeCandidate>(
-    (page, signal) => exchangeApi.candidates(requestId, page, 20, signal),
+  // 후보가 많아도 뒤쪽이 느려지지 않도록 커서(keyset) 방식으로 읽는다 — 전체 개수는 알 수 없다
+  const { state, loadingMore, moreError, loadMore, reload } = useCursorList<ExchangeCandidate>(
+    (cursor, signal) => exchangeApi.candidateScroll(requestId, cursor, 20, signal),
     String(requestId),
     (c) => c.requestId
   );
@@ -103,7 +104,7 @@ function CandidatesView({ requestId, validId }: { requestId: number; validId: bo
     state.status === "loading"
       ? "후보를 찾는 중..."
       : state.status === "success"
-        ? `조건이 맞는 상대 ${state.totalElements}명`
+        ? `조건이 맞는 상대 ${state.items.length}명${state.hasNext ? " 이상" : ""}`
         : "";
 
   return (
@@ -195,7 +196,7 @@ function CandidatesView({ requestId, validId }: { requestId: number; validId: bo
                 {moreError}
               </p>
             )}
-            {state.page + 1 < state.totalPages && (
+            {state.hasNext && (
               <button type="button" className={button.outline} onClick={loadMore} disabled={loadingMore} aria-busy={loadingMore}>
                 {loadingMore ? "불러오는 중..." : "더 보기"}
               </button>

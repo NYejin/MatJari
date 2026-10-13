@@ -66,7 +66,7 @@ DB는 Flyway V1~V18, 20개 테이블(social_account·performance_edit_proposal·
 
 ### 후보 조회
 - 조건: 같은 공연 / 상대 티켓 회차 ∈ 내 희망 회차이고 내 티켓 회차 ∈ 상대 희망 회차 / 상대 좌석 ∈ 내 희망 좌석이고 내 좌석 ∈ 상대 희망 좌석 / 추가금 호환 / 상대 요청 OPEN·티켓 ACTIVE / 마감 지난 회차 제외 / 내 요청·같은 사용자 제외 / **예약으로 잠긴 티켓 제외**(예약이 취소되면 복귀) / 같은 쌍의 열린 매칭 제외 / 차단 사용자·정지 사용자 제외. 내 티켓이 잠겨 있으면 조회가 422 `TICKET_LOCKED`.
-- 정렬: 내 희망 회차 priority → 상대 요청 최신순. 응답에 신뢰도 필드는 없다. 페이징 `page&size`(기본 20, 최대 100); 후보가 수천 건을 넘으면 keyset 페이징 필요(후속).
+- 정렬: 내 희망 회차 priority → 상대 요청 최신순. 응답에 신뢰도 필드는 없다. 화면은 **keyset(커서) 조각** `GET /api/exchange/requests/{id}/candidates/scroll?cursor&size`(응답 `{content,size,hasNext,nextCursor}`, 전체 개수·offset 없음, 정렬 키 (priority, created_at, id)가 커서)로 읽고 "더 보기"로 이어 붙인다. 기존 `page&size`(기본 20, 최대 100) 엔드포인트는 호환용으로 남아 있다.
 - SQL은 `STRAIGHT_JOIN` 힌트를 유지한다(상대 요청 풀스캔 방지).
 
 ### 제안·취소

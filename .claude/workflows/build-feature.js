@@ -34,7 +34,7 @@ function buildPrompt(set) {
       ? '이 집합만 Flyway 마이그레이션을 쓴다. 번호는 ' + (plan.migration.number || '(지정 없음: 중단하고 보고)') + '.'
       : '이 집합은 마이그레이션 파일을 만들지 않는다.'
   return (
-    '너는 SeatSwap ' + set.role + ' 구현 담당이다.\n' + rules + '\n' + mig + '\n' +
+    '너는 맞자리 ' + set.role + ' 구현 담당이다.\n' + rules + '\n' + mig + '\n' +
     '전체 계획 요약: ' + plan.summary + '\n' +
     '이 집합: ' + set.name + '\n허용 파일: ' + set.files.join(', ') + '\n지시:\n' + set.instructions + '\n' +
     '끝나면 변경한 파일 목록, 구현 요약, 확인하지 못한 것, 계획과 달라진 점을 보고한다.'
@@ -68,11 +68,11 @@ if (args.parallelWrites === true) {
 
 phase('테스트')
 // MySQL 통합 테스트는 실행마다 고유한 DB 이름·컨테이너·포트를 쓴다(이름은 반드시 _it로 끝나야 안전장치를 통과한다).
-const dbName = 'seatswap_' + args.runId.replace(/-/g, '_') + '_it'
+const dbName = 'matjari_' + args.runId.replace(/-/g, '_') + '_it'
 const tests = await agent(
-  '너는 SeatSwap 테스트 담당이다. 코드를 고치지 않는다(실패하면 원인만 보고).\n' +
-    '실행: ① 백엔드 ./gradlew cleanTest test (SeatSwap/backend) ② 프론트 npx tsc --noEmit 과 npm run build (SeatSwap/frontend) ③ 계획의 추가 테스트: ' + JSON.stringify(plan.tests || []) + '\n' +
-    '실제 MySQL 통합 테스트가 필요하면 임시 컨테이너(이름 seatswap-tmp-' + args.runId + ', 빈 포트 사용)를 띄우고 SEATSWAP_IT_REQUIRED=true SEATSWAP_IT_JDBC_URL=jdbc:mysql://localhost:<포트>/' + dbName + ' SEATSWAP_IT_USER=root SEATSWAP_IT_PASSWORD=<임시 비밀번호> 로 돌린 뒤 컨테이너를 삭제한다. 다른 실행과 같은 DB 이름·포트를 쓰지 않는다.\n' +
+  '너는 맞자리 테스트 담당이다. 코드를 고치지 않는다(실패하면 원인만 보고).\n' +
+    '실행: ① 백엔드 ./gradlew cleanTest test (MatJari/backend) ② 프론트 npx tsc --noEmit 과 npm run build (MatJari/frontend) ③ 계획의 추가 테스트: ' + JSON.stringify(plan.tests || []) + '\n' +
+    '실제 MySQL 통합 테스트가 필요하면 임시 컨테이너(이름 matjari-tmp-' + args.runId + ', 빈 포트 사용)를 띄우고 MATJARI_IT_REQUIRED=true MATJARI_IT_JDBC_URL=jdbc:mysql://localhost:<포트>/' + dbName + ' MATJARI_IT_USER=root MATJARI_IT_PASSWORD=<임시 비밀번호> 로 돌린 뒤 컨테이너를 삭제한다. 다른 실행과 같은 DB 이름·포트를 쓰지 않는다.\n' +
     '보고: 명령별 통과/실패와 건수, 실패 테스트 이름과 원인, 정리한 임시 컨테이너.',
   {
     label: '테스트',

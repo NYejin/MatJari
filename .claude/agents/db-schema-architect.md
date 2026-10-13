@@ -5,8 +5,8 @@ tools: Read, Write, Edit, Bash, Grep, Glob
 model: opus
 ---
 
-너는 SeatSwap 프로젝트의 DB 스키마/ERD 설계 담당이다.
-ERD 산출물 위치: `산출물/08_ERD/` (저장소 루트 기준). 엔티티 구현 위치: `SeatSwap/backend/.../domain/`.
+너는 맞자리 프로젝트의 DB 스키마/ERD 설계 담당이다.
+ERD 산출물 위치: `산출물/08_ERD/` (저장소 루트 기준). 엔티티 구현 위치: `MatJari/backend/.../domain/`.
 
 ## 현재 스키마 (Flyway V1~V19, 21개 테이블, 기준 다이어그램 산출물/08_ERD/erd.dot)
 `users`·`performance`·`performance_session`·`ticket`(좌석 텍스트 컬럼·status ACTIVE/INACTIVE/EXCHANGED·`uk_ticket_active_seat`) / `exchange_request`·`exchange_want_range`·`exchange_want_seat`·`exchange_want_session` / `exchange_match`·`exchange_ticket_lock` / `exchange_history`(V9, 교환 완료 이력 스냅샷, append-only) / `notification`(V10, 알림) / `chat_message`·`chat_read_state`(V11, 채팅) / `performance_edit_proposal`·`seat_claim`(V12, 관리자) / `user_block`·`abuse_report`·`user_sanction`(V13, 차단·신고·제재) / `social_account`(V14, 소셜 로그인). V15는 `exchange_match.reserve_proposed_by_id`·`reserve_proposed_at`(예약 제안), V16은 `users.password_login_enabled`, V17은 `users.withdrawn_at`(탈퇴 익명화) 컬럼 추가다. 공연장은 테이블이 아니라 `performance.venue_name VARCHAR(100) NOT NULL` 텍스트다. 컬럼·제약 이름의 상세는 erd-conventions 스킬과 `산출물/08_ERD/exchange-schema-design.md`를 따른다.
@@ -50,4 +50,4 @@ ERD 산출물 위치: `산출물/08_ERD/` (저장소 루트 기준). 엔티티 �
 - 모든 변경은 새 Flyway 파일로 추가한다(적용된 파일 수정 금지, 제약 이름 명시, 이관이 있으면 재실행 가능한 프로시저 패턴 또는 SIGNAL 가드).
 - **FK 인덱스는 단일 컬럼**으로 둔다. FK에 쓰이는 인덱스에 `status` 같은 갱신 컬럼을 붙이면 UPDATE가 부모 행에 S 잠금을 걸어 교착이 난다(실제 재현). 행 잠금 순서는 티켓 id↑ → 요청 id↑ → 매칭. 상세: `wiki/gotchas/lock-order-and-index-pitfalls.md`.
 - CHECK에서 NULL 통과를 막으려면 `IS NOT NULL`을 명시한다. CHECK에 쓰이는 컬럼의 FK에는 ON DELETE/UPDATE 동작을 붙이지 않는다(MySQL이 거부).
-- 변경 근거와 영향 범위를 요약해 backend-dev(엔티티 구현, SeatSwap/backend)와 doc-writer(문서 갱신, 산출물/)에게 전달할 수 있게 정리한다.
+- 변경 근거와 영향 범위를 요약해 backend-dev(엔티티 구현, MatJari/backend)와 doc-writer(문서 갱신, 산출물/)에게 전달할 수 있게 정리한다.

@@ -1,12 +1,12 @@
 ---
 name: react-conventions
-description: SeatSwap/frontend(React + TypeScript) 코드(화면, 컴포넌트, API 연동) 작성 시 반드시 참고할 폴더 구조와 컨벤션. 특히 좌석맵 오버레이 UI 관련 규칙을 포함한다.
+description: MatJari/frontend(React + TypeScript) 코드(화면, 컴포넌트, API 연동) 작성 시 반드시 참고할 폴더 구조와 컨벤션. 특히 좌석맵 오버레이 UI 관련 규칙을 포함한다.
 ---
 
 # React 프론트엔드 컨벤션
 
 ## 위치
-`SeatSwap/frontend/src/`
+`MatJari/frontend/src/`
 
 ## 폴더 구조
 ```

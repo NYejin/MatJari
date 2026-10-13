@@ -2,7 +2,7 @@
 title: 공연 포스터 표시 설계 근거
 type: decision
 tags: [포스터, 링크입력, 저작권, 인라인링크, 핫링크, 설계]
-sources: [../../CLAUDE.md, link-autofill-design.md, ../gotchas/link-fetch-pitfalls.md, ../../SeatSwap/backend/src/main/java/com/seatswap/service/linkinfo/LinkInfoParsers.java, ../../SeatSwap/backend/src/main/java/com/seatswap/service/linkinfo/PerformancePreviewService.java, ../../SeatSwap/frontend/src/components/PosterImage.tsx]
+sources: [../../CLAUDE.md, link-autofill-design.md, ../gotchas/link-fetch-pitfalls.md, ../../MatJari/backend/src/main/java/com/matjari/service/linkinfo/LinkInfoParsers.java, ../../MatJari/backend/src/main/java/com/matjari/service/linkinfo/PerformancePreviewService.java, ../../MatJari/frontend/src/components/PosterImage.tsx]
 updated: 2026-10-13
 confidence: medium
 status: draft
@@ -22,7 +22,7 @@ status: draft
 - DB에 주소를 저장하지 않는다. 미리보기를 다시 불러 10분 캐시로 얻는다.
 - 출처는 텍스트로만 표기하고 새 링크는 두지 않는다. 공연 상세에 원래 있던 티켓팅 링크만 남는다.
 - 로드 실패(핫링크 차단 포함)나 주소가 없으면 포스터 영역 전체를 숨긴다. 대체 링크는 두지 않는다(사용자 지시 2026-10-12). 차단을 우회하지 않는다.
-- 설정 스위치 `seatswap.poster.enabled`(기본 true)를 둔다. 사이트에서 중단을 요청하면 즉시 끈다.
+- 설정 스위치 `matjari.poster.enabled`(기본 true)를 둔다. 사이트에서 중단을 요청하면 즉시 끈다.
 
 ## 2. 대안 비교
 
@@ -59,9 +59,9 @@ status: draft
 
 ## 6. 속도 제한과 스위치
 
-- 상세 화면용 조회는 미리보기와 같은 캐시(10분)·사이트 분당 30회·동시 4개를 쓴다. 사용자 제한은 별도로 분당 `seatswap.poster.user-per-minute`(기본 60)이다.
+- 상세 화면용 조회는 미리보기와 같은 캐시(10분)·사이트 분당 30회·동시 4개를 쓴다. 사용자 제한은 별도로 분당 `matjari.poster.user-per-minute`(기본 60)이다.
 - 제한에 걸리면 429가 아니라 조용히 null을 준다. 포스터는 부가 정보이므로 공연 정보 화면을 막지 않는다.
-- 스위치 `seatswap.poster.enabled`(기본 true, 환경변수 `SEATSWAP_POSTER_ENABLED`)가 false면 포스터 주소를 요청하지도 응답하지도 않는다.
+- 스위치 `matjari.poster.enabled`(기본 true, 환경변수 `MATJARI_POSTER_ENABLED`)가 false면 포스터 주소를 요청하지도 응답하지도 않는다.
 
 ## 7. 알려진 한계
 

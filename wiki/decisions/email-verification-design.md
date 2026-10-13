@@ -2,7 +2,7 @@
 title: 가입 이메일 인증번호 설계 근거
 type: decision
 tags: [회원가입, 이메일인증, 보안, 속도제한, 설계]
-sources: [../../CLAUDE.md, social-login-design.md, ../../SeatSwap/backend/src/main/resources/db/migration/V19__email_verification.sql, ../../SeatSwap/backend/src/main/java/com/seatswap/service/EmailVerificationService.java]
+sources: [../../CLAUDE.md, social-login-design.md, ../../MatJari/backend/src/main/resources/db/migration/V19__email_verification.sql, ../../MatJari/backend/src/main/java/com/matjari/service/EmailVerificationService.java]
 updated: 2026-10-13
 confidence: medium
 status: draft
@@ -46,7 +46,7 @@ status: draft
 
 ## 5. 발송 수단과 운영 안전장치
 
-발송은 `EmailSender` 인터페이스 뒤에 두고 설정 `seatswap.mail.mode`로 고른다. `log`(기본)는 메일 내용(코드 포함)을 로그에 찍는 개발용이고 `smtp`는 Spring `JavaMailSender`로 실제 보낸다. 운영에서 log 모드로 뜨면 코드가 로그에 남으므로, 백엔드 주소(`seatswap.social.backend-base-url`)가 루프백이 아닌데 log 모드면 기동을 거부한다(인증 자체를 끄는 환경변수가 탈출구다). 소셜 설정의 운영 판정과 같은 기준을 썼다.
+발송은 `EmailSender` 인터페이스 뒤에 두고 설정 `matjari.mail.mode`로 고른다. `log`(기본)는 메일 내용(코드 포함)을 로그에 찍는 개발용이고 `smtp`는 Spring `JavaMailSender`로 실제 보낸다. 운영에서 log 모드로 뜨면 코드가 로그에 남으므로, 백엔드 주소(`matjari.social.backend-base-url`)가 루프백이 아닌데 log 모드면 기동을 거부한다(인증 자체를 끄는 환경변수가 탈출구다). 소셜 설정의 운영 판정과 같은 기준을 썼다.
 
 SMTP 공급자는 정하지 않았다. 시연용은 Gmail SMTP(앱 비밀번호), 운영은 SES·Resend 등을 쓰고 모두 환경변수로만 바꾼다.
 

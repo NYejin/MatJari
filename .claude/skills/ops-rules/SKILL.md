@@ -44,7 +44,7 @@ frontmatter에는 `sonnet`/`haiku`/`opus`/`fable` 별칭을 쓴다. 전체 모�
 
 ## worktree 격리 주의 (backend-dev, frontend-dev)
 - `isolation: worktree` 에이전트는 별도 체크아웃에서 작업한다. 변경은 메인 작업 트리에 즉시 보이지 않으며, 해당 브랜치/worktree를 병합·확인해야 반영된다.
-- worktree에는 `node_modules`가 없다. 프론트 작업 전 `SeatSwap/frontend`에서 `npm install`(또는 `npm ci`)이 필요하다. 백엔드도 첫 빌드는 의존성 다운로드가 있을 수 있다.
+- worktree에는 `node_modules`가 없다. 프론트 작업 전 `MatJari/frontend`에서 `npm install`(또는 `npm ci`)이 필요하다. 백엔드도 첫 빌드는 의존성 다운로드가 있을 수 있다.
 
 ## 워크플로우 (`.claude/workflows/*.js`)
 
@@ -58,5 +58,5 @@ frontmatter에는 `sonnet`/`haiku`/`opus`/`fable` 별칭을 쓴다. 전체 모�
 | `sync-docs` | HISTORY·작업일지·위키 log 갱신(haiku) + STATS 재생성 | 문서만 | 4 |
 
 - **검증 전 초안이다.** 단계별 모델 지정 옵션 이름(`model`)과 에이전트 worktree 격리 옵션은 공식 문서에서 확인하지 못했다. 사용자가 `/workflow-authoring` 스킬로 문법을 확인하고 `/workflows`에서 작은 범위로 시험 실행한 결과로 고친다. 격리가 확인되기 전에는 `build-feature`가 쓰기를 순차 실행한다(`parallelWrites`는 확인 뒤에만 켠다).
-- **MySQL 통합 테스트는 실행마다 고유한 DB 이름·컨테이너·포트를 써야 한다.** 테스트는 시작할 때 `SEATSWAP_IT_JDBC_URL`의 DB를 Flyway clean하고 안전장치는 이름이 `_it`로 끝나는지만 검사하므로, 병렬 worktree가 같은 DB를 가리키면 서로 스키마를 지운다. `build-feature`는 `args.runId`로 `seatswap_<runId>_it` 이름과 `seatswap-tmp-<runId>` 컨테이너를 만든다.
+- **MySQL 통합 테스트는 실행마다 고유한 DB 이름·컨테이너·포트를 써야 한다.** 테스트는 시작할 때 `MATJARI_IT_JDBC_URL`의 DB를 Flyway clean하고 안전장치는 이름이 `_it`로 끝나는지만 검사하므로, 병렬 worktree가 같은 DB를 가리키면 서로 스키마를 지운다. `build-feature`는 `args.runId`로 `matjari_<runId>_it` 이름과 `matjari-tmp-<runId>` 컨테이너를 만든다.
 - 규모 지침: `workflowSizeGuideline`은 조언일 뿐 상한이 아니다. 25개 넘는 에이전트나 큰 실행은 먼저 사용자 확인을 받는다. `ultracode`는 켜지 않는다.

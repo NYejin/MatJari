@@ -19,7 +19,7 @@
 
 > **구현 완료 (2026-10-11, `feature/notifications`, V10, 병합됨)**: 알림 3종은 **V10(`V10__notification.sql`)** 으로 구현됐고 현재 DB는 V1~V10(12개 테이블)이다. 테이블 `notification`은 1.13절. 다음 마이그레이션은 V11이다(`user_block`·`chat_message`). 조회·읽음·삭제 API와 화면은 같은 브랜치에 있고, 실시간(STOMP) 푸시는 `feature/notifications-realtime`(2026-10-11 구현, 신호만 전달, DB 변경 없음)이다.
 
-> **구현 완료 (2026-10-11, `feature/chat`, V11, 병합됨)**: 채팅은 **V11(`V11__chat_message.sql`)** 로 구현됐고 현재 DB는 V1~V11(14개 테이블)이다. 테이블 `chat_message`(append-only)와 `chat_read_state`(읽음 포인터)는 1.9절. 전송·목록·읽음 REST 3종과 STOMP 사용자 큐 푸시는 `SeatSwap/backend/README.md`의 '채팅 (V11)' 절을 본다. 다음 마이그레이션은 V12(`user_block`, 예정)다. 헤더 메시지 아이콘·채팅 알림 행은 만들지 않았다(Q-8 확정).
+> **구현 완료 (2026-10-11, `feature/chat`, V11, 병합됨)**: 채팅은 **V11(`V11__chat_message.sql`)** 로 구현됐고 현재 DB는 V1~V11(14개 테이블)이다. 테이블 `chat_message`(append-only)와 `chat_read_state`(읽음 포인터)는 1.9절. 전송·목록·읽음 REST 3종과 STOMP 사용자 큐 푸시는 `MatJari/backend/README.md`의 '채팅 (V11)' 절을 본다. 다음 마이그레이션은 V12(`user_block`, 예정)다. 헤더 메시지 아이콘·채팅 알림 행은 만들지 않았다(Q-8 확정).
 
 > **구현 완료 (2026-10-12, `feature/admin`, V12)**: 관리자 처리 대상 두 테이블 `performance_edit_proposal`(공연 수정 제안)과 `seat_claim`(좌석 소유 인증 요청)은 **V12(`V12__admin_edit_proposal_seat_claim.sql`)** 로 구현됐고 현재 DB는 V1~V12(16개 테이블)다. 자세한 컬럼·제약·인덱스·잠금 순서는 11절. 다음 마이그레이션은 V13(`user_block`, 예정)이다.
 
@@ -31,7 +31,7 @@
 > **구현 (2026-10-13, `feature/profile-edit`, V16)**: `users.password_login_enabled`(일반 가입 1, 소셜 가입 0, 백필 0)를 추가하고 `social_account`에 UNIQUE(user_id, provider)를 더했다. 테이블 수는 20 그대로다. 자세한 것은 15절. 다음 마이그레이션은 V17이다.
 > **구현 (2026-10-13, `feature/withdraw`, V17)**: `users.withdrawn_at`(NULL=활성, 값=탈퇴·익명화)을 추가했다. 테이블 수는 20 그대로다. 자세한 것은 16절. 다음 마이그레이션은 V18이다.
 
-설계 시점 기준선: V1+V2 (users, performance, performance_session, ticket 4개 테이블; 현재는 V1~V18, 20개 테이블). 이 문서의 SQL은 초안이며 마이그레이션 파일이 아니다(실제 SQL은 `SeatSwap/backend/src/main/resources/db/migration/`이 기준).
+설계 시점 기준선: V1+V2 (users, performance, performance_session, ticket 4개 테이블; 현재는 V1~V18, 20개 테이블). 이 문서의 SQL은 초안이며 마이그레이션 파일이 아니다(실제 SQL은 `MatJari/backend/src/main/resources/db/migration/`이 기준).
 좌석표(`SeatMapLayout`·`uid`·`section`)에 의존하지 않는다. 후기·신뢰도·신고 테이블은 만들지 않는다(신고는 8절에서 확장 여지만 언급).
 
 ---
@@ -265,7 +265,7 @@ User 1:N Ticket / Performance / notification(수신자, V10) / chat_message(발�
 
 잠금 순서: 티켓 id↑ -> 요청 id↑ -> 매칭 -> users(S, FK 검사) -> notification. notification 행을 잠근 뒤에는 티켓·요청·매칭을 잠그지 않는다. 읽음·삭제는 잠금 없는 SELECT로 id를 모은 뒤 500개씩 `WHERE id IN (...)`으로만 갱신·삭제한다(범위 UPDATE/DELETE 금지, 갭 잠금 회피).
 
-실제 SQL은 `V10__notification.sql`이 기준이다. 조회·읽음·삭제 API는 `SeatSwap/backend/README.md`의 '알림 API'를 본다. 실시간 푸시는 2026-10-11 구현(`feature/notifications-realtime`, 신호만 전달). 미구현: 토스트, 거절·채팅 종료·7일 경과·교환 완료 알림, 알림 보존 기간 정책.
+실제 SQL은 `V10__notification.sql`이 기준이다. 조회·읽음·삭제 API는 `MatJari/backend/README.md`의 '알림 API'를 본다. 실시간 푸시는 2026-10-11 구현(`feature/notifications-realtime`, 신호만 전달). 미구현: 토스트, 거절·채팅 종료·7일 경과·교환 완료 알림, 알림 보존 기간 정책.
 
 ---
 
@@ -351,7 +351,7 @@ LIMIT :size OFFSET :offset;                      -- keyset 조각은 README(`/ca
 
 - 작업량 ≈ (희망 좌석 수 n) × (희망 회차 수 s) 번의 tb 점조회. 예: 90석 × 3회차 = 270회, 각 점조회 뒤에 b/wsb/wb 점조회가 이어지므로 대부분 인덱스 룩업으로 끝난다. 사용자 대상 상한이 없으므로 n이 커지면 조회가 비례해 느려져 내부 안전 상한(확정 b, 6절)을 둔다.
 - 조인 순서를 '내 희망 좌석 -> 상대 티켓'으로 잡은 이유: 내 희망이 보통 상대 전체 티켓보다 작고, tb 접근이 전부 상수 동등 비교로 끝난다. 역방향(상대 희망에서 내 좌석 찾기)은 wb PK 점조회로 이미 처리한다.
-- **실측 EXPLAIN 요약**: 조인 11개 테이블 모두 const / ref / eq_ref이며 `type=ALL`이 없다(STRAIGHT_JOIN 적용 후). 응답시간(로컬 HTTP end-to-end, 가벼운 API 약 14ms 대비) 요청 100건 규모 중앙값 28~43ms, 1,000건 규모 42~69ms. DB 시간(EXPLAIN ANALYZE, 1,000건) 약 1~27ms. 한계: 균일 분포 합성 데이터, 동시 부하 미측정. 상세는 `SeatSwap/backend/README.md` '매칭 후보 조회 검증'.
+- **실측 EXPLAIN 요약**: 조인 11개 테이블 모두 const / ref / eq_ref이며 `type=ALL`이 없다(STRAIGHT_JOIN 적용 후). 응답시간(로컬 HTTP end-to-end, 가벼운 API 약 14ms 대비) 요청 100건 규모 중앙값 28~43ms, 1,000건 규모 42~69ms. DB 시간(EXPLAIN ANALYZE, 1,000건) 약 1~27ms. 한계: 균일 분포 합성 데이터, 동시 부하 미측정. 상세는 `MatJari/backend/README.md` '매칭 후보 조회 검증'.
 - 마지막 ORDER BY는 결과 집합(후보 수십~수백)에서의 filesort뿐이다. 후보가 수천을 넘으면 keyset 페이징·총계 생략이 필요하다(후속).
 - 추가 인덱스 후보(지금은 불필요): `exchange_want_seat (zone_key, row_key, col_key)` 역조회('내 좌석을 원하는 요청이 몇 건인지' 표시 기능을 넣을 때).
 
@@ -395,7 +395,7 @@ LIMIT :size OFFSET :offset;                      -- keyset 조각은 README(`/ca
   - `V3__ticket_seat_columns.sql`: 1.1의 ticket 변경.
   - `V4__exchange_domain.sql`: 1.2~1.10 신규 테이블(요청·희망·차단·매칭·잠금·채팅·이력). 신고 테이블 번호는 선점하지 않는다. (실제: V4 = 희망 4개, V5 = 매칭·잠금, V9 = exchange_history, V10 = notification, V11 = chat_message·chat_read_state, user_block은 V12 예정.)
 - **기존 ticket 행 이관·가드 필요 여부**
-  - 조회 결과: **확인하지 못함**(Docker 데몬 미기동). 확인 쿼리 `SELECT COUNT(*) FROM ticket;` (컨테이너 `seatswap-mysql`, 사용자 `seatswap`, 비밀번호는 `SeatSwap/.env`의 `DB_PASSWORD`).
+  - 조회 결과: **확인하지 못함**(Docker 데몬 미기동). 확인 쿼리 `SELECT COUNT(*) FROM ticket;` (컨테이너 `matjari-mysql`, 사용자 `matjari`, 비밀번호는 `MatJari/.env`의 `DB_PASSWORD`).
   - ticket은 엔티티만 있고 API가 없으므로 정상 환경에서는 0행일 가능성이 높다. 그러나 신규 `zone_label/zone_key` NOT NULL에 채울 값이 없다(기존 행은 구역 정보가 없음).
   - 추천: V3 맨 앞에 V2와 같은 `SIGNAL SQLSTATE '45000'` 가드로 **ticket 행이 있으면 실패**하고 '테스트 행을 삭제한 뒤 `flyway repair` 후 재시도'를 안내한다. 대안은 구역을 `'미입력'`으로 채우는 이관인데 같은 회차·번호 중복에서 활성 유일 제약 위반 위험이 있어 비추천(이 판단은 위 확인 결과가 0이면 무의미해지므로 구현 직전에 행 수를 다시 확인한다).
   - 가드와 별개로 `row_label/col_label`을 NOT NULL로 바꾸는 단계도 NULL 행이 있으면 실패하므로 같은 가드가 막아준다.
@@ -523,7 +523,7 @@ CREATE TABLE exchange_ticket_lock (
 
 ## 9. V6~V7 변경 설계: 추가금을 희망 범위 단위로 이동 + 요청 소프트 삭제 (2026-10-08, 브랜치 `feature/range-extra`)
 
-상태: **구현 완료(2026-10-09, V6·V7, 7차 답변으로 사용자 확정)**. 아래 SQL은 설계 시점 초안이며 실제 마이그레이션은 `SeatSwap/backend/src/main/resources/db/migration/V6__*.sql`·`V7__*.sql`(재실행 가능 프로시저 패턴)이 기준이다. 1.2~1.4, 2절, 4절의 요청 단위 추가금 서술은 이 절로 **대체됐다**(V4/V5 시점 기록으로 남겨 둠).
+상태: **구현 완료(2026-10-09, V6·V7, 7차 답변으로 사용자 확정)**. 아래 SQL은 설계 시점 초안이며 실제 마이그레이션은 `MatJari/backend/src/main/resources/db/migration/V6__*.sql`·`V7__*.sql`(재실행 가능 프로시저 패턴)이 기준이다. 1.2~1.4, 2절, 4절의 요청 단위 추가금 서술은 이 절로 **대체됐다**(V4/V5 시점 기록으로 남겨 둠).
 
 ### 9.1 사용자 확정 (2026-10-08)
 - (A) 추가금은 요청 단위가 아니라 **희망 범위 단위**다. 범위마다 유형(X/ANY/POS/NEG)이 짝이다. 호환표는 그대로(불성립은 POS–POS, POS–X, X–POS뿐, X–X·NEG–NEG 성립 **확정**).
@@ -712,7 +712,7 @@ ORDER BY wsa.priority ASC, b.created_at DESC, b.id DESC LIMIT ? OFFSET ?
 
 ## 10. V8 변경 설계: 한 명 예약 방식 (`reserved_by_id`·`reserved_at`) (2026-10-10, 브랜치 `feature/exchange-reserve`)
 
-상태: **구현 완료 (2026-10-10, `feature/exchange-reserve`, V8, 설계 질문 2개는 추천대로 확정)**. 아래 SQL은 설계 당시 초안이며 실제 파일은 `SeatSwap/backend/src/main/resources/db/migration/V8__exchange_match_single_reserve.sql`이다. 근거: 8차+9차 답변, `산출물/04_요구사항정의서/후속요구사항_제안알림_교환됨_공연정보입력.md` §3A·부록 B.
+상태: **구현 완료 (2026-10-10, `feature/exchange-reserve`, V8, 설계 질문 2개는 추천대로 확정)**. 아래 SQL은 설계 당시 초안이며 실제 파일은 `MatJari/backend/src/main/resources/db/migration/V8__exchange_match_single_reserve.sql`이다. 근거: 8차+9차 답변, `산출물/04_요구사항정의서/후속요구사항_제안알림_교환됨_공연정보입력.md` §3A·부록 B.
 
 ### 10.1 사용자 확정 (8차+9차 답변, Q-19·Q-20 포함)
 - 둘 중 **한 명이 예약(`reserve`)하면 RESERVED**, 두 티켓을 `exchange_ticket_lock`에 잠근다(티켓 id 오름차순). 둘 중 **한 명이 예약 취소(`unreserve`)하면 CHATTING 복귀**(매칭·채팅 유지, 잠금 해제, 같은 쌍 재예약 가능, 횟수 제한 없음 = Q-20).
@@ -984,7 +984,7 @@ DROP PROCEDURE v8_single_reserve;
 
 ### 11.5 되돌리기·검증
 - 되돌리기는 롤포워드(새 V 파일에서 두 테이블 삭제)다. V2·V6~V11과 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하다.
-- 요구 MySQL 8.0.16 이상(CHECK 강제). 검증: `AdminSchemaMysqlTest`(실제 MySQL, `SEATSWAP_IT_*`가 있을 때만) 6건.
+- 요구 MySQL 8.0.16 이상(CHECK 강제). 검증: `AdminSchemaMysqlTest`(실제 MySQL, `MATJARI_IT_*`가 있을 때만) 6건.
 - 다음 마이그레이션은 V13이었다(V13은 12절, V14는 13절, V15는 14절, V16 적용 뒤 다음 번호는 V17).
 
 ## 12. V13 — 차단·신고·이용 정지 (구현 완료 2026-10-12, `V13__block_report_sanction.sql`, `feature/block-report`)
@@ -1071,7 +1071,7 @@ DROP PROCEDURE v8_single_reserve;
 
 ### 12.5 되돌리기·검증
 - 되돌리기는 롤포워드(새 V 파일에서 `user_sanction` → `abuse_report` → `user_block` 순으로 삭제)다. V2·V6~V12와 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하다. 파괴적 단계는 없다.
-- 요구 MySQL 8.0.16 이상(CHECK 강제). 검증: `BlockReportSchemaMysqlTest`(실제 MySQL, `SEATSWAP_IT_*`가 있을 때만) 7건.
+- 요구 MySQL 8.0.16 이상(CHECK 강제). 검증: `BlockReportSchemaMysqlTest`(실제 MySQL, `MATJARI_IT_*`가 있을 때만) 7건.
 - 다음 마이그레이션은 V14였다(V14는 13절, V16 적용 뒤 다음 번호는 V17).
 
 ## 13. V14 — 소셜 로그인 계정 연결 (2026-10-12, `V14__social_account.sql`, `feature/social-login`)
@@ -1099,7 +1099,7 @@ DROP PROCEDURE v8_single_reserve;
 ### 13.2 잠금·되돌리기·검증
 - 가입은 `users` INSERT → `social_account` INSERT 한 트랜잭션이며 티켓·요청·매칭을 잠그지 않는다. 기존 잠금 순서와 겹치지 않는다.
 - 되돌리기는 롤포워드(새 V 파일에서 `social_account` 삭제)다. V2·V6~V13과 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하다.
-- 요구 MySQL 8.0.16 이상(CHECK 강제). 검증: `SocialAccountSchemaMysqlTest`(실제 MySQL, `SEATSWAP_IT_*`가 있을 때만) 4건 — 재실행 안전·제약/인덱스 이름, UNIQUE 위반, provider CHECK·FK 위반, 같은 사용자의 여러 provider 허용.
+- 요구 MySQL 8.0.16 이상(CHECK 강제). 검증: `SocialAccountSchemaMysqlTest`(실제 MySQL, `MATJARI_IT_*`가 있을 때만) 4건 — 재실행 안전·제약/인덱스 이름, UNIQUE 위반, provider CHECK·FK 위반, 같은 사용자의 여러 provider 허용.
 - 다음 마이그레이션은 V15였다(14절, V16 적용 뒤 다음 번호는 V17).
 
 ## 14. V15 — 예약 제안(제안 -> 상대 수락) + 알림 type 6종 (2026-10-12, `V15__reserve_proposal_chat_notification.sql`, `feature/reserve-propose`)
@@ -1147,7 +1147,7 @@ CHECK 3개 (V8 `ck_exchange_match_reserved`와 같은 안전망 성격, NULL 통
 
 ### 14.3 되돌리기·검증
 - 되돌리기는 롤포워드(새 V 파일에서 새 CHECK·FK·인덱스·컬럼을 DROP하고 `ck_notification_type`을 3종으로 되돌림; 그 전에 새 type 3종 행을 지우거나 바꿔야 한다). V2·V6~V14와 같은 INFORMATION_SCHEMA 가드 프로시저라 재실행 가능하고 파괴적 단계가 없다.
-- 요구 MySQL 8.0.16 이상(CHECK 강제). 검증: `ReserveProposalSchemaMysqlTest`(실제 MySQL, `SEATSWAP_IT_*`가 있을 때만) 6건 — V14 데이터가 있는 DB에서 이관·재실행 안전·기존 데이터 불변, 중간 실패 뒤 재적용, 제안 CHECK 3개(한쪽만 NULL·CHATTING 외 상태·제3자 거부, 수락·취소는 같은 문장에서 비워야 통과), 제안자 FK, type 6종 허용·그 외 거부, CHAT_MESSAGE dedup 형식과 upsert 재사용.
+- 요구 MySQL 8.0.16 이상(CHECK 강제). 검증: `ReserveProposalSchemaMysqlTest`(실제 MySQL, `MATJARI_IT_*`가 있을 때만) 6건 — V14 데이터가 있는 DB에서 이관·재실행 안전·기존 데이터 불변, 중간 실패 뒤 재적용, 제안 CHECK 3개(한쪽만 NULL·CHATTING 외 상태·제3자 거부, 수락·취소는 같은 문장에서 비워야 통과), 제안자 FK, type 6종 허용·그 외 거부, CHAT_MESSAGE dedup 형식과 upsert 재사용.
 - 다음 마이그레이션은 V16이었다(V16은 15절, 그 뒤 다음 번호는 V17).
 
 ## 15. V16 — 비밀번호 로그인 가능 여부와 사용자당 제공자 1개 (2026-10-13, `V16__user_password_login.sql`, `feature/profile-edit`)
@@ -1176,7 +1176,7 @@ CHECK 3개 (V8 `ck_exchange_match_reserved`와 같은 안전망 성격, NULL 통
 
 ### 15.4 검증과 한계
 
-- 실제 MySQL IT `SocialLinkMysqlTest`(환경변수 `SEATSWAP_IT_*`가 있을 때만): 동시 해제 대 해제, 같은 사용자 동시 확정(1건만 성공), 서로 다른 사용자가 같은 계정을 확정(1건 성공, 나머지 `SOCIAL_LINKED_OTHER`), 다른 사용자의 코드를 확정하면 400.
+- 실제 MySQL IT `SocialLinkMysqlTest`(환경변수 `MATJARI_IT_*`가 있을 때만): 동시 해제 대 해제, 같은 사용자 동시 확정(1건만 성공), 서로 다른 사용자가 같은 계정을 확정(1건 성공, 나머지 `SOCIAL_LINKED_OTHER`), 다른 사용자의 코드를 확정하면 400.
 - 한계: 같은 제공자의 중복 행이 있는 기존 DB에서는 V16이 SIGNAL로 멈춘다. 마지막 로그인 수단 판단은 플래그와 연결 수에 기대므로, 플래그는 가입 경로에 따라 고정되어야 한다.
 
 
@@ -1190,14 +1190,14 @@ CHECK 3개 (V8 `ck_exchange_match_reserved`와 같은 안전망 성격, NULL 통
 |---|---|---|
 | users.withdrawn_at | DATETIME(6) NULL, `role` 뒤 | NULL = 활성, 값 있음 = 탈퇴·익명화. KST 벽시계(다른 시각 컬럼과 같다). 인덱스·CHECK 없음(검색 조건이 아니고, 인증 때 PK 조회 뒤 값만 본다) |
 
-- 기존 `UNIQUE(email)`(UK6dotkott2kjsp8vw4d0m25fb7)는 그대로 둔다. 익명화 이메일 `withdrawn.{id}@withdrawn.seatswap.invalid`은 id를 포함해 유일하고, 원래 이메일은 비워지므로 같은 이메일로 재가입할 수 있다.
+- 기존 `UNIQUE(email)`(UK6dotkott2kjsp8vw4d0m25fb7)는 그대로 둔다. 익명화 이메일 `withdrawn.{id}@withdrawn.matjari.invalid`은 id를 포함해 유일하고, 원래 이메일은 비워지므로 같은 이메일로 재가입할 수 있다.
 - 백필 없음: 기존 사용자는 모두 활성이다.
 
 ### 16.2 익명화 값 (서비스가 같은 트랜잭션에서 쓴다)
 
 | 컬럼 | 값 |
 |---|---|
-| email | `withdrawn.{id}@withdrawn.seatswap.invalid` |
+| email | `withdrawn.{id}@withdrawn.matjari.invalid` |
 | nickname | `탈퇴한 회원` |
 | password | 무작위 32바이트의 BCrypt 해시(비밀번호 로그인 불가) |
 | password_login_enabled | 0 |
@@ -1212,7 +1212,7 @@ CHECK 3개 (V8 `ck_exchange_match_reserved`와 같은 안전망 성격, NULL 통
 
 ### 16.4 검증과 한계
 
-- 실제 MySQL IT `WithdrawMysqlTest`(환경변수 `SEATSWAP_IT_*`가 있을 때만): 탈퇴 vs 새 제안, 예약 수락·철회, 교환 수락, 탈퇴×탈퇴, 소셜 연결 확정, 티켓 등록(15라운드), 불변식 확인.
+- 실제 MySQL IT `WithdrawMysqlTest`(환경변수 `MATJARI_IT_*`가 있을 때만): 탈퇴 vs 새 제안, 예약 수락·철회, 교환 수락, 탈퇴×탈퇴, 소셜 연결 확정, 티켓 등록(15라운드), 불변식 확인.
 - 한계: DB에 보관 기간을 강제하는 장치(자동 파기 스케줄)가 없다. 방침은 '서비스 운영 기간 동안 보관, 종료 때 파기'로 적었다. 되돌리기는 롤포워드(새 V 파일에서 컬럼을 DROP하면 익명화된 행은 그대로 남는다).
 - erd.dot에는 `users.withdrawn_at`을 a115b8d에서 반영했다. ERD.png는 이 환경에 graphviz가 없어 만들지 못했다(DOT 문법만 점검 대상).
 - 다음 마이그레이션은 V18이다.

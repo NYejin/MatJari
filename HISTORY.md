@@ -1,4 +1,4 @@
-# SeatSwap 프로젝트 이력
+# 맞자리(MatJari) 프로젝트 이력 (옛 이름 SeatSwap)
 
 결정·방향 전환·구현·문서·이슈·운영을 날짜별로 한 줄씩 남기는 기록입니다. 상세는 `산출물/07_작업일지`에 있고 여기에는 중복해서 쓰지 않습니다. 최신 결정의 기준은 `CLAUDE.md`입니다.
 형식: `- [결정|방향전환|구현|문서|이슈|운영] 내용 — 근거(PR 번호·커밋·작업일지)`. 새 항목은 해당 날짜 제목 아래 맨 위에 추가하고, 날짜는 KST 기준입니다. 갱신은 작업(브랜치)이 끝날 때 doc-writer가 합니다(`.gitattributes`에 `merge=union` 설정).
@@ -14,6 +14,8 @@
 ## 이력
 
 ### 2026-10-13
+- [결정] 후속 기능으로 **[빠른 교환]**(채팅 없이 교환)을 나중에 만들기로 함. 지금은 메모만 하고 설계·구현하지 않는다 — CLAUDE.md '후속 작업 목록'
+- [결정] 서비스 이름을 SeatSwap에서 **맞자리**(영문 MatJari)로 변경: 해외에 같은 이름의 서비스가 있어서. 소스 폴더 `SeatSwap/`→`MatJari/`, 자바 패키지 `com.seatswap`→`com.matjari`, 설정·환경변수 접두어 `seatswap.*`/`SEATSWAP_*`→`matjari.*`/`MATJARI_*`, DB 이름·사용자 `seatswap`→`matjari`, 헤더 로고·파비콘·화면 문구 교체. 이 이름 변경 이전의 기록(작업일지·이 문서의 과거 항목·위키 로그)은 옛 이름 그대로 둔다 — `feature/rename-matjari`
 
 - [구현] 정지 중 제한 로그인(`feature/suspended-withdraw-login`, DB 변경 없음): 비밀번호가 맞는 정지 로그인의 403 본문에 탈퇴 전용 10분 토큰 `withdrawToken`을 더하고(JWT `type=withdraw`), `JwtAuthenticationFilter`가 `DELETE /api/users/me`에서만 인증으로 인정한다. 로그인 화면이 "이 계정 탈퇴하기"로 탈퇴 모달을 연다. 소셜 전용 정지 계정은 제외 — 브라우저 점검·API 점검 통과
 - [구현] 소셜 전용 계정 탈퇴 재인증(`feature/social-withdraw-reauth`, 정지 중 제한 로그인 위에 쌓임): 연결된 소셜 계정으로 다시 인증한 `reauthCode`가 있어야 탈퇴한다. `POST /api/users/me/social/{provider}/reauth`, 연결 모드 재사용, 연결된 제공자가 모두 꺼져 있으면 확인 문구만. 카카오 스텁으로 브라우저 점검 통과

@@ -10,7 +10,7 @@ status: draft
 
 # 실시간 채팅(STOMP) JWT 인증·인가 조사
 
-> 이 문서는 조사 요약이며 채팅 구현 결정이 아니다. 구현 결정 근거는 [채팅 설계 근거](../decisions/chat-design.md), 구현 후 확인 결과는 아래 '구현 후 확인 결과' 절에 있다. 프로젝트 맥락과 확정 결정은 [CLAUDE.md](../../CLAUDE.md), 백엔드 현황은 [백엔드 README](../../SeatSwap/backend/README.md)를 본다. 여기서는 결정을 복사하지 않는다.
+> 이 문서는 조사 요약이며 채팅 구현 결정이 아니다. 구현 결정 근거는 [채팅 설계 근거](../decisions/chat-design.md), 구현 후 확인 결과는 아래 '구현 후 확인 결과' 절에 있다. 프로젝트 맥락과 확정 결정은 [CLAUDE.md](../../CLAUDE.md), 백엔드 현황은 [백엔드 README](../../MatJari/backend/README.md)를 본다. 여기서는 결정을 복사하지 않는다.
 
 채팅은 교환 흐름에서 매칭(`CHATTING`) 이후 단계이며 **2026-10-11에 `feature/chat` 브랜치에서 구현됐다**(미병합, 커밋 `48d5e17`·`6f566f7`·`3bb70b5`·`9f56d59`·`8b662e5`·`fc20c82`). 이 조사 시점(2026-10-10~11 초)에는 `WebSocketConfig`가 TODO뿐이었고 `chat_message`도 없었으나, 지금은 V11(`chat_message`·`chat_read_state`)이 있고 STOMP 인증·푸시가 구현돼 있다. 구현 결정 근거는 [채팅 설계 근거](../decisions/chat-design.md), 잠금·인덱스 함정은 [함정 페이지 10절](../gotchas/lock-order-and-index-pitfalls.md), 알림 설계는 [알림 설계](../decisions/notification-design.md), 용어는 [용어집](../glossary.md) 참고. 아래 '결론'~'권장 구성'은 조사 당시의 문서 요약이며, 실제 구현과 다른 부분은 '구현 후 확인 결과'가 우선한다.
 
@@ -71,7 +71,7 @@ status: draft
 
 - **CSRF**: 앱이 `csrf.disable()`이고 messaging 보안 모듈을 쓰지 않아 STOMP CSRF 토큰 요건이 없다. 위 4절의 "CSRF 설정 불가" 문서 내용은 `@EnableWebSocketSecurity`를 쓸 때의 이야기이고 이 구현에는 해당하지 않는다. CSRF를 끈 판단 자체의 안전성(CSWSH)은 Origin 검증(아래)과 CONNECT 헤더 JWT에 의존한다.
 - **`/ws/**` 매칭**: HTTP 보안 설정의 `/ws/**` permitAll로 `/ws` 핸드셰이크가 통과한다(통합 테스트로 확인). 인증은 CONNECT 프레임에서만 한다.
-- **Origin**: 허용 목록 밖 Origin의 핸드셰이크는 403이다. 허용 목록은 설정 `seatswap.websocket.allowed-origins`이고 `*`가 들어 있으면 시작 시 거부한다.
+- **Origin**: 허용 목록 밖 Origin의 핸드셰이크는 403이다. 허용 목록은 설정 `matjari.websocket.allowed-origins`이고 `*`가 들어 있으면 시작 시 거부한다.
 - **만료 세션 1008**: 만료된 세션을 스위퍼가 close code 1008로 닫는 것을 수신으로 확인했다. 인증 안 한 소켓도 10초 뒤 1008이다. 인터셉터가 거부했을 때의 close는 Spring이 1002로 닫는다.
 - **RECEIPT 없음**: SUBSCRIBE에 receipt 헤더를 붙여도 RECEIPT 프레임이 오지 않는 것을 확인했다. 프론트는 RECEIPT를 기다리지 않는다.
 - **목적지당 구독 1개**: 구독이 무제한이면 자원 고갈 여지가 있어(리뷰 중간 지적) 처음에는 세션당 1개로 제한했다. 실시간 알림 푸시로 허용 목적지가 `/user/queue/chat`, `/user/queue/notifications` 두 개가 되면서 목적지당 1개(세션당 최대 2개)로 바뀌었다. 같은 목적지의 두 번째 SUBSCRIBE나 이미 쓰인 구독 id 재사용은 거부하고 세션을 1008로 닫는다. 이유는 [함정 페이지 10절](../gotchas/lock-order-and-index-pitfalls.md), 푸시 내용은 [알림 설계](../decisions/notification-design.md) 참고.

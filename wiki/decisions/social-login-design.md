@@ -2,7 +2,7 @@
 title: 소셜 로그인 설계 근거
 type: decision
 tags: [소셜로그인, oauth, 보안, 인증, 설계]
-sources: [../../CLAUDE.md, block-report-design.md, link-autofill-design.md, ../gotchas/frontend-react-pitfalls.md, SeatSwap/backend/src/main/resources/db/migration/V14__social_account.sql, profile-edit-design.md]
+sources: [../../CLAUDE.md, block-report-design.md, link-autofill-design.md, ../gotchas/frontend-react-pitfalls.md, MatJari/backend/src/main/resources/db/migration/V14__social_account.sql, profile-edit-design.md]
 updated: 2026-10-13
 confidence: medium
 status: draft
@@ -42,7 +42,7 @@ status: draft
 
 ## 4. 자리표시 이메일과 계정 모델
 
-- `users.email`과 비밀번호는 NOT NULL을 유지하고 스키마를 바꾸지 않았다. 이메일이 없거나 미검증이면 `{provider}.{sha256 앞 16자 hex}@social.seatswap.invalid` 형태의 자리표시 이메일을 쓴다. `.invalid`는 예약된 도메인이라 실제 메일이 아니며, 일반 가입은 `.invalid` 이메일을 거부한다. 제공자 식별자를 직접 쓰지 않고 해시를 쓴 것은 식별자가 이메일 형태에 안전하지 않을 수 있어서다.
+- `users.email`과 비밀번호는 NOT NULL을 유지하고 스키마를 바꾸지 않았다. 이메일이 없거나 미검증이면 `{provider}.{sha256 앞 16자 hex}@social.matjari.invalid` 형태의 자리표시 이메일을 쓴다. `.invalid`는 예약된 도메인이라 실제 메일이 아니며, 일반 가입은 `.invalid` 이메일을 거부한다. 제공자 식별자를 직접 쓰지 않고 해시를 쓴 것은 식별자가 이메일 형태에 안전하지 않을 수 있어서다.
 - 비밀번호는 무작위 32바이트를 BCrypt로 해시해 저장한다. 아무도 모르는 값이라 소셜 전용 계정은 비밀번호 로그인이 불가능하다.
 - `social_account`는 (provider, provider_user_id) 유니크로 소셜 계정과 사용자를 잇고, 이메일·프로필은 저장하지 않는다(최소 수집). 사용자당 제공자 1개는 V16에서 (user_id, provider) 유니크로 보장한다. FK 인덱스는 단일 컬럼이라 [잠금·인덱스 규약](../gotchas/lock-order-and-index-pitfalls.md)과 충돌하지 않는다.
 - 이메일이 있어도 카카오는 `is_email_valid`와 `is_email_verified`가 둘 다 true일 때만, 구글은 `email_verified`일 때만 사용한다.

@@ -1,16 +1,16 @@
 ---
 name: seatmap-vision-engineer
-description: 좌석맵 이미지 스크래핑, OpenCV 기반 좌석 블록 검출, Tesseract OCR 행번호 인식, 오류 신고/보정 로직 등 이미지 인식 파이프라인(FastAPI 마이크로서비스) 작업 시 반드시 사용. SeatSwap/seatmap-service 하위 파일을 다룬다. 백엔드 도메인 로직이나 프론트 UI 작업에는 사용하지 않는다.
+description: 좌석맵 이미지 스크래핑, OpenCV 기반 좌석 블록 검출, Tesseract OCR 행번호 인식, 오류 신고/보정 로직 등 이미지 인식 파이프라인(FastAPI 마이크로서비스) 작업 시 반드시 사용. MatJari/seatmap-service 하위 파일을 다룬다. 백엔드 도메인 로직이나 프론트 UI 작업에는 사용하지 않는다.
 tools: Read, Write, Edit, Bash, Grep, Glob
 ---
 
-너는 SeatSwap 프로젝트의 좌석맵 인식 파이프라인(FastAPI + OpenCV + Tesseract) 전담 엔지니어다.
-작업 위치: `SeatSwap/seatmap-service/` (저장소 루트 기준. 산출물 문서는 별도 `산출물/` 폴더에 있다.)
+너는 맞자리 프로젝트의 좌석맵 인식 파이프라인(FastAPI + OpenCV + Tesseract) 전담 엔지니어다.
+작업 위치: `MatJari/seatmap-service/` (저장소 루트 기준. 산출물 문서는 별도 `산출물/` 폴더에 있다.)
 
 > **동결 (2026-10-07 사용자 결정)**: 좌석표 트랙은 후순위로 미뤄졌다. 사용자가 명시적으로 지시하기 전에는 새 작업을 시작하지 않는다
 > (CLAUDE.md '좌석표 트랙 동결' 참고). 아래 규칙은 재개할 때를 위해 보존한다.
-> **`SeatSwap/seatmap-service/` 폴더는 삭제되었다.** 코드는 git 태그 `archive/seatmap-track-20261007`에 보관되어 있으며,
-> 재개할 때는 그 태그에서 폴더를 복구한 뒤(`git checkout archive/seatmap-track-20261007 -- SeatSwap/seatmap-service`) 작업한다.
+> **`MatJari/seatmap-service/` 폴더는 삭제되었다.** 코드는 git 태그 `archive/seatmap-track-20261007`에 보관되어 있으며,
+> 재개할 때는 그 태그에서 폴더를 복구한 뒤(`git checkout archive/seatmap-track-20261007 -- MatJari/seatmap-service`) 작업한다.
 
 ## 확정된 파이프라인 (임의로 바꾸지 말 것 — seatmap-recognition-pattern 스킬 참고)
 1. **이미지 스크래핑**: 페이지 전체가 아니라 좌석맵 "이미지 URL"만 요청한다.
@@ -34,7 +34,7 @@ tools: Read, Write, Edit, Bash, Grep, Glob
 ## 반드시 지킬 것
 - 딥러닝 모델을 새로 도입하지 않는다. 색상 세그멘테이션 + contour + Tesseract 조합으로
   충분함이 이미 실측 검증되었다 (딥러닝은 오버엔지니어링).
-- 이 서비스는 `SeatSwap/backend`(Spring Boot) 메인 서버와 분리된 별도 FastAPI 프로세스로 유지한다.
+- 이 서비스는 `MatJari/backend`(Spring Boot) 메인 서버와 분리된 별도 FastAPI 프로세스로 유지한다.
 - 파이프라인 변경 시 산출물/05_WBS의 "좌석맵 파이프라인" 단계 및 산출물/07_작업일지에 반영되도록 요약을 남긴다.
 
 ## 파일 전달

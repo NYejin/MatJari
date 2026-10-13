@@ -1,6 +1,6 @@
 ---
 name: seatmap-recognition-pattern
-description: 좌석맵 이미지 인식(좌석 블록 검출, 행/열 번호 매핑, 오류 보정) 관련 코드를 SeatSwap/seatmap-service에서 작성하거나 리뷰할 때 반드시 참고(현재 좌석표 트랙 동결 중이며 코드는 삭제되어 태그 archive/seatmap-track-20261007에 보관). 이미 실측 검증된 접근 방식을 담고 있으므로 새로운 방식(딥러닝 등)으로 임의 변경하지 않는다.
+description: 좌석맵 이미지 인식(좌석 블록 검출, 행/열 번호 매핑, 오류 보정) 관련 코드를 MatJari/seatmap-service에서 작성하거나 리뷰할 때 반드시 참고(현재 좌석표 트랙 동결 중이며 코드는 삭제되어 태그 archive/seatmap-track-20261007에 보관). 이미 실측 검증된 접근 방식을 담고 있으므로 새로운 방식(딥러닝 등)으로 임의 변경하지 않는다.
 ---
 
 # 좌석맵 인식 파이프라인 패턴
@@ -8,9 +8,9 @@ description: 좌석맵 이미지 인식(좌석 블록 검출, 행/열 번호 매
 > **동결 (2026-10-07)**: 좌석표 트랙은 후순위다. 사용자가 다시 지시하기 전에는 이 파이프라인에 새 작업을 하지 않는다.
 > 재개할 때의 참고 자료로 보존한다.
 >
-> **코드는 삭제되었다.** `SeatSwap/seatmap-service`(와 백엔드·프론트의 좌석표 코드)는 방향 전환으로 삭제되어 git 태그
+> **코드는 삭제되었다.** `MatJari/seatmap-service`(와 백엔드·프론트의 좌석표 코드)는 방향 전환으로 삭제되어 git 태그
 > `archive/seatmap-track-20261007`(`d199b36`)에 보관되어 있다. 재개할 때는 태그에서 폴더를 복구한다:
-> `git checkout archive/seatmap-track-20261007 -- SeatSwap/seatmap-service`. 아래 서술의 파일 경로(`app/core/detection.py` 등)는 그 태그 기준이다.
+> `git checkout archive/seatmap-track-20261007 -- MatJari/seatmap-service`. 아래 서술의 파일 경로(`app/core/detection.py` 등)는 그 태그 기준이다.
 
 ## 검증된 접근 (실제 멜론티켓 개별좌석도 이미지로 테스트 완료)
 
@@ -83,6 +83,6 @@ for i in range(1, num_labels):
 
 ## 서비스 분리
 
-이 로직은 `SeatSwap/backend`(Spring Boot) 메인 서버가 아니라 `SeatSwap/seatmap-service`
+이 로직은 `MatJari/backend`(Spring Boot) 메인 서버가 아니라 `MatJari/seatmap-service`
 (별도 FastAPI 프로세스, 현재 폴더 없음 — 태그에서 복구)에 둔다. Spring Boot는 결과 좌표 JSON을 REST로 받아 저장하는
 클라이언트 역할만 한다.

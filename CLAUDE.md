@@ -1,6 +1,7 @@
-# SeatSwap — 프로젝트 전역 컨텍스트
+# 맞자리 (MatJari) — 프로젝트 전역 컨텍스트
 
 같은 공연 티켓 보유자끼리 좌석을 교환(또는 차액을 주고받는 거래)하는 개인 포트폴리오 프로젝트.
+서비스 이름은 **맞자리**, 영문 표기는 **MatJari**(식별자·패키지·폴더는 소문자 `matjari`/`MatJari`)다. 옛 이름 SeatSwap(해외에 같은 이름의 서비스가 있어 변경, 2026-10-13)은 HISTORY·작업일지·위키 로그의 과거 기록에만 남아 있다.
 이 문서는 **현재 유효한 규칙·결정·구조만** 담는다. 변경 이력은 [HISTORY.md](HISTORY.md), 통계는 [STATS.md](STATS.md), 결정 근거·함정·용어는 [wiki/index.md](wiki/index.md), 날짜별 작업은 `산출물/07_작업일지`, 상세 스키마는 [산출물/08_ERD/exchange-schema-design.md](산출물/08_ERD/exchange-schema-design.md), 후속 요구사항(알림·교환됨·공연정보 입력)은 [산출물/04_요구사항정의서/후속요구사항_제안알림_교환됨_공연정보입력.md](산출물/04_요구사항정의서/후속요구사항_제안알림_교환됨_공연정보입력.md)에 있다. 결정이 바뀌면 이 문서부터 갱신한다.
 
 ## 프로젝트 폴더 구조 (중요 — 경로 규칙)
@@ -9,7 +10,7 @@
 00_3rd_project/              ← 저장소 루트
 ├── .claude/                 ← 하네스 (agents, skills)
 ├── CLAUDE.md                ← 이 파일
-├── SeatSwap/                ← 소스코드 (backend / frontend)
+├── MatJari/                ← 소스코드 (backend / frontend)
 └── 산출물/                   ← 문서 산출물 전용 폴더
     ├── 00_완료보고서/
     ├── 02_시연영상/
@@ -22,10 +23,10 @@
     └── 09_배포URL/
 ```
 
-- **소스코드는 번호 없이 `SeatSwap/`에 둔다.** 01번 산출물 폴더를 따로 만들지 않는다
+- **소스코드는 번호 없이 `MatJari/`에 둔다.** 01번 산출물 폴더를 따로 만들지 않는다
   (Git 리포 이름/배포 시 그대로 쓰이는 이름이라 번호보다 프로젝트명이 낫다는 결정).
 - **문서 산출물은 전부 `산출물/` 아래, 00·02~09 번호 폴더에 둔다.** 01은 결번으로 비워둔다.
-- 문서에서 "01_소스코드" 폴더를 언급하던 과거 표기는 전부 `SeatSwap/`으로 대체한다.
+- 문서에서 "01_소스코드" 폴더를 언급하던 과거 표기는 전부 `MatJari/`으로 대체한다.
 
 ## 작업 방식 (상세: `.claude/skills/ops-rules/SKILL.md`)
 
@@ -110,7 +111,7 @@ DB는 Flyway V1~V19, 21개 테이블(email_verification·social_account·perform
 ### 공연 포스터 표시 (구현됨, DB 변경 없음)
 - **서버는 포스터 이미지를 저장·복제·프록시하지 않는다.** 링크 페이지의 `og:image`(없으면 JSON-LD `Event.image`의 첫 값)에서 **이미지 주소 문자열만** 읽어 응답에 담고, 브라우저가 원 사이트에서 직접 불러온다(인라인 링크). DB에도 저장하지 않는다(주소가 바뀌거나 만료될 수 있다). 등록 2단계는 미리보기 응답의 `posterUrl`을, 공연 상세는 `GET /api/performances/{id}/poster`(로그인 필요, 공연의 sourceUrl로 같은 읽기 경로를 쓴다)를 쓴다.
 - **허용 호스트(2026-10-13 실측)**: YES24 `tkfile.yes24.com`, 티켓링크 `image.toast.com`, 멜론 `cdnticket.melon.co.kr`. 사이트별로 고정하고 https만 인정한다(`//`는 https로 보정). userinfo·비표준 포트·공백·제어 문자·비ASCII 문자·2048자 초과는 거부하며, 경로에 `noimage`가 든 자리표시 이미지(YES24는 포스터가 없을 때 `_noimage.gif`를 준다)는 포스터 없음으로 처리한다.
-- **속도 제한과 스위치**: 상세용 조회는 미리보기와 같은 캐시(10분)·사이트 분당 30회·동시 4개를 쓰고, 사용자 제한은 별도(`seatswap.poster.user-per-minute`, 분당 60)다. 제한에 걸리면 429가 아니라 조용히 null이다. 설정 `seatswap.poster.enabled`(기본 true, 환경변수 `SEATSWAP_POSTER_ENABLED`)가 false면 포스터 주소를 요청하지도 응답하지도 않는다. 사이트에서 중단 요청이 오면 즉시 끈다.
+- **속도 제한과 스위치**: 상세용 조회는 미리보기와 같은 캐시(10분)·사이트 분당 30회·동시 4개를 쓰고, 사용자 제한은 별도(`matjari.poster.user-per-minute`, 분당 60)다. 제한에 걸리면 429가 아니라 조용히 null이다. 설정 `matjari.poster.enabled`(기본 true, 환경변수 `MATJARI_POSTER_ENABLED`)가 false면 포스터 주소를 요청하지도 응답하지도 않는다. 사이트에서 중단 요청이 오면 즉시 끈다.
 - **화면**: 공연 상세는 공연 정보 카드 오른쪽(좁은 화면은 아래), 등록 2단계는 제목·공연장 입력 오른쪽에 둔다. `PosterImage`가 주소를 프런트에서도 허용 호스트·https로 다시 검증하고 `referrerpolicy="no-referrer"`로 불러온다. 아래에 "포스터 이미지 출처: {YES24|티켓링크|멜론티켓} · 저작권은 원 권리자에게 있어요"를 텍스트로만 쓰고 새 링크는 두지 않는다.
 - **로드 실패(핫링크 차단 포함)나 주소 없음이면 포스터 영역 전체(캡션 포함)를 숨기고 대체 링크는 두지 않는다**(사용자 지시 2026-10-12). Referer 위조나 서버 대리 다운로드 같은 우회는 하지 않는다.
 - **권리 한계**: 인라인 링크의 저작권 판단에 확정 판례가 없고, 포스터의 저작물성과 티켓 3사 이용약관은 확인하지 못했다. 공개 운영 전 약관 확인과 전문가 검토가 필요하다(요구사항 문서 §7 Q-26). 삭제·표시 중단 요청은 개인정보처리방침의 문의처로 받는다(방침에는 아직 문구가 없다).
@@ -125,7 +126,7 @@ DB는 Flyway V1~V19, 21개 테이블(email_verification·social_account·perform
 - 본문은 텍스트만 1000자(코드 포인트) 이하다. 이미지·파일 첨부는 없고, 민감정보(예매번호 등)는 가리고 보내도록 안내한다.
 - 메시지는 무기한 보관하며 사용자가 삭제·수정할 수 없다.
 - 실시간 연결(STOMP)은 로그인한 앱 전체가 탭당 하나를 공유한다(헤더 벨의 알림 푸시와 채팅 화면이 같은 연결을 쓴다). 새 메시지는 수신자별 `CHAT_MESSAGE` 알림 행 1개를 재사용해 헤더 벨에 표시하며(아래 '알림' 절), 헤더에 별도 메시지 아이콘은 두지 않는다. 새 메시지는 매칭의 `updated_at`을 바꾸지 않는다.
-- 연결 제한: 사용자당 동시 연결 5개, 구독 목적지는 `/user/queue/chat`·`/user/queue/notifications` 두 개뿐이고 목적지당 구독은 1개다. 허용 Origin은 설정(`seatswap.websocket.allowed-origins`)으로만 연다(와일드카드 금지).
+- 연결 제한: 사용자당 동시 연결 5개, 구독 목적지는 `/user/queue/chat`·`/user/queue/notifications` 두 개뿐이고 목적지당 구독은 1개다. 허용 Origin은 설정(`matjari.websocket.allowed-origins`)으로만 연다(와일드카드 금지).
 
 ### 알림·차단·신고·관리자
 - **알림 6종(구현됨)**: ① '새 제안'(`PROPOSAL_RECEIVED`, 제안받은 쪽) ② '예약 제안'(`RESERVATION_PROPOSED`, 제안받은 쪽) ③ '예약 제안 거절'(`RESERVATION_REJECTED`, 제안자) ④ '상대가 예약 수락'(`MATCH_RESERVED`, 제안자; 문구 "상대가 예약을 수락했어요. 내 티켓도 예약 중으로 잠겼어요.") ⑤ '상대가 예약 취소'(`RESERVATION_CANCELED`, 상대) ⑥ '새 채팅 메시지'(`CHAT_MESSAGE`, 상대). 저장 테이블은 `notification`, 유형은 CHECK로 6종만 허용한다.
@@ -141,7 +142,7 @@ DB는 Flyway V1~V19, 21개 테이블(email_verification·social_account·perform
 ### 관리자·공연 수정 제안·내 티켓 인증 (구현됨, V12 `performance_edit_proposal`·`seat_claim`)
 - 관리자는 DB에서 `users.role='ADMIN'`을 직접 부여한다. `/api/admin/**`는 서버가 ADMIN만 허용하고, 프론트는 `AdminRoute`(`/api/users/me`의 role)로 `/admin` 화면을 가린다. 헤더에는 ADMIN일 때만 '관리자' 링크가 보인다.
 - **공연 수정 제안**: 공연 상세 "정보가 틀렸어요"에서 **제목·공연장**(최소 하나)과 사유를 제안하면, 관리자가 현재 값→제안 값을 비교해 승인(공연에 반영)하거나 거절(사유)한다. **회차·링크는 수정 대상이 아니다.** 공연을 바꾸는 유일한 경로는 관리자 승인(`Performance.applyApprovedEdit`)이다. 사용자당 PENDING 3건, 한 사용자가 같은 공연에 낸 PENDING은 1건(다른 사용자는 같은 공연에 각자 낼 수 있다). 알림은 만들지 않고 제안자는 `/my/edit-proposals`에서 결과를 본다. 잠금 순서는 제안 행 → 공연 행.
-- **내 티켓 인증(좌석 소유 인증 요청)**: 이미 같은 좌석이 등록돼 있다는 안내의 '내 티켓 인증'에서 회차·좌석과 **예매내역 사진 1장**(jpeg/png/webp, ≤5 MiB)을 올리면 관리자가 사진·현재 그 좌석을 가진 티켓을 보고 승인/거절한다. **승인하면 현재 그 좌석의 활성 티켓을 시스템이 내린다**(요청 CLOSED, CHATTING 매칭 시스템 취소; 예약 잠금 중이면 승인 불가). 요청자는 이후 일반 티켓 등록으로 직접 등록한다. 사진은 서버 로컬 디스크(`seatswap.upload.dir`)에 UUID 이름으로 저장하고 본인·ADMIN만 조회하며, **처리(승인·거절)가 끝나면 커밋 뒤 삭제**한다. 삭제가 실패했거나 서버가 그 사이 멈춰 남은 사진·요청 행이 없는 고아 파일은 **정리 작업**(`SeatClaimImageCleanupService`, 기본 1시간마다, 기동 5분 뒤 첫 실행)이 60분 지난 것만 골라 지운다(PENDING 요청의 사진은 지우지 않는다; 설정 `seatswap.upload.cleanup.*`). 사용자당 PENDING 5건. 잠금 순서는 인증 요청 행 → 티켓 id↑ → 요청 id↑ → 매칭.
+- **내 티켓 인증(좌석 소유 인증 요청)**: 이미 같은 좌석이 등록돼 있다는 안내의 '내 티켓 인증'에서 회차·좌석과 **예매내역 사진 1장**(jpeg/png/webp, ≤5 MiB)을 올리면 관리자가 사진·현재 그 좌석을 가진 티켓을 보고 승인/거절한다. **승인하면 현재 그 좌석의 활성 티켓을 시스템이 내린다**(요청 CLOSED, CHATTING 매칭 시스템 취소; 예약 잠금 중이면 승인 불가). 요청자는 이후 일반 티켓 등록으로 직접 등록한다. 사진은 서버 로컬 디스크(`matjari.upload.dir`)에 UUID 이름으로 저장하고 본인·ADMIN만 조회하며, **처리(승인·거절)가 끝나면 커밋 뒤 삭제**한다. 삭제가 실패했거나 서버가 그 사이 멈춰 남은 사진·요청 행이 없는 고아 파일은 **정리 작업**(`SeatClaimImageCleanupService`, 기본 1시간마다, 기동 5분 뒤 첫 실행)이 60분 지난 것만 골라 지운다(PENDING 요청의 사진은 지우지 않는다; 설정 `matjari.upload.cleanup.*`). 사용자당 PENDING 5건. 잠금 순서는 인증 요청 행 → 티켓 id↑ → 요청 id↑ → 매칭.
 - 상세는 [wiki/decisions/admin-design.md](wiki/decisions/admin-design.md).
 
 ### 차단·신고·이용 정지·관리자 관리 (구현됨, V13 `user_block`·`abuse_report`·`user_sanction`)
@@ -154,11 +155,11 @@ DB는 Flyway V1~V19, 21개 테이블(email_verification·social_account·perform
 ### 소셜 로그인 (구현됨, V14 `social_account`)
 - 제공자는 **카카오·구글·네이버 3종**이다. 백엔드가 Authorization Code를 직접 처리한다(Spring oauth2-client 미사용, 무상태 JWT 유지). 구글·카카오는 PKCE(S256)를 쓰고, 네이버는 PKCE를 지원하지 않아 state 쿠키로 CSRF를 막는다. 흐름: `GET /api/auth/social/{provider}/authorize`(302) → 제공자 → `GET .../callback` → 프런트 `/auth/callback#code=…` → `POST /api/auth/social/exchange {code}` → 기존 `TokenResponse`. `GET /api/auth/social/providers`는 client-id가 설정된 제공자만 돌려주며 버튼 표시에 쓴다.
 - **자동 연결 안 함**: `social_account(provider, provider_user_id)`가 있으면 그 사용자로 로그인한다. 없으면 가입하되, 제공자가 준 **검증된** 이메일이 이미 `users`에 있으면 가입을 막고 `EMAIL_EXISTS`(기존 방식으로 로그인 안내)를 돌려준다. 기존 계정에 소셜을 붙이는 것은 자동으로 하지 않고, 마이페이지에서 로그인한 본인이 명시적으로 연결할 때만 한다(아래 '프로필 수정·소셜 계정 연결' 절).
-- **자리표시 이메일**: 이메일이 없거나 검증되지 않았으면 `{provider}.{SHA-256("provider:providerUserId") 앞 16자 hex}@social.seatswap.invalid`를 쓴다(예약 `.invalid` 도메인. 일반 가입은 `.invalid` 이메일을 거부한다. 제공자 식별자는 대소문자를 구분해 비교되므로 항상 해시를 쓴다). 비밀번호는 무작위 32바이트의 BCrypt 해시라 비밀번호 로그인은 불가능하다. 정지·차단·신고 규칙은 일반 사용자와 같다(callback·exchange·요청마다 검사).
+- **자리표시 이메일**: 이메일이 없거나 검증되지 않았으면 `{provider}.{SHA-256("provider:providerUserId") 앞 16자 hex}@social.matjari.invalid`를 쓴다(예약 `.invalid` 도메인. 일반 가입은 `.invalid` 이메일을 거부한다. 제공자 식별자는 대소문자를 구분해 비교되므로 항상 해시를 쓴다). 비밀번호는 무작위 32바이트의 BCrypt 해시라 비밀번호 로그인은 불가능하다. 정지·차단·신고 규칙은 일반 사용자와 같다(callback·exchange·요청마다 검사).
 - **일회용 코드, 프래그먼트 전달**: 콜백은 토큰을 URL에 싣지 않고, 32바이트 랜덤 **일회용 로그인 코드**(서버 메모리, TTL 60초, 1회 사용, 보관 상한 1만 건을 넘으면 `SERVER_BUSY`)를 `#code=` 프래그먼트로 넘긴다. 프래그먼트라 서버 로그·Referer에 남지 않는다. exchange 때 정지 여부를 다시 검사하며, 틀리거나 만료된 코드는 400 `INVALID_LOGIN_CODE`다. 서버 재시작 때 코드가 사라지는 것은 허용한다.
 - **쿠키·state 규칙**: authorize는 state와 PKCE verifier를 HMAC 서명한 HttpOnly 쿠키 `ss_oauth`(Path=`/api/auth/social`, SameSite=Lax, Max-Age 600초)에 담는다. 콜백은 서명·만료·provider 일치와 state 상수시간 비교를 통과해야만 코드 교환을 시도하고, state는 1회용이며, 쿠키는 콜백에서 항상 삭제한다. 실패는 `302 {frontend-base-url}/login?socialError=…`로 보낸다(INVALID_STATE·ACCESS_DENIED(동의 거부)·PROVIDER_ERROR·EMAIL_EXISTS·ACCOUNT_SUSPENDED(&until)·SERVER_BUSY).
 - **제공자별 scope**: 구글 `openid email profile`(email_verified일 때만 이메일 사용), 카카오 `profile_nickname account_email`(is_email_valid·is_email_verified가 모두 true일 때만 이메일 사용), 네이버 scope 없음·state 필수. **네이버 이메일은 쓰지 않는다**: 응답에 검증 여부 표시가 없고 공식 문서에서 소유 확인을 확인하지 못해(2026-10-13 조사, 신뢰도 낮음) 항상 자리표시 이메일로 가입하고 `EMAIL_EXISTS` 판정에도 쓰지 않는다(남의 이메일 선점 방지). 실제 키 응답으로 검증 표시를 확인하면 되돌릴 수 있다.
-- **설정**: `seatswap.social.*` — `{google|kakao|naver}.client-id/client-secret`(환경변수 `SEATSWAP_SOCIAL_*`), `backend-base-url`(리다이렉트 URI = `{backend-base-url}/api/auth/social/{provider}/callback`, 각 개발자 콘솔에 등록), `frontend-base-url`(`seatswap.websocket.allowed-origins`에 포함돼야 하며 기동 시 검증), `state-secret`, `cookie-secure`. client-id가 비어 있는 제공자는 비활성이다(authorize 404 `SOCIAL_PROVIDER_DISABLED`). 운영(https·비루프백 백엔드)에서는 개발용 state-secret을 거부하고 cookie-secure=true를 요구한다.
+- **설정**: `matjari.social.*` — `{google|kakao|naver}.client-id/client-secret`(환경변수 `MATJARI_SOCIAL_*`), `backend-base-url`(리다이렉트 URI = `{backend-base-url}/api/auth/social/{provider}/callback`, 각 개발자 콘솔에 등록), `frontend-base-url`(`matjari.websocket.allowed-origins`에 포함돼야 하며 기동 시 검증), `state-secret`, `cookie-secure`. client-id가 비어 있는 제공자는 비활성이다(authorize 404 `SOCIAL_PROVIDER_DISABLED`). 운영(https·비루프백 백엔드)에서는 개발용 state-secret을 거부하고 cookie-secure=true를 요구한다.
 - authorize·callback·exchange는 IP당 분당 30회로 제한한다(버킷 분리, `getRemoteAddr()` 기준, authorize·exchange 초과는 429 `SOCIAL_RATE_LIMITED`, callback 초과는 `302 /login?socialError=SERVER_BUSY`). 로그에는 토큰·code·client_secret·이메일을 남기지 않는다.
 - 실제 카카오·구글·네이버 키로는 아직 검증하지 않았다. 스텁 제공자 테스트와 브라우저 스텁 점검만 했다.
 
@@ -172,7 +173,7 @@ DB는 Flyway V1~V19, 21개 테이블(email_verification·social_account·perform
 
 ### 회원탈퇴·개인정보처리방침 (구현됨, V17)
 - **API**: `DELETE /api/users/me` body `{password?, confirmText?, reauthCode?}`(인증 필요, 성공 204). 본인 확인: 비밀번호 로그인 계정(`password_login_enabled`=1)은 비밀번호(불일치 400), 소셜 전용 계정은 `confirmText`가 정확히 `탈퇴합니다`여야 하고(아니면 400 `confirmText`) **연결된 소셜 계정으로 방금 다시 인증한 `reauthCode`도 있어야 한다**(없음·만료·다른 사용자·이 사용자에게 연결되지 않은 계정은 400 `reauthCode`; 재인증 코드는 1회용이라 불일치여도 소진). 재인증은 마이페이지 모달의 "OOO(으)로 본인 확인" → `POST /api/users/me/social/{provider}/reauth`(이미 연결된 제공자만, 아니면 409 `SOCIAL_NOT_LINKED`)로 연결 모드와 같은 authorize 흐름을 한 번 더 거쳐 `/me#linkCode=`로 돌아오며, 이 코드를 연결 확정이 아니라 탈퇴 요청에 쓴다. 연결된 제공자가 지금 하나도 켜져 있지 않으면 재인증 수단이 없어 확인 문구만으로 허용한다. ADMIN은 409 `ADMIN_CANNOT_WITHDRAW`(역할을 DB에서 해제한 뒤 탈퇴). 사용자당 분당 5회(성공·실패 모두 센다, 초과 429 `WITHDRAW_RATE_LIMITED`). 이미 탈퇴했거나 동시 탈퇴의 뒤쪽은 401.
-- **처리(한 트랜잭션)**: ①PENDING 좌석 인증 요청 거절(처리자는 본인, 사진은 커밋 뒤 삭제) ②열린 매칭(CHATTING·RESERVED) 시스템 취소와 예약 잠금 해제(`OpenMatchCanceller`) ③OPEN 요청 CLOSED, 활성 티켓 INACTIVE ④users 행 FOR UPDATE 후 같은 정리를 한 번 더(2차 정리) ⑤`social_account` 전부 삭제, users 익명화(이메일 `withdrawn.{id}@withdrawn.seatswap.invalid`, 닉네임 `탈퇴한 회원`, 무작위 BCrypt, `password_login_enabled`=0, `withdrawn_at`=KST 현재 시각, role 유지) ⑥수신자 알림 삭제 ⑦커밋 뒤 STOMP 연결 종료(실패는 삼킨다).
+- **처리(한 트랜잭션)**: ①PENDING 좌석 인증 요청 거절(처리자는 본인, 사진은 커밋 뒤 삭제) ②열린 매칭(CHATTING·RESERVED) 시스템 취소와 예약 잠금 해제(`OpenMatchCanceller`) ③OPEN 요청 CLOSED, 활성 티켓 INACTIVE ④users 행 FOR UPDATE 후 같은 정리를 한 번 더(2차 정리) ⑤`social_account` 전부 삭제, users 익명화(이메일 `withdrawn.{id}@withdrawn.matjari.invalid`, 닉네임 `탈퇴한 회원`, 무작위 BCrypt, `password_login_enabled`=0, `withdrawn_at`=KST 현재 시각, role 유지) ⑥수신자 알림 삭제 ⑦커밋 뒤 STOMP 연결 종료(실패는 삼킨다).
 - **보존**: 채팅·읽음 상태·교환 이력·차단·신고·제재·PENDING 공연 수정 제안은 지우지 않는다(FK 유지). 닉네임은 users에서 읽으므로 상대·관리자 화면에 '탈퇴한 회원'으로 나온다.
 - **잠금 순서(탈퇴)**: 인증 요청 → 티켓 id↑ → 매칭 id↑ → 요청 → users → 알림(요청이 매칭 뒤인 것은 알려진 좁은 교착 창이며 교착 감지기가 되돌려 503으로 끝난다). users 행은 티켓·매칭 잠금 **뒤에** 잡는다(개발 규칙 참고).
 - **인증 차단**: `CustomUserDetailsService`(`loadUserById`·`loadUserByUsername`)가 탈퇴 계정을 거절한다 → 기존 액세스 토큰 401, STOMP CONNECT 거부, 로그인·refresh·소셜 exchange·소셜 연결 확정 400, 소셜 연결 해제 401. 같은 이메일·같은 소셜 계정으로 새 계정을 만들 수 있다.
@@ -185,10 +186,10 @@ DB는 Flyway V1~V19, 21개 테이블(email_verification·social_account·perform
 ### 가입 이메일 인증번호 (구현됨, V19 `email_verification`)
 - **일반 회원가입은 이메일 소유 확인이 필요하다**(2026-10-13 사용자 결정). 남의 이메일로 선점 가입해 그 사람의 소셜 가입을 `EMAIL_EXISTS`로 막는 문제와 오타·가짜 이메일을 막고, 나중의 비밀번호 찾기 기반이 된다. 소셜 가입은 제공자 인증을 따르므로 해당 없다. 기존 계정은 소급 인증하지 않고, `users`에 컬럼도 추가하지 않는다(인증을 통과한 이메일로만 계정이 만들어지므로 새 계정은 모두 검증된 이메일).
 - **흐름**: 가입 화면에서 '인증번호 받기'(`POST /api/auth/signup/email-code {email}`) → 6자리 숫자 코드를 메일로 받아 → 가입 요청에 `emailCode`로 함께 보낸다(`POST /api/auth/signup`). 인증을 통과해야 계정이 만들어지며 별도 '확인' 단계나 검증 토큰은 없다. 이미 가입된 이메일은 400 `email`(가입 화면 중복 안내와 같은 응답), `.invalid` 예약 도메인은 거부.
-- **저장**: `email_verification`(PK email, `code_hash`=HMAC-SHA256(이메일+코드), attempts, sent_at, expires_at). 평문 코드는 저장하지 않고, 이메일당 행 1개를 다시 보낼 때 덮어쓴다. 유효 10분(`seatswap.email-verification.code-ttl-seconds`), 재발송 대기 60초, 입력 5회(틀린 것 포함, 넘으면 새 코드 필요), 가입 성공 시 같은 트랜잭션에서 행을 지운다(1회용). 만료된 행은 코드를 보낼 때 가끔 쓸어 낸다(스케줄러 없음).
+- **저장**: `email_verification`(PK email, `code_hash`=HMAC-SHA256(이메일+코드), attempts, sent_at, expires_at). 평문 코드는 저장하지 않고, 이메일당 행 1개를 다시 보낼 때 덮어쓴다. 유효 10분(`matjari.email-verification.code-ttl-seconds`), 재발송 대기 60초, 입력 5회(틀린 것 포함, 넘으면 새 코드 필요), 가입 성공 시 같은 트랜잭션에서 행을 지운다(1회용). 만료된 행은 코드를 보낼 때 가끔 쓸어 낸다(스케줄러 없음).
 - **검증 순서(중요)**: 가입 서비스에서 다른 입력 검증과 이메일 중복 확인을 모두 마친 **뒤** 마지막으로 코드를 확인한다(다른 오류로 시도 횟수를 쓰지 않게). 시도 횟수는 `REQUIRES_NEW`로 먼저 올려(가입이 롤백돼도 남는다, 병렬 추측 방지) 남은 횟수가 있을 때만 `DELETE … WHERE code_hash=?`로 소비한다. 가입이 이후 단계에서 실패해 롤백되면 행이 되살아난다. 오류는 400 `emailCode`.
 - **제한**: 마지막 발송 뒤 60초 안 재요청은 429 `EMAIL_CODE_COOLDOWN`, 10분 창에서 IP당 10회·이메일당 5회·전체 시간당 200회는 429 `EMAIL_CODE_RATE_LIMITED`(`retryAfterSeconds`+`Retry-After`, 메모리·단일 인스턴스, `getRemoteAddr()` 기준), 메일 발송 실패는 503 `EMAIL_SEND_FAILED`(행을 지워 바로 다시 요청 가능).
-- **발송 수단**: `seatswap.mail.mode` = `log`(기본, 개발용: 메일 내용과 코드가 백엔드 로그에 찍힌다) | `smtp`(실제 발송, `SPRING_MAIL_HOST/PORT/USERNAME/PASSWORD`, 보내는 주소 `SEATSWAP_MAIL_FROM` 또는 사용자명). **백엔드 주소(`seatswap.social.backend-base-url`)가 루프백이 아닌데 log 모드면 기동을 거부한다**(운영에서 코드가 로그에 남는 사고 방지; 인증 자체를 끄려면 `SEATSWAP_EMAIL_VERIFICATION_ENABLED=false`). 코드 해시 키는 `SEATSWAP_EMAIL_CODE_SECRET`(운영에서 새 값). 발송 수단은 `EmailSender` 인터페이스 뒤에 있어 SES·Resend 등으로 바꿀 수 있다.
+- **발송 수단**: `matjari.mail.mode` = `log`(기본, 개발용: 메일 내용과 코드가 백엔드 로그에 찍힌다) | `smtp`(실제 발송, `SPRING_MAIL_HOST/PORT/USERNAME/PASSWORD`, 보내는 주소 `MATJARI_MAIL_FROM` 또는 사용자명). **백엔드 주소(`matjari.social.backend-base-url`)가 루프백이 아닌데 log 모드면 기동을 거부한다**(운영에서 코드가 로그에 남는 사고 방지; 인증 자체를 끄려면 `MATJARI_EMAIL_VERIFICATION_ENABLED=false`). 코드 해시 키는 `MATJARI_EMAIL_CODE_SECRET`(운영에서 새 값). 발송 수단은 `EmailSender` 인터페이스 뒤에 있어 SES·Resend 등으로 바꿀 수 있다.
 - **프런트**: 가입 화면 이메일 칸 아래 '인증번호 받기' 버튼(대기 중에는 '다시 받기 (N초 후)'), 발송 뒤 인증번호 칸 표시(이메일을 바꾸면 다시 받아야 한다). 개인정보처리방침에 인증번호 기록 항목·보유 기간·메일 발송 서비스 경유 문구를 더했다.
 - **한계**: 속도 제한·인증 시도는 단일 인스턴스 메모리/DB 기준(IP 제한은 프록시 뒤에서 합쳐질 수 있음), 메일이 스팸함으로 갈 수 있고 Gmail SMTP는 일일 한도가 있어 시연용이다(운영은 SES 등 도메인 인증 필요), 이메일 변경·비밀번호 찾기는 아직 없다, 실제 SMTP로는 미검증(로그 모드·목 발송기로만 점검). 상세는 [wiki/decisions/email-verification-design.md](wiki/decisions/email-verification-design.md).
 
@@ -199,7 +200,7 @@ DB는 Flyway V1~V19, 21개 테이블(email_verification·social_account·perform
 - 탈퇴(`WithdrawService`)는 users 행을 티켓·요청·매칭 잠금 **뒤에** FOR UPDATE로 잡는다. 제안은 티켓을 잠근 뒤 매칭을 INSERT하면서 users에 FK 공유 잠금을 걸므로, users를 먼저 X로 잡으면 교착한다. 반대로 티켓 등록·좌석 인증 요청·공연 수정 제안·소셜 연결 경로는 users를 FOR UPDATE로 먼저 잡고 탈퇴 여부를 확인한 뒤 진행한다.
 - **FK에 쓰이는 인덱스에 갱신 컬럼(status 등)을 붙이지 않는다**(FK 인덱스는 단일 컬럼). 교착 원인이 된다.
 - **이미 적용된 Flyway 마이그레이션 파일은 수정하지 않는다**(체크섬 불일치). 새 번호로 추가하고, 마이그레이션은 재실행 가능한 프로시저 패턴을 따른다. 이전 스키마가 남은 로컬 DB는 `docker compose down -v`로 비운 뒤 적용한다.
-- 실제 MySQL 통합 테스트는 환경변수 `SEATSWAP_IT_*`가 있을 때만 실행하며 개발 DB 보호 장치를 유지한다(IT용 DB 이름 규칙은 ops-rules).
+- 실제 MySQL 통합 테스트는 환경변수 `MATJARI_IT_*`가 있을 때만 실행하며 개발 DB 보호 장치를 유지한다(IT용 DB 이름 규칙은 ops-rules).
 - notification 쓰기는 트랜잭션 마지막에 한다. notification 행을 잠근 뒤 티켓·요청·매칭 잠금 금지. 실시간 푸시는 커밋 뒤(`afterCommit`)에만 보내고 실패는 삼킨다.
 - 채팅 전송은 트랜잭션 첫 쿼리로 `exchange_match`만 FOR UPDATE로 잠그고, 커밋 뒤에 STOMP로 전파한다(전파 실패해도 저장은 유지).
 - 읽음 포인터 advance는 매칭·users 잠금을 잡은 트랜잭션 안에서 호출하지 않는다(자기 대기·갭 잠금 교착).
@@ -248,6 +249,7 @@ DB는 Flyway V1~V19, 21개 테이블(email_verification·social_account·perform
 - **구현 완료(2026-10-13, DB 변경 없음, 병합됨)**: 공연 포스터 표시(`feature/poster`, '공연 포스터 표시' 절).
 - **구현 완료(2026-10-13, DB 변경 없음, 병합됨)**: 회차 날짜 미리 채우기(`feature/session-prefill`, '링크 기반 공연정보 자동 입력' 절). 2일 이하 공연만 날짜를 채우고 시각은 직접 고른다.
 - **구현 완료(2026-10-13, DB 변경 없음)**: 후속 4건 — ①정지 중 제한 로그인(`feature/suspended-withdraw-login`: 비밀번호가 맞는 정지 로그인이 탈퇴 전용 10분 토큰 `withdrawToken`을 받아 탈퇴만 가능, '회원탈퇴·개인정보처리방침' 절) ②소셜 전용 계정 탈퇴 재인증(`feature/social-withdraw-reauth`, 같은 절) ③좌석 인증 사진 정리 작업(`feature/claim-image-cleanup`, '관리자·공연 수정 제안·내 티켓 인증' 절) ④후보 keyset 조각 조회(`feature/candidates-keyset`, '후보 조회' 절).
+- **예정(미착수, 사용자 결정 2026-10-13): [빠른 교환]** — 채팅 없이 교환할 수 있는 방식을 나중에 만든다. 지금은 구현하지 않고 설계도 하지 않았다(아직 정해진 것: 이름 '빠른 교환', 채팅 단계를 거치지 않는다는 방향뿐). 착수 전에 정해야 할 것: 기존 흐름(후보 선택→채팅→예약 제안→예약 수락→교환 수락)에서 어느 단계를 줄이는지, 한쪽 제안에 상대가 즉시 수락하는 방식인지, 예약 잠금·취소·차단·알림과의 관계, 본인 좌석 확인 방법(채팅이 없으면 예매내역을 서로 확인할 곳이 없다). 이 항목은 '더 개발할 것' 목록에 항상 포함한다.
 - **예정(미착수, 구조만 열림)**: AI가 상세정보를 읽어 회차 시각(과 3일 이상 공연의 회차)을 채우는 출처. `sessionCandidates.time`이 자리다. 7일 경과 알림은 보류했다.
 - **회원탈퇴 후속**: 소셜 전용 정지 사용자의 탈퇴 경로(정지 중 제한 로그인은 비밀번호 계정만 구현), 채팅 보관 기간(지금은 운영 기간 동안), 보관 기간의 법적 근거 검토(공개 운영 전 전문가 검토 필요). 소셜 전용 계정의 탈퇴 재인증과 인증 사진 정리 작업은 구현됐다(2026-10-13).
 

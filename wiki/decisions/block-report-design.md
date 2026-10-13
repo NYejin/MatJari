@@ -2,7 +2,7 @@
 title: 차단·신고·이용 정지 설계 근거
 type: decision
 tags: [차단, 신고, 이용정지, 관리자, 동시성, 설계]
-sources: [../../CLAUDE.md, ../gotchas/lock-order-and-index-pitfalls.md, admin-design.md, chat-design.md, ../research/stomp-jwt-auth.md, SeatSwap/backend/src/main/resources/db/migration/V13__block_report_sanction.sql, 산출물/04_요구사항정의서/후속요구사항_제안알림_교환됨_공연정보입력.md]
+sources: [../../CLAUDE.md, ../gotchas/lock-order-and-index-pitfalls.md, admin-design.md, chat-design.md, ../research/stomp-jwt-auth.md, MatJari/backend/src/main/resources/db/migration/V13__block_report_sanction.sql, 산출물/04_요구사항정의서/후속요구사항_제안알림_교환됨_공연정보입력.md]
 updated: 2026-10-13
 confidence: medium
 status: draft

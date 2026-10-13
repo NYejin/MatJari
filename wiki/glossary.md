@@ -2,7 +2,7 @@
 title: 용어집
 type: glossary
 tags: [용어, 교환, 매칭]
-sources: [SeatSwap/backend/src/main/resources/db/migration/V11__chat_message.sql, SeatSwap/backend/src/main/resources/db/migration/V9__exchange_complete_history.sql, CLAUDE.md, 산출물/04_요구사항정의서/후속요구사항_제안알림_교환됨_공연정보입력.md, 산출물/08_ERD/exchange-schema-design.md, SeatSwap/backend/README.md, SeatSwap/backend/src/main/resources/db/migration/V3__ticket_seat_columns.sql, SeatSwap/backend/src/main/resources/db/migration/V5__exchange_match_tables.sql, SeatSwap/backend/src/main/resources/db/migration/V7__exchange_request_soft_delete.sql, SeatSwap/backend/src/main/resources/application.yml]
+sources: [MatJari/backend/src/main/resources/db/migration/V11__chat_message.sql, MatJari/backend/src/main/resources/db/migration/V9__exchange_complete_history.sql, CLAUDE.md, 산출물/04_요구사항정의서/후속요구사항_제안알림_교환됨_공연정보입력.md, 산출물/08_ERD/exchange-schema-design.md, MatJari/backend/README.md, MatJari/backend/src/main/resources/db/migration/V3__ticket_seat_columns.sql, MatJari/backend/src/main/resources/db/migration/V5__exchange_match_tables.sql, MatJari/backend/src/main/resources/db/migration/V7__exchange_request_soft_delete.sql, MatJari/backend/src/main/resources/application.yml]
 updated: 2026-10-13
 confidence: high
 status: draft
@@ -10,7 +10,7 @@ status: draft
 
 # 용어집
 
-SeatSwap 고유 용어의 짧은 정의다. 확정 결정 본문은 [CLAUDE.md](../CLAUDE.md)에 있고 여기서는 뜻과 코드 위치만 적는다. 근거와 함정은 [교환 완료 시 티켓 처리](decisions/exchange-complete-new-ticket.md), [잠금 순서와 인덱스·유니크 키 함정](gotchas/lock-order-and-index-pitfalls.md) 참고. 상세 표는 요구사항 문서 `산출물/04_요구사항정의서/후속요구사항_제안알림_교환됨_공연정보입력.md` §3.1.
+맞자리 고유 용어의 짧은 정의다. 확정 결정 본문은 [CLAUDE.md](../CLAUDE.md)에 있고 여기서는 뜻과 코드 위치만 적는다. 근거와 함정은 [교환 완료 시 티켓 처리](decisions/exchange-complete-new-ticket.md), [잠금 순서와 인덱스·유니크 키 함정](gotchas/lock-order-and-index-pitfalls.md) 참고. 상세 표는 요구사항 문서 `산출물/04_요구사항정의서/후속요구사항_제안알림_교환됨_공연정보입력.md` §3.1.
 
 ## 매칭 상태
 
@@ -94,7 +94,7 @@ SeatSwap 고유 용어의 짧은 정의다. 확정 결정 본문은 [CLAUDE.md](
 
 ## 소셜 연결·프로필
 
-- **자리표시 이메일**: 소셜 가입 때 제공자 이메일이 없거나 검증되지 않았을 때 넣는 `@social.seatswap.invalid` 주소. 응답에서 `email`은 null이고 `emailPlaceholder=true`다. 실제 메일은 가지 않는다.
+- **자리표시 이메일**: 소셜 가입 때 제공자 이메일이 없거나 검증되지 않았을 때 넣는 `@social.matjari.invalid` 주소. 응답에서 `email`은 null이고 `emailPlaceholder=true`다. 실제 메일은 가지 않는다.
 - **연결 확정 코드**: 소셜 연결 콜백이 발급하는 일회용 코드(60초, 서버 메모리). 프래그먼트 `#linkCode=`로 프런트에 넘어가며, 같은 사용자의 로그인 세션이 `POST /api/users/me/social/confirm`으로 제출해야 저장된다.
 - **마지막 로그인 수단**: 이것을 해제하면 로그인할 방법이 0개가 되는 상태(비밀번호 로그인 불가이고 연결이 하나뿐). 해제는 409 `LAST_LOGIN_METHOD`로 막는다.
 - **비밀번호 로그인 가능 여부**: `users.password_login_enabled`. 일반 가입은 true, 소셜 가입은 false다.
@@ -102,7 +102,7 @@ SeatSwap 고유 용어의 짧은 정의다. 확정 결정 본문은 [CLAUDE.md](
 ## 회원 탈퇴
 
 - **회원 탈퇴**: 계정을 없애는 일. 물리 삭제가 아니라 익명화다. 진행 중 교환은 자동 정리하고, 채팅·교환 이력·차단·신고·제재는 익명화해 보존한다. `DELETE /api/users/me`, V17 `users.withdrawn_at`(NULL=활성).
-- **익명화**: 이메일을 `withdrawn.{id}@withdrawn.seatswap.invalid`로, 닉네임을 '탈퇴한 회원'으로 바꾸고 비밀번호를 무작위 해시로 바꾸는 것. 기록의 FK는 그대로 둔다.
+- **익명화**: 이메일을 `withdrawn.{id}@withdrawn.matjari.invalid`로, 닉네임을 '탈퇴한 회원'으로 바꾸고 비밀번호를 무작위 해시로 바꾸는 것. 기록의 FK는 그대로 둔다.
 - **탈퇴한 회원**: 익명화된 계정의 표시 이름. 채팅·교환 이력·관리자 화면에 그대로 보인다.
 - **2차 정리**: 탈퇴가 users 행을 잠근 뒤 한 번 더 열린 매칭·활성 티켓·요청을 정리하는 단계. 1차 정리와 users 잠금 사이에 생긴 것을 잡는다.
 - **개인정보처리방침(방침)**: 공개 페이지 `/privacy`. 운영자·문의 이메일·시행일은 `VITE_PRIVACY_*`로 받으며, 미설정이면 '설정 필요'로 강조된다.

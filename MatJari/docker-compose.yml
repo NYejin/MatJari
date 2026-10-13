@@ -1,0 +1,70 @@
+# 맞자리 전체 스택을 하나의 격리된(가상) 환경에서 띄우기 위한 구성.
+# backend(Spring Boot) / frontend(React) / mysql 3개 컨테이너.
+services:
+
+  mysql:
+    image: mysql:8.0
+    container_name: matjari-mysql
+    environment:
+      MYSQL_DATABASE: matjari
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-changeme}
+      # 앱 전용 계정 — 이미지가 최초 기동 시 자동으로 생성하고 MYSQL_DATABASE에 대한 권한을 부여한다.
+      MYSQL_USER: matjari
+      MYSQL_PASSWORD: ${DB_PASSWORD:-changeme}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    container_name: matjari-backend
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/matjari
+      SPRING_DATASOURCE_USERNAME: matjari
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-changeme}
+      JWT_SECRET: ${JWT_SECRET:-changeme-dev-secret}
+      # 시간 기준 KST (Dockerfile ENV/JVM 옵션과 같은 값 — 이미지 밖에서도 보이게 명시)
+      TZ: Asia/Seoul
+      # 소셜 로그인: client-id 가 빈 제공자는 비활성(버튼도 안 보임). 값은 .env 에 둔다(.env.example 참고)
+      MATJARI_SOCIAL_GOOGLE_CLIENT_ID: ${SOCIAL_GOOGLE_CLIENT_ID:-}
+      MATJARI_SOCIAL_GOOGLE_CLIENT_SECRET: ${SOCIAL_GOOGLE_CLIENT_SECRET:-}
+      MATJARI_SOCIAL_KAKAO_CLIENT_ID: ${SOCIAL_KAKAO_CLIENT_ID:-}
+      MATJARI_SOCIAL_KAKAO_CLIENT_SECRET: ${SOCIAL_KAKAO_CLIENT_SECRET:-}
+      MATJARI_SOCIAL_NAVER_CLIENT_ID: ${SOCIAL_NAVER_CLIENT_ID:-}
+      MATJARI_SOCIAL_NAVER_CLIENT_SECRET: ${SOCIAL_NAVER_CLIENT_SECRET:-}
+      MATJARI_SOCIAL_BACKEND_BASE_URL: ${SOCIAL_BACKEND_BASE_URL:-http://localhost:8080}
+      MATJARI_SOCIAL_FRONTEND_BASE_URL: ${SOCIAL_FRONTEND_BASE_URL:-http://localhost:5173}
+      # 가입 전 이메일 인증번호: 기본 log 모드(메일 내용이 백엔드 로그에 찍힘, 개발용). 운영은 smtp + SPRING_MAIL_* 필요(.env.example 참고)
+      MATJARI_MAIL_MODE: ${MAIL_MODE:-log}
+      MATJARI_MAIL_FROM: ${MAIL_FROM:-}
+      MATJARI_EMAIL_CODE_SECRET: ${EMAIL_CODE_SECRET:-dev-only-insecure-email-code-secret-please-override}
+      SPRING_MAIL_HOST: ${MAIL_HOST:-}
+      SPRING_MAIL_PORT: ${MAIL_PORT:-587}
+      SPRING_MAIL_USERNAME: ${MAIL_USERNAME:-}
+      SPRING_MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH: "true"
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE: "true"
+    ports:
+      - "8080:8080"
+
+  frontend:
+    build: ./frontend
+    container_name: matjari-frontend
+    depends_on:
+      - backend
+    environment:
+      VITE_API_BASE_URL: http://localhost:8080/api
+    ports:
+      - "5173:5173"
+
+volumes:
+  mysql_data:

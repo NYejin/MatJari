@@ -10,7 +10,7 @@ status: draft
 
 # 위키 목차
 
-SeatSwap 프로젝트의 결정 근거, 함정, 조사 결과, 용어를 모은 위키다. 사용법과 스키마는 [llm-wiki 스킬](../.claude/skills/llm-wiki/SKILL.md), 작업 기록은 [log.md](log.md)에 있다. 확정 결정 본문은 [CLAUDE.md](../CLAUDE.md)가 기준이다.
+맞자리 프로젝트의 결정 근거, 함정, 조사 결과, 용어를 모은 위키다. 사용법과 스키마는 [llm-wiki 스킬](../.claude/skills/llm-wiki/SKILL.md), 작업 기록은 [log.md](log.md)에 있다. 확정 결정 본문은 [CLAUDE.md](../CLAUDE.md)가 기준이다.
 
 ## 결정
 

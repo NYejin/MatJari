@@ -73,13 +73,13 @@ const lines = [HEADER, '', '# 프로젝트 통계', ''];
 
 try {
   // 코드 규모
-  const be = (sub) => summarize(allFiles(p('SeatSwap', 'backend', 'src', sub)));
+  const be = (sub) => summarize(allFiles(p('MatJari', 'backend', 'src', sub)));
   const beJava = (sub) => {
-    const fs = allFiles(p('SeatSwap', 'backend', 'src', sub));
+    const fs = allFiles(p('MatJari', 'backend', 'src', sub));
     return summarize(fs && fs.filter((f) => f.endsWith('.java')));
   };
   const fe = (exts) => {
-    const fs = allFiles(p('SeatSwap', 'frontend', 'src'));
+    const fs = allFiles(p('MatJari', 'frontend', 'src'));
     return summarize(fs && fs.filter((f) => exts.includes(path.extname(f).toLowerCase())));
   };
   lines.push(...section('코드 규모', [
@@ -94,7 +94,7 @@ try {
   ]));
 
   // 엔드포인트
-  const javaMain = allFiles(p('SeatSwap', 'backend', 'src', 'main'));
+  const javaMain = allFiles(p('MatJari', 'backend', 'src', 'main'));
   let epRow = NA;
   if (javaMain) {
     const counts = { Get: 0, Post: 0, Put: 0, Patch: 0, Delete: 0, ReqMethod: 0 };
@@ -118,7 +118,7 @@ try {
   // Flyway
   let flyRows = [['V*.sql 개수', NA], ['최신 번호', NA]];
   try {
-    const names = readdirSync(p('SeatSwap', 'backend', 'src', 'main', 'resources', 'db', 'migration')).filter((n) => /^V\d+__.*\.sql$/.test(n));
+    const names = readdirSync(p('MatJari', 'backend', 'src', 'main', 'resources', 'db', 'migration')).filter((n) => /^V\d+__.*\.sql$/.test(n));
     const nums = names.map((n) => parseInt(n.match(/^V(\d+)__/)[1], 10));
     flyRows = [['V*.sql 개수', `${names.length}개`], ['최신 번호', nums.length ? `V${Math.max(...nums)}` : '없음']];
   } catch { /* 측정 불가 유지 */ }
@@ -127,7 +127,7 @@ try {
   // 테스트
   let testRows = [['테스트 수', '미측정']];
   try {
-    const dir = p('SeatSwap', 'backend', 'build', 'test-results', 'test');
+    const dir = p('MatJari', 'backend', 'build', 'test-results', 'test');
     const xmls = readdirSync(dir).filter((n) => n.endsWith('.xml'));
     if (xmls.length) {
       const sum = { tests: 0, skipped: 0, failures: 0, errors: 0 };

@@ -2,7 +2,7 @@
 title: 회원탈퇴·개인정보처리방침 설계 근거
 type: decision
 tags: [회원탈퇴, 개인정보, 익명화, 개인정보처리방침, 잠금순서, 설계]
-sources: [../../CLAUDE.md, ../../SeatSwap/backend/src/main/java/com/seatswap/service/WithdrawService.java, ../../SeatSwap/backend/src/main/resources/db/migration/V17__user_withdrawn_at.sql, ../../SeatSwap/frontend/src/pages/PrivacyPolicyPage.tsx, social-login-design.md, block-report-design.md, ../gotchas/lock-order-and-index-pitfalls.md]
+sources: [../../CLAUDE.md, ../../MatJari/backend/src/main/java/com/matjari/service/WithdrawService.java, ../../MatJari/backend/src/main/resources/db/migration/V17__user_withdrawn_at.sql, ../../MatJari/frontend/src/pages/PrivacyPolicyPage.tsx, social-login-design.md, block-report-design.md, ../gotchas/lock-order-and-index-pitfalls.md]
 updated: 2026-10-13
 confidence: medium
 status: draft
@@ -18,7 +18,7 @@ status: draft
 
 | 대상 | 처리 | 이유 |
 |---|---|---|
-| 이메일 | `withdrawn.{id}@withdrawn.seatswap.invalid`로 바꾼다 | 원래 이메일을 비워 같은 이메일로 재가입할 수 있게 한다. id를 넣어 기존 UNIQUE(email)를 그대로 쓴다 |
+| 이메일 | `withdrawn.{id}@withdrawn.matjari.invalid`로 바꾼다 | 원래 이메일을 비워 같은 이메일로 재가입할 수 있게 한다. id를 넣어 기존 UNIQUE(email)를 그대로 쓴다 |
 | 닉네임 | `탈퇴한 회원` | 채팅·교환 이력·관리자 화면은 users에서 닉네임을 읽으므로 따로 고치지 않아도 '탈퇴한 회원'으로 보인다 |
 | 비밀번호 | 무작위 32바이트의 BCrypt 해시, `password_login_enabled`=0 | 비밀번호로 다시 로그인할 수 없게 한다. 해시가 있어도 로그인 수단 판단은 플래그로 한다(V16 결정) |
 | 소셜 연결(`social_account`) | 전부 삭제 | 제공자 식별자가 탈퇴 뒤에도 남으면 같은 계정 연결을 통해 추적·재연결이 가능하다. 삭제하면 같은 소셜 계정으로 새 가입이 된다 |

@@ -13,9 +13,9 @@ if (!args || !args.feature) {
 }
 
 const areas = args.areas ?? [
-  'SeatSwap/backend 코드(엔티티·서비스·리포지토리·컨트롤러)',
-  'SeatSwap/backend 테스트와 마이그레이션(db/migration)',
-  'SeatSwap/frontend 코드(pages·components·api·types)',
+  'MatJari/backend 코드(엔티티·서비스·리포지토리·컨트롤러)',
+  'MatJari/backend 테스트와 마이그레이션(db/migration)',
+  'MatJari/frontend 코드(pages·components·api·types)',
   '산출물 문서와 CLAUDE.md의 확정 결정(08_ERD 설계 문서, 04 요구사항 문서 포함)',
   'wiki/ 페이지(결정 근거·함정)',
 ]
@@ -46,7 +46,7 @@ const findings = await pipeline(areas, area =>
 
 phase('설계')
 const design = await agent(
-  '너는 SeatSwap의 설계 담당이다. 아래 탐색 결과만 근거로 "' + args.feature + '"의 설계안 1건을 만든다. 구현하지 않는다.\n' +
+  '너는 맞자리의 설계 담당이다. 아래 탐색 결과만 근거로 "' + args.feature + '"의 설계안 1건을 만든다. 구현하지 않는다.\n' +
     '규칙: ① 쓰기 병렬이 가능하도록 서로 겹치지 않는 파일 집합으로 나눈다 ② Flyway 마이그레이션은 한 파일 집합에만 두고 번호를 지금 배정한다(현재 최신 번호는 탐색 결과로 확인) ③ 확정 결정에 어긋나는 제안은 하지 않는다 ④ 사용자가 결정해야 할 질문은 추천안과 이유를 붙여 openQuestions에 모두 적는다(가정하지 않는다).\n\n' +
     '탐색 결과:\n' + JSON.stringify(findings.filter(Boolean), null, 2),
   {

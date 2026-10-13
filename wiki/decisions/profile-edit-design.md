@@ -2,7 +2,7 @@
 title: 프로필 수정·소셜 계정 연결 설계 근거
 type: decision
 tags: [프로필, 소셜로그인, 계정연결, 보안, CSRF, 설계]
-sources: [../../CLAUDE.md, social-login-design.md, ../gotchas/lock-order-and-index-pitfalls.md, ../../SeatSwap/backend/src/main/resources/db/migration/V16__user_password_login.sql]
+sources: [../../CLAUDE.md, social-login-design.md, ../gotchas/lock-order-and-index-pitfalls.md, ../../MatJari/backend/src/main/resources/db/migration/V16__user_password_login.sql]
 updated: 2026-10-13
 confidence: medium
 status: draft

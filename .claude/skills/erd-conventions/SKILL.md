@@ -114,13 +114,13 @@ description: DB 엔티티/ERD 관련 작업(신규 테이블, 관계 수정, JPA
 
 `ddl-auto: validate` — Hibernate는 스키마를 만들거나 고치지 않고 엔티티와 일치하는지 검증만 한다(불일치 시 기동 실패).
 
-- 변경은 `SeatSwap/backend/src/main/resources/db/migration/V{n}__{snake_description}.sql`을 **새로 추가**해서만 한다. 번호는 마지막 번호 + 1(다음은 V20).
+- 변경은 `MatJari/backend/src/main/resources/db/migration/V{n}__{snake_description}.sql`을 **새로 추가**해서만 한다. 번호는 마지막 번호 + 1(다음은 V20).
 - **이미 적용된 파일(V1~V19)은 수정 금지**(체크섬 불일치로 기동 실패). 잘못됐으면 새 V 파일로 고친다. 로컬 개발 DB를 되돌릴 때는 `docker compose down -v`.
 - 새 엔티티·컬럼·인덱스·길이·NOT NULL·collation 변경은 엔티티 수정과 **같은 커밋에 마이그레이션 파일을 함께 작성**한다.
 - 이관이 있는 변경은 재실행 가능한 프로시저 패턴(INFORMATION_SCHEMA 가드; V2·V3·V6~V18 전부 이 패턴을 쓴다. V4·V5는 신규 테이블뿐이라 해당 없음)으로 쓴다. 데이터를 이관할 수 없는 변경은 파일 맨 앞에서 임시 프로시저 + `SIGNAL SQLSTATE '45000'`으로 즉시 실패시킨다(MySQL DDL은 트랜잭션에 묶이지 않아 중간 실패 시 앞선 변경이 남기 때문). 실패 후에는 데이터를 고치고 `flyway repair` 후 재시도.
 - 요구 버전은 MySQL 8.0.16 이상(CHECK 강제). Flyway baseline 설정은 없다(V1은 빈 DB 전용). 이전 스키마가 남은 로컬 DB는 `docker compose down -v`로 비운다.
-- 이력 확인: `SELECT * FROM flyway_schema_history;`(절차는 `SeatSwap/backend/README.md` "DB 마이그레이션").
-- 통합 테스트(`SEATSWAP_IT_*` 환경변수)는 개발 DB를 보호하는 별도 DB 이름 규칙을 따른다(ops-rules 참고).
+- 이력 확인: `SELECT * FROM flyway_schema_history;`(절차는 `MatJari/backend/README.md` "DB 마이그레이션").
+- 통합 테스트(`MATJARI_IT_*` 환경변수)는 개발 DB를 보호하는 별도 DB 이름 규칙을 따른다(ops-rules 참고).
 
 ## 08_ERD 반영 규칙
 
@@ -131,4 +131,4 @@ description: DB 엔티티/ERD 관련 작업(신규 테이블, 관계 수정, JPA
 1. db-schema-architect가 변경안 설계
 2. `.dot` 파일 수정 → `dot -Tpng erd.dot -o ERD.png`로 재생성(한글 라벨 사용 시 `fonts-nanum` 설치 필요)
 3. 영향 있으면 산출물/04_요구사항정의서도 함께 갱신
-4. 엔티티 구현은 `SeatSwap/backend/src/main/java/com/seatswap/domain/`에 반영
+4. 엔티티 구현은 `MatJari/backend/src/main/java/com/matjari/domain/`에 반영

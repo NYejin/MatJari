@@ -2,7 +2,7 @@
 title: 교환 완료 시 티켓 처리: 안 2의 근거
 type: decision
 tags: [교환, 티켓, 유니크키, 8차답변]
-sources: [산출물/07_작업일지/2026-10-11.md, SeatSwap/backend/src/main/resources/db/migration/V9__exchange_complete_history.sql, 산출물/04_요구사항정의서/후속요구사항_제안알림_교환됨_공연정보입력.md, 산출물/08_ERD/exchange-schema-design.md, SeatSwap/backend/src/main/resources/db/migration/V3__ticket_seat_columns.sql, SeatSwap/backend/README.md, CLAUDE.md]
+sources: [산출물/07_작업일지/2026-10-11.md, MatJari/backend/src/main/resources/db/migration/V9__exchange_complete_history.sql, 산출물/04_요구사항정의서/후속요구사항_제안알림_교환됨_공연정보입력.md, 산출물/08_ERD/exchange-schema-design.md, MatJari/backend/src/main/resources/db/migration/V3__ticket_seat_columns.sql, MatJari/backend/README.md, CLAUDE.md]
 updated: 2026-10-11
 confidence: high
 status: stable

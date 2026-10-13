@@ -1,6 +1,6 @@
 ---
 name: project-knowledge
-description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙·기능 목록과 구현 상태·데이터 모델(Flyway V1~V19)·API/화면 요약. 기능 구현이나 설계 질문에 답하기 전에 먼저 참고한다. 결정이 바뀌면 이 문서의 해당 항목을 직접 고친다(이력은 HISTORY.md, 산출물/07_작업일지, wiki/).
+description: 맞자리의 현재 유효한 서비스 개요·확정 교환 규칙·기능 목록과 구현 상태·데이터 모델(Flyway V1~V19)·API/화면 요약. 기능 구현이나 설계 질문에 답하기 전에 먼저 참고한다. 결정이 바뀌면 이 문서의 해당 항목을 직접 고친다(이력은 HISTORY.md, 산출물/07_작업일지, wiki/).
 ---
 
 # 프로젝트 지식 요약
@@ -27,7 +27,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 | Backend | Spring Boot 3.3.13(Security 6.3.10) + JPA + Flyway, JWT 인증. WebSocket(STOMP, `/ws`)은 채팅 푸시에 구현됨(커스텀 CONNECT 인증 인터셉터, 사용자 큐만 구독) |
 | Frontend 추가 | `@stomp/stompjs` ^7.3(채팅 화면 전용), `VITE_WS_URL`(없으면 API 주소에서 계산) |
 | DB | MySQL 8.0 (Flyway V1~V19) |
-| 배포 | `SeatSwap/docker-compose.yml`: mysql · backend · frontend 3개. 시간대 KST(Clock Asia/Seoul, TZ=Asia/Seoul) |
+| 배포 | `MatJari/docker-compose.yml`: mysql · backend · frontend 3개. 시간대 KST(Clock Asia/Seoul, TZ=Asia/Seoul) |
 
 - 이미지 인식 서비스(FastAPI/OpenCV/Tesseract)는 동결로 삭제됐다.
 - 후속: Spring Boot 4.x 메이저 업그레이드(배포 전). `mysql-connector-j 8.4.0` 수동 지정 유지.
@@ -74,7 +74,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 ### 3.6 신고·차단·후기·관리자
 - 후기 기능은 만들지 않는다. 신뢰도 점수는 매칭에 쓰지 않는다(우선순위는 사용자가 정한 것). 신뢰도 점수 컬럼은 V18에서 제거했다.
 - **사용자 차단·신고·이용 정지(구현됨, V13)**: 채팅 화면에서 차단(양방향 효과: 후보 제외, 둘 사이 열린 매칭 시스템 취소·잠금 해제, 상대에게 알리지 않음, 해제 `/my/blocks`)·신고(사유 5종, 매칭당 OPEN 1건, 사용자당 OPEN 10건, 자동 제재 없음, `/my/reports`). 관리자는 `/admin/reports`에서 채팅 근거를 보고 처리/기각하고 이용 정지(7·30일/무기한)를 걸 수 있으며 `/admin/sanctions`(해제)·`/admin/blocks`(현황)로 관리한다. 정지 계정은 모든 인증 API·로그인이 403 `ACCOUNT_SUSPENDED`.
-- **관리자 페이지(구현됨, V12)**: 관리자는 DB에서 `users.role=ADMIN`을 직접 부여하고 `/api/admin/**`는 ADMIN만, 프론트 `/admin`은 `AdminRoute`. ①공연 수정 제안(`performance_edit_proposal`): 제목·공연장만, 관리자 승인으로만 공연 수정, 사용자당 PENDING 3건, 알림 없음(`/my/edit-proposals`). ②좌석 소유 인증(`seat_claim`): 사진(jpeg/png/webp ≤5 MiB, `seatswap.upload.dir`) 업로드→관리자 승인 시 기존 활성 티켓 INACTIVE(요청 CLOSED, CHATTING 매칭 취소, 예약 잠금이면 409), 처리 후 사진 삭제, 사용자당 PENDING 5건(`/my/seat-claims`). 상세는 wiki/decisions/admin-design.md.
+- **관리자 페이지(구현됨, V12)**: 관리자는 DB에서 `users.role=ADMIN`을 직접 부여하고 `/api/admin/**`는 ADMIN만, 프론트 `/admin`은 `AdminRoute`. ①공연 수정 제안(`performance_edit_proposal`): 제목·공연장만, 관리자 승인으로만 공연 수정, 사용자당 PENDING 3건, 알림 없음(`/my/edit-proposals`). ②좌석 소유 인증(`seat_claim`): 사진(jpeg/png/webp ≤5 MiB, `matjari.upload.dir`) 업로드→관리자 승인 시 기존 활성 티켓 INACTIVE(요청 CLOSED, CHATTING 매칭 취소, 예약 잠금이면 409), 처리 후 사진 삭제, 사용자당 PENDING 5건(`/my/seat-claims`). 상세는 wiki/decisions/admin-design.md.
 
 ### 3.7 공연 등록
 - 로그인 사용자 누구나 등록. 필드: 티켓팅 링크(sourceUrl), 제목, 공연장 이름(텍스트 필수 1~100자, 공백 정리), 회차(시각은 직접 입력, 10분 단위, 과거 불가. 2일 이하 링크 공연은 날짜 칸을 미리 채움). 중복 판정은 링크 정규화 값 `source_key`(utf8mb4_bin) unique: 인터파크·멜론·YES24·티켓링크는 `{site}:{productId}`, 그 외는 호스트+경로+정렬 쿼리+프래그먼트. 중복 409 + performanceId.
@@ -82,11 +82,11 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 - 공연 목록 검색은 제목만. 공연장 별도 테이블·검색·정식 등록(VERIFIED)·필터는 없다. 등록 화면은 3단계(①링크 중복 확인 ②공연 정보 ③확인·등록).
 - **링크 기반 자동 입력(구현됨)**: `GET /api/performances/preview`로 링크에서 제목·공연장·공연 기간을 읽어(회차 시각은 세 사이트 모두 Ajax라 읽지 못함, 직접 입력) 다음 단계에 미리 채우고 '이 정보가 맞나요?'를 묻고, 아니면 직접 수정 후 등록. 공개 페이지(JSON-LD·og)만 읽고 자동 등록은 없으며 직접 입력은 항상 가능. 대상은 YES24·티켓링크(JSON-LD)·멜론(본문 HTML), 인터파크는 robots.txt로 제외. SSRF 방어: 사용자 URL을 요청하지 않고 `SourceKeyResolver` 키(`site:숫자id`)로 고정 템플릿 URL만 만들며, 리다이렉트 불가·공인 IP·https·2 MiB·10초·사용자당 분당 10회·10분 캐시. 구현은 `service/linkinfo/`. 로그인·캡차 우회와 내부 API 조사는 하지 않는다. **회차 날짜 미리 채우기(구현됨, DB 변경 없음, 2026-10-13)**: 미리보기 응답 `sessionCandidates`(`[{date, time:null}]`, 항상 배열)는 공연 기간 시작·종료가 모두 있고 2일 이하일 때만 날짜를 담는다. 등록 2단계는 첫 날짜를 날짜 칸에 채우고 '날짜 바로 채우기'로 바꾸며, 회차 추가 때 다음 후보 날짜를 채운다. 시각은 직접 고르고 회차는 자동 등록하지 않는다. 구현은 `PerformancePreviewResponse.candidatesFromPeriod`, `SessionDateTimePicker.datePreset`. 상세는 백엔드 README '회차 날짜 후보' 절.
 
-- **공연 포스터 표시(구현, DB 변경 없음)**: 서버는 이미지를 저장·프록시하지 않고 링크 페이지의 og:image(없으면 JSON-LD `Event.image`)에서 **주소 문자열만** 읽는다. 브라우저가 원 사이트에서 직접 불러온다(인라인 링크). 허용 호스트는 사이트별 고정(YES24 `tkfile.yes24.com`, 티켓링크 `image.toast.com`, 멜론 `cdnticket.melon.co.kr`), https만. 로드 실패(핫링크 차단 포함)나 주소 없음이면 포스터 영역을 숨기고 대체 링크는 두지 않는다. 출처는 텍스트로만 표기한다. 공연 상세는 `GET /api/performances/{id}/poster`, 등록 2단계는 미리보기 `posterUrl`을 쓴다. 스위치 `seatswap.poster.enabled`(기본 true). 권리 확인은 공개 운영 전 해야 한다(요구사항 §7 Q-26). 상세: `wiki/decisions/poster-display-design.md`.
+- **공연 포스터 표시(구현, DB 변경 없음)**: 서버는 이미지를 저장·프록시하지 않고 링크 페이지의 og:image(없으면 JSON-LD `Event.image`)에서 **주소 문자열만** 읽는다. 브라우저가 원 사이트에서 직접 불러온다(인라인 링크). 허용 호스트는 사이트별 고정(YES24 `tkfile.yes24.com`, 티켓링크 `image.toast.com`, 멜론 `cdnticket.melon.co.kr`), https만. 로드 실패(핫링크 차단 포함)나 주소 없음이면 포스터 영역을 숨기고 대체 링크는 두지 않는다. 출처는 텍스트로만 표기한다. 공연 상세는 `GET /api/performances/{id}/poster`, 등록 2단계는 미리보기 `posterUrl`을 쓴다. 스위치 `matjari.poster.enabled`(기본 true). 권리 확인은 공개 운영 전 해야 한다(요구사항 §7 Q-26). 상세: `wiki/decisions/poster-display-design.md`.
 
 ### 3.8 인증
 - 이메일 가입·로그인, JWT access/refresh (`POST /api/auth/signup|login|refresh`). 인증 사용자 식별은 토큰 **userId** 기준(삭제된 사용자·파싱 오류만 401).
-- **소셜 로그인(구현, V14 `social_account`)**: 카카오·구글·네이버 3종, 백엔드가 Authorization Code를 직접 처리(구글·카카오 PKCE, 네이버는 state 쿠키). 같은 소셜 계정이면 그 사용자로 로그인하고, 없으면 가입한다. 제공자가 준 **검증된** 이메일이 기존 `users`에 있으면 **자동 연결하지 않고** `EMAIL_EXISTS`로 막는다. 이메일이 없거나 미검증이면 `{provider}.{providerUserId}@social.seatswap.invalid` 자리표시 이메일과 무작위 비밀번호 해시로 가입하므로 비밀번호 로그인은 안 된다. 콜백은 60초짜리 일회용 로그인 코드를 `/auth/callback#code=`(프래그먼트)로 넘기고, 프런트가 `POST /api/auth/social/exchange`로 JWT를 받는다. 실패는 `/login?socialError=` 코드로 안내한다. 정지·차단 규칙은 일반 사용자와 같다. 상세는 CLAUDE.md '소셜 로그인' 절과 백엔드 README '소셜 로그인 (V14)' 절.
+- **소셜 로그인(구현, V14 `social_account`)**: 카카오·구글·네이버 3종, 백엔드가 Authorization Code를 직접 처리(구글·카카오 PKCE, 네이버는 state 쿠키). 같은 소셜 계정이면 그 사용자로 로그인하고, 없으면 가입한다. 제공자가 준 **검증된** 이메일이 기존 `users`에 있으면 **자동 연결하지 않고** `EMAIL_EXISTS`로 막는다. 이메일이 없거나 미검증이면 `{provider}.{providerUserId}@social.matjari.invalid` 자리표시 이메일과 무작위 비밀번호 해시로 가입하므로 비밀번호 로그인은 안 된다. 콜백은 60초짜리 일회용 로그인 코드를 `/auth/callback#code=`(프래그먼트)로 넘기고, 프런트가 `POST /api/auth/social/exchange`로 JWT를 받는다. 실패는 `/login?socialError=` 코드로 안내한다. 정지·차단 규칙은 일반 사용자와 같다. 상세는 CLAUDE.md '소셜 로그인' 절과 백엔드 README '소셜 로그인 (V14)' 절.
 - **닉네임 수정·소셜 계정 연결·해제(구현, V16)**: 마이페이지에서 닉네임을 고친다(가입과 같은 규칙, 중복 허용, `PATCH /api/users/me`). 소셜 계정은 로그인한 본인이 마이페이지 '소셜 계정 연결'에서 명시적으로 연결·해제한다. 연결은 콜백이 저장하지 않고 **로그인 세션이 확정**한다(연결 확정 코드 60초 1회, 확정 사용자와 코드 사용자가 같을 때만 저장). 사용자당 제공자 1개(UNIQUE(user_id, provider)). 해제는 마지막 로그인 수단이면 409 `LAST_LOGIN_METHOD`(`password_login_enabled`=false이고 연결이 하나뿐). 같은 이메일이어도 자동으로 합치지 않는다. 자리표시 이메일은 응답에서 `email=null`, `emailPlaceholder=true`. 비밀번호·이메일은 바꾸지 않는다. 상세는 백엔드 README '프로필 수정·소셜 계정 연결 (V16)' 절.
 - 가입 규칙(DTO·`AuthInputNormalizer`·프론트 `authValidation.ts` 세 곳에 중복, 변경 시 모두 수정): 이메일 trim+소문자 100자 이하, 비밀번호 8~64자이며 UTF-8 72바이트 이하(bcrypt 한계, **로그인도 72바이트 초과를 사전 차단 유지**), 닉네임 trim 후 2~20자·보이지 않는 문자 불가·중복 허용. 이메일 중복은 400 `{"email": ...}`.
 - 401=미인증(프론트가 single-flight로 refresh 후 1회 재시도), 403=권한 없음(재발급 안 함). 오류 포맷은 400/401/403/404/409 통일(`{message}` 또는 `{field: msg}`).
@@ -108,12 +108,12 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 - **읽음**은 '마지막으로 읽은 메시지' 포인터 하나(앞으로만 이동, 단조 증가). 매칭 카드에는 안 읽은 개수 뱃지, 내가 보낸 마지막 메시지 아래에는 상대가 읽었으면 '읽음'.
 - 본문은 텍스트만 1000자(코드 포인트) 이하. 이미지·파일 첨부 없음, 민감정보 가리기 안내. 메시지는 무기한 보관하며 삭제·수정 불가.
 - 실시간 연결(STOMP)은 로그인한 앱 전체가 탭당 하나를 공유한다(알림 푸시와 채팅). 새 메시지는 수신자별 `CHAT_MESSAGE` 알림 1행을 재사용해 헤더 벨에 표시한다(헤더 메시지 아이콘은 없다). 새 메시지는 매칭 `updated_at`을 바꾸지 않는다.
-- 연결 제한: 사용자당 동시 연결 5개, 구독 목적지는 `/user/queue/chat`·`/user/queue/notifications` 두 개뿐이고 목적지당 구독 1개. 허용 Origin은 `seatswap.websocket.allowed-origins` 설정으로만 연다(와일드카드 금지).
+- 연결 제한: 사용자당 동시 연결 5개, 구독 목적지는 `/user/queue/chat`·`/user/queue/notifications` 두 개뿐이고 목적지당 구독 1개. 허용 Origin은 `matjari.websocket.allowed-origins` 설정으로만 연다(와일드카드 금지).
 - 서버 전송 경로의 속도 제한(사용자별 429 `CHAT_RATE_LIMITED`)과 본문 정규화 세부 규칙은 backend 코드·`ChatService` 주석을 따른다.
 
 ### 3.11 회원탈퇴·개인정보처리방침 (구현, V17 `users.withdrawn_at`)
 - `DELETE /api/users/me`: 비밀번호 로그인 계정은 비밀번호, 소셜 전용 계정은 확인 문구 '탈퇴합니다'와 연결된 소셜 계정으로 방금 다시 인증한 `reauthCode`(연결된 제공자가 모두 꺼져 있으면 생략)를 보내야 한다. ADMIN은 409 `ADMIN_CANNOT_WITHDRAW`. 이용 정지 중에도 이 API는 허용한다(필터 예외; 비밀번호가 맞는 정지 로그인은 403 본문에 탈퇴 전용 10분 토큰 `withdrawToken`을 준다, 소셜 전용 정지 계정은 문의처).
-- 한 트랜잭션: PENDING 좌석 인증 요청 거절 → 열린 매칭(CHATTING·RESERVED) 시스템 취소와 예약 잠금 해제 → OPEN 요청 CLOSED·활성 티켓 INACTIVE(2차 정리 포함) → `social_account` 전부 삭제 → users 익명화(이메일 `withdrawn.{id}@withdrawn.seatswap.invalid`, 닉네임 '탈퇴한 회원', 무작위 비밀번호, 비밀번호 로그인 불가, `withdrawn_at` 기록) → 수신자 알림 삭제 → 커밋 뒤 STOMP 연결 종료.
+- 한 트랜잭션: PENDING 좌석 인증 요청 거절 → 열린 매칭(CHATTING·RESERVED) 시스템 취소와 예약 잠금 해제 → OPEN 요청 CLOSED·활성 티켓 INACTIVE(2차 정리 포함) → `social_account` 전부 삭제 → users 익명화(이메일 `withdrawn.{id}@withdrawn.matjari.invalid`, 닉네임 '탈퇴한 회원', 무작위 비밀번호, 비밀번호 로그인 불가, `withdrawn_at` 기록) → 수신자 알림 삭제 → 커밋 뒤 STOMP 연결 종료.
 - 진행 중 교환은 예약 중이어도 모두 자동 정리한다(사용자 결정). 채팅·읽음 상태·교환 이력·차단·신고·제재·PENDING 공연 수정 제안은 지우지 않고, 닉네임이 '탈퇴한 회원'으로 보인다.
 - 인증 차단: 탈퇴 계정은 기존 액세스 토큰·STOMP CONNECT·로그인·refresh·소셜 교환·소셜 연결 확정이 모두 거절된다. 같은 이메일·같은 소셜 계정으로 새로 가입할 수 있다.
 - 잠금 순서: users 행은 티켓·요청·매칭을 잠근 뒤에 잡는다(제안이 티켓 잠금 뒤 매칭을 INSERT하며 users에 FK 공유 잠금을 걸어, users 먼저 잡으면 교착).
@@ -237,7 +237,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 - 예약 제안·채팅 알림 한계(2026-10-13): 예약-취소 남용 방지 없음(차단·신고로 다룸), 정렬용 `(user_id, created_at)` 인덱스 없음(알림이 매칭당 1행 수준이라 불필요로 판단, 실측 아님), 읽음 가드와 알림 되살리기가 겹치는 극히 약한 창, 일부 경로 REPEATABLE READ 패턴 유지. 알림 목록 정렬은 `created_at DESC, id DESC`, 채팅 읽음은 포인터 뒤에 상대 메시지가 남아 있으면 처리하지 않는다. 브라우저 확인은 Playwright 수준.
 - 7일 경과 알림은 4절의 보류 항목이다(2026-10-13 결정).
 - 회차 날짜 미리 채우기 한계(2026-10-13): 시각은 직접 입력(세 사이트 회차 시각은 Ajax), 3일 이상 공연은 날짜 후보 없음(AI 상세정보 출처는 후속, 구조만 열림), 하루 여러 회차인 2일 공연은 날짜당 후보 1개라 같은 날짜를 직접 추가해야 함, 공연 기간과 실제 회차 날짜가 다를 수 있음(화면은 확인 문구로 안내).
-- 공연 포스터 표시 한계(2026-10-13): 인라인 링크의 저작권 확정 판례 없음, 포스터 저작물성과 티켓 3사 약관 미확인(공개 운영 전 확인, 요구사항 §7 Q-26, 요청이 오면 `seatswap.poster.enabled=false`), 허용 호스트는 실측 기준이라 CDN이 바뀌면 포스터가 안 뜸, YES24는 포스터 없는 공연이 많음, 인터파크 미지원, 핫링크 차단 시 안 보임, 삭제·표시 중단 요청은 방침 문의처로 받는데 방침 문구는 아직 없음. 상세는 `wiki/decisions/poster-display-design.md`.
+- 공연 포스터 표시 한계(2026-10-13): 인라인 링크의 저작권 확정 판례 없음, 포스터 저작물성과 티켓 3사 약관 미확인(공개 운영 전 확인, 요구사항 §7 Q-26, 요청이 오면 `matjari.poster.enabled=false`), 허용 호스트는 실측 기준이라 CDN이 바뀌면 포스터가 안 뜸, YES24는 포스터 없는 공연이 많음, 인터파크 미지원, 핫링크 차단 시 안 보임, 삭제·표시 중단 요청은 방침 문의처로 받는데 방침 문구는 아직 없음. 상세는 `wiki/decisions/poster-display-design.md`.
 - 회원탈퇴 한계(2026-10-13): 소셜 전용 정지 계정은 탈퇴 경로가 없어 방침 §8 문의처(비밀번호 계정은 정지 로그인의 `withdrawToken`으로 탈퇴, 소셜 전용 계정의 재인증은 구현됨), 교착 창 2개는 503 후 재시도, 보관 기간의 법적 근거 미확인(공개 운영 전 전문가 검토), 가입 시 동의 기록 없음, 탈퇴 속도 제한은 메모리. 인증 사진은 정리 작업이 주기적으로 지운다. 상세는 `wiki/decisions/withdraw-privacy-design.md`.
 - 프로필·소셜 연결 한계(2026-10-13): 연결 확정 코드·티켓·속도 제한이 메모리(단일 인스턴스)다. 같은 이름 쿠키라 탭 A의 연결 시작과 탭 B의 소셜 로그인이 겹치면 A 콜백이 INVALID_STATE가 된다. 티켓이 URL 쿼리에 실리고(1회용·60초), JWT 클레임에 자리표시 이메일 원문이 남는다(화면에는 안 나옴). 비밀번호·이메일 변경과 소셜 가입자의 비밀번호 설정은 없다. 실제 제공자 키로 미검증.
 - 소셜 로그인: 네이버 이메일은 검증 여부를 알 수 없어 쓰지 않는다(항상 자리표시 이메일, 2026-10-13).
@@ -245,7 +245,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 - 채팅 알려진 한계: 실제 브라우저와 @stomp/stompjs 연동 점검 미실시, 모바일 이중 스크롤 완전 해소 미보장(AppLayout 높이 규칙), 미인증 소켓은 최대 약 40초 유지(운영 프록시 연결 한도로 흡수), 토큰 만료·사용자 변경 후 최대 30초 푸시 유지(이용 정지는 커밋 뒤 대상 STOMP 연결을 닫음), 응답·푸시에 상대 `senderId`(users.id) 노출(차단·신고 브랜치에서 `mine`으로 대체 검토), 속도·연결 제한은 단일 인스턴스 메모리, 하트비트 미응답 종료·16KB 초과 프레임 거부 미확인.
 - 공연: 예매처별로 같은 공연이 갈라지는 문제(같은 공연장+비슷한 제목 안내), 회차 추가 상한·스팸 정리는 후속.
 - 필터에서 전파된 예외(DB 장애 등)는 Spring 기본 `/error` 포맷으로 나간다(`{message}` 통일 검토). `/me` 한 번에 사용자 조회 2회(필터+서비스). `index.html` viewport에 `viewport-fit=cover`가 없어 safe-area 여백 미적용.
-- Testcontainers 미도입: 실제 MySQL 통합 테스트(`ExchangeCandidateQueryTest`, `MigrationV6V7MysqlTest`, `MigrationV8MysqlTest`, `ExchangeCompleteMysqlTest`, `MigrationV9MysqlTest` 등)는 환경변수 `SEATSWAP_IT_*`가 있을 때만 실행(기본 skip, 개발 DB 보호 장치 포함).
+- Testcontainers 미도입: 실제 MySQL 통합 테스트(`ExchangeCandidateQueryTest`, `MigrationV6V7MysqlTest`, `MigrationV8MysqlTest`, `ExchangeCompleteMysqlTest`, `MigrationV9MysqlTest` 등)는 환경변수 `MATJARI_IT_*`가 있을 때만 실행(기본 skip, 개발 DB 보호 장치 포함).
 - 산출물 04·05·08 원본(docx/xlsx)에는 이 문서의 최신 결정이 아직 반영되지 않았다. FR-01 아래 '내 정보 조회' 항목 추가 필요.
 
 ## 9. 폐기된 안 (되돌리지 말 것)

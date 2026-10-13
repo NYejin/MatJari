@@ -1,0 +1,112 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/matjari}
+    username: ${SPRING_DATASOURCE_USERNAME:root}
+    password: ${SPRING_DATASOURCE_PASSWORD:changeme}
+    # URL만으로 드라이버를 자동 추론하게 두지 않고 명시적으로 지정 (추론 실패 방지)
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    # 요청 전체에 영속성 컨텍스트를 열어두지 않는다. 응답 DTO는 서비스 트랜잭션 안에서 만들고,
+    # 무결성 위반 레이스 후 재조회가 실패한 세션이 아닌 새 세션/트랜잭션에서 돌게 하기 위함.
+    open-in-view: false
+    hibernate:
+      # 스키마는 Flyway(db/migration/V*.sql)만 변경한다. Hibernate는 엔티티와 일치하는지 검증만 한다.
+      ddl-auto: validate
+    show-sql: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  servlet:
+    multipart:
+      # 좌석 소유 인증 사진 1장(5 MiB). 초과하면 413 IMAGE_TOO_LARGE. 요청 전체는 메모 등 여유분 1 MiB 포함
+      max-file-size: 5MB
+      max-request-size: 6MB
+
+jwt:
+  # 기본값은 로컬 개발이 당장 돌아가게 하기 위한 placeholder일 뿐이다.
+  # HMAC-SHA는 최소 256비트(32바이트) 키가 필요하므로 일부러 충분히 길게 잡아뒀다.
+  # 실제로는 반드시 JWT_SECRET 환경변수로 직접 생성한 값을 덮어써서 쓸 것
+  # (예: openssl rand -base64 32).
+  secret: ${JWT_SECRET:dev-only-insecure-default-secret-please-override-with-JWT-SECRET-env}
+  access-token-validity-ms: 3600000
+  refresh-token-validity-ms: 1209600000
+  # 이용 정지 중 비밀번호 로그인이 주는 탈퇴 전용 토큰의 유효 시간(기본 10분). DELETE /api/users/me 에서만 쓸 수 있다
+  withdraw-token-validity-ms: ${JWT_WITHDRAW_TOKEN_VALIDITY_MS:600000}
+
+ticket:
+  # 사용자당 활성 티켓 상한, 숫자 열·번 상한 (숫자가 아닌 열·번(A, 가 등)에는 적용하지 않는다)
+  max-active-per-user: ${TICKET_MAX_ACTIVE_PER_USER:20}
+  max-row-number: ${TICKET_MAX_ROW_NUMBER:999}
+  max-col-number: ${TICKET_MAX_COL_NUMBER:999}
+
+exchange:
+  want:
+    # 교환 희망 조건 서버 안전 상한 (사용자 대상 상한이 아니라 DoS 방어용). 초과하면 422
+    max-seats: ${EXCHANGE_WANT_MAX_SEATS:5000}
+    max-ranges: ${EXCHANGE_WANT_MAX_RANGES:50}
+
+matjari:
+  mail:
+    # log(기본, 개발용: 메일 내용을 로그에 출력) | smtp(실제 발송: SPRING_MAIL_HOST/PORT/USERNAME/PASSWORD 필요). 운영에서는 smtp 여야 기동된다
+    mode: ${MATJARI_MAIL_MODE:log}
+    from: ${MATJARI_MAIL_FROM:}
+  email-verification:
+    # 일반 가입 전 이메일 인증번호. false 면 가입에 인증번호를 요구하지 않는다
+    enabled: ${MATJARI_EMAIL_VERIFICATION_ENABLED:true}
+    code-ttl-seconds: ${MATJARI_EMAIL_CODE_TTL_SECONDS:600}
+    resend-cooldown-seconds: ${MATJARI_EMAIL_CODE_RESEND_SECONDS:60}
+    max-attempts: ${MATJARI_EMAIL_CODE_MAX_ATTEMPTS:5}
+    ip-per10-min: ${MATJARI_EMAIL_CODE_IP_PER_10MIN:10}
+    email-per10-min: ${MATJARI_EMAIL_CODE_EMAIL_PER_10MIN:5}
+    global-per-hour: ${MATJARI_EMAIL_CODE_GLOBAL_PER_HOUR:200}
+    # 코드 해시 HMAC 키. 운영에서는 반드시 새 값으로 덮어쓴다(예: openssl rand -base64 48)
+    secret: ${MATJARI_EMAIL_CODE_SECRET:dev-only-insecure-email-code-secret-please-override}
+  upload:
+    # 좌석 소유 인증 사진 저장 디렉터리(웹에서 직접 서빙하지 않는 경로). UUID 이름으로만 저장한다. 처리 후 파일은 삭제된다
+    dir: ${MATJARI_UPLOAD_DIR:./data/seat-claims}
+    # 정리 작업: 처리 뒤 삭제가 실패해 남은 사진과 요청 행이 없는 고아 파일을 주기적으로 지운다(grace-minutes 보다 오래된 것만)
+    cleanup:
+      enabled: ${MATJARI_UPLOAD_CLEANUP_ENABLED:true}
+      interval-ms: ${MATJARI_UPLOAD_CLEANUP_INTERVAL_MS:3600000}
+      initial-delay-ms: ${MATJARI_UPLOAD_CLEANUP_INITIAL_DELAY_MS:300000}
+      grace-minutes: ${MATJARI_UPLOAD_CLEANUP_GRACE_MINUTES:60}
+      batch: ${MATJARI_UPLOAD_CLEANUP_BATCH:200}
+  seat-claim:
+    max-pending-per-user: ${MATJARI_SEAT_CLAIM_MAX_PENDING:5}
+  websocket:
+    # STOMP 핸드셰이크 허용 Origin(쉼표 구분)이자 REST CORS 허용 Origin. '*' 금지(시작 시 거부), http:// 또는 https:// 로 시작.
+    allowed-origins: ${MATJARI_WS_ALLOWED_ORIGINS:http://localhost:5173}
+    max-connections-per-user: ${MATJARI_WS_MAX_CONNECTIONS_PER_USER:5}
+    # 토큰 만료·CONNECT 하지 않은 세션을 닫는 주기와 CONNECT 대기 시한
+    sweep-interval-ms: ${MATJARI_WS_SWEEP_INTERVAL_MS:30000}
+    connect-timeout-ms: ${MATJARI_WS_CONNECT_TIMEOUT_MS:10000}
+  social:
+    # 소셜 로그인(카카오·구글·네이버). client-id 가 비어 있는 제공자는 비활성(기본). 제공자 엔드포인트는 코드의 실제 값이 기본이다.
+    # 하나라도 활성이면 기동 시 검증: frontend-base-url 이 matjari.websocket.allowed-origins 에 포함, state-secret 32바이트 이상
+    backend-base-url: ${MATJARI_SOCIAL_BACKEND_BASE_URL:http://localhost:8080}
+    frontend-base-url: ${MATJARI_SOCIAL_FRONTEND_BASE_URL:http://localhost:5173}
+    # 운영에서는 반드시 새 값으로 덮어쓴다(예: openssl rand -base64 48)
+    state-secret: ${MATJARI_SOCIAL_STATE_SECRET:dev-only-insecure-social-state-secret-please-override-0123456789}
+    cookie-secure: ${MATJARI_SOCIAL_COOKIE_SECURE:false}
+    google:
+      client-id: ${MATJARI_SOCIAL_GOOGLE_CLIENT_ID:}
+      client-secret: ${MATJARI_SOCIAL_GOOGLE_CLIENT_SECRET:}
+    kakao:
+      client-id: ${MATJARI_SOCIAL_KAKAO_CLIENT_ID:}
+      client-secret: ${MATJARI_SOCIAL_KAKAO_CLIENT_SECRET:}
+    naver:
+      client-id: ${MATJARI_SOCIAL_NAVER_CLIENT_ID:}
+      client-secret: ${MATJARI_SOCIAL_NAVER_CLIENT_SECRET:}
+  linkinfo:
+    # 링크 기반 공연 정보 읽기(공개 HTML). 요청 대상은 코드에 고정된 3개 사이트의 고정 템플릿 URL뿐이다.
+    connect-timeout-ms: ${MATJARI_LINKINFO_CONNECT_TIMEOUT_MS:5000}
+    request-timeout-ms: ${MATJARI_LINKINFO_REQUEST_TIMEOUT_MS:10000}
+    max-bytes: ${MATJARI_LINKINFO_MAX_BYTES:2097152}
+    cache-ttl-seconds: ${MATJARI_LINKINFO_CACHE_TTL_SECONDS:600}
+    cache-max-entries: ${MATJARI_LINKINFO_CACHE_MAX_ENTRIES:200}
+    user-per-minute: ${MATJARI_LINKINFO_USER_PER_MINUTE:10}
+    site-per-minute: ${MATJARI_LINKINFO_SITE_PER_MINUTE:30}
+    max-concurrent: ${MATJARI_LINKINFO_MAX_CONCURRENT:4}

@@ -1,4 +1,4 @@
-# SeatSwap
+# 맞자리
 
 같은 공연의 티켓을 보유한 사람들끼리 좌석을 맞교환하거나, 좌석 등급 차이에 따른 추가금액을 주고받으며 자리를 교환할 수 있는 개인 포트폴리오 웹 서비스입니다.
 
@@ -58,7 +58,7 @@
 00_3rd_project/
 ├── CLAUDE.md          # 프로젝트 전역 컨텍스트 (핵심 설계 결정 요약)
 ├── .claude/           # Claude Code 하네스 (서브에이전트, 스킬)
-├── SeatSwap/           # 소스코드
+├── MatJari/           # 소스코드
 │   ├── backend/            # Spring Boot
 │   ├── frontend/            # React + Vite
 │   └── docker-compose.yml
@@ -76,7 +76,7 @@
 Docker Compose로 전체 스택(MySQL + backend + frontend)을 한 번에 띄울 수 있습니다.
 
 ```bash
-cd SeatSwap
+cd 맞자리
 cp .env.example .env   # 값 채우기
 docker compose up --build
 ```
@@ -86,7 +86,7 @@ docker compose up --build
 | 프론트엔드 | http://localhost:5173 |
 | 백엔드 API | http://localhost:8080/api |
 
-자세한 실행 방법(개별 가상환경 실행, 트러블슈팅 등)은 [`SeatSwap/README.md`](./SeatSwap/README.md)를 참고하세요.
+자세한 실행 방법(개별 가상환경 실행, 트러블슈팅 등)은 [`MatJari/README.md`](./MatJari/README.md)를 참고하세요.
 
 ## AI 활용 개발 (Claude Code 하네스)
 

@@ -1,0 +1,270 @@
+package com.matjari.service.social;
+
+import com.matjari.domain.SocialProvider;
+import com.matjari.domain.User;
+import com.matjari.dto.response.TokenResponse;
+import com.matjari.exception.AccountSuspendedException;
+import com.matjari.repository.UserRepository;
+import com.matjari.security.AccountSuspensionChecker;
+import com.matjari.service.AuthService;
+import com.matjari.service.social.SocialLoginFailure.SocialError;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
+import java.util.Base64;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
+
+/**
+ * 소셜 로그인 흐름(백엔드가 처리하는 Authorization Code + PKCE). authorize -> callback -> 일회용 코드 -> exchange.
+ * 리다이렉트 목적지는 설정(frontend-base-url)으로 고정되고 요청 파라미터로 받지 않는다(오픈 리다이렉트 불가).
+ * 로그·예외에 code/token/secret/이메일을 남기지 않는다(제공자 이름과 오류 종류만).
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class SocialAuthService {
+
+    /** 제공자로 보낼 302 Location 과 심을 Set-Cookie 값. */
+    public record AuthorizeResult(String location, String setCookie) {
+    }
+
+    /** 프런트로 보낼 302 Location 과 (항상) 쿠키 삭제 Set-Cookie 값. */
+    public record CallbackResult(String location, String clearCookie) {
+    }
+
+    private final SocialProperties properties;
+    private final SocialStateCookie stateCookie;
+    private final SocialProviderClient providerClient;
+    private final SocialLoginService loginService;
+    private final SocialLoginCodeStore codeStore;
+    private final SocialRateLimiter rateLimiter;
+    private final AuthService authService;
+    private final UserRepository userRepository;
+    private final AccountSuspensionChecker suspensionChecker;
+    private final SocialLinkTicketStore linkTicketStore;
+    private final SocialLinkConfirmStore linkConfirmStore;
+    private final SecureRandom random = new SecureRandom();
+    /** 제공자 token·userinfo 호출 동시 실행 상한(초과는 기다리지 않고 SERVER_BUSY). */
+    private final Semaphore providerCalls = new Semaphore(8);
+    /** 이미 콜백을 통과한 state(쿠키는 무상태라 10분 안에는 재사용될 수 있어 서버가 한 번만 받는다). 만료 키는 가끔 쓸어 낸다. */
+    private final ConcurrentHashMap<String, Long> usedStates = new ConcurrentHashMap<>();
+    private static final long USED_STATE_TTL_MILLIS = 11 * 60_000L;
+    private static final int USED_STATE_MAX = 10_000;
+
+    /** 활성 제공자 경로값(`["kakao","google"]` 순서는 enum 순서). */
+    public List<String> enabledProviders() {
+        return properties.enabledProviderPaths();
+    }
+
+    /** 1단계: state·PKCE verifier 를 만들어 서명 쿠키에 담고 제공자 authorize URL 을 돌려준다. */
+    public AuthorizeResult authorize(String providerPath, String clientIp) {
+        return authorize(providerPath, clientIp, null);
+    }
+
+    /**
+     * 1단계(계정 연결 모드 포함). linkTicket 이 null 이 아니면 연결 모드다: 티켓을 소비해 사용자 id 를 얻고 서명 쿠키에 담는다.
+     * 티켓이 비었거나 없거나 만료거나 발급 때의 제공자와 다르면 제공자로 보내지 않고 {frontend}/me?socialLinkError=INVALID_LINK 로 302(쿠키 없음, setCookie=null).
+     * 연결 모드의 IP 속도 제한 초과·비활성 제공자도 JSON 이 아니라 /me?socialLinkError=SERVER_BUSY|PROVIDER_DISABLED 로 302(쿠키 없음).
+     * 티켓은 활성 제공자 확인 뒤에 소비한다(비활성 제공자에서 티켓을 헛되이 태우지 않는다).
+     */
+    public AuthorizeResult authorize(String providerPath, String clientIp, String linkTicket) {
+        boolean linkMode = linkTicket != null;
+        try {
+            rateLimiter.acquire("a:" + clientIp);
+        } catch (SocialAuthException e) {
+            if (!linkMode) {
+                throw e;
+            }
+            return new AuthorizeResult(failureLocation(SocialError.SERVER_BUSY, null, true), null);
+        }
+        SocialProvider provider;
+        try {
+            provider = enabledProvider(providerPath);
+        } catch (SocialAuthException e) {
+            if (!linkMode) {
+                throw e;
+            }
+            return new AuthorizeResult(failureLocation(SocialError.PROVIDER_DISABLED, null, true), null);
+        }
+        SocialProperties.Provider cfg = properties.of(provider);
+
+        Long linkUserId = null;
+        if (linkMode) {
+            linkUserId = linkTicketStore.consume(linkTicket, provider).orElse(null);
+            if (linkUserId == null) {
+                return new AuthorizeResult(failureLocation(SocialError.INVALID_LINK, null, true), null);
+            }
+        }
+
+        String state = randomToken();
+        String verifier = randomToken();
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("response_type", "code");
+        params.put("client_id", cfg.getClientId());
+        params.put("redirect_uri", properties.redirectUri(provider));
+        String scope = switch (provider) {
+            case GOOGLE -> "openid email profile";
+            case KAKAO -> "profile_nickname account_email";
+            case NAVER -> null; // 네이버는 scope 파라미터 없이(앱 설정으로 결정)
+        };
+        if (scope != null) {
+            params.put("scope", scope);
+        }
+        params.put("state", state);
+        if (provider.supportsPkce()) {
+            params.put("code_challenge", SocialPkce.challenge(verifier));
+            params.put("code_challenge_method", "S256");
+        }
+        String base = cfg.getAuthorizeUri();
+        String location = base + (base.contains("?") ? "&" : "?") + encode(params);
+        return new AuthorizeResult(location, stateCookie.setCookieHeader(stateCookie.sign(provider, state, verifier, linkUserId)));
+    }
+
+    /**
+     * 콜백. 항상 프런트로 302(성공은 /auth/callback#code=..., 실패는 /login?socialError=..) 하고 state 쿠키를 지운다.
+     * 비활성/알 수 없는 제공자만 SocialAuthException(404). 쿠키 검증이 끝나기 전에는 제공자에게 아무것도 요청하지 않는다.
+     */
+    /** 콜백 IP 속도 제한을 넘었는가(authorize·exchange 와 버킷을 나눈다). 넘으면 제공자에게 아무것도 요청하지 않고 {@link #busyResult()} 로 돌려보낸다. */
+    public boolean callbackRateLimited(String clientIp) {
+        try {
+            rateLimiter.acquire("c:" + clientIp);
+            return false;
+        } catch (SocialAuthException e) {
+            return true;
+        }
+    }
+
+    /** 속도 제한 초과 응답. 쿠키 값은 서명 검증 없이 목적지(/me 또는 /login) 선택에만 쓴다. */
+    public CallbackResult busyResult(String cookieValue) {
+        return new CallbackResult(failureLocation(SocialError.SERVER_BUSY, null, SocialStateCookie.looksLikeLinkMode(cookieValue)),
+                stateCookie.clearCookieHeader());
+    }
+
+    public CallbackResult callback(String providerPath, String code, String state, String error, String cookieValue) {
+        SocialProvider provider = enabledProvider(providerPath);
+        String clear = stateCookie.clearCookieHeader();
+        // 실패 목적지 선택용: 쿠키가 연결(link) 모드처럼 보이면 실패도 /me?socialLinkError= 로 보낸다(서명 검증 전이라 보안 판단에는 쓰지 않는다)
+        boolean linkDestination = SocialStateCookie.looksLikeLinkMode(cookieValue);
+        Long linkUserId = null;
+        try {
+            // 1) 쿠키 검증(서명·만료·provider)과 state 상수시간 비교. 실패하면 코드 교환을 시도하지 않는다
+            SocialStateCookie.Verified verified = stateCookie.verify(cookieValue, provider)
+                    .orElseThrow(() -> new SocialLoginFailure(SocialError.INVALID_STATE));
+            if (!SocialStateCookie.constantTimeEquals(verified.state(), state)) {
+                throw new SocialLoginFailure(SocialError.INVALID_STATE);
+            }
+            linkUserId = verified.linkUserId();
+            // 같은 state 는 한 번만(쿠키를 훔쳐 코드 교환을 반복 유발하는 것을 막는다)
+            markStateUsed(verified.state());
+            // 2) 사용자가 동의를 거부하는 등 제공자가 error 를 돌려준 경우
+            if (error != null && !error.isBlank()) {
+                throw new SocialLoginFailure(SocialError.ACCESS_DENIED);
+            }
+            if (code == null || code.isBlank()) {
+                throw new SocialLoginFailure(SocialError.PROVIDER_ERROR);
+            }
+            // 3) code -> access_token -> userinfo
+            SocialProfile profile;
+            if (!providerCalls.tryAcquire()) {
+                throw new SocialLoginFailure(SocialError.SERVER_BUSY);
+            }
+            try {
+                String accessToken = providerClient.exchangeCode(provider, code, verified.verifier(), verified.state());
+                profile = providerClient.fetchProfile(provider, accessToken);
+            } catch (SocialProviderClient.ProviderException e) {
+                log.warn("Social provider call failed (provider: {}, kind: {})", provider, e.getMessage());
+                throw new SocialLoginFailure(SocialError.PROVIDER_ERROR);
+            } finally {
+                providerCalls.release();
+            }
+            // 4-link) 연결 모드: DB 에 저장하지 않는다. 연결 확정 코드를 발급해 프래그먼트로 넘기고, 로그인한 본인이 확정 API 로 저장한다
+            if (linkUserId != null) {
+                String confirmCode = linkConfirmStore.issue(linkUserId, provider, profile.providerUserId());
+                return new CallbackResult(properties.frontendBase() + "/me#linkCode=" + confirmCode, clear);
+            }
+            // 4) 사용자 결정 + 일회용 로그인 코드
+            Long userId = loginService.loginOrSignup(provider, profile);
+            String loginCode = codeStore.issue(userId);
+            return new CallbackResult(properties.frontendBase() + "/auth/callback#code=" + loginCode, clear);
+        } catch (SocialLoginFailure f) {
+            log.info("Social {} failed (provider: {}, error: {})", linkDestination ? "link" : "login", provider, f.getError());
+            return new CallbackResult(failureLocation(f.getError(), null, linkDestination), clear);
+        } catch (AccountSuspendedException e) {
+            Object until = e.toBody().get("until");
+            return new CallbackResult(failureLocation(SocialError.ACCOUNT_SUSPENDED, until == null ? "" : until.toString(),
+                    linkDestination), clear);
+        } catch (RuntimeException e) {
+            // 분류하지 못한 오류(DB 장애·보관 한도 등)도 JSON 이 아니라 로그인(또는 마이페이지) 화면으로 돌려보내고 쿠키를 지운다. 값은 로그에 남기지 않는다
+            log.warn("Social callback failed (provider: {}, type: {})", provider, e.getClass().getSimpleName());
+            return new CallbackResult(failureLocation(SocialError.SERVER_BUSY, null, linkDestination), clear);
+        }
+    }
+
+    private void markStateUsed(String state) {
+        long now = System.currentTimeMillis();
+        if (usedStates.size() >= USED_STATE_MAX) {
+            usedStates.entrySet().removeIf(e -> e.getValue() <= now);
+            if (usedStates.size() >= USED_STATE_MAX) {
+                throw new SocialLoginFailure(SocialError.SERVER_BUSY);
+            }
+        }
+        if (usedStates.putIfAbsent(state, now + USED_STATE_TTL_MILLIS) != null) {
+            throw new SocialLoginFailure(SocialError.INVALID_STATE);
+        }
+    }
+
+    /** 3단계: 일회용 코드를 토큰으로 바꾼다. 틀리거나 만료·사용된 코드는 400 INVALID_LOGIN_CODE, 정지는 403. */
+    public TokenResponse exchange(String loginCode, String clientIp) {
+        rateLimiter.acquire("x:" + clientIp);
+        Long userId = codeStore.consume(loginCode).orElseThrow(SocialAuthException::invalidLoginCode);
+        suspensionChecker.assertNotSuspended(userId); // 코드 발급 뒤에 정지됐을 수 있어 다시 검사한다
+        User user = userRepository.findById(userId)
+                .filter(u -> !u.isWithdrawn()) // 코드 발급 뒤에 탈퇴했을 수 있다
+                .orElseThrow(SocialAuthException::invalidLoginCode);
+        return authService.issueTokens(user);
+    }
+
+    private SocialProvider enabledProvider(String providerPath) {
+        SocialProvider provider = SocialProvider.fromPath(providerPath).orElseThrow(SocialAuthException::providerDisabled);
+        if (!properties.isEnabled(provider)) {
+            throw SocialAuthException.providerDisabled();
+        }
+        return provider;
+    }
+
+    /** 로그인 모드는 /login?socialError=, 연결 모드는 /me?socialLinkError= 로 보낸다. */
+    private String failureLocation(SocialError error, String until, boolean linkMode) {
+        String location = properties.frontendBase()
+                + (linkMode ? "/me?socialLinkError=" : "/login?socialError=") + error.name();
+        if (until != null) {
+            location += "&until=" + URLEncoder.encode(until, StandardCharsets.UTF_8);
+        }
+        return location;
+    }
+
+    private String randomToken() {
+        byte[] bytes = new byte[32];
+        random.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private static String encode(Map<String, String> params) {
+        StringBuilder sb = new StringBuilder();
+        params.forEach((k, v) -> {
+            if (sb.length() > 0) {
+                sb.append('&');
+            }
+            sb.append(URLEncoder.encode(k, StandardCharsets.UTF_8)).append('=')
+                    .append(URLEncoder.encode(v, StandardCharsets.UTF_8));
+        });
+        return sb.toString();
+    }
+}

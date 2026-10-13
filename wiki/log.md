@@ -73,3 +73,6 @@ llm-wiki 스킬, researcher·wiki-curator 에이전트, `scripts/lint-wiki.mjs`�
 
 ## [2026-10-13] ingest | 가입 이메일 인증번호 반영
 가입 전 이메일 인증번호(V19 `email_verification`, `feature/email-verification`)를 반영했다. 결정 페이지 `email-verification-design.md`를 새로 만들었다(필요한 이유, 코드 동봉 방식, 시도 횟수를 별도 트랜잭션으로 먼저 올리는 순서, 발송 제한, 운영에서 log 모드면 기동 거부, 택하지 않은 대안, 한계 6개). 확정 규칙은 CLAUDE.md '가입 이메일 인증번호' 절이다. 실제 SMTP는 미검증이라 confidence는 medium이다.
+
+## [2026-10-13] ingest | 서비스 이름 변경(SeatSwap→맞자리/MatJari)
+해외에 같은 이름의 서비스가 있어 이름을 바꿨다. 위키 본문과 소스 경로(`SeatSwap/…`→`MatJari/…`, `com.seatswap`→`com.matjari`)는 새 이름으로 고쳤고, 이 로그의 위 항목들은 당시 표기(SeatSwap)를 그대로 둔다. 결정 근거와 영향 범위는 HISTORY.md와 작업일지 2026-10-13의 '서비스 이름 변경' 절.

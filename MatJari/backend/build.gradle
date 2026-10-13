@@ -1,0 +1,63 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.3.13'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.matjari'
+version = '0.0.1-SNAPSHOT'
+
+java { sourceCompatibility = '17' }
+
+repositories { mavenCentral() }
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-websocket'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'io.jsonwebtoken:jjwt-api:0.12.5'
+    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.5'
+    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.5'
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-mysql'
+    runtimeOnly 'com.mysql:mysql-connector-j:8.4.0'
+    implementation 'org.jsoup:jsoup:1.18.3'
+    implementation 'org.springframework.boot:spring-boot-starter-mail'
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+// bootJar만 생성한다. plain jar(-plain.jar)까지 생기면 Dockerfile의 COPY build/libs/*.jar가
+// 파일 2개를 단일 대상(app.jar)으로 복사하려다 실패하므로 비활성화.
+tasks.named('jar') {
+    enabled = false
+}
+
+// JUnit 5(Jupiter) 테스트 실행. 이 설정이 없으면 Gradle이 테스트를 0건으로 조용히 건너뛴다.
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+// 로컬 실행(./gradlew bootRun) 시 backend/.env 파일이 있으면 자동으로 읽어 환경변수로 주입한다.
+// Docker Compose는 이미 자체적으로 .env를 읽으므로 이 로직은 로컬 개발 편의용이다.
+// .env 형식: KEY=VALUE, 한 줄에 하나, '#'로 시작하는 줄은 주석으로 무시.
+tasks.named('bootRun') {
+    def envFile = file('.env')
+    if (envFile.exists()) {
+        envFile.readLines().each { line ->
+            def trimmed = line.trim()
+            if (trimmed && !trimmed.startsWith('#') && trimmed.contains('=')) {
+                def idx = trimmed.indexOf('=')
+                def key = trimmed.substring(0, idx).trim()
+                def value = trimmed.substring(idx + 1).trim()
+                environment(key, value)
+            }
+        }
+        doFirst { logger.lifecycle("backend/.env 파일을 읽어 환경변수로 주입했습니다.") }
+    } else {
+        doFirst { logger.lifecycle("backend/.env 파일이 없어 application.yml의 기본값을 사용합니다.") }
+    }
+}

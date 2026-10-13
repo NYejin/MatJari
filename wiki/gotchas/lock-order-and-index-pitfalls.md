@@ -2,7 +2,7 @@
 title: 잠금 순서와 인덱스·유니크 키 함정
 type: gotcha
 tags: [mysql, 교착, 인덱스, flyway, 동시성]
-sources: [SeatSwap/backend/src/main/resources/db/migration/V9__exchange_complete_history.sql, 산출물/08_ERD/exchange-schema-design.md, SeatSwap/backend/README.md, SeatSwap/backend/src/main/resources/db/migration/V3__ticket_seat_columns.sql, SeatSwap/backend/src/main/resources/db/migration/V5__exchange_match_tables.sql, SeatSwap/backend/src/main/resources/db/migration/V7__exchange_request_soft_delete.sql, SeatSwap/backend/src/main/resources/db/migration/V8__exchange_match_single_reserve.sql, SeatSwap/backend/src/main/resources/db/migration/V11__chat_message.sql, CLAUDE.md]
+sources: [MatJari/backend/src/main/resources/db/migration/V9__exchange_complete_history.sql, 산출물/08_ERD/exchange-schema-design.md, MatJari/backend/README.md, MatJari/backend/src/main/resources/db/migration/V3__ticket_seat_columns.sql, MatJari/backend/src/main/resources/db/migration/V5__exchange_match_tables.sql, MatJari/backend/src/main/resources/db/migration/V7__exchange_request_soft_delete.sql, MatJari/backend/src/main/resources/db/migration/V8__exchange_match_single_reserve.sql, MatJari/backend/src/main/resources/db/migration/V11__chat_message.sql, CLAUDE.md]
 updated: 2026-10-13
 confidence: medium
 status: draft
@@ -14,7 +14,7 @@ status: draft
 
 ## 1. 잠금 순서 규약
 
-- 항상 티켓(id 오름차순), 요청(id 오름차순), 매칭 순이다 (`SeatSwap/backend/README.md` "동시성" 절).
+- 항상 티켓(id 오름차순), 요청(id 오름차순), 매칭 순이다 (`MatJari/backend/README.md` "동시성" 절).
 - 요청만 잠그는 update/delete 경로에서는 티켓을 잠그지 않는다 ([CLAUDE.md](../../CLAUDE.md)의 교환 희망 조건 항목에도 같은 규약이 적혀 있다).
 - `users` 행은 티켓 이후에 잡는다. 새 코드에서 users 행을 X 잠금한 뒤 티켓·요청을 잠그지 않는다. `TicketService.create`는 users 행을 먼저 잡고 티켓은 INSERT만 하므로 잠금 순서 규약 안에서는 순환이 없다. 다만 교환 완료의 새 티켓 INSERT와는 갭 잠금으로 엇갈릴 수 있다(8절). 차단(`user_block`)·제재 서비스도 users X 잠금 뒤에 티켓·요청·매칭을 잠그지 않는다(12절).
 - 잠금 읽기가 트랜잭션의 첫 쿼리들이 되게 한다. 불변 컬럼(티켓 id, 사용자 id)은 트랜잭션 밖에서 먼저 읽어 잠금 대상을 정한다. REPEATABLE READ 스냅샷이 잠금 뒤에 시작해야 최신 상태를 본다.
@@ -54,8 +54,8 @@ status: draft
 ## 5. 로컬 개발 DB(3306) 오염 방지
 
 - `./gradlew bootRun`은 `backend/.env`를 읽어 환경변수를 주입하며, `build.gradle`의 `bootRun` 태스크가 `environment(key, value)`로 주입하므로 셸에서 직접 지정한 환경변수(DB 주소 등)보다 `.env` 값이 우선한다고 본다 (태스크 환경에 설정되는 방식이라는 점은 코드로 확인했고, 실제 덮어쓰기 재현은 하지 않았다). 임시 DB로 검증하려다 개발 DB(3306)에 붙는 사고가 이 경로로 난다.
-- 그래서 임시 DB 검증은 `bootRun`을 쓰지 않는다. `./gradlew bootJar` 후 `java -jar`에 `SPRING_DATASOURCE_URL` 등 환경변수를 직접 지정하고, 임시 MySQL 컨테이너(예: 포트 13306~13310)를 쓰고, 끝나면 컨테이너를 삭제한다. 앱 종료는 해당 프로세스 PID만 한다. 절차 전문은 `SeatSwap/backend/README.md` "수동 검증 시나리오" 절.
-- 실제 MySQL 통합 테스트(`ExchangeCandidateQueryTest`, `ExchangeMatchMysqlTest`)는 `SEATSWAP_IT_*` 환경변수가 있을 때만 돈다. localhost와 DB 이름 `_it` 접미사를 확인한 뒤에만 Flyway clean/TRUNCATE를 하는 안전장치가 있다 (README).
+- 그래서 임시 DB 검증은 `bootRun`을 쓰지 않는다. `./gradlew bootJar` 후 `java -jar`에 `SPRING_DATASOURCE_URL` 등 환경변수를 직접 지정하고, 임시 MySQL 컨테이너(예: 포트 13306~13310)를 쓰고, 끝나면 컨테이너를 삭제한다. 앱 종료는 해당 프로세스 PID만 한다. 절차 전문은 `MatJari/backend/README.md` "수동 검증 시나리오" 절.
+- 실제 MySQL 통합 테스트(`ExchangeCandidateQueryTest`, `ExchangeMatchMysqlTest`)는 `MATJARI_IT_*` 환경변수가 있을 때만 돈다. localhost와 DB 이름 `_it` 접미사를 확인한 뒤에만 Flyway clean/TRUNCATE를 하는 안전장치가 있다 (README).
 - 이전 스키마가 남은 로컬 DB는 `docker compose down -v`로 비운 뒤 적용한다 ([CLAUDE.md](../../CLAUDE.md)).
 
 ## 6. 적용된 Flyway 마이그레이션은 수정하지 않는다

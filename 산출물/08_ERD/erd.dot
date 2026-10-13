@@ -1,4 +1,5 @@
-// SeatSwap ERD -- 현재 스키마: V1~V18 (users, performance, performance_session, ticket + 교환 희망 4개 + 매칭·잠금 2개 + 교환 이력 1개 + 알림 1개 + 채팅 2개 + 관리자 2개(V12) + 차단·신고·정지 3개(V13) + 소셜 계정 1개(V14) = 20개 테이블; V6·V7은 컬럼 변경만, V9는 ticket.status EXCHANGED 추가와 exchange_history 신설, V10은 notification 신설, V11은 chat_message·chat_read_state 신설, V12는 performance_edit_proposal·seat_claim 신설, V13은 user_block·abuse_report·user_sanction 신설, V14는 social_account 신설, V15는 exchange_match 예약 제안 2컬럼과 notification type 6종 확장(테이블 수 그대로), V16은 users.password_login_enabled 컬럼과 social_account (user_id, provider) 유니크 추가(테이블 수 그대로), V17은 users.withdrawn_at 컬럼 추가(회원탈퇴, 테이블 수 그대로), V18은 users.trust_score 컬럼 제거(폐기된 신뢰도 점수, 테이블 수 그대로))
+// SeatSwap ERD -- 현재 스키마: V1~V19 (users, performance, performance_session, ticket + 교환 희망 4개 + 매칭·잠금 2개 + 교환 이력 1개 + 알림 1개 + 채팅 2개 + 관리자 2개(V12) + 차단·신고·정지 3개(V13) + 소셜 계정 1개(V14) + 이메일 인증번호 1개(V19) = 21개 테이블; V6·V7은 컬럼 변경만, V9는 ticket.status EXCHANGED 추가와 exchange_history 신설, V10은 notification 신설, V11은 chat_message·chat_read_state 신설, V12는 performance_edit_proposal·seat_claim 신설, V13은 user_block·abuse_report·user_sanction 신설, V14는 social_account 신설, V15는 exchange_match 예약 제안 2컬럼과 notification type 6종 확장(테이블 수 그대로), V16은 users.password_login_enabled 컬럼과 social_account (user_id, provider) 유니크 추가(테이블 수 그대로), V17은 users.withdrawn_at 컬럼 추가(회원탈퇴, 테이블 수 그대로), V18은 users.trust_score 컬럼 제거(폐기된 신뢰도 점수, 테이블 수 그대로))
+// 2026-10-13: V19(V19__email_verification.sql) 구현(feature/email-verification) = email_verification(가입 전 이메일 인증번호: PK email, code_hash HMAC-SHA256 CHAR(64), attempts, sent_at, expires_at, idx_email_verification_expires). users와 FK 없음(가입 전 이메일), 가입 성공 시 행 삭제. 재실행 가능한 프로시저, 파괴적 단계 없음. 이 변경으로 ERD.png는 재생성하지 않았다(dot 미설치).
 // 생성: dot -Tpng erd.dot -o ERD.png   (한글 라벨: 나눔고딕 등 한글 폰트 필요)
 // 2026-10-07 방향 전환으로 좌석표 트랙(좌석표·수정 로그·신고·제재 테이블)과 후기 테이블을 제외하고 새로 작성. 이후 교환 테이블이 V4~V8로 구현되어 현재 색으로 추가됐다.
 // 이전 설계(12~16개 테이블)는 git 태그 archive/seatmap-track-20261007 에 보관되어 있다.
@@ -20,7 +21,7 @@
 // 시각 컬럼(created_at, updated_at, starts_at 등)은 모두 KST(Asia/Seoul) 벽시계 시각
 digraph SeatSwapERD {
   graph [rankdir=LR, fontname="NanumGothic,Malgun Gothic", fontsize=12, labelloc=t, nodesep=0.5, ranksep=1.2, splines=true,
-         label=<<B>SeatSwap ERD - 현재 스키마 (V1~V18, 20개 테이블)</B><BR/>시각 컬럼은 모두 KST 기준 / 교환 희망 4개는 V4, 매칭·예약 잠금 2개는 V5, 범위별 추가금·요청 소프트 삭제는 V6·V7, 한 명 예약 방식은 V8 적용, 교환 완료·이력은 V9 적용, 알림은 V10 적용, 채팅은 V11 적용 / 관리자 두 테이블은 V12 적용 / 차단·신고·이용 정지 세 테이블은 V13 적용 / 소셜 로그인 계정은 V14 적용 / 예약 제안·알림 6종은 V15 적용 / 비밀번호 로그인 가능 여부·사용자당 제공자 1개는 V16 적용 / 회원탈퇴 시각은 V17 적용 / 신뢰도 점수 컬럼 제거는 V18 적용>];
+         label=<<B>SeatSwap ERD - 현재 스키마 (V1~V19, 21개 테이블)</B><BR/>시각 컬럼은 모두 KST 기준 / 교환 희망 4개는 V4, 매칭·예약 잠금 2개는 V5, 범위별 추가금·요청 소프트 삭제는 V6·V7, 한 명 예약 방식은 V8 적용, 교환 완료·이력은 V9 적용, 알림은 V10 적용, 채팅은 V11 적용 / 관리자 두 테이블은 V12 적용 / 차단·신고·이용 정지 세 테이블은 V13 적용 / 소셜 로그인 계정은 V14 적용 / 예약 제안·알림 6종은 V15 적용 / 비밀번호 로그인 가능 여부·사용자당 제공자 1개는 V16 적용 / 회원탈퇴 시각은 V17 적용 / 신뢰도 점수 컬럼 제거는 V18 적용>];
   node  [shape=plain, fontname="NanumGothic,Malgun Gothic", fontsize=10];
   edge  [fontname="NanumGothic,Malgun Gothic", fontsize=9, dir=both, arrowtail=tee, arrowhead=crow];
 
@@ -28,7 +29,7 @@ digraph SeatSwapERD {
   legend [label=<
     <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3">
       <TR><TD COLSPAN="2" BGCOLOR="#DDDDDD"><B>범례</B></TD></TR>
-      <TR><TD BGCOLOR="#FFFFFF" WIDTH="18"> </TD><TD ALIGN="LEFT">현재 (V1~V18)</TD></TR>
+      <TR><TD BGCOLOR="#FFFFFF" WIDTH="18"> </TD><TD ALIGN="LEFT">현재 (V1~V19)</TD></TR>
       <TR><TD>PK/FK/UK</TD><TD ALIGN="LEFT">키 / 제약</TD></TR>
       <TR><TD>NN</TD><TD ALIGN="LEFT">NOT NULL</TD></TR>
       <TR><TD>점선</TD><TD ALIGN="LEFT">FK가 아닌 참조 (sanction_id, resolved_ticket_id)</TD></TR>
@@ -49,6 +50,16 @@ digraph SeatSwapERD {
     </TABLE>>];
 
   // ---------- 소셜 로그인 계정 (V14, 2026-10-12) ----------
+  email_verification [label=<
+    <TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" BGCOLOR="#FFFFFF">
+      <TR><TD COLSPAN="2" BGCOLOR="#BDD7EE"><B>email_verification</B> (V19, 가입 전 이메일 인증번호)</TD></TR>
+      <TR><TD ALIGN="LEFT">email PK</TD><TD ALIGN="LEFT">VARCHAR(100), 정규화된 이메일(이메일당 1행)</TD></TR>
+      <TR><TD ALIGN="LEFT">code_hash</TD><TD ALIGN="LEFT">CHAR(64), HMAC-SHA256(평문 코드는 저장 안 함)</TD></TR>
+      <TR><TD ALIGN="LEFT">attempts</TD><TD ALIGN="LEFT">INT, 입력 시도 횟수(CHECK &gt;= 0)</TD></TR>
+      <TR><TD ALIGN="LEFT">sent_at / expires_at</TD><TD ALIGN="LEFT">DATETIME(6), 재발송 대기·만료 판단</TD></TR>
+      <TR><TD COLSPAN="2" ALIGN="LEFT">users와 FK 없음(가입 전 이메일), 가입 성공 시 같은 트랜잭션에서 삭제, idx_email_verification_expires (expires_at)</TD></TR>
+    </TABLE>>];
+
   social_account [label=<
     <TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">
       <TR><TD COLSPAN="2" BGCOLOR="#BDD7EE"><B>social_account</B> (SocialAccount, V14, 소셜 로그인 계정 연결)</TD></TR>

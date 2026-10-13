@@ -41,7 +41,8 @@
 
 | Method | Path | 설명 |
 |---|---|---|
-| POST | /api/auth/signup | 회원가입 (email, password, nickname) → 생성된 사용자 정보 반환 |
+| POST | /api/auth/signup/email-code | 가입 전 이메일 인증번호 발송 (email) → {expiresInSeconds, resendAfterSeconds}. 가입된 이메일 400, 너무 잦으면 429 |
+| POST | /api/auth/signup | 회원가입 (email, password, nickname, emailCode) → 생성된 사용자 정보 반환. emailCode는 인증이 켜져 있으면 필수 |
 | POST | /api/auth/login | 로그인 (email, password) → accessToken, refreshToken 반환 |
 | POST | /api/auth/refresh | refreshToken으로 accessToken 재발급 |
 | GET | /api/auth/social/providers | 활성 소셜 제공자 목록 `{providers:[...]}`(client-id가 설정된 제공자만, 인증 불필요) |
@@ -1109,4 +1110,5 @@ docker rm -f seatswap-tmp-match
 9. (완료, 2026-10-13, `feature/withdraw`, V17, 병합됨) 회원탈퇴·개인정보처리방침·푸터. 다음 요청(미착수): AI 상세정보 읽기로 회차 시각 채우기(구조만 열림). 7일 경과 알림은 보류(2026-10-13). 회원탈퇴 후속: 정지 중 제한 로그인, 소셜 전용 계정 재인증, 인증 사진 정리 작업.
 10. (완료, 2026-10-13, `feature/profile-edit`, V16) 마이페이지 닉네임 수정·소셜 계정 연결·해제.
 11. (완료, 2026-10-13, `feature/session-prefill`, DB 변경 없음, 병합됨) 회차 날짜 미리 채우기(`sessionCandidates`, 공연 기간 2일 이하만 날짜). 시각은 직접 입력이다.
-12. (완료, 2026-10-13, `feature/remove-trust-score`, V18, 미커밋) 폐기된 신뢰도 점수 컬럼 제거(`users.trust_score`, 응답 `trustScore`). 다음 마이그레이션은 V19.
+12. (완료, 2026-10-13, `feature/remove-trust-score`, V18, 미커밋) 폐기된 신뢰도 점수 컬럼 제거(`users.trust_score`, 응답 `trustScore`).
+13. (완료, 2026-10-13, `feature/email-verification`, V19) 가입 전 이메일 인증번호(`email_verification`, `POST /api/auth/signup/email-code`, 가입 요청의 `emailCode`). 메일은 `SEATSWAP_MAIL_MODE=log`(개발)·`smtp`(운영, `SPRING_MAIL_*`)이고 운영에서 log 모드면 기동을 거부한다. 다음 마이그레이션은 V20.

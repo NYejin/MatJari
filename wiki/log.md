@@ -70,3 +70,6 @@ llm-wiki 스킬, researcher·wiki-curator 에이전트, `scripts/lint-wiki.mjs`�
 
 ## [2026-10-13] ingest | 후속 4건 구현 반영
 정지 중 제한 로그인(탈퇴 전용 토큰)·소셜 전용 탈퇴 재인증·좌석 인증 사진 정리 작업·후보 keyset 조각 조회를 반영했다. `withdraw-privacy-design.md`의 한계 1~3과 다음 할 일을 구현 사실에 맞게 고치고, `admin-design.md`의 사진 정리와 `lock-order-and-index-pitfalls.md`의 keyset 전환 메모는 각 기능 브랜치가 갱신했다.
+
+## [2026-10-13] ingest | 가입 이메일 인증번호 반영
+가입 전 이메일 인증번호(V19 `email_verification`, `feature/email-verification`)를 반영했다. 결정 페이지 `email-verification-design.md`를 새로 만들었다(필요한 이유, 코드 동봉 방식, 시도 횟수를 별도 트랜잭션으로 먼저 올리는 순서, 발송 제한, 운영에서 log 모드면 기동 거부, 택하지 않은 대안, 한계 6개). 확정 규칙은 CLAUDE.md '가입 이메일 인증번호' 절이다. 실제 SMTP는 미검증이라 confidence는 medium이다.

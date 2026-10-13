@@ -36,7 +36,7 @@
 
 ## 현재 구현 현황
 
-DB는 Flyway V1~V18, 20개 테이블(social_account·performance_edit_proposal·seat_claim·user_block·abuse_report·user_sanction 포함, users·performance·performance_session·ticket·exchange_request·exchange_want_range·exchange_want_seat·exchange_want_session·exchange_match·exchange_ticket_lock·exchange_history·notification·chat_message·chat_read_state). **구현 완료**: 가입·로그인(JWT, 소셜 로그인 카카오·구글·네이버 V14), 마이페이지 닉네임 수정과 소셜 계정 연결·해제(V16), 회원탈퇴(V17)·개인정보처리방침(`/privacy`)·푸터, 공연 등록·목록·상세(등록 후 수정 불가), 티켓 등록·내리기, 교환 희망 조건(범위별 추가금·소프트 삭제), 후보 조회, 제안·거절·채팅 종료, 예약 제안·예약 수락·예약 거절·제안 철회·예약 취소(채팅 화면 예약 블록, V15), 교환 수락→교환 완료(기존 티켓 EXCHANGED+새 티켓, 교환 이력 기록, 교환된 좌석 안내), 내 매칭 조회, 교환 화면 5개(티켓 등록·내 티켓·희망 조건 폼·후보 목록·내 매칭), 알림 6종(새 제안·예약 제안·예약 제안 거절·상대 예약 수락·상대 예약 취소·새 채팅 메시지: 헤더 벨 말풍선, 알림 페이지, 읽은 알림 삭제, STOMP 실시간 푸시 + 연결이 끊겼을 때만 30초 폴링. 벨은 데스크톱에서 '내 매칭' 오른쪽, 햄버거 폭에서는 햄버거 왼쪽), 매칭별 채팅(채팅 화면에서 REST로 보내고 STOMP 사용자 큐로 받기, 읽음 표시, 종료 후 읽기 전용), 링크 기반 공연정보 자동 입력(제목·공연장·공연 기간, 회차 시각 제외), 공연 포스터 표시(DB 변경 없음), 회차 날짜 미리 채우기(DB 변경 없음), 관리자 페이지(공연 수정 제안 처리·내 티켓 인증 확인), 교환 이력 조회(`GET /api/exchange/history`, 마이페이지 '교환 이력' 화면 `/exchange/history`: 본인 이력만 최신순, 교환 당시 스냅샷, 읽기 전용). 차단·신고·이용 정지와 관리자 신고 관리. **미구현**: 7일 경과 알림. 다음 마이그레이션 번호는 V19부터. 상세 수치는 [STATS.md](STATS.md), 이력은 [HISTORY.md](HISTORY.md).
+DB는 Flyway V1~V19, 21개 테이블(email_verification·social_account·performance_edit_proposal·seat_claim·user_block·abuse_report·user_sanction 포함, users·performance·performance_session·ticket·exchange_request·exchange_want_range·exchange_want_seat·exchange_want_session·exchange_match·exchange_ticket_lock·exchange_history·notification·chat_message·chat_read_state). **구현 완료**: 가입·로그인(JWT, 일반 가입 전 이메일 인증번호 V19, 소셜 로그인 카카오·구글·네이버 V14), 마이페이지 닉네임 수정과 소셜 계정 연결·해제(V16), 회원탈퇴(V17)·개인정보처리방침(`/privacy`)·푸터, 공연 등록·목록·상세(등록 후 수정 불가), 티켓 등록·내리기, 교환 희망 조건(범위별 추가금·소프트 삭제), 후보 조회, 제안·거절·채팅 종료, 예약 제안·예약 수락·예약 거절·제안 철회·예약 취소(채팅 화면 예약 블록, V15), 교환 수락→교환 완료(기존 티켓 EXCHANGED+새 티켓, 교환 이력 기록, 교환된 좌석 안내), 내 매칭 조회, 교환 화면 5개(티켓 등록·내 티켓·희망 조건 폼·후보 목록·내 매칭), 알림 6종(새 제안·예약 제안·예약 제안 거절·상대 예약 수락·상대 예약 취소·새 채팅 메시지: 헤더 벨 말풍선, 알림 페이지, 읽은 알림 삭제, STOMP 실시간 푸시 + 연결이 끊겼을 때만 30초 폴링. 벨은 데스크톱에서 '내 매칭' 오른쪽, 햄버거 폭에서는 햄버거 왼쪽), 매칭별 채팅(채팅 화면에서 REST로 보내고 STOMP 사용자 큐로 받기, 읽음 표시, 종료 후 읽기 전용), 링크 기반 공연정보 자동 입력(제목·공연장·공연 기간, 회차 시각 제외), 공연 포스터 표시(DB 변경 없음), 회차 날짜 미리 채우기(DB 변경 없음), 관리자 페이지(공연 수정 제안 처리·내 티켓 인증 확인), 교환 이력 조회(`GET /api/exchange/history`, 마이페이지 '교환 이력' 화면 `/exchange/history`: 본인 이력만 최신순, 교환 당시 스냅샷, 읽기 전용). 차단·신고·이용 정지와 관리자 신고 관리. **미구현**: 7일 경과 알림. 다음 마이그레이션 번호는 V20부터. 상세 수치는 [STATS.md](STATS.md), 이력은 [HISTORY.md](HISTORY.md).
 
 ## 제품·교환 규칙 (확정)
 
@@ -182,6 +182,16 @@ DB는 Flyway V1~V18, 20개 테이블(social_account·performance_edit_proposal·
 - **방침의 보유 기간**: 계정 정보는 탈퇴 즉시 삭제·익명화, 인증 사진은 처리가 끝나면 삭제, 받은 알림은 탈퇴할 때 삭제. 채팅·교환 이력·차단·신고·제재는 익명화해 서비스 운영 기간 동안 보관하고 서비스 종료 시 파기한다(자동 파기 스케줄은 없다).
 - 상세와 한계는 [wiki/decisions/withdraw-privacy-design.md](wiki/decisions/withdraw-privacy-design.md).
 
+### 가입 이메일 인증번호 (구현됨, V19 `email_verification`)
+- **일반 회원가입은 이메일 소유 확인이 필요하다**(2026-10-13 사용자 결정). 남의 이메일로 선점 가입해 그 사람의 소셜 가입을 `EMAIL_EXISTS`로 막는 문제와 오타·가짜 이메일을 막고, 나중의 비밀번호 찾기 기반이 된다. 소셜 가입은 제공자 인증을 따르므로 해당 없다. 기존 계정은 소급 인증하지 않고, `users`에 컬럼도 추가하지 않는다(인증을 통과한 이메일로만 계정이 만들어지므로 새 계정은 모두 검증된 이메일).
+- **흐름**: 가입 화면에서 '인증번호 받기'(`POST /api/auth/signup/email-code {email}`) → 6자리 숫자 코드를 메일로 받아 → 가입 요청에 `emailCode`로 함께 보낸다(`POST /api/auth/signup`). 인증을 통과해야 계정이 만들어지며 별도 '확인' 단계나 검증 토큰은 없다. 이미 가입된 이메일은 400 `email`(가입 화면 중복 안내와 같은 응답), `.invalid` 예약 도메인은 거부.
+- **저장**: `email_verification`(PK email, `code_hash`=HMAC-SHA256(이메일+코드), attempts, sent_at, expires_at). 평문 코드는 저장하지 않고, 이메일당 행 1개를 다시 보낼 때 덮어쓴다. 유효 10분(`seatswap.email-verification.code-ttl-seconds`), 재발송 대기 60초, 입력 5회(틀린 것 포함, 넘으면 새 코드 필요), 가입 성공 시 같은 트랜잭션에서 행을 지운다(1회용). 만료된 행은 코드를 보낼 때 가끔 쓸어 낸다(스케줄러 없음).
+- **검증 순서(중요)**: 가입 서비스에서 다른 입력 검증과 이메일 중복 확인을 모두 마친 **뒤** 마지막으로 코드를 확인한다(다른 오류로 시도 횟수를 쓰지 않게). 시도 횟수는 `REQUIRES_NEW`로 먼저 올려(가입이 롤백돼도 남는다, 병렬 추측 방지) 남은 횟수가 있을 때만 `DELETE … WHERE code_hash=?`로 소비한다. 가입이 이후 단계에서 실패해 롤백되면 행이 되살아난다. 오류는 400 `emailCode`.
+- **제한**: 마지막 발송 뒤 60초 안 재요청은 429 `EMAIL_CODE_COOLDOWN`, 10분 창에서 IP당 10회·이메일당 5회·전체 시간당 200회는 429 `EMAIL_CODE_RATE_LIMITED`(`retryAfterSeconds`+`Retry-After`, 메모리·단일 인스턴스, `getRemoteAddr()` 기준), 메일 발송 실패는 503 `EMAIL_SEND_FAILED`(행을 지워 바로 다시 요청 가능).
+- **발송 수단**: `seatswap.mail.mode` = `log`(기본, 개발용: 메일 내용과 코드가 백엔드 로그에 찍힌다) | `smtp`(실제 발송, `SPRING_MAIL_HOST/PORT/USERNAME/PASSWORD`, 보내는 주소 `SEATSWAP_MAIL_FROM` 또는 사용자명). **백엔드 주소(`seatswap.social.backend-base-url`)가 루프백이 아닌데 log 모드면 기동을 거부한다**(운영에서 코드가 로그에 남는 사고 방지; 인증 자체를 끄려면 `SEATSWAP_EMAIL_VERIFICATION_ENABLED=false`). 코드 해시 키는 `SEATSWAP_EMAIL_CODE_SECRET`(운영에서 새 값). 발송 수단은 `EmailSender` 인터페이스 뒤에 있어 SES·Resend 등으로 바꿀 수 있다.
+- **프런트**: 가입 화면 이메일 칸 아래 '인증번호 받기' 버튼(대기 중에는 '다시 받기 (N초 후)'), 발송 뒤 인증번호 칸 표시(이메일을 바꾸면 다시 받아야 한다). 개인정보처리방침에 인증번호 기록 항목·보유 기간·메일 발송 서비스 경유 문구를 더했다.
+- **한계**: 속도 제한·인증 시도는 단일 인스턴스 메모리/DB 기준(IP 제한은 프록시 뒤에서 합쳐질 수 있음), 메일이 스팸함으로 갈 수 있고 Gmail SMTP는 일일 한도가 있어 시연용이다(운영은 SES 등 도메인 인증 필요), 이메일 변경·비밀번호 찾기는 아직 없다, 실제 SMTP로는 미검증(로그 모드·목 발송기로만 점검). 상세는 [wiki/decisions/email-verification-design.md](wiki/decisions/email-verification-design.md).
+
 ## 개발 규칙 (앞으로도 지킨다)
 
 근거와 사례는 [wiki/gotchas/lock-order-and-index-pitfalls.md](wiki/gotchas/lock-order-and-index-pitfalls.md).
@@ -234,6 +244,7 @@ DB는 Flyway V1~V18, 20개 테이블(social_account·performance_edit_proposal·
 - **구현 완료(2026-10-13, V15, 병합됨)**: 예약 방식 변경(예약 버튼은 채팅 화면에서만, 예약 제안 → 상대 수락으로 RESERVED), 채팅 새 메시지 알림(헤더 벨), 벨 위치(데스크톱은 '내 매칭' 오른쪽).
 - **구현 완료(2026-10-13, V16, 병합됨)**: 마이페이지 닉네임 수정·소셜 계정 연결·해제.
 - **구현 완료(2026-10-13, V17, 병합됨)**: 회원탈퇴·개인정보처리방침(`/privacy`)·푸터.
+- **구현 완료(2026-10-13, V19, 병합 대기)**: 가입 전 이메일 인증번호(`feature/email-verification`, '가입 이메일 인증번호' 절). 이메일 변경·비밀번호 찾기는 후속.
 - **구현 완료(2026-10-13, DB 변경 없음, 병합됨)**: 공연 포스터 표시(`feature/poster`, '공연 포스터 표시' 절).
 - **구현 완료(2026-10-13, DB 변경 없음, 병합됨)**: 회차 날짜 미리 채우기(`feature/session-prefill`, '링크 기반 공연정보 자동 입력' 절). 2일 이하 공연만 날짜를 채우고 시각은 직접 고른다.
 - **구현 완료(2026-10-13, DB 변경 없음)**: 후속 4건 — ①정지 중 제한 로그인(`feature/suspended-withdraw-login`: 비밀번호가 맞는 정지 로그인이 탈퇴 전용 10분 토큰 `withdrawToken`을 받아 탈퇴만 가능, '회원탈퇴·개인정보처리방침' 절) ②소셜 전용 계정 탈퇴 재인증(`feature/social-withdraw-reauth`, 같은 절) ③좌석 인증 사진 정리 작업(`feature/claim-image-cleanup`, '관리자·공연 수정 제안·내 티켓 인증' 절) ④후보 keyset 조각 조회(`feature/candidates-keyset`, '후보 조회' 절).

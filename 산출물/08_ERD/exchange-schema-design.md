@@ -1231,3 +1231,10 @@ CHECK 3개 (V8 `ck_exchange_match_reserved`와 같은 안전망 성격, NULL 통
 - 엔티티 `User.trustScore`와 `/api/users/me` 응답의 `trustScore`를 함께 없앴다. 마이페이지 '신뢰도 점수' 표시도 삭제했다.
 - 테이블 수 20 그대로. 다음 마이그레이션은 V19다.
 
+## 18. V19: 가입 전 이메일 인증번호 (email_verification)
+
+- 목적: 일반 회원가입에서 이메일 소유를 확인한다(코드 6자리, 메일 발송). 인증을 통과해야 계정이 만들어지므로 `users`에는 컬럼을 추가하지 않는다.
+- 테이블: `email_verification(email PK VARCHAR(100), code_hash CHAR(64), attempts INT, sent_at DATETIME(6), expires_at DATETIME(6))`. 이메일당 1행이며 다시 보내면 `ON DUPLICATE KEY UPDATE`로 덮어쓴다(code_hash 교체, attempts 0). 평문 코드는 저장하지 않는다(HMAC-SHA256, 키는 환경변수).
+- 인덱스·제약: PK(email), `idx_email_verification_expires`(expires_at, 만료 행 정리), `ck_email_verification_attempts`(attempts >= 0). `users`와 FK가 없어 갱신 컬럼(attempts)이 있어도 FK 교착 함정과 무관하다.
+- 수명: 가입 성공 시 같은 트랜잭션에서 DELETE(1회용, 롤백되면 되살아남). 만료된 행은 코드를 보낼 때 1시간 이상 지난 것만 쓸어 낸다(스케줄러 없음).
+- 규칙: 재실행 가능한 프로시저 패턴, 파괴적 단계 없음. 되돌리기는 롤포워드(DROP). 다음 마이그레이션은 V20.

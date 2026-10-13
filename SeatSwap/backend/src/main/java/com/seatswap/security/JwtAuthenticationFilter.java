@@ -37,6 +37,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     /** 이용 정지 중에도 허용하는 유일한 경로(정지된 사용자가 스스로 로그아웃할 수 있어야 한다). */
     static final String LOGOUT_PATH = "/api/auth/logout";
+    /** 이용 정지 중에도 허용하는 또 하나의 경로(회원탈퇴, DELETE만). */
+    static final String WITHDRAW_PATH = "/api/users/me";
 
     @Override
     protected void doFilterInternal(
@@ -61,9 +63,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     SecurityContextHolder.getContext().setAuthentication(authentication);
                 }
             } catch (AccountSuspendedException e) {
-                // 이용 정지: 401 이 아니라 403 ACCOUNT_SUSPENDED (프론트가 토큰 재발급을 시도하지 않게 구분). 로그아웃만 미인증으로 통과시킨다.
+                // 이용 정지: 401 이 아니라 403 ACCOUNT_SUSPENDED (프론트가 토큰 재발급을 시도하지 않게 구분).
+                // 로그아웃은 미인증으로 통과시키고, 회원탈퇴(DELETE /api/users/me)만 인증된 채로 통과시킨다(개인정보 삭제 요구를 막지 않는다).
                 SecurityContextHolder.clearContext();
-                if (!isLogout(request)) {
+                if (isWithdraw(request)) {
+                    try {
+                        Long userId = jwtTokenProvider.getUserId(token);
+                        AuthUserPrincipal principal = userDetailsService.loadUserByIdAllowingSuspended(userId);
+                        UsernamePasswordAuthenticationToken authentication =
+                                new UsernamePasswordAuthenticationToken(principal, null, principal.authorities());
+                        authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                        SecurityContextHolder.getContext().setAuthentication(authentication);
+                    } catch (UsernameNotFoundException ignored) {
+                        // 그 사이 탈퇴됨 -> 미인증(401)
+                    }
+                } else if (!isLogout(request)) {
                     errorWriter.writeSuspended(response, e);
                     return;
                 }
@@ -82,9 +96,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     }
 
     private static boolean isLogout(HttpServletRequest request) {
+        return LOGOUT_PATH.equals(pathOf(request));
+    }
+
+    private static boolean isWithdraw(HttpServletRequest request) {
+        return "DELETE".equals(request.getMethod()) && WITHDRAW_PATH.equals(pathOf(request));
+    }
+
+    private static String pathOf(HttpServletRequest request) {
         String uri = request.getRequestURI();
         String context = request.getContextPath();
-        String path = context != null && !context.isEmpty() && uri.startsWith(context) ? uri.substring(context.length()) : uri;
-        return LOGOUT_PATH.equals(path);
+        return context != null && !context.isEmpty() && uri.startsWith(context) ? uri.substring(context.length()) : uri;
     }
 }

@@ -231,7 +231,7 @@ class ChatSchemaMysqlTest {
 
         // 저장소 메서드(네이티브 FORCE INDEX 쿼리·JPQL)가 실제로 실행되고 같은 결과를 낸다
         List<ChatMessage> latestPage = messages.findLatest(1L, 31);
-        assertThat(latestPage).extracting(ChatMessage::getId).containsExactlyElementsOf(ids.subList(ids.size() - 31, ids.size()).reversed());
+        assertThat(latestPage).extracting(ChatMessage::getId).containsExactlyElementsOf(reversedCopy(ids.subList(ids.size() - 31, ids.size())));
         assertThat(messages.findBefore(1L, cut, 31)).extracting(ChatMessage::getId).hasSize(31).allMatch(id -> id < cut)
                 .isSortedAccordingTo(java.util.Comparator.reverseOrder());
         assertThat(messages.findAfter(1L, ids.get(20), 100)).extracting(ChatMessage::getId).hasSize(100).allMatch(id -> id > ids.get(20))
@@ -323,5 +323,12 @@ class ChatSchemaMysqlTest {
             pool.shutdownNow();
         }
         assertThat(failures[0]).as("교착·잠금 대기 초과 등 실패 " + errors).isZero();
+    }
+
+    /** List.reversed() 는 Java 21 API 라 쓰지 않는다(CI·Docker 빌드는 Java 17). */
+    private static <T> java.util.List<T> reversedCopy(java.util.List<T> list) {
+        java.util.List<T> copy = new java.util.ArrayList<>(list);
+        java.util.Collections.reverse(copy);
+        return copy;
     }
 }

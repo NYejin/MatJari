@@ -5,3 +5,7 @@ raw/
 
 # 좌석 소유 인증 사진 업로드 디렉터리 (matjari.upload.dir 기본값). 개인정보라 커밋하지 않는다
 MatJari/backend/data/
+
+# 배포 전용 clone 에서 update.ps1 이 남기는 파일
+update.log
+.update.lock

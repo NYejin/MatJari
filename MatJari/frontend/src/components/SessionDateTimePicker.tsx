@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { normalizeLocalDateTime } from "../api/dateTime";
 import { input, ui } from "./ui";
 
-// 회차 날짜·시각 선택 (날짜 + 시 select + 분 select, 분은 10분 단위).
+// 회차 날짜·시각 선택 (날짜 + 시 select + 분 select, 분은 10분 단위, 분 기본값은 '00분').
 // 값은 "yyyy-MM-ddTHH:mm" (KST 현지 시각), 세 칸이 모두 채워지기 전에는 "".
 // 내부에 부분 선택 상태를 들고 있어서, 부모가 리렌더링돼도 선택 중인 값이 사라지지 않는다.
 // 반드시 모듈 최상위 컴포넌트로 쓴다 (페이지 함수 안에 정의하면 렌더마다 재마운트된다).
@@ -12,7 +12,9 @@ const MINUTES = ["00", "10", "20", "30", "40", "50"];
 
 type Parts = { date: string; hour: string; minute: string };
 
-const EMPTY: Parts = { date: "", hour: "", minute: "" };
+/** 분은 기본이 '00'이라 날짜와 시만 골라도 시각이 정해진다 */
+const DEFAULT_MINUTE = "00";
+const EMPTY: Parts = { date: "", hour: "", minute: DEFAULT_MINUTE };
 
 /** 저장된 값이 10분 단위가 아닌지 (분 select에는 보여줄 수 없는 값) */
 function isOffStep(value: string): boolean {
@@ -143,7 +145,6 @@ export default function SessionDateTimePicker({
           onChange={(e) => update({ minute: e.target.value })}
           aria-invalid={invalidMinute}
         >
-          <option value="">분</option>
           {MINUTES.map((m) => (
             <option key={m} value={m}>
               {m}분

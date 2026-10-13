@@ -91,7 +91,7 @@ class SocialProviderClientTest {
         stub.on("/userinfo", Reply.json(SocialStubServer.userinfo(SocialProvider.NAVER, "nid", "n@n.com", true, "네이버닉")));
         SocialProfile n = client.fetchProfile(SocialProvider.NAVER, "AT");
         assertThat(n.providerUserId()).isEqualTo("nid");
-        assertThat(n.email()).isEqualTo("n@n.com");
+        assertThat(n.email()).isNull(); // 네이버 이메일은 검증 여부를 알 수 없어 쓰지 않는다
         assertThat(n.nickname()).isEqualTo("네이버닉");
     }
 

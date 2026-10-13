@@ -39,7 +39,8 @@ final class SocialProfileParser {
             case NAVER -> {
                 JsonNode response = root.path("response");
                 id = text(response.get("id"));
-                email = text(response.get("email")); // 네이버는 검증된 이메일만 준다
+                // 네이버는 응답에 이메일 검증 여부 표시가 없고 공식 문서에서 소유 확인을 확인하지 못했다(2026-10-13 조사).
+                // 검증된 이메일로 볼 수 없으므로 쓰지 않는다 -> 자리표시 이메일로 가입하고 EMAIL_EXISTS 판정에도 쓰지 않는다.
                 nickname = text(response.get("nickname"));
                 if (nickname == null) {
                     nickname = text(response.get("name"));

@@ -363,7 +363,7 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 
 ## DB 마이그레이션 (Flyway)
 
-- 마이그레이션 파일: `src/main/resources/db/migration/V{n}__{snake_description}.sql` (V1 = 새 기준선 5개 테이블, V2 = `venue` 삭제·`performance.venue_name` 추가, V3 = `ticket` 좌석(구역·열·번)·상태 컬럼과 활성 좌석 유일 제약, V4 = 교환 희망 쪽 테이블 4개, V5 = 매칭·예약 잠금 테이블 2개, V6 = 추가금을 요청에서 희망 범위로 이동, V7 = 요청 소프트 삭제, V8 = 예약 방식 변경(`reserved_by_id`·`reserved_at`), V9 = 교환 완료·교환 이력(`ticket.status` EXCHANGED, `exchange_history`), V10 = 알림(`notification`), V11 = 채팅(`chat_message`, `chat_read_state`), V12 = 관리자 처리 대상(`performance_edit_proposal`, `seat_claim`), V13 = 차단·신고·이용 정지(`user_block`, `abuse_report`, `user_sanction`), V14 = 소셜 계정(`social_account`), V15 = 예약 제안 컬럼·알림 유형 6종, V16 = `users.password_login_enabled`·`social_account` (user_id, provider) 유니크, 한국어 주석)
+- 마이그레이션 파일: `src/main/resources/db/migration/V{n}__{snake_description}.sql` (V1 = 새 기준선 5개 테이블, V2 = `venue` 삭제·`performance.venue_name` 추가, V3 = `ticket` 좌석(구역·열·번)·상태 컬럼과 활성 좌석 유일 제약, V4 = 교환 희망 쪽 테이블 4개, V5 = 매칭·예약 잠금 테이블 2개, V6 = 추가금을 요청에서 희망 범위로 이동, V7 = 요청 소프트 삭제, V8 = 예약 방식 변경(`reserved_by_id`·`reserved_at`), V9 = 교환 완료·교환 이력(`ticket.status` EXCHANGED, `exchange_history`), V10 = 알림(`notification`), V11 = 채팅(`chat_message`, `chat_read_state`), V12 = 관리자 처리 대상(`performance_edit_proposal`, `seat_claim`), V13 = 차단·신고·이용 정지(`user_block`, `abuse_report`, `user_sanction`), V14 = 소셜 계정(`social_account`), V15 = 예약 제안 컬럼·알림 유형 6종, V16 = `users.password_login_enabled`·`social_account` (user_id, provider) 유니크, V17 = `users.withdrawn_at`, V18 = 폐기된 `users.trust_score` 제거, 한국어 주석)
 - 적용 이력: `SELECT * FROM flyway_schema_history;` (docker: `docker exec seatswap-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" seatswap -e "SELECT * FROM flyway_schema_history"'`)
 - 규칙: 스키마 변경은 새 V 파일로만, 적용된 파일 수정 금지, `ddl-auto: validate`, 엔티티 변경과 마이그레이션을 함께 작성
 - 앱 기동 시 자동 적용된다.
@@ -392,6 +392,7 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 - **V15 적용 안내 (예약 제안·채팅 알림, `V15__reserve_proposal_chat_notification.sql`, 2026-10-13)**: `exchange_match`에 `reserve_proposed_by_id`(FK users, 단일 컬럼 인덱스)·`reserve_proposed_at`을 추가한다(둘 다 NULL이거나 둘 다 NOT NULL, 제안은 CHATTING에서만, 제안자는 참여자라는 CHECK 3종. FK는 `reserved_by_id`와 같은 방식). `notification.type` CHECK를 6종으로 넓히고 `ck_notification_chat_dedup`(CHAT_MESSAGE는 `dedup_key = 'CHAT_MESSAGE:{matchId}:{recipientId}'` 형식 강제)을 추가한다. 기존 행은 백필 없이 만족한다. 재실행 가능한 프로시저 패턴. 테이블 수는 20 그대로다.
 - **V16 적용 안내 (비밀번호 로그인 가능 여부·사용자당 제공자 1개, `V16__user_password_login.sql`, 2026-10-13)**: 새 테이블은 없다(테이블 수 20 그대로). `users.password_login_enabled TINYINT(1) NOT NULL DEFAULT 1`을 추가하고, `social_account` 행이 있는 사용자는 백필로 0이 된다(0으로만 바꾸는 멱등 UPDATE). `social_account`에 `uk_social_account_user_provider (user_id, provider)`를 추가하며, 기존 중복 행이 있으면 SIGNAL로 중단한다. 재실행 가능한 프로시저 패턴, 파괴적 단계 없음. 다음 마이그레이션은 V17.
 - **V17 적용 안내 (회원 탈퇴 시각, `V17__user_withdrawn_at.sql`, 2026-10-13)**: 새 테이블은 없다(테이블 수 20 그대로). `users.withdrawn_at DATETIME(6) NULL`(NULL이면 활성)만 추가한다. 인덱스·CHECK·백필 없음, 파괴적 단계 없음. 되돌리기는 롤포워드(새 V 파일에서 컬럼 DROP).
+- **V18 적용 안내 (폐기된 신뢰도 점수 컬럼 제거, `V18__drop_user_trust_score.sql`, 2026-10-13)**: 새 테이블은 없다(테이블 수 20 그대로). `users.trust_score`(DOUBLE NULL, 가입 때 0.0만 저장되던 값)를 DROP한다. 컬럼이 있을 때만 드롭하는 재실행 가능한 프로시저이고, 인덱스·FK·CHECK가 이 컬럼을 참조하지 않는다. 엔티티 `User.trustScore`와 `GET /api/users/me` 응답의 `trustScore`도 함께 없앴다. 파괴적 단계이며 값은 복구되지 않는다(되돌리기는 롤포워드, 새 V 파일에서 컬럼을 다시 추가).
 - 차단·신고·이용 정지(`user_block`, `abuse_report`, `user_sanction`)는 **V13에서 구현됐다**(V8은 예약 방식 변경, V9는 교환 완료·교환 이력, V10은 알림, V11은 채팅, V12는 관리자 처리 대상 두 테이블에 사용됨)(예전 문서의 'V6 이후'는 V6/V7이 추가금·소프트 삭제에 쓰이면서 밀렸다).
 - **V3 적용 안내 (`ticket` 좌석 컬럼)**: `zone_label/zone_key`, `row_key`, `col_key`, `status`, `created_at/updated_at`, 생성 컬럼 `active_flag`, `uk_ticket_active_seat`(회차·구역·열·번·active_flag), `idx_ticket_user_status`를 추가하고 `row_label`/`col_label`을 NOT NULL VARCHAR(20)으로 바꾼다.
   - 가드: `ticket`에 행이 있으면 아무것도 바꾸기 전에 SIGNAL로 실패한다(새 NOT NULL 구역 컬럼에 채울 값이 없음). 적용 전 `SELECT COUNT(*) FROM ticket;`가 0인지 확인한다. 행이 있어 실패했다면 테스트 행을 지우고 `flyway repair`(실패 기록 삭제) 후 다시 적용한다. 임시 프로시저 `v3_guard_ticket_empty`가 남을 수 있으나 재실행 시 먼저 DROP 한다.
@@ -1102,9 +1103,10 @@ docker rm -f seatswap-tmp-match
 3. (완료) 후보 제시 -> 매칭 생성 -> 예약 제안·수락/예약 취소 -> 양쪽 '교환 수락'으로 교환 완료(V9, 2026-10-11)
 4. (완료, 2026-10-12) 사용자 차단·신고·관리자 신고 처리·이용 정지(V13). 후기 기능은 없음; 채팅은 2026-10-11 구현 완료
 5. 배포 시 SecurityConfig의 CORS allowed-origin을 실제 프론트 도메인으로 교체
-6. 브라우저 수동 점검(차단·신고·정지 화면 포함), trust_score 컬럼 정리 여부 결정, 7일 경과 알림(보류, 2026-10-13 사용자 결정)
+6. 브라우저 수동 점검(차단·신고·정지 화면 포함), 7일 경과 알림(보류, 2026-10-13 사용자 결정)
 7. (완료, 2026-10-12, 병합됨) 소셜 로그인(V14).
 8. (완료, 2026-10-13, 병합됨) 예약 제안·예약 수락·채팅 알림(V15), 벨 위치(데스크톱은 '내 매칭' 오른쪽). 예약 버튼은 채팅 화면에만 있다.
 9. (완료, 2026-10-13, `feature/withdraw`, V17, 병합됨) 회원탈퇴·개인정보처리방침·푸터. 다음 요청(미착수): AI 상세정보 읽기로 회차 시각 채우기(구조만 열림). 7일 경과 알림은 보류(2026-10-13). 회원탈퇴 후속: 정지 중 제한 로그인, 소셜 전용 계정 재인증, 인증 사진 정리 작업.
 10. (완료, 2026-10-13, `feature/profile-edit`, V16) 마이페이지 닉네임 수정·소셜 계정 연결·해제.
 11. (완료, 2026-10-13, `feature/session-prefill`, DB 변경 없음, 병합됨) 회차 날짜 미리 채우기(`sessionCandidates`, 공연 기간 2일 이하만 날짜). 시각은 직접 입력이다.
+12. (완료, 2026-10-13, `feature/remove-trust-score`, V18, 미커밋) 폐기된 신뢰도 점수 컬럼 제거(`users.trust_score`, 응답 `trustScore`). 다음 마이그레이션은 V19.

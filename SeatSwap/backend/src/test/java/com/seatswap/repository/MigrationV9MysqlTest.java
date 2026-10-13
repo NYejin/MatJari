@@ -129,7 +129,7 @@ class MigrationV9MysqlTest {
     /** 사용자 1~2, 공연·회차 1, 티켓 1~4(ACTIVE x3, INACTIVE x1), 요청 1~2, 매칭 1(CHATTING, 티켓 1-2). */
     private static void seedV8(JdbcTemplate jdbc) {
         for (int i = 1; i <= 2; i++) {
-            jdbc.update("INSERT INTO users(id,email,password,nickname,role,created_at,trust_score) VALUES (?,?,?,?,?,NOW(6),0)",
+            jdbc.update("INSERT INTO users(id,email,password,nickname,role,created_at) VALUES (?,?,?,?,?,NOW(6))",
                     i, "u" + i + "@t", "x", "U" + i, "USER");
         }
         jdbc.update("INSERT INTO performance(id,registrant_id,source_key,source_url,title,venue_name,created_at,updated_at) VALUES (1,1,'k','http://x','T','V',NOW(6),NOW(6))");

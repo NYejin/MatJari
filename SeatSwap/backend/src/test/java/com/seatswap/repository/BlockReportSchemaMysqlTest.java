@@ -98,7 +98,7 @@ class BlockReportSchemaMysqlTest {
      */
     private void seed() {
         for (int i = 1; i <= 4; i++) {
-            jdbc.update("INSERT INTO users(id,email,password,nickname,role,created_at,trust_score) VALUES (?,?,?,?,?,NOW(6),0)",
+            jdbc.update("INSERT INTO users(id,email,password,nickname,role,created_at) VALUES (?,?,?,?,?,NOW(6))",
                     i, "u" + i + "@t", "x", "U" + i, i == 4 ? "ADMIN" : "USER");
         }
         jdbc.update("INSERT INTO performance(id,registrant_id,source_key,source_url,title,venue_name,created_at,updated_at) VALUES (1,1,'k','http://x','T','V',NOW(6),NOW(6))");
@@ -318,7 +318,7 @@ class BlockReportSchemaMysqlTest {
     @Test
     void 후보_SQL의_양방향_차단_NOT_EXISTS는_uk_user_block_pair를_쓴다() {
         for (int i = 0; i < 50; i++) {   // 통계가 비지 않게 다른 사용자 쌍 차단을 넣는다
-            jdbc.update("INSERT INTO users(id,email,password,nickname,role,created_at,trust_score) VALUES (?,?,?,?, 'USER',NOW(6),0)",
+            jdbc.update("INSERT INTO users(id,email,password,nickname,role,created_at) VALUES (?,?,?,?, 'USER',NOW(6))",
                     100 + i, "x" + i + "@t", "x", "X" + i);
         }
         for (int i = 0; i < 50; i++) {

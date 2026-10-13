@@ -79,12 +79,12 @@ class UserControllerSliceTest {
 
     @Test
     void validTokenReturnsMe() throws Exception {
-        when(userService.getMe(1L)).thenReturn(new UserResponse(1L, "a@b.com", "닉네임", 4.5, UserRole.USER, false, true));
+        when(userService.getMe(1L)).thenReturn(new UserResponse(1L, "a@b.com", "닉네임", UserRole.USER, false, true));
 
         mockMvc.perform(get("/api/users/me").header("Authorization", "Bearer good"))
                 .andExpect(status().isOk())
                 .andExpect(content().json(
-                        "{\"id\":1,\"email\":\"a@b.com\",\"nickname\":\"닉네임\",\"trustScore\":4.5,\"role\":\"USER\",\"emailPlaceholder\":false,\"passwordLoginEnabled\":true}", true));
+                        "{\"id\":1,\"email\":\"a@b.com\",\"nickname\":\"닉네임\",\"role\":\"USER\",\"emailPlaceholder\":false,\"passwordLoginEnabled\":true}", true));
     }
 
     @Test

@@ -3,7 +3,7 @@ title: 차단·신고·이용 정지 설계 근거
 type: decision
 tags: [차단, 신고, 이용정지, 관리자, 동시성, 설계]
 sources: [../../CLAUDE.md, ../gotchas/lock-order-and-index-pitfalls.md, admin-design.md, chat-design.md, ../research/stomp-jwt-auth.md, SeatSwap/backend/src/main/resources/db/migration/V13__block_report_sanction.sql, 산출물/04_요구사항정의서/후속요구사항_제안알림_교환됨_공연정보입력.md]
-updated: 2026-10-12
+updated: 2026-10-13
 confidence: medium
 status: draft
 ---
@@ -57,4 +57,4 @@ CLAUDE.md에는 "신고 처리용 최소 관리자 기능의 범위"가 열린 �
 - 채팅 DTO의 상대 숫자 id(`senderId`) 노출은 그대로다.
 - `OpenMatchCanceller` 주입은 `ObjectProvider`를 쓴다(순환 의존 회피 목적으로 추정, 확인하지 못함).
 - 브라우저 수동 점검은 하지 않았다(`tsc`·빌드·백엔드 테스트 781건 통과는 구현 세션 기록이며 이 위키에서 재실행하지 않았다).
-- 남은 것: 7일 경과 알림(보류, 2026-10-13 사용자 결정), 브라우저 점검, `trust_score` 컬럼 정리 여부 결정.
+- 남은 것: 7일 경과 알림(보류, 2026-10-13 사용자 결정), 브라우저 점검. `trust_score` 컬럼 정리는 2026-10-13 V18(`feature/remove-trust-score`, 미커밋)로 끝냈다.

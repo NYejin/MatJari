@@ -69,7 +69,7 @@ class ReserveProposalSchemaMysqlTest {
      */
     private void seedV14() {
         for (int i = 1; i <= 4; i++) {
-            jdbc.update("INSERT INTO users(id,email,password,nickname,role,created_at,trust_score) VALUES (?,?,?,?,'USER',NOW(6),0)",
+            jdbc.update("INSERT INTO users(id,email,password,nickname,role,created_at) VALUES (?,?,?,?,'USER',NOW(6))",
                     i, "u" + i + "@t", "x", "U" + i);
         }
         jdbc.update("INSERT INTO performance(id,registrant_id,source_key,source_url,title,venue_name,created_at,updated_at) VALUES (1,1,'k','http://x','T','V',NOW(6),NOW(6))");

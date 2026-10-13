@@ -1,6 +1,6 @@
 ---
 name: project-knowledge
-description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙·기능 목록과 구현 상태·데이터 모델(Flyway V1~V17)·API/화면 요약. 기능 구현이나 설계 질문에 답하기 전에 먼저 참고한다. 결정이 바뀌면 이 문서의 해당 항목을 직접 고친다(이력은 HISTORY.md, 산출물/07_작업일지, wiki/).
+description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙·기능 목록과 구현 상태·데이터 모델(Flyway V1~V18)·API/화면 요약. 기능 구현이나 설계 질문에 답하기 전에 먼저 참고한다. 결정이 바뀌면 이 문서의 해당 항목을 직접 고친다(이력은 HISTORY.md, 산출물/07_작업일지, wiki/).
 ---
 
 # 프로젝트 지식 요약
@@ -26,7 +26,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 | Frontend | React + TypeScript + Vite + Tailwind CSS v4 (Tailwind 유틸리티만 사용, 브레이크포인트 640/768/1024px 고정, 브랜드색 primary #8A2BE2 / secondary #BEA886(글자색 금지) / accent #E8A33D) |
 | Backend | Spring Boot 3.3.13(Security 6.3.10) + JPA + Flyway, JWT 인증. WebSocket(STOMP, `/ws`)은 채팅 푸시에 구현됨(커스텀 CONNECT 인증 인터셉터, 사용자 큐만 구독) |
 | Frontend 추가 | `@stomp/stompjs` ^7.3(채팅 화면 전용), `VITE_WS_URL`(없으면 API 주소에서 계산) |
-| DB | MySQL 8.0 (Flyway V1~V17) |
+| DB | MySQL 8.0 (Flyway V1~V18) |
 | 배포 | `SeatSwap/docker-compose.yml`: mysql · backend · frontend 3개. 시간대 KST(Clock Asia/Seoul, TZ=Asia/Seoul) |
 
 - 이미지 인식 서비스(FastAPI/OpenCV/Tesseract)는 동결로 삭제됐다.
@@ -72,7 +72,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 - **교환 완료 시 티켓 처리**: 두 사람이 모두 수락하는 순간 한 트랜잭션에서 기존 두 티켓을 `EXCHANGED`로 바꾸고 각자 새 자리 티켓을 INSERT한다(소유자 그대로, 회차·구역·열·번은 상대의 기존 티켓 값). 완료된 매칭은 취소 불가, EXCHANGED 티켓은 내리기 불가. 매칭 행의 좌석은 항상 **교환 전 자리**이고 교환 후 자리는 새 티켓·`exchange_history`(old_ticket_id/new_ticket_id)에서 본다. 교환 이력은 `exchange_history`에 저장되며(V9), 마이페이지 '교환 이력' 화면(`/exchange/history`)과 `GET /api/exchange/history`로 `(기존 자리) -> (바꾼 자리)`를 최신순으로 보여준다(읽기 전용, 2026-10-12 구현).
 - **교환 완료 후 다른 채팅**: 기존 티켓의 교환 요청은 CLOSED로 닫는다. 그 티켓에 걸려 있던 다른 채팅 매칭은 **자동 취소하지 않는다.** 그 카드에서 교환 수락·교환 완료 버튼과 채팅 화면의 예약 제안·수락 버튼을 비활성화하고 "이미 교환된 좌석이에요" 메시지를 **본인과 상대방 모두에게** 보여준다(판단 기준은 티켓 상태 EXCHANGED).
 ### 3.6 신고·차단·후기·관리자
-- 후기 기능은 만들지 않는다. 신뢰도 점수는 매칭에 쓰지 않는다(우선순위는 사용자가 정한 것).
+- 후기 기능은 만들지 않는다. 신뢰도 점수는 매칭에 쓰지 않는다(우선순위는 사용자가 정한 것). 신뢰도 점수 컬럼은 V18에서 제거했다.
 - **사용자 차단·신고·이용 정지(구현됨, V13)**: 채팅 화면에서 차단(양방향 효과: 후보 제외, 둘 사이 열린 매칭 시스템 취소·잠금 해제, 상대에게 알리지 않음, 해제 `/my/blocks`)·신고(사유 5종, 매칭당 OPEN 1건, 사용자당 OPEN 10건, 자동 제재 없음, `/my/reports`). 관리자는 `/admin/reports`에서 채팅 근거를 보고 처리/기각하고 이용 정지(7·30일/무기한)를 걸 수 있으며 `/admin/sanctions`(해제)·`/admin/blocks`(현황)로 관리한다. 정지 계정은 모든 인증 API·로그인이 403 `ACCOUNT_SUSPENDED`.
 - **관리자 페이지(구현됨, V12)**: 관리자는 DB에서 `users.role=ADMIN`을 직접 부여하고 `/api/admin/**`는 ADMIN만, 프론트 `/admin`은 `AdminRoute`. ①공연 수정 제안(`performance_edit_proposal`): 제목·공연장만, 관리자 승인으로만 공연 수정, 사용자당 PENDING 3건, 알림 없음(`/my/edit-proposals`). ②좌석 소유 인증(`seat_claim`): 사진(jpeg/png/webp ≤5 MiB, `seatswap.upload.dir`) 업로드→관리자 승인 시 기존 활성 티켓 INACTIVE(요청 CLOSED, CHATTING 매칭 취소, 예약 잠금이면 409), 처리 후 사진 삭제, 사용자당 PENDING 5건(`/my/seat-claims`). 상세는 wiki/decisions/admin-design.md.
 
@@ -145,14 +145,15 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 | 회차 날짜 미리 채우기(공연 기간 2일 이하만 날짜, 시각은 직접 입력) | 구현 (DB 변경 없음, 병합됨) |
 | 관리자 페이지·공연 수정 제안·내 티켓 인증 | 구현 (V12) |
 | 회원탈퇴(모달·확인, 익명화, 진행 중 교환 자동 정리)·개인정보처리방침 `/privacy`·푸터·가입 화면 방침 안내 | 구현 (V17, 병합됨) |
+| 신뢰도 점수 제거(`users.trust_score` 컬럼, 응답 `trustScore`, 마이페이지 표시 삭제) | 구현 (V18, 미커밋) |
 
-## 5. 데이터 모델 (Flyway V1~V17, 20개 테이블 + flyway_schema_history)
+## 5. 데이터 모델 (Flyway V1~V18, 20개 테이블 + flyway_schema_history)
 
 기준 다이어그램 `산출물/08_ERD/erd.dot`, 설계 근거 `산출물/08_ERD/exchange-schema-design.md`. 규칙은 `erd-conventions` 스킬.
 
 | 테이블 | 요지 |
 |---|---|
-| `users` | role USER/ADMIN, `password_login_enabled` TINYINT(1) NOT NULL 기본 1(V16, 일반 가입 1·소셜 가입 0, 마지막 로그인 수단 판단), `withdrawn_at` DATETIME(6) NULL(V17, NULL=활성, 값이 있으면 탈퇴 후 익명화), `trust_score` DOUBLE NULL(컬럼과 마이페이지 표시는 남아 있으나 매칭에 쓰지 않음) |
+| `users` | role USER/ADMIN, `password_login_enabled` TINYINT(1) NOT NULL 기본 1(V16, 일반 가입 1·소셜 가입 0, 마지막 로그인 수단 판단), `withdrawn_at` DATETIME(6) NULL(V17, NULL=활성, 값이 있으면 탈퇴 후 익명화) |
 | `performance` | `venue_name` VARCHAR(100) NOT NULL, `source_key` unique, 등록자 FK |
 | `performance_session` | 회차, `starts_at` 분 단위, UK(performance_id, starts_at) |
 | `ticket` | 회차·소유자 FK, `zone/row/col_label`(표시용)+`_key`(정규화), `status` ACTIVE/INACTIVE/EXCHANGED(V9, 교환 완료된 기존 티켓), 생성 컬럼 `active_flag`, UK `uk_ticket_active_seat`(회차·구역·열·번·active_flag), `idx_ticket_user_status`. `seatmap_id` 없음 |
@@ -172,14 +173,15 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 
 - V9 `exchange_history`·`ck_ticket_status` 변경은 교환 완료 구현과 함께 추가했다(재실행 가능한 프로시저 패턴). V10 `notification`은 알림 기능과 함께, V11 `chat_message`·`chat_read_state`는 채팅 기능과 함께 추가했다(V11도 재실행 가능한 프로시저 패턴).
 - 설계 규칙: FK에 쓰이는 인덱스에 갱신 컬럼(status 등)을 붙이지 않고 **단일 컬럼**으로 둔다(UPDATE가 부모 행에 S 잠금을 걸어 교착). 잠금 순서는 티켓 id↑ -> 요청 id↑ -> 매칭(요청만 잠그는 update/delete는 티켓을 잠그지 않음).
-- V2는 venue 삭제·`venue_name` 백필, V3 티켓 좌석 컬럼(ticket 행이 있으면 SIGNAL 가드), V4 교환 희망 4개, V5 매칭·잠금, V6 범위별 추가금, V7 요청 소프트 삭제, V8 단일 예약자, V9 교환 이력·EXCHANGED, V10 알림, V11 채팅, V15 예약 제안·알림 6종. V2·V3·V6~V17은 재실행 가능한 프로시저 패턴. 이미 적용된 마이그레이션 파일을 수정하면 체크섬 불일치로 기동 불가(롤백은 `docker compose down -v`).
+- V2는 venue 삭제·`venue_name` 백필, V3 티켓 좌석 컬럼(ticket 행이 있으면 SIGNAL 가드), V4 교환 희망 4개, V5 매칭·잠금, V6 범위별 추가금, V7 요청 소프트 삭제, V8 단일 예약자, V9 교환 이력·EXCHANGED, V10 알림, V11 채팅, V15 예약 제안·알림 6종. V2·V3·V6~V18은 재실행 가능한 프로시저 패턴. 이미 적용된 마이그레이션 파일을 수정하면 체크섬 불일치로 기동 불가(롤백은 `docker compose down -v`).
 - **V12**: `performance_edit_proposal`(공연 수정 제안: new_title/new_venue_name/reason, status PENDING|APPROVED|REJECTED, old_* 스냅샷, 같은 사용자가 같은 공연에 PENDING 1건은 생성 컬럼+UNIQUE, 사용자당 PENDING 3건은 서비스 검사), `seat_claim`(좌석 좌표+사진 메타 image_key/content_type/size/deleted_at, status, resolved_ticket_id는 FK 아님).
 - **V13**: `user_block`(blocker_id, blocked_id, UNIQUE 쌍), `abuse_report`(reason 5종, status OPEN/RESOLVED/DISMISSED, OPEN은 신고자·매칭당 1건은 생성 컬럼+UNIQUE, sanction_id는 FK 아님), `user_sanction`(SUSPEND, ends_at NULL=무기한, revoked_at).
 - **V14**: `social_account`(소셜 로그인 연결, 재실행 가능한 프로시저 패턴, 파괴적 단계 없음).
 - **V15**: `exchange_match.reserve_proposed_by_id`·`reserve_proposed_at`(CHECK 3종, FK는 `reserved_by_id`와 같은 방식), `notification.type` CHECK를 6종으로 확장하고 `ck_notification_chat_dedup`(CHAT_MESSAGE 키 형식 강제) 추가. 테이블 수는 20 그대로, 재실행 가능한 프로시저 패턴.
 - **V16**: `users.password_login_enabled`(일반 가입 1, 소셜 가입 0, 백필은 `social_account` 보유자 0)와 `social_account` UNIQUE(user_id, provider)(사용자당 제공자 1개). 재실행 가능한 프로시저 패턴, 파괴적 단계 없음. 다음 마이그레이션은 V17.
 - **V17**: `users.withdrawn_at` DATETIME(6) NULL 추가(인덱스·CHECK·백필 없음, 재실행 가능한 프로시저 패턴, 파괴적 단계 없음). 익명화 값은 서비스가 같은 트랜잭션에서 쓴다. 다음 마이그레이션은 V18.
-- **다음**: V18부터. 현재 계획된 스키마 변경은 없다(7일 경과 알림은 보류).
+- **V18**: `users.trust_score` 컬럼 제거(폐기된 신뢰도 점수, 가입 때 0.0만 저장되던 값). 재실행 가능한 프로시저이며 컬럼이 있을 때만 DROP한다. 값은 복구되지 않고 되돌리기는 롤포워드만 가능하다. 엔티티 필드와 `/api/users/me`의 `trustScore`도 함께 없앴다. 테이블 수 20 그대로.
+- **다음**: V19부터. 현재 계획된 스키마 변경은 없다(7일 경과 알림은 보류).
 
 ## 6. API 요약
 
@@ -187,7 +189,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 
 | 영역 | 엔드포인트 |
 |---|---|
-| 인증 | `POST /api/auth/signup`·`login`·`refresh`, `GET /api/users/me` -> `{id, email, emailPlaceholder, nickname, trustScore, role, passwordLoginEnabled}` |
+| 인증 | `POST /api/auth/signup`·`login`·`refresh`, `GET /api/users/me` -> `{id, email, emailPlaceholder, nickname, role, passwordLoginEnabled}` |
 | 프로필·소셜 연결 | `PATCH /api/users/me {nickname}`, `GET /api/users/me/social`(`{accounts, providers, canUnlink}`), `POST /api/users/me/social/{provider}/link`(`{authorizeUrl}`, 60초 1회 티켓), `POST /api/users/me/social/confirm {code}`(60초 1회 확정 코드, 확정 사용자와 코드 사용자가 같을 때만 저장), `DELETE /api/users/me/social/{provider}`(204 멱등, 마지막 로그인 수단이면 409 `LAST_LOGIN_METHOD`). 모두 로그인 필요 |
 | 회원탈퇴 | `DELETE /api/users/me {password?, confirmText?}`(204, 본인 확인, 분당 5회 429 `WITHDRAW_RATE_LIMITED`, ADMIN 409 `ADMIN_CANNOT_WITHDRAW`, 이미 탈퇴한 계정 401). 로그인 필요 |
 | 소셜 로그인 | `GET /api/auth/social/providers`(활성 제공자, 인증 불필요), `GET /api/auth/social/{google\|kakao\|naver}/authorize`(302, state 쿠키 `ss_oauth`), `GET .../{provider}/callback`(항상 302: 성공 `/auth/callback#code=`, 실패 `/login?socialError=`), `POST /api/auth/social/exchange {code}`(→ TokenResponse, 일회용 60초, 정지 재검사). IP당 분당 30회(429 `SOCIAL_RATE_LIMITED`) |
@@ -215,7 +217,7 @@ description: SeatSwap의 현재 유효한 서비스 개요·확정 교환 규칙
 | `/auth/callback` | 소셜 로그인 후 중간 화면. 프래그먼트 `#code=`를 읽어 URL을 정리하고 `POST /api/auth/social/exchange`로 토큰을 저장한 뒤 `/`로 이동한다(코드가 없거나 실패하면 `/login?socialError=INVALID_LOGIN_CODE`). 로그인·가입 화면 하단 '또는' 구분선 아래에 활성 제공자 버튼이 있고, 로그인 화면은 `?socialError=`를 한국어 안내로 표시한다 |
 | `/privacy` | 개인정보처리방침(공개). 운영자·문의 이메일·시행일은 `VITE_PRIVACY_*`, 미설정이면 '설정 필요' 강조 |
 | `/performances/new` | 공연 등록(3단계), `/performances/:id` 공연 상세(읽기 전용, 보호 라우트, '이 공연 티켓 등록' 버튼, 포스터는 정보 카드 오른쪽) |
-| `/me` | 마이페이지: 닉네임 인라인 수정(저장하면 헤더 즉시 반영), 이메일(자리표시면 '소셜 계정으로 가입해 이메일이 없어요'), '소셜 계정 연결' 카드(연결·해제, 해제 불가면 사유 안내), 신뢰도 점수 표시(`trust_score`, 가입 때 0.0으로 저장되는 값을 그대로 보여 주며 매칭에는 쓰지 않음, 정리 여부는 미결), 내 티켓·내 매칭·교환 이력 링크, 회원탈퇴 버튼은 모달(`WithdrawDialog`)을 연다 |
+| `/me` | 마이페이지: 닉네임 인라인 수정(저장하면 헤더 즉시 반영), 이메일(자리표시면 '소셜 계정으로 가입해 이메일이 없어요'), '소셜 계정 연결' 카드(연결·해제, 해제 불가면 사유 안내), 내 티켓·내 매칭·교환 이력 링크, 회원탈퇴 버튼은 모달(`WithdrawDialog`)을 연다 |
 | `/tickets/new`, `/tickets` | 티켓 등록 / 내 티켓(내리기·교환 조건 진입) |
 | `/tickets/:ticketId/exchange` | 희망 조건 폼: 범위 카드(구역·열·번 범위, 카드마다 추가금 라디오 4개, 카드 복제, 클라이언트 겹침 경고), 요청 단위 희망 회차 우선순위, 총 N석 합집합 미리보기와 5,000석·50범위 경고, 마감 회차 선택 불가 |
 | `/exchange/requests/:requestId/candidates` | 후보 목록·제안하기('내 조건/상대 조건', 참고용 금액 구간, 신뢰도 표시 없음) |

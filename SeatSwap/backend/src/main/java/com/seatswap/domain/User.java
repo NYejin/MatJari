@@ -46,9 +46,6 @@ public class User {
     @Column(name = "withdrawn_at")
     private LocalDateTime withdrawnAt;
 
-    // 신뢰도 점수 — 거래 완료 후 Review 누적 기반 (요구사항정의서 FR-13)
-    private Double trustScore = 0.0;
-
     /** 저장 시 JPA Auditing이 KST(Clock) 기준으로 채운다 — JpaAuditingConfig. */
     @CreatedDate
     @Column(updatable = false)
@@ -64,7 +61,6 @@ public class User {
         user.password = encodedPassword;
         user.nickname = nickname;
         user.passwordLoginEnabled = true; // 일반 가입
-        user.trustScore = 0.0;
         user.role = UserRole.USER; // 가입은 항상 USER
         return user;
     }

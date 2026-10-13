@@ -43,7 +43,7 @@ export type ApiErrorBody = { message: string } | Record<string, string>;
 /**
  * 로그인 사용자 식별 정보.
  * 백엔드에 "내 정보 조회" API가 아직 없어 access token 클레임(sub=userId, email)에서 복원한다.
- * nickname/trustScore가 필요하면 /me API 추가 후 User 타입으로 교체.
+ * nickname이 필요하면 /me API 추가 후 User 타입으로 교체.
  */
 export interface AuthUser {
   id: number;

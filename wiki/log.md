@@ -61,3 +61,6 @@ llm-wiki 스킬, researcher·wiki-curator 에이전트, `scripts/lint-wiki.mjs`�
 
 ## [2026-10-13] lint | 문서·코드 정합성 점검
 백엔드·프런트·산출물 문서 간 낡은 표기를 점검해 위키 페이지의 병합 상태(미병합→병합됨), 7일 경과 알림 보류 결정(notification-design·block-report-design), 탈퇴 정지 규칙과 잠금 순서의 실제 순서(withdraw-privacy-design), 관리자 알림 유형 서술의 시점(admin-design)을 고쳤다. 과거 ingest 기록 본문은 그대로 두었다. 점검 결과: `node scripts/lint-wiki.mjs` 오류 0건, 경고 0건.
+
+## [2026-10-13] ingest | 신뢰도 점수 제거 반영
+신뢰도 점수 컬럼 제거(V18, `feature/remove-trust-score`, 미커밋)를 반영했다. `block-report-design.md`의 남은 것 목록에서 `trust_score` 정리를 끝난 일로 바꾸고 갱신일을 고쳤다. 신뢰도 점수는 매칭에 쓰지 않는다는 기존 결정과 충돌하지 않는다. 색인(index.md)은 바꿀 설명이 없어 그대로 두었다.

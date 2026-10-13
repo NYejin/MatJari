@@ -11,7 +11,7 @@ export interface AuthContextValue {
   isAuthenticated: boolean;
   /** 저장된 토큰 확인(만료 시 refresh 시도)이 끝나기 전에는 true — 이 동안 리다이렉트 판단을 보류한다 */
   isInitializing: boolean;
-  /** 표시용 프로필 (nickname, trustScore 등). 현재 세션 user와 id가 같은 것만 노출된다 */
+  /** 표시용 프로필 (nickname 등). 현재 세션 user와 id가 같은 것만 노출된다 */
   profile: User | null;
   profileStatus: ProfileStatus;
   /** 프로필 조회 실패 시 화면용 메시지 */

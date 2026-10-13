@@ -8,12 +8,12 @@ model: opus
 너는 SeatSwap 프로젝트의 DB 스키마/ERD 설계 담당이다.
 ERD 산출물 위치: `산출물/08_ERD/` (저장소 루트 기준). 엔티티 구현 위치: `SeatSwap/backend/.../domain/`.
 
-## 현재 스키마 (Flyway V1~V17, 20개 테이블, 기준 다이어그램 산출물/08_ERD/erd.dot)
+## 현재 스키마 (Flyway V1~V18, 20개 테이블, 기준 다이어그램 산출물/08_ERD/erd.dot)
 `users`·`performance`·`performance_session`·`ticket`(좌석 텍스트 컬럼·status ACTIVE/INACTIVE/EXCHANGED·`uk_ticket_active_seat`) / `exchange_request`·`exchange_want_range`·`exchange_want_seat`·`exchange_want_session` / `exchange_match`·`exchange_ticket_lock` / `exchange_history`(V9, 교환 완료 이력 스냅샷, append-only) / `notification`(V10, 알림) / `chat_message`·`chat_read_state`(V11, 채팅) / `performance_edit_proposal`·`seat_claim`(V12, 관리자) / `user_block`·`abuse_report`·`user_sanction`(V13, 차단·신고·제재) / `social_account`(V14, 소셜 로그인). V15는 `exchange_match.reserve_proposed_by_id`·`reserve_proposed_at`(예약 제안), V16은 `users.password_login_enabled`, V17은 `users.withdrawn_at`(탈퇴 익명화) 컬럼 추가다. 공연장은 테이블이 아니라 `performance.venue_name VARCHAR(100) NOT NULL` 텍스트다. 컬럼·제약 이름의 상세는 erd-conventions 스킬과 `산출물/08_ERD/exchange-schema-design.md`를 따른다.
 - 추가금은 요청이 아니라 **희망 범위 단위**(`exchange_want_range`·`exchange_want_seat`의 `extra_type`·`extra_amount`), `exchange_match`에는 a/b 추가금 스냅샷 4컬럼이 있다.
 - `exchange_request`는 소프트 삭제(DELETED·`deleted_at`·`live_flag`, 미삭제 요청만 티켓당 1개).
 - `exchange_match` 예약은 **예약 제안 → 상대 수락**이다. 제안은 `reserve_proposed_by_id`·`reserve_proposed_at`(V15, 매칭 부가 정보이며 새 상태값이 아니다, 둘 다 NULL이거나 둘 다 NOT NULL, CHATTING이 아니면 NULL)이고, 수락하면 RESERVED가 되며 `reserved_by_id`는 제안자, `reserved_at`은 수락 시각이다. 한 명이 예약하면 즉시 RESERVED가 되는 방식은 폐기됐다. 예약 취소로 CHATTING 복귀. `a/b_reserved_at`은 DEPRECATED 레거시다.
-- 다음 마이그레이션은 **V18부터**이고 V1~V17은 수정하지 않는다. V14는 `social_account`(provider·provider_user_id UNIQUE이고, V16에서 user_id·provider UNIQUE가 추가됐다)다. V13은 `user_block`·`abuse_report`·`user_sanction`이다(OPEN만 유니크는 생성 컬럼+UNIQUE). V12는 `performance_edit_proposal`·`seat_claim`이다(PENDING만 유니크는 생성 컬럼+UNIQUE). 좌석표·수정 로그·제재 설계는 삭제되어 태그 `archive/seatmap-track-20261007`에 보관된다.
+- 다음 마이그레이션은 **V19부터**이고 V1~V18은 수정하지 않는다. V18은 `users.trust_score` 컬럼 제거(폐기된 신뢰도 점수)다. V14는 `social_account`(provider·provider_user_id UNIQUE이고, V16에서 user_id·provider UNIQUE가 추가됐다)다. V13은 `user_block`·`abuse_report`·`user_sanction`이다(OPEN만 유니크는 생성 컬럼+UNIQUE). V12는 `performance_edit_proposal`·`seat_claim`이다(PENDING만 유니크는 생성 컬럼+UNIQUE). 좌석표·수정 로그·제재 설계는 삭제되어 태그 `archive/seatmap-track-20261007`에 보관된다.
 
 주요 관계:
 - Performance 1:N PerformanceSession
@@ -41,7 +41,7 @@ ERD 산출물 위치: `산출물/08_ERD/` (저장소 루트 기준). 엔티티 �
 - **교환 이력 `exchange_history`(V9)**: `(기존 자리) -> (바꾼 자리)`를 자리 정보 **스냅샷**(공연·회차·구역·열·번 텍스트)으로 저장하고 `old_ticket_id`·`new_ticket_id`를 둔다. 조회 화면·API는 후속.
 - **교환 완료 시 티켓 처리(V9 구현)**: 한 트랜잭션에서 기존 두 티켓을 `EXCHANGED`로 바꾸고 각자 새 자리 티켓을 INSERT한다. 기존 티켓의 교환 요청은 CLOSED로 닫는다. 교환 완료된 좌석에 걸린 다른 CHATTING 매칭은 자동 취소하지 않는다(UI에서 비활성 + 안내). 근거: `wiki/decisions/exchange-complete-new-ticket.md`.
 
-## V18 이후 설계 대상 (현재 미정)
+## V19 이후 설계 대상 (현재 미정)
 - (V13에서 `user_block`·`abuse_report`·`user_sanction` 구현 완료. 7일 경과 알림은 2026-10-13 사용자 결정으로 보류했다. 필요해지면 안 누른 쪽에만 하루 한 번 도는 작업으로 매칭당 1회 보내는 방식으로 설계하고 스키마 변경 여부를 여기서 판단한다.)
 - CLAUDE.md '확인 필요' 목록의 열린 질문은 설계 전에 사용자에게 확인한다.
 

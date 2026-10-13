@@ -92,7 +92,7 @@ class AdminSchemaMysqlTest {
     /** 사용자 1~3(3 = 관리자), 공연 1, 회차 1~2. */
     private void seed() {
         for (int i = 1; i <= 3; i++) {
-            jdbc.update("INSERT INTO users(id,email,password,nickname,role,created_at,trust_score) VALUES (?,?,?,?,?,NOW(6),0)",
+            jdbc.update("INSERT INTO users(id,email,password,nickname,role,created_at) VALUES (?,?,?,?,?,NOW(6))",
                     i, "u" + i + "@t", "x", "U" + i, i == 3 ? "ADMIN" : "USER");
         }
         jdbc.update("INSERT INTO performance(id,registrant_id,source_key,source_url,title,venue_name,created_at,updated_at) VALUES (1,1,'k','http://x','T','V',NOW(6),NOW(6))");

@@ -50,11 +50,75 @@ export async function fetchSocialLinks(): Promise<SocialLinkStatus> {
  */
 export async function requestSocialLink(provider: SocialProvider): Promise<string> {
   const { data } = await apiClient.post<{ authorizeUrl?: unknown }>(`/users/me/social/${provider}/link`);
-  const path = data?.authorizeUrl;
+  return absoluteAuthorizeUrl(data?.authorizeUrl);
+}
+
+function absoluteAuthorizeUrl(path: unknown): string {
   if (typeof path !== "string" || !/^\/api\/auth\/social\/[a-z]+\/authorize\?link=[^\s#]+$/.test(path)) {
     throw new Error("연결 주소를 받지 못했어요.");
   }
   return `${API_BASE_URL.replace(/\/+$/, "").replace(/\/api$/, "")}${path}`;
+}
+
+// ---- 회원탈퇴 재인증 (소셜 전용 계정) ----
+// 이미 연결된 제공자로 연결과 같은 authorize 흐름을 한 번 더 거치고, 돌아온 /me#linkCode= 를 연결 확정이 아니라 탈퇴 요청의 reauthCode로 쓴다.
+// 제공자로 떠나기 전에 sessionStorage에 표시를 남겨, 돌아왔을 때 SocialLinkCard가 그 코드로 연결을 확정하려 하지 않게 한다(10분 안에서만 유효).
+
+const REAUTH_KEY = "withdrawReauthPending";
+const REAUTH_WINDOW_MS = 10 * 60 * 1000;
+
+/** POST /api/users/me/social/{provider}/reauth → 브라우저를 보낼 절대 URL. 연결돼 있지 않은 제공자는 409 SOCIAL_NOT_LINKED */
+export async function requestSocialReauth(provider: SocialProvider): Promise<string> {
+  const { data } = await apiClient.post<{ authorizeUrl?: unknown }>(`/users/me/social/${provider}/reauth`);
+  const url = absoluteAuthorizeUrl(data?.authorizeUrl);
+  try {
+    sessionStorage.setItem(REAUTH_KEY, String(Date.now()));
+  } catch {
+    // 저장하지 못하면 돌아와서 재인증 코드를 알아볼 수 없다 — 그래도 이동은 막지 않는다(연결 카드가 오류로 안내한다)
+  }
+  return url;
+}
+
+export function clearWithdrawReauthPending(): void {
+  try {
+    sessionStorage.removeItem(REAUTH_KEY);
+  } catch {
+    // 무시
+  }
+}
+
+/** 탈퇴 재인증을 위해 제공자에 다녀오는 중인가(10분 이내) */
+export function isWithdrawReauthPending(): boolean {
+  try {
+    const at = Number(sessionStorage.getItem(REAUTH_KEY));
+    return Number.isFinite(at) && at > 0 && Date.now() - at < REAUTH_WINDOW_MS;
+  } catch {
+    return false;
+  }
+}
+
+// StrictMode의 이중 초기화에도 같은 코드를 돌려주려고 한 번 읽은 코드를 모듈에 보관한다(탈퇴 모달이 닫히면 clear).
+let takenReauthCode: string | null = null;
+
+/**
+ * 재인증을 하고 돌아온 `/me#linkCode=` 를 읽어 주소에서 지우고 코드를 돌려준다(표시도 지운다). 해당하지 않으면 null.
+ * 코드는 1회용이고 짧게(60초) 살아 있으므로 바로 탈퇴 모달에 넘긴다.
+ */
+export function takeWithdrawReauthCode(): string | null {
+  if (takenReauthCode) return takenReauthCode;
+  if (!isWithdrawReauthPending()) return null;
+  const hash = window.location.hash;
+  if (!hash) return null;
+  const code = new URLSearchParams(hash.replace(/^#/, "")).get("linkCode");
+  if (code === null) return null;
+  window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
+  clearWithdrawReauthPending();
+  takenReauthCode = code.trim() || null;
+  return takenReauthCode;
+}
+
+export function clearTakenWithdrawReauthCode(): void {
+  takenReauthCode = null;
 }
 
 /** DELETE /api/users/me/social/{provider} — 204(연결이 없어도 멱등). 마지막 로그인 수단이면 409 LAST_LOGIN_METHOD */

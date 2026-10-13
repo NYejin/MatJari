@@ -686,10 +686,13 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
-| DELETE | /api/users/me | 회원 탈퇴(로그인 필요). 본문 `{password?, confirmText?}`. 성공 204, 기존 토큰은 즉시 무효 |
+| DELETE | /api/users/me | 회원 탈퇴(로그인 필요). 본문 `{password?, confirmText?, reauthCode?}`. 성공 204, 기존 토큰은 즉시 무효 |
+| POST | /api/users/me/social/{provider}/reauth | 소셜 전용 계정의 탈퇴 재인증 시작. 이미 연결된 제공자만(아니면 409 `SOCIAL_NOT_LINKED`, 꺼진 제공자 404, 분당 10회). 응답은 연결 시작과 같은 `{authorizeUrl}` |
 
 - 비밀번호 로그인 계정(`password_login_enabled`=1): `password` 필수. BCrypt로 검사하며 72바이트 초과·빈 값·불일치는 400 `비밀번호가 올바르지 않습니다.`.
 - 소셜 전용 계정: `confirmText`가 정확히 `탈퇴합니다`여야 한다(아니면 400, 응답 `{confirmText}`).
+- **소셜 재인증(`reauthCode`)**: 연결된 제공자 중 지금 켜져 있는 것이 하나라도 있으면 `reauthCode`도 있어야 한다. 액세스 토큰만 훔친 사람이 되돌릴 수 없는 탈퇴를 하지 못하게 하려는 장치다. 흐름은 연결 모드를 재사용한다: `POST /api/users/me/social/{provider}/reauth`가 링크 티켓을 발급하고(이미 연결된 제공자만), 제공자 인증 뒤 콜백이 `/me#linkCode=…`(연결 확정 코드, 60초)로 돌려보낸다. 이 코드를 연결 확정이 아니라 탈퇴 요청의 `reauthCode`로 낸다. 서버는 `confirmText`를 먼저 확인하고, 코드를 **소비한 뒤**(불일치여도 소진) 코드의 사용자 = 요청 사용자이고 `social_account(user, provider, providerUserId)`가 실제로 있는지 본다. 실패는 모두 같은 400 `{reauthCode}`다(확인 문구가 틀리면 코드는 소비하지 않는다). 연결된 제공자가 모두 꺼져 있으면 재인증 수단이 없으므로 확인 문구만으로 허용한다.
+- 테스트: `WithdrawServiceTest` 6건 추가(코드 필수·성공·다른 사용자/미연결 계정 코드·문구 오류 때 코드 미소비·제공자 꺼짐·비밀번호 계정), `WithdrawMysqlTest` 재인증 시나리오 1건, `SocialAccountServiceTest`·`UserSocialControllerSliceTest` 재인증 시작 각 3건·2건.
 - ADMIN: 409 `ADMIN_CANNOT_WITHDRAW`. 역할을 DB에서 USER로 내린 뒤 탈퇴한다.
 - 사용자당 분당 5회(성공·실패 모두 센다, 서비스 내부 메모리 슬라이딩 윈도). 초과 429 `WITHDRAW_RATE_LIMITED`(`retryAfterSeconds` + `Retry-After` 헤더).
 - 이미 탈퇴한 계정(동시 탈퇴의 뒤쪽 포함)은 401.

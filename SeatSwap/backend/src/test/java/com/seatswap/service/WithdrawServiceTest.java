@@ -1,5 +1,7 @@
 package com.seatswap.service;
 
+import com.seatswap.domain.SocialAccount;
+import com.seatswap.domain.SocialProvider;
 import com.seatswap.domain.Ticket;
 import com.seatswap.domain.User;
 import com.seatswap.domain.UserRole;
@@ -12,6 +14,8 @@ import com.seatswap.repository.NotificationRepository;
 import com.seatswap.repository.SocialAccountRepository;
 import com.seatswap.repository.TicketRepository;
 import com.seatswap.repository.UserRepository;
+import com.seatswap.service.social.SocialLinkConfirmStore;
+import com.seatswap.service.social.SocialProperties;
 import com.seatswap.websocket.WebSocketSessionRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -57,6 +61,8 @@ class WithdrawServiceTest {
     private final WebSocketSessionRegistry registry = mock(WebSocketSessionRegistry.class);
     private final PasswordEncoder encoder = new BCryptPasswordEncoder(4);
     private final Clock clock = Clock.fixed(Instant.parse("2026-10-13T03:00:00Z"), KST);
+    private final SocialProperties socialProps = new SocialProperties();
+    private final SocialLinkConfirmStore reauthStore = new SocialLinkConfirmStore(clock, socialProps);
     private WithdrawService service;
 
     @BeforeEach
@@ -64,7 +70,7 @@ class WithdrawServiceTest {
         PlatformTransactionManager tm = mock(PlatformTransactionManager.class);
         when(tm.getTransaction(any())).thenReturn(mock(TransactionStatus.class));
         service = new WithdrawService(userRepository, ticketRepository, requestRepository, socialRepository, notificationRepository,
-                canceller, claimService, registry, encoder, new SessionTimePolicy(clock), clock, tm);
+                canceller, claimService, reauthStore, socialProps, registry, encoder, new SessionTimePolicy(clock), clock, tm);
     }
 
     private User passwordUser(long id) {
@@ -108,6 +114,84 @@ class WithdrawServiceTest {
         service.withdraw(6L, new WithdrawRequest(null, "탈퇴합니다"));
         assertThat(u.isWithdrawn()).isTrue();
         assertThat(u.isPasswordLoginEnabled()).isFalse();
+    }
+
+    /** 구글이 켜져 있고 이 사용자가 구글 계정(puid)을 연결한 상태를 만든다. */
+    private void linkedGoogle(long userId, String puid) {
+        socialProps.getGoogle().setClientId("g-client");
+        when(socialRepository.findByUserIdOrderByIdAsc(userId)).thenReturn(List.of(SocialAccount.create(userId, SocialProvider.GOOGLE, puid)));
+    }
+
+    @Test
+    void 연결된_제공자가_켜져_있으면_소셜_전용_계정은_재인증_코드도_있어야_한다() {
+        User u = socialUser(6L);
+        linkedGoogle(6L, "puid-1");
+        for (String bad : new String[] {null, "", "  ", "unknown-code"}) {
+            assertThatThrownBy(() -> service.withdraw(6L, new WithdrawRequest(null, "탈퇴합니다", bad)))
+                    .isInstanceOfSatisfying(FieldValidationException.class, e -> assertThat(e.getField()).isEqualTo("reauthCode"));
+        }
+        assertThat(u.isWithdrawn()).isFalse();
+        verifyNoInteractions(canceller, claimService);
+    }
+
+    @Test
+    void 재인증_코드가_맞으면_소셜_전용_계정이_탈퇴하고_코드는_한_번만_쓴다() {
+        User u = socialUser(6L);
+        linkedGoogle(6L, "puid-1");
+        when(socialRepository.existsByUserIdAndProviderAndProviderUserId(6L, SocialProvider.GOOGLE, "puid-1")).thenReturn(true);
+        String code = reauthStore.issue(6L, SocialProvider.GOOGLE, "puid-1");
+
+        service.withdraw(6L, new WithdrawRequest(null, "탈퇴합니다", code));
+
+        assertThat(u.isWithdrawn()).isTrue();
+        assertThat(reauthStore.consume(code)).as("한 번 쓴 코드는 다시 쓸 수 없다").isEmpty();
+    }
+
+    @Test
+    void 다른_사용자의_코드나_연결되지_않은_계정의_코드는_거절하고_코드는_소진된다() {
+        User u = socialUser(6L);
+        linkedGoogle(6L, "puid-1");
+        String others = reauthStore.issue(7L, SocialProvider.GOOGLE, "puid-1");
+        assertThatThrownBy(() -> service.withdraw(6L, new WithdrawRequest(null, "탈퇴합니다", others)))
+                .isInstanceOf(FieldValidationException.class);
+        assertThat(reauthStore.consume(others)).isEmpty();
+
+        // 내 코드이지만 이 사용자에게 연결된 계정(puid)이 아니다: existsBy... 가 false
+        String unlinked = reauthStore.issue(6L, SocialProvider.GOOGLE, "other-puid");
+        when(socialRepository.existsByUserIdAndProviderAndProviderUserId(6L, SocialProvider.GOOGLE, "other-puid")).thenReturn(false);
+        assertThatThrownBy(() -> service.withdraw(6L, new WithdrawRequest(null, "탈퇴합니다", unlinked)))
+                .isInstanceOf(FieldValidationException.class);
+        assertThat(u.isWithdrawn()).isFalse();
+    }
+
+    @Test
+    void 재인증이_맞아도_확인_문구가_틀리면_거절하고_코드는_쓰지_않는다() {
+        socialUser(6L);
+        linkedGoogle(6L, "puid-1");
+        String code = reauthStore.issue(6L, SocialProvider.GOOGLE, "puid-1");
+
+        assertThatThrownBy(() -> service.withdraw(6L, new WithdrawRequest(null, "탈퇴", code)))
+                .isInstanceOfSatisfying(FieldValidationException.class, e -> assertThat(e.getField()).isEqualTo("confirmText"));
+        assertThat(reauthStore.consume(code)).as("문구 오류에서는 코드를 소비하지 않는다").isPresent();
+    }
+
+    @Test
+    void 연결된_제공자가_모두_꺼져_있으면_확인_문구만으로_탈퇴한다() {
+        User u = socialUser(6L);
+        // 구글 계정이 연결돼 있지만 지금은 꺼진 제공자(client-id 없음) -> 재인증 수단이 없다
+        when(socialRepository.findByUserIdOrderByIdAsc(6L)).thenReturn(List.of(SocialAccount.create(6L, SocialProvider.GOOGLE, "puid-1")));
+
+        service.withdraw(6L, new WithdrawRequest(null, "탈퇴합니다", null));
+
+        assertThat(u.isWithdrawn()).isTrue();
+    }
+
+    @Test
+    void 비밀번호_계정은_재인증_코드를_보지_않는다() {
+        User u = passwordUser(5L);
+        socialProps.getGoogle().setClientId("g-client");
+        service.withdraw(5L, new WithdrawRequest("password123", null, null));
+        assertThat(u.isWithdrawn()).isTrue();
     }
 
     @Test

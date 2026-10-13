@@ -134,6 +134,36 @@ class SocialAccountServiceTest {
     }
 
     @Test
+    void 재인증_시작은_이미_연결한_제공자에만_티켓을_발급한다() {
+        when(accountRepository.existsByUserIdAndProvider(1L, SocialProvider.GOOGLE)).thenReturn(true);
+
+        SocialLinkResponse r = service.startReauth(1L, "google");
+
+        assertThat(r.authorizeUrl()).startsWith("/api/auth/social/google/authorize?link=");
+        String ticket = r.authorizeUrl().substring(r.authorizeUrl().indexOf("link=") + 5);
+        assertThat(ticketStore.consume(ticket, SocialProvider.GOOGLE)).contains(1L);
+    }
+
+    @Test
+    void 연결하지_않은_제공자의_재인증은_409_SOCIAL_NOT_LINKED이고_티켓을_만들지_않는다() {
+        when(accountRepository.existsByUserIdAndProvider(1L, SocialProvider.KAKAO)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.startReauth(1L, "kakao")).isInstanceOfSatisfying(SocialAuthException.class, e -> {
+            assertThat(e.getStatus().value()).isEqualTo(409);
+            assertThat(e.getCode()).isEqualTo("SOCIAL_NOT_LINKED");
+        });
+        assertThat(ticketStore.size()).isZero();
+    }
+
+    @Test
+    void 꺼진_제공자와_모르는_제공자의_재인증은_404이다() {
+        for (String p : new String[] {"naver", "twitter"}) {
+            assertThatThrownBy(() -> service.startReauth(1L, p)).isInstanceOfSatisfying(SocialAuthException.class,
+                    e -> assertThat(e.getCode()).isEqualTo("SOCIAL_PROVIDER_DISABLED"));
+        }
+    }
+
+    @Test
     void 비활성_또는_모르는_제공자는_404_SOCIAL_PROVIDER_DISABLED() {
         for (String p : new String[]{"naver", "facebook", "GOOGLE", ""}) {
             assertThatThrownBy(() -> service.startLink(1L, p)).isInstanceOfSatisfying(SocialAuthException.class, e -> {

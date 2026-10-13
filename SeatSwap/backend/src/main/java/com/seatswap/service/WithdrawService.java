@@ -12,6 +12,8 @@ import com.seatswap.repository.NotificationRepository;
 import com.seatswap.repository.SocialAccountRepository;
 import com.seatswap.repository.TicketRepository;
 import com.seatswap.repository.UserRepository;
+import com.seatswap.service.social.SocialLinkConfirmStore;
+import com.seatswap.service.social.SocialProperties;
 import com.seatswap.websocket.WebSocketSessionRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.InsufficientAuthenticationException;
@@ -60,6 +62,7 @@ public class WithdrawService {
     public static final String CONFIRM_TEXT = "탈퇴합니다";
     static final String PASSWORD_MISMATCH_MESSAGE = "비밀번호가 올바르지 않습니다.";
     static final String CONFIRM_MISMATCH_MESSAGE = "확인 문구가 일치하지 않습니다. '" + CONFIRM_TEXT + "'를 정확히 입력해주세요.";
+    static final String REAUTH_REQUIRED_MESSAGE = "연결된 소셜 계정으로 본인 확인을 먼저 해주세요. 시간이 지났다면 다시 확인해주세요.";
     static final String ADMIN_MESSAGE = "관리자 계정은 탈퇴할 수 없습니다. 관리자 권한을 해제한 뒤 탈퇴해주세요.";
     static final int MAX_ATTEMPTS_PER_MINUTE = 5;
     private static final long WINDOW_MILLIS = 60_000;
@@ -91,6 +94,8 @@ public class WithdrawService {
     private final NotificationRepository notificationRepository;
     private final OpenMatchCanceller matchCanceller;
     private final SeatClaimService seatClaimService;
+    private final SocialLinkConfirmStore reauthStore;
+    private final SocialProperties socialProperties;
     private final WebSocketSessionRegistry sessionRegistry;
     private final PasswordEncoder passwordEncoder;
     private final SessionTimePolicy timePolicy;
@@ -104,6 +109,7 @@ public class WithdrawService {
                            SocialAccountRepository socialAccountRepository,
                            NotificationRepository notificationRepository,
                            OpenMatchCanceller matchCanceller, SeatClaimService seatClaimService,
+                           SocialLinkConfirmStore reauthStore, SocialProperties socialProperties,
                            WebSocketSessionRegistry sessionRegistry, PasswordEncoder passwordEncoder,
                            SessionTimePolicy timePolicy, Clock clock, PlatformTransactionManager transactionManager) {
         this.userRepository = userRepository;
@@ -113,6 +119,8 @@ public class WithdrawService {
         this.notificationRepository = notificationRepository;
         this.matchCanceller = matchCanceller;
         this.seatClaimService = seatClaimService;
+        this.reauthStore = reauthStore;
+        this.socialProperties = socialProperties;
         this.sessionRegistry = sessionRegistry;
         this.passwordEncoder = passwordEncoder;
         this.timePolicy = timePolicy;
@@ -210,6 +218,28 @@ public class WithdrawService {
         String confirmText = request == null ? null : request.confirmText();
         if (!CONFIRM_TEXT.equals(confirmText)) {
             throw new FieldValidationException("confirmText", CONFIRM_MISMATCH_MESSAGE);
+        }
+        // 소셜 전용 계정: 액세스 토큰만 훔쳐도 탈퇴할 수 없게, 연결된 소셜 계정으로 방금 다시 인증한 코드를 요구한다.
+        // 연결된 제공자가 지금 하나도 켜져 있지 않으면 재인증 수단이 없으므로 확인 문구만으로 허용한다(계정 주인이 탈퇴할 길을 막지 않는다).
+        if (hasEnabledLinkedProvider(user.getId())) {
+            verifyReauth(user.getId(), request == null ? null : request.reauthCode());
+        }
+    }
+
+    private boolean hasEnabledLinkedProvider(Long userId) {
+        return socialAccountRepository.findByUserIdOrderByIdAsc(userId).stream()
+                .anyMatch(a -> socialProperties.isEnabled(a.getProvider()));
+    }
+
+    /**
+     * 재인증 코드(연결 모드 콜백이 발급한 일회용 코드)를 소비하고 확인한다. 코드를 먼저 소비하므로(불일치여도 소진) 한 번 틀리면 다시 인증해야 한다.
+     * 없음·만료·다른 사용자·이 사용자에게 연결되지 않은 계정은 모두 같은 400 reauthCode 오류다.
+     */
+    private void verifyReauth(Long userId, String reauthCode) {
+        SocialLinkConfirmStore.Payload payload = reauthStore.consume(reauthCode == null ? null : reauthCode.trim()).orElse(null);
+        if (payload == null || !payload.userId().equals(userId)
+                || !socialAccountRepository.existsByUserIdAndProviderAndProviderUserId(userId, payload.provider(), payload.providerUserId())) {
+            throw new FieldValidationException("reauthCode", REAUTH_REQUIRED_MESSAGE);
         }
     }
 

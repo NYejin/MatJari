@@ -17,7 +17,7 @@ import java.time.LocalDateTime;
  * request_low_id / request_high_id / open_flag 는 DB 생성 컬럼이라 매핑하지 않는다
  * (uk_exchange_match_open_pair 가 '같은 요청 쌍의 열린 매칭 1개'를 보장한다).
  *
- * 상태: CHATTING(채팅, 예약 전) -> RESERVED(한 명이 예약, 두 티켓 잠금) -> COMPLETED(양쪽 교환 수락), 예약한 사람이든 상대든 누구나
+ * 상태: CHATTING(채팅, 예약 전) -> RESERVED(예약 제안을 상대가 수락, 두 티켓 잠금) -> COMPLETED(양쪽 교환 수락), 예약한 사람이든 상대든 누구나
  * RESERVED -> CHATTING 으로 되돌릴 수 있고(unreserve), CHATTING 에서만 취소·거절(CANCELED)된다.
  * 상태 전이는 {@link #isAllowed(ExchangeMatchStatus, ExchangeMatchAction)} 한 곳에서 정의한다.
  * COMPLETED 시점에는 한 트랜잭션에서 기존 두 티켓을 EXCHANGED 로 바꾸고 각자 새 자리 티켓을 만든다(서비스 Javadoc 참고).

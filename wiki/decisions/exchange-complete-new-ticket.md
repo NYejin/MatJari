@@ -48,7 +48,7 @@ INSERT를 먼저 하면 상대의 기존 티켓이 아직 같은 좌석을 점�
 
 ## 구현 상태
 
-구현 완료다(2026-10-11, 브랜치 `feature/exchange-complete`, 커밋 `52cfb5a`, 병합 전). V9(`V9__exchange_complete_history.sql`)가 `ck_ticket_status`를 확장하고 교환 이력 테이블 `exchange_history`를 추가했다. 완료 전이는 `POST /api/exchange/matches/{id}/complete`가 맡고, 두 번째 수락이 한 트랜잭션에서 기존 티켓 `EXCHANGED`, flush, 새 티켓 INSERT, 이력 2행, 기존 요청 CLOSED, 예약 잠금 삭제, 매칭 `COMPLETED` 순으로 처리한다. 상세 동작과 오류 코드는 코드와 [작업일지 2026-10-11](../../산출물/07_작업일지/2026-10-11.md)을 본다. 교환 이력 조회 API와 마이페이지 화면은 다음 브랜치로 미뤘다. 대체된 이전 서술은 설계 문서(`산출물/08_ERD/exchange-schema-design.md`)의 3.3절 취소선 부분에 남아 있다.
+구현 완료다(2026-10-11, 브랜치 `feature/exchange-complete`, 커밋 `52cfb5a`, 병합됨). V9(`V9__exchange_complete_history.sql`)가 `ck_ticket_status`를 확장하고 교환 이력 테이블 `exchange_history`를 추가했다. 완료 전이는 `POST /api/exchange/matches/{id}/complete`가 맡고, 두 번째 수락이 한 트랜잭션에서 기존 티켓 `EXCHANGED`, flush, 새 티켓 INSERT, 이력 2행, 기존 요청 CLOSED, 예약 잠금 삭제, 매칭 `COMPLETED` 순으로 처리한다. 상세 동작과 오류 코드는 코드와 [작업일지 2026-10-11](../../산출물/07_작업일지/2026-10-11.md)을 본다. 교환 이력 조회 API와 마이페이지 화면은 다음 브랜치로 미뤘다. 대체된 이전 서술은 설계 문서(`산출물/08_ERD/exchange-schema-design.md`)의 3.3절 취소선 부분에 남아 있다.
 
 ## 확정: Q-15 (교환 완료 시 기존 티켓에 걸린 요청과 채팅)
 

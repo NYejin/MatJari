@@ -8,7 +8,7 @@ import type { AppNotification } from "../types/notification";
 import { button, FOCUS_RING, linkButton } from "./ui";
 
 // 헤더 알림 벨: 안 읽은 개수 뱃지 + 누르면 바로 아래에 최근 알림 5건 말풍선(popover).
-// 모바일(md 미만)은 헤더 폭만큼 펼치고, md 이상은 벨 오른쪽 끝에 맞춘 고정 폭으로 띄운다.
+// 모바일(md 미만)은 헤더 폭만큼 펼치고, md 이상은 벨 왼쪽 끝에 맞춘 고정 폭으로 띄운다.
 // 닫힘: 바깥 클릭 · Esc(포커스를 벨로) · 경로 이동 · 항목/버튼 선택.
 
 const PREVIEW_SIZE = 5;

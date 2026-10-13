@@ -34,7 +34,7 @@ type ListState =
   | { status: "error"; message: string }
   | { status: "success"; items: PerformanceSummary[]; page: number; totalPages: number; totalElements: number };
 
-/** 공연 삭제 후 상세에서 넘어올 때의 안내 */
+/** 다른 화면에서 홈으로 넘어올 때 한 번 보이는 안내(회원탈퇴 완료 등) */
 function readNotice(state: unknown): string | null {
   if (typeof state !== "object" || state === null || !("notice" in state)) return null;
   const notice: unknown = (state as { notice: unknown }).notice;

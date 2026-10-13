@@ -58,3 +58,6 @@ llm-wiki 스킬, researcher·wiki-curator 에이전트, `scripts/lint-wiki.mjs`�
 
 ## [2026-10-13] ingest | 회차 날짜 미리 채우기 반영
 회차 날짜 미리 채우기(DB 변경 없음, 브랜치 `feature/session-prefill`, 미병합) 구현 사실을 반영했다. 결정 페이지 `link-autofill-design.md`에 6절(2일 이하만 날짜를 채우는 이유, 택하지 않은 대안, AI 상세정보 출처를 붙일 자리와 그때 정할 것, 한계)을 더했다. 시각은 Ajax라 여전히 직접 입력이고, 판단 근거는 구현 상수와 사용자 요청을 따랐다. 브라우저 점검은 Playwright 수준이라 confidence는 medium이다.
+
+## [2026-10-13] lint | 문서·코드 정합성 점검
+백엔드·프런트·산출물 문서 간 낡은 표기를 점검해 위키 페이지의 병합 상태(미병합→병합됨), 7일 경과 알림 보류 결정(notification-design·block-report-design), 탈퇴 정지 규칙과 잠금 순서의 실제 순서(withdraw-privacy-design), 관리자 알림 유형 서술의 시점(admin-design)을 고쳤다. 과거 ingest 기록 본문은 그대로 두었다. 점검 결과: `node scripts/lint-wiki.mjs` 오류 0건, 경고 0건.

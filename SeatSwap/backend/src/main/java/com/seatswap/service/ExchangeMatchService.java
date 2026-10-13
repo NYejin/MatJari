@@ -90,7 +90,7 @@ import java.util.Map;
  * 먼저 실행하므로 명시적 flush 가 필요하다) ②각자 새 자리 티켓(소유자 그대로, 상대의 기존 회차·구역·열·번)을 INSERT ③exchange_history 2행(스냅샷, old/new_ticket_id) ④두 기존 요청을 CLOSED
  * ⑤예약 잠금 2행 삭제 ⑥매칭을 COMPLETED(reserved_* NULL)로 바꾼다. 한쪽만 수락했을 때는 수락 시각만 기록한다. 매칭 행의 티켓 id 는 교환 전 티켓 그대로다.
  * <b>같은 티켓들의 다른 CHATTING 매칭은 자동 취소하지 않는다</b>(Q-15). 그 매칭 카드는 응답의 myTicketExchanged/counterpartTicketExchanged 로 "이미 교환된 좌석이에요"를 보여 주고,
- * 서버는 안전장치로 그 매칭의 새 reserve 를 409 TICKET_EXCHANGED 로 막는다. 채팅 메시지·차단은 후속이다.
+ * 서버는 안전장치로 그 매칭의 새 reserve 를 409 TICKET_EXCHANGED 로 막는다. (채팅·차단은 구현돼 있다.)
  *
  * <h3>알림 (V10)</h3>
  * 상태가 실제로 바뀐 propose/reserve/accept/decline/unreserve 의 같은 트랜잭션 맨 끝에서 수신자당 1건: 새 제안은 받는 쪽(b)에게 PROPOSAL_RECEIVED(dedup_key 있음),

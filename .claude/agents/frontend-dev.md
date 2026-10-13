@@ -34,10 +34,10 @@ src/
 
 ## 교환 화면 (현재 구현)
 `/tickets/new`(티켓 등록) · `/tickets`(내 티켓, 내리기·교환 조건 진입) · `/tickets/:ticketId/exchange`(희망 조건 폼) · `/exchange/requests/:requestId/candidates`(후보 목록·제안하기, '내 조건/상대 조건' 표시) · `/exchange/matches`(내 매칭, 보낸/받은 탭) · `/exchange/matches/:matchId/chat`(채팅 화면). 헤더에 '내 티켓'·'내 매칭', 공연 상세에 '이 공연 티켓 등록' 버튼이 있다.
-- 채팅 화면: 보내기는 REST `POST .../messages`, 받기는 STOMP `/user/queue/chat` 구독으로만 한다(클라이언트 STOMP SEND 없음). STOMP는 이 화면이 열려 있는 동안만 연결하고, `VITE_WS_URL`(없으면 API 주소에서 계산)을 쓴다. 재연결은 지수 백오프(1s~30s), 연결 시 `after` 커서로 빈 구간을 채우며, 토큰 재발급 시 재연결한다. 상단 상태 배너(시스템 메시지 대신), 입력 중 포커스 유지, IME 조합 중 전송 금지, 1000 코드 포인트 카운터, 낭독(role=status). 종료된 매칭(CANCELED·COMPLETED)은 열람만 되고 입력을 비활성한다. 매칭 카드에는 '채팅' 링크와 안 읽은 뱃지가 있고, 헤더에는 채팅 아이콘이 없다. 채팅 알림 행도 없다. 로그인 시 헤더에 알림 벨(안 읽은 개수, 말풍선 최신 5건)과 알림 페이지 `/notifications`가 있다.
-- 알림: STOMP 푸시(`api/realtimeHub.ts` 앱 공용 연결, 헤더 벨 훅과 채팅이 참조 카운트로 공유)를 받으면 즉시 재조회한다. 연결이 끊겨 있을 때만 화면이 보일 때 30초 폴링하고(연결 중엔 5분 확인), focus·visibilitychange·경로 이동·(재)연결 시에도 재조회한다. 알림 페이지는 새 신호에 "새 알림이 있어요" 버튼만 띄우고 목록은 바꾸지 않는다. 알림 클릭은 읽음 처리 후 `/exchange/matches?role=RECEIVED&matchId=N`(새 제안) 또는 `/exchange/matches?matchId=N`으로 이동하고, MatchesPage는 URL 쿼리로 탭 선택·카드 스크롤·강조를 한다. 종료된 매칭 알림은 회색 '종료된 매칭' 라벨로 표시한다.
+- 채팅 화면: 보내기는 REST `POST .../messages`, 받기는 STOMP `/user/queue/chat` 구독으로만 한다(클라이언트 STOMP SEND 없음). STOMP 연결은 앱 전체가 탭당 하나를 공유하며(헤더 벨 알림 푸시와 같은 연결, `api/realtimeHub.ts`), `VITE_WS_URL`(없으면 API 주소에서 계산)을 쓴다. 재연결은 지수 백오프(1s~30s), 연결 시 `after` 커서로 빈 구간을 채우며, 토큰 재발급 시 재연결한다. 상단 상태 배너(시스템 메시지 대신), 입력 중 포커스 유지, IME 조합 중 전송 금지, 1000 코드 포인트 카운터, 낭독(role=status). 종료된 매칭(CANCELED·COMPLETED)은 열람만 되고 입력을 비활성한다. 매칭 카드에는 '채팅' 링크와 안 읽은 뱃지가 있다. 새 채팅 메시지는 `CHAT_MESSAGE` 알림 1행을 재사용해 헤더 벨에 뜨며, 헤더에 별도 메시지 아이콘은 없다. 로그인 시 헤더에 알림 벨(안 읽은 개수, 말풍선 최신 5건)과 알림 페이지 `/notifications`가 있다.
+- 알림: STOMP 푸시(`api/realtimeHub.ts` 앱 공용 연결, 헤더 벨 훅과 채팅이 참조 카운트로 공유)를 받으면 즉시 재조회한다. 연결이 끊겨 있을 때만 화면이 보일 때 30초 폴링하고(연결 중엔 5분 확인), focus·visibilitychange·경로 이동·(재)연결 시에도 재조회한다. 알림 페이지는 새 신호에 "새 알림이 있어요" 버튼만 띄우고 목록은 바꾸지 않는다. 알림 클릭은 읽음 처리 후 채팅 메시지·예약 제안은 채팅 화면(`/exchange/matches/{id}/chat`), 나머지는 매칭 카드(`/exchange/matches?role=RECEIVED&matchId=N`(새 제안) 또는 `/exchange/matches?matchId=N`)로 이동하고, MatchesPage는 URL 쿼리로 탭 선택·카드 스크롤·강조를 한다. 종료된 매칭 알림은 회색 '종료된 매칭' 라벨로 표시한다.
 - 시스템이 후보 목록을 띄우면 사용자가 골라 채팅을 시작한다. 한 티켓에 채팅을 여러 개 동시에 열 수 있다.
-- 매칭 카드: CHATTING은 '진행 중' 배지(라벨 미확정), '예약하기'·받은 쪽 '거절'·'채팅 종료'. 한 명이 예약하면 RESERVED가 되고 **[예약 중]** 뱃지, '내가/○○님이 예약했어요', '예약 취소'(2단계 확인), '교환 수락' 버튼(2단계 확인)이 생긴다. 예약 중에는 '거절'·'채팅 종료'를 막고(숨기지 않고 aria-disabled + 사유 안내) 먼저 예약을 취소하게 한다. 응답 필드는 `reservedBy`("ME"|"COUNTERPART"|null)·`reservedAt`·`myAccepted`/`counterpartAccepted`(실제 수락 여부)·`myTicketExchanged`/`counterpartTicketExchanged`·`myTicketReservedElsewhere`/`counterpartTicketReservedElsewhere`.
+- 매칭 카드: CHATTING은 '진행 중' 배지, '채팅' 버튼과 제안 여부 문구('내가 예약을 제안했어요' / '상대가 예약을 제안했어요 — 채팅에서 수락하세요')만 두고 '예약하기' 버튼은 없다. 예약 제안·수락·거절·철회는 채팅 화면 상단 예약 블록에만 있다. 예약이 수락되어 RESERVED가 되면 **[예약 중]** 뱃지, '내가/○○님이 예약했어요', '예약 취소'(2단계 확인), '교환 수락' 버튼(2단계 확인)이 생긴다. 예약 중에는 '거절'·'채팅 종료'를 막고(숨기지 않고 aria-disabled + 사유 안내) 먼저 예약을 취소하게 한다. 응답 필드는 `reservedBy`("ME"|"COUNTERPART"|null)·`reservedAt`·`myAccepted`/`counterpartAccepted`(실제 수락 여부)·`myTicketExchanged`/`counterpartTicketExchanged`·`myTicketReservedElsewhere`/`counterpartTicketReservedElsewhere`.
 - 같은 자리로 다른 매칭이 예약 중인 CHATTING 카드에는 "(다른 사용자와 예약 중인 좌석)" 문구만 띄운다. 후보 카드에는 '예약 중' 뱃지를 두지 않는다(폐기).
 - 삭제된 요청의 매칭은 회색 '(삭제)'·'(내 조건 삭제됨)'으로 표시한다.
 - 공연 시작 후에도 매칭·예약·완료 UI를 막지 않는다(회차 당일 끝까지 허용).
@@ -47,7 +47,7 @@ src/
 
 ## 미구현·예정 (지시 전에는 시작하지 않음)
 - (차단·신고 UI는 구현됨: ChatPage의 `ChatSafetyActions`, `/my/blocks`·`/my/reports`, 정지 403 안내 `api/suspension.ts`. 교환 이력 화면은 구현됨: `/exchange/history`, `(기존 자리) -> (바꾼 자리)`.) 토스트와 다른 탭의 읽음 처리 동기화(푸시)는 없다.
-- (관리자 페이지는 구현됨: `AdminRoute`, `/admin`·`/admin/performance-edit-proposals`·`/admin/seat-claims`, 사용자 화면 `/my/edit-proposals`·`/my/seat-claims`·`/seat-claims/new`, 헤더 '관리자' 링크는 ADMIN만.) (링크 자동 입력은 구현됨: 등록 1단계에서 preview 호출 후 2단계에 제목·공연장 미리 채움, 회차는 직접 입력.)
+- (관리자 페이지는 구현됨: `AdminRoute`, `/admin`·`/admin/performance-edit-proposals`·`/admin/seat-claims`, 사용자 화면 `/my/edit-proposals`·`/my/seat-claims`·`/seat-claims/new`, 헤더 '관리자' 링크는 ADMIN만.) (링크 자동 입력은 구현됨: 등록 1단계에서 preview 호출 후 2단계에 제목·공연장 미리 채움. 공연 기간이 2일 이하이면 회차 날짜를 미리 채우고(`sessionCandidates`), 회차 시각은 직접 입력.)
 - 브라우저 수동 점검·실서버 연동은 아직 충분히 하지 않았다.
 
 ## 파일 전달

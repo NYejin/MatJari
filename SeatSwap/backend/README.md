@@ -438,6 +438,7 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 - 사진은 예매내역 사진 1장, jpeg·png·webp(매직 넘버로 형식 판별), 5 MiB 이하(초과 413 `IMAGE_TOO_LARGE`)다. 서버 저장 이름은 UUID만 쓰고, 저장 위치는 `seatswap.upload.dir`(기본 `./data/seat-claims`, `SEATSWAP_UPLOAD_DIR`로 지정, git 추적 제외, 웹에서 직접 서빙하지 않음)다. 사진에 개인정보가 있을 수 있어 예매번호·이름을 가리고 올리라고 안내한다.
 - 사용자당 PENDING 5건(422 `SEAT_CLAIM_LIMIT_REACHED`), 같은 좌석에 PENDING 1건(409 `SEAT_CLAIM_ALREADY_PENDING`). 이미 내 활성 티켓이면 409 `MY_TICKET_ALREADY_REGISTERED`, 회차가 마감됐으면 422 `SESSION_CLOSED`, 그 좌석에 등록된 티켓이 없으면 422 `SEAT_NOT_REGISTERED`.
 - 승인: 현재 그 좌석의 활성 티켓을 INACTIVE로 내리고, 그 티켓의 교환 요청을 CLOSED로 바꾸고, 그 티켓의 CHATTING 매칭을 시스템 취소한 뒤 요청을 APPROVED로 바꾼다. 예약 잠금 중이면 409 `TICKET_RESERVED`, 교환 완료된 티켓이면 409 `TICKET_EXCHANGED`로 승인할 수 없다. 이미 비어 있으면 승인은 성공하고 `resolved_ticket_id`는 NULL이다. 요청자는 승인 뒤 일반 티켓 등록으로 직접 등록한다(자동 등록 없음).
+- 이미 처리된 요청을 다시 승인·거절하려 하면 409 `CLAIM_ALREADY_REVIEWED`다.
 - 승인·거절 모두 **커밋 뒤에** 사진 파일을 지우고 `image_deleted_at`을 기록한다. 파일 삭제가 실패해도 처리 결과는 유지된다. 처리된 요청은 `imageAvailable=false`로 응답하고 사진 조회는 410이다.
 - 사진 응답 헤더: `Content-Disposition: inline`, `X-Content-Type-Options: nosniff`, `Cache-Control: private, no-store`. 본인과 ADMIN만 조회할 수 있고, 그 외에는 존재를 숨기려고 404를 준다.
 
@@ -586,8 +587,8 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 
 ### 사용자 결정 규칙 (`SocialLoginService`)
 1. `social_account(provider, provider_user_id)`가 있으면 그 사용자로 로그인한다(정지 검사). 이메일이 바뀌었는지는 보지 않는다.
-2. 없으면 가입한다. 검증된 이메일이 `users`에 있으면 가입하지 않고 `EMAIL_EXISTS`(자동 연결 없음)다. 이메일이 없거나 미검증이면 `{provider}.{providerUserId}@social.seatswap.invalid`를 쓴다(`.invalid` 예약 도메인. 식별자가 영숫자·`-_`가 아니면 SHA-256 앞 16자 hex로 대체). 비밀번호는 무작위 32바이트의 BCrypt 해시라 비밀번호 로그인은 불가다. 비밀번호 로그인 경로(`AuthService.login`)는 그대로 둔다.
-3. 닉네임은 `AuthInputNormalizer.normalizeNickname`으로 정리하고 보이지 않는 문자를 뺀 뒤 2~20자(코드 포인트)로 자른다. 2자 미만이면 `{제공자 한글명}사용자` + 숫자 4자리 랜덤.
+2. 없으면 가입한다. 검증된 이메일이 `users`에 있으면 가입하지 않고 `EMAIL_EXISTS`(자동 연결 없음)다. 이메일이 없거나 미검증이면 `{provider}.{SHA-256("provider:providerUserId") 앞 16자 hex}@social.seatswap.invalid`를 쓴다(`.invalid` 예약 도메인. 식별자는 대소문자를 구분하므로 항상 해시한다). 비밀번호는 무작위 32바이트의 BCrypt 해시라 비밀번호 로그인은 불가다. 비밀번호 로그인 경로(`AuthService.login`)는 그대로 둔다.
+3. 닉네임은 `AuthInputNormalizer.normalizeNickname`으로 정리하고 보이지 않는 문자를 뺀 뒤 2~20자로 맞춘다(소셜 닉네임은 UTF-16 길이 기준으로 자른다). 2자 미만이면 `{제공자 한글명}사용자` + 숫자 4자리 랜덤.
 4. `User.create`(role USER)와 `social_account` 1행을 한 트랜잭션에서 만든다. 같은 소셜 계정의 동시 첫 로그인이 UNIQUE에 걸리면 다시 조회해 기존 사용자로 진행한다(1회 재시도). 이메일 UNIQUE 경합은 `EMAIL_EXISTS`다.
 5. 가입 후 정지·차단·신고 규칙은 일반 사용자와 같다. 정지 검사는 callback·exchange·요청마다 한다.
 
@@ -611,7 +612,8 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 - 로그에는 제공자·오류 종류만 남긴다. secret·토큰·code·이메일은 남기지 않는다.
 - 리다이렉트 목적지는 설정 `frontend-base-url` 고정이다. 요청 파라미터로 목적지를 받지 않는다(오픈 리다이렉트 금지).
 - 일회용 코드는 32바이트 랜덤, 서버 메모리, TTL 60초, 꺼내면 즉시 삭제, 보관 상한 1만 건. exchange 때 정지를 다시 검사한다.
-- 속도 제한: authorize·callback·exchange 버킷을 나눠 IP당 분당 30회(슬라이딩 윈도우, 메모리). 초과는 429 `SOCIAL_RATE_LIMITED`.
+- 속도 제한: authorize·callback·exchange 버킷을 나눠 IP당 분당 30회(슬라이딩 윈도우, 메모리). authorize·exchange 초과는 429 `SOCIAL_RATE_LIMITED`, callback 초과는 302 `{frontend-base-url}/login?socialError=SERVER_BUSY`다.
+- 예외: 꺼져 있거나 알 수 없는 제공자의 callback은 항상 302가 아니라 404 JSON `SOCIAL_PROVIDER_DISABLED`다(그 밖의 callback 응답은 모두 302, JSON 없음).
 - Fable 검증 결과: 높음 없음. 중간 4건(콜백 예외 JSON 노출, state 쿠키 재사용·콜백 무제한, 프런트 `__proto__` 오류 코드 크래시, 프록시 IP 공유)과 낮은 등급 일부는 수정했다.
 
 ### 테스트
@@ -790,7 +792,7 @@ AND NOT EXISTS (SELECT 1 FROM exchange_ticket_lock l WHERE l.ticket_id = tb.id)
 - 확장 조각 규칙(`additionalExclusions()`): 조각은 `AND`로 시작해야 하고 `?`(바인딩 파라미터)를 포함할 수 없다. 위반하면 `IllegalStateException`이며(`ExchangeCandidateSqlGuardTest`), 앞뒤 개행은 자동으로 붙는다.
 
 ## 후속 메모 (매칭 생성·예약)
-- 남은 것: ① 7일 경과 알림(미구현). (사용자 차단은 V13으로 2026-10-12 구현 완료: 차단 시 후보 제외·채팅 가능 여부는 차단 절 참고, 열린 매칭은 시스템 취소하고 잠금 해제.) (채팅은 V11로 구현 완료, 2026-10-11.) (완료: 내 매칭 목록·단건 조회 API, 예약 방식 V8, COMPLETED·교환 이력 기록 V9(2026-10-11). 교환 이력 조회 API·화면은 다음 브랜치.)
+- 남은 것: ① 7일 경과 알림(보류, 2026-10-13 사용자 결정). (사용자 차단은 V13으로 2026-10-12 구현 완료: 차단 시 후보 제외·채팅 가능 여부는 차단 절 참고, 열린 매칭은 시스템 취소하고 잠금 해제.) (채팅은 V11로 구현 완료, 2026-10-11.) (완료: 내 매칭 목록·단건 조회 API, 예약 방식 V8, COMPLETED·교환 이력 기록 V9(2026-10-11). 교환 이력 조회 API·화면은 다음 브랜치.)
 - 회차 마감(당일 끝)이 지난 뒤에도 잠금이 남은 티켓의 자동 비활성은 스케줄러 구현 때 설계 6절 '확인 필요 3'(매칭 종료 뒤 비활성화)에 따른다.
 - 같은 요청에 열린 매칭이 여러 개 있어도 요청 수정·삭제가 막히는 점(어느 한 쪽이라도 열린 매칭이 있으면 409)은 의도다. 채팅 중에 희망 조건이 바뀌는 것을 막는다.
 - 상대 요청이 제안 직후 삭제되는 경쟁은 요청 행 잠금으로 막힌다(잠금 사이 삭제되면 404).
@@ -805,7 +807,7 @@ AND NOT EXISTS (SELECT 1 FROM exchange_ticket_lock l WHERE l.ticket_id = tb.id)
 
 ## 채팅 (V11, 2026-10-11, `feature/chat`)
 
-매칭 참여자끼리 텍스트로 대화한다. 보내기는 REST, 받기는 STOMP 사용자 큐 푸시다. 시스템 메시지와 알림 행은 만들지 않는다.
+매칭 참여자끼리 텍스트로 대화한다. 보내기는 REST, 받기는 STOMP 사용자 큐 푸시다. 시스템 메시지는 저장하지 않는다. 새 메시지는 수신자별 `CHAT_MESSAGE` 알림 행 1개를 재사용한다(V15에서 추가, 2026-10-13 기준).
 
 ### 구성
 - 도메인: `domain/ChatMessage`(`chat_message`, append-only). 읽음 포인터(`chat_read_state`)는 엔티티 없이 `ChatReadStateRepository`(JdbcTemplate). 메시지 목록은 `ChatMessageRepository`의 `FORCE INDEX (idx_chat_message_match)` 네이티브 쿼리로 읽는다.
@@ -887,7 +889,7 @@ AND NOT EXISTS (SELECT 1 FROM exchange_ticket_lock l WHERE l.ticket_id = tb.id)
 | GET | /api/notifications/unread-count | `{total, byType}`. byType에는 6종 키가 항상 있다(0 포함). 닫힌 매칭 알림도 센다 |
 | POST | /api/notifications/{id}/read | 단건 읽음 (204, 이미 읽었어도 멱등) |
 | POST | /api/notifications/read-all?type= | 일괄 읽음 (204). type을 생략하면 전체, 잘못된 type은 400 |
-| DELETE | /api/notifications/read | 읽은 알림 삭제 (200, `{"deleted": n}`). 안 읽은 알림과 남의 알림은 지우지 않는다. **알림이 사라지는 유일한 경로**다 |
+| DELETE | /api/notifications/read | 읽은 알림 삭제 (200, `{"deleted": n}`). 안 읽은 알림과 남의 알림은 지우지 않는다. **알림이 사라지는 경로는 이것과 회원탈퇴(수신자 알림 전부)뿐**이다 |
 
 unread-count 예시: `{"total":3,"byType":{"PROPOSAL_RECEIVED":0,"RESERVATION_PROPOSED":1,"RESERVATION_REJECTED":0,"MATCH_RESERVED":0,"RESERVATION_CANCELED":0,"CHAT_MESSAGE":2}}`
 
@@ -936,7 +938,7 @@ unread-count 예시: `{"total":3,"byType":{"PROPOSAL_RECEIVED":0,"RESERVATION_PR
 
 ## 알림 실시간 푸시 (2026-10-11, `feature/notifications-realtime`)
 
-새 알림이 생기면 수신자에게 STOMP로 **신호만** 보내고, 화면은 신호를 받으면 REST로 다시 읽는다. DB 변경은 없다(V12를 쓰지 않는다. 다음 마이그레이션은 V12 차단 `user_block`).
+새 알림이 생기면 수신자에게 STOMP로 **신호만** 보내고, 화면은 신호를 받으면 REST로 다시 읽는다. DB 변경은 없다(2026-10-11 당시 기록: 그때 다음 마이그레이션은 V12 차단 `user_block`이었고, 이후 V12~V17이 구현됐다).
 
 ### 규칙
 - **전파 시점**: `NotificationService.notify`가 알림 INSERT 뒤 `TransactionSynchronization.afterCommit`에 등록한 콜백에서 `NotificationPushPublisher`(구현 `NotificationPushPublisherImpl`, `convertAndSendToUser`)로 보낸다. 요구사항 계획의 `@TransactionalEventListener(AFTER_COMMIT)`와는 다른 방식이다. 롤백이면 보내지 않는다. 전파가 실패해도 예외는 삼키고 로그만 남기며 저장·응답에는 영향이 없다(폴링이 보완). 알림 쓰기가 트랜잭션 맨 끝이라는 잠금 규칙은 그대로다.
@@ -963,7 +965,7 @@ unread-count 예시: `{"total":3,"byType":{"PROPOSAL_RECEIVED":0,"RESERVATION_PR
 
 ### 다음 작업
 - 관리자 페이지 → 교환 이력 조회(API·마이페이지 화면) → 차단·신고 순서였고, 차단·신고는 2026-10-12 V13으로 구현 완료했다. 관리자 페이지는 2026-10-12 완료. (링크 자동 입력은 2026-10-12 구현 완료.)
-- 7일 경과 알림은 여전히 미구현이다.
+- 7일 경과 알림은 2026-10-13 사용자 결정으로 보류했다.
 
 ## 수동 검증 시나리오 (임시 MySQL, 재현용)
 
@@ -1095,14 +1097,14 @@ docker rm -f seatswap-tmp-match
 - 교환 이력 조회 API(`GET /api/exchange/history`)와 마이페이지 화면은 2026-10-12 `feature/exchange-history`에서 구현했다(DB 변경 없음, 본인 행만 id 내림차순, size 기본 20 최대 100, `ExchangeHistoryService`·`ExchangeHistoryController`, 슬라이스·서비스 테스트 5건).
 
 ## 다음 단계
-1. 교환 도메인 구현 계속: (완료) V4 희망 범위·희망 좌석·희망 회차, 매칭 후보 조회, V5 매칭 생성·예약·거절·취소·예약 잠금, V6 추가금 범위 단위, V7 요청 소프트 삭제, V8 단일 예약·예약 취소, V15 예약 제안·예약 수락·채팅 알림(2026-10-13), V9 교환 완료(COMPLETED, 기존 티켓 EXCHANGED + 새 티켓)·교환 이력 기록, V10 알림 3종(조회·읽음·삭제 API 포함, 2026-10-11), V11 채팅(REST 전송·조회·읽음 + STOMP 푸시, 2026-10-11), 알림 실시간 푸시(STOMP 신호, 2026-10-11, `feature/notifications-realtime`), 관리자 페이지 V12(공연 수정 제안·내 티켓 인증, 2026-10-12, `feature/admin`) / 남음: 7일 경과 알림(미구현). 차단·신고(V13, 2026-10-12)와 교환 이력 조회 API·화면(2026-10-12 `feature/exchange-history`)은 구현 완료 (설계안 `산출물/08_ERD/exchange-schema-design.md`)
+1. 교환 도메인 구현 계속: (완료) V4 희망 범위·희망 좌석·희망 회차, 매칭 후보 조회, V5 매칭 생성·예약·거절·취소·예약 잠금, V6 추가금 범위 단위, V7 요청 소프트 삭제, V8 단일 예약·예약 취소, V15 예약 제안·예약 수락·채팅 알림(2026-10-13), V9 교환 완료(COMPLETED, 기존 티켓 EXCHANGED + 새 티켓)·교환 이력 기록, V10 알림 3종(조회·읽음·삭제 API 포함, 2026-10-11), V11 채팅(REST 전송·조회·읽음 + STOMP 푸시, 2026-10-11), 알림 실시간 푸시(STOMP 신호, 2026-10-11, `feature/notifications-realtime`), 관리자 페이지 V12(공연 수정 제안·내 티켓 인증, 2026-10-12, `feature/admin`) / 남음: 7일 경과 알림(보류, 2026-10-13 사용자 결정). 차단·신고(V13, 2026-10-12)와 교환 이력 조회 API·화면(2026-10-12 `feature/exchange-history`)은 구현 완료 (설계안 `산출물/08_ERD/exchange-schema-design.md`)
 2. 티켓 자동 비활성(회차 당일 끝 경과, 스케줄러)과 '내 티켓 인증'
 3. (완료) 후보 제시 -> 매칭 생성 -> 예약 제안·수락/예약 취소 -> 양쪽 '교환 수락'으로 교환 완료(V9, 2026-10-11)
 4. (완료, 2026-10-12) 사용자 차단·신고·관리자 신고 처리·이용 정지(V13). 후기 기능은 없음; 채팅은 2026-10-11 구현 완료
 5. 배포 시 SecurityConfig의 CORS allowed-origin을 실제 프론트 도메인으로 교체
-6. 브라우저 수동 점검(차단·신고·정지 화면 포함), trust_score 컬럼 정리 여부 결정, 7일 경과 알림(미구현)
-7. (완료, 2026-10-12, 미병합) 소셜 로그인(V14).
-8. (완료, 2026-10-13, 미병합) 예약 제안·예약 수락·채팅 알림(V15), 벨 위치(데스크톱은 '내 매칭' 오른쪽). 예약 버튼은 채팅 화면에만 있다.
-9. (완료, 2026-10-13, `feature/withdraw`, V17, 미병합) 회원탈퇴·개인정보처리방침·푸터. 다음 요청(미착수): AI 상세정보 읽기로 회차 시각 채우기(구조만 열림). 그 뒤 7일 경과 알림. 회원탈퇴 후속: 정지 중 제한 로그인, 소셜 전용 계정 재인증, 인증 사진 정리 작업.
+6. 브라우저 수동 점검(차단·신고·정지 화면 포함), trust_score 컬럼 정리 여부 결정, 7일 경과 알림(보류, 2026-10-13 사용자 결정)
+7. (완료, 2026-10-12, 병합됨) 소셜 로그인(V14).
+8. (완료, 2026-10-13, 병합됨) 예약 제안·예약 수락·채팅 알림(V15), 벨 위치(데스크톱은 '내 매칭' 오른쪽). 예약 버튼은 채팅 화면에만 있다.
+9. (완료, 2026-10-13, `feature/withdraw`, V17, 병합됨) 회원탈퇴·개인정보처리방침·푸터. 다음 요청(미착수): AI 상세정보 읽기로 회차 시각 채우기(구조만 열림). 7일 경과 알림은 보류(2026-10-13). 회원탈퇴 후속: 정지 중 제한 로그인, 소셜 전용 계정 재인증, 인증 사진 정리 작업.
 10. (완료, 2026-10-13, `feature/profile-edit`, V16) 마이페이지 닉네임 수정·소셜 계정 연결·해제.
-11. (완료, 2026-10-13, `feature/session-prefill`, DB 변경 없음, 미병합) 회차 날짜 미리 채우기(`sessionCandidates`, 공연 기간 2일 이하만 날짜). 시각은 직접 입력이다.
+11. (완료, 2026-10-13, `feature/session-prefill`, DB 변경 없음, 병합됨) 회차 날짜 미리 채우기(`sessionCandidates`, 공연 기간 2일 이하만 날짜). 시각은 직접 입력이다.

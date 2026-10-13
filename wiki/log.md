@@ -61,3 +61,6 @@ llm-wiki 스킬, researcher·wiki-curator 에이전트, `scripts/lint-wiki.mjs`�
 
 ## [2026-10-13] lint | 문서·코드 정합성 점검
 백엔드·프런트·산출물 문서 간 낡은 표기를 점검해 위키 페이지의 병합 상태(미병합→병합됨), 7일 경과 알림 보류 결정(notification-design·block-report-design), 탈퇴 정지 규칙과 잠금 순서의 실제 순서(withdraw-privacy-design), 관리자 알림 유형 서술의 시점(admin-design)을 고쳤다. 과거 ingest 기록 본문은 그대로 두었다. 점검 결과: `node scripts/lint-wiki.mjs` 오류 0건, 경고 0건.
+
+## [2026-10-13] decision | 네이버 이메일 미사용
+- 네이버 프로필의 이메일은 검증 여부를 알 수 없어(공식 문서 미확인, 조사 신뢰도 낮음) 쓰지 않기로 했다. 항상 자리표시 이메일로 가입하고 EMAIL_EXISTS 판정도 하지 않는다. 관련: [decisions/social-login-design.md](decisions/social-login-design.md)

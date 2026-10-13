@@ -581,7 +581,7 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 |---|---|---|---|---|
 | 구글 | `openid email profile` | `email_verified`가 true | `sub` | S256 |
 | 카카오 | `profile_nickname account_email` | `is_email_valid`·`is_email_verified` 둘 다 true (동의 안 하면 이메일 없음) | `id`(숫자) | S256 |
-| 네이버 | 없음(앱 설정으로 결정) | 네이버가 주는 이메일은 검증된 것 | `response.id` | 미지원(state 쿠키 검증으로 CSRF 방어) |
+| 네이버 | 없음(앱 설정으로 결정) | 쓰지 않음(검증 여부를 알 수 없어 항상 자리표시 이메일, 2026-10-13) | `response.id` | 미지원(state 쿠키 검증으로 CSRF 방어) |
 
 엔드포인트는 코드에 고정되어 있다. 구글 authorize `https://accounts.google.com/o/oauth2/v2/auth`, token `https://oauth2.googleapis.com/token`, userinfo `https://openidconnect.googleapis.com/v1/userinfo`. 카카오 `https://kauth.kakao.com/oauth/authorize`, `https://kauth.kakao.com/oauth/token`, `https://kapi.kakao.com/v2/user/me`. 네이버 `https://nid.naver.com/oauth2.0/authorize`, `https://nid.naver.com/oauth2.0/token`, `https://openapi.naver.com/v1/nid/me`. 설정으로 덮어쓸 수 있으나 https만 허용하고, 루프백 http만 테스트용으로 허용한다.
 

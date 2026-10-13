@@ -36,7 +36,7 @@
 
 ## 현재 구현 현황
 
-DB는 Flyway V1~V16, 20개 테이블(social_account·performance_edit_proposal·seat_claim·user_block·abuse_report·user_sanction 포함, users·performance·performance_session·ticket·exchange_request·exchange_want_range·exchange_want_seat·exchange_want_session·exchange_match·exchange_ticket_lock·exchange_history·notification·chat_message·chat_read_state). **구현 완료**: 가입·로그인(JWT, 소셜 로그인 카카오·구글·네이버 V14), 마이페이지 닉네임 수정과 소셜 계정 연결·해제(V16), 공연 등록·목록·상세(등록 후 수정 불가), 티켓 등록·내리기, 교환 희망 조건(범위별 추가금·소프트 삭제), 후보 조회, 제안·거절·채팅 종료, 예약 제안·예약 수락·예약 거절·제안 철회·예약 취소(채팅 화면 예약 블록, V15), 교환 수락→교환 완료(기존 티켓 EXCHANGED+새 티켓, 교환 이력 기록, 교환된 좌석 안내), 내 매칭 조회, 교환 화면 5개(티켓 등록·내 티켓·희망 조건 폼·후보 목록·내 매칭), 알림 6종(새 제안·예약 제안·예약 제안 거절·상대 예약 수락·상대 예약 취소·새 채팅 메시지: 헤더 벨 말풍선, 알림 페이지, 읽은 알림 삭제, STOMP 실시간 푸시 + 연결이 끊겼을 때만 30초 폴링. 벨은 데스크톱에서 '내 매칭' 오른쪽, 햄버거 폭에서는 햄버거 왼쪽), 매칭별 채팅(채팅 화면에서 REST로 보내고 STOMP 사용자 큐로 받기, 읽음 표시, 종료 후 읽기 전용), 링크 기반 공연정보 자동 입력(제목·공연장·공연 기간, 회차 시각 제외), 관리자 페이지(공연 수정 제안 처리·내 티켓 인증 확인), 교환 이력 조회(`GET /api/exchange/history`, 마이페이지 '교환 이력' 화면 `/exchange/history`: 본인 이력만 최신순, 교환 당시 스냅샷, 읽기 전용). 차단·신고·이용 정지와 관리자 신고 관리. **미구현**: 7일 경과 알림. 다음 마이그레이션 번호는 V17부터. 상세 수치는 [STATS.md](STATS.md), 이력은 [HISTORY.md](HISTORY.md).
+DB는 Flyway V1~V17, 20개 테이블(social_account·performance_edit_proposal·seat_claim·user_block·abuse_report·user_sanction 포함, users·performance·performance_session·ticket·exchange_request·exchange_want_range·exchange_want_seat·exchange_want_session·exchange_match·exchange_ticket_lock·exchange_history·notification·chat_message·chat_read_state). **구현 완료**: 가입·로그인(JWT, 소셜 로그인 카카오·구글·네이버 V14), 마이페이지 닉네임 수정과 소셜 계정 연결·해제(V16), 회원탈퇴(V17)·개인정보처리방침(`/privacy`)·푸터, 공연 등록·목록·상세(등록 후 수정 불가), 티켓 등록·내리기, 교환 희망 조건(범위별 추가금·소프트 삭제), 후보 조회, 제안·거절·채팅 종료, 예약 제안·예약 수락·예약 거절·제안 철회·예약 취소(채팅 화면 예약 블록, V15), 교환 수락→교환 완료(기존 티켓 EXCHANGED+새 티켓, 교환 이력 기록, 교환된 좌석 안내), 내 매칭 조회, 교환 화면 5개(티켓 등록·내 티켓·희망 조건 폼·후보 목록·내 매칭), 알림 6종(새 제안·예약 제안·예약 제안 거절·상대 예약 수락·상대 예약 취소·새 채팅 메시지: 헤더 벨 말풍선, 알림 페이지, 읽은 알림 삭제, STOMP 실시간 푸시 + 연결이 끊겼을 때만 30초 폴링. 벨은 데스크톱에서 '내 매칭' 오른쪽, 햄버거 폭에서는 햄버거 왼쪽), 매칭별 채팅(채팅 화면에서 REST로 보내고 STOMP 사용자 큐로 받기, 읽음 표시, 종료 후 읽기 전용), 링크 기반 공연정보 자동 입력(제목·공연장·공연 기간, 회차 시각 제외), 관리자 페이지(공연 수정 제안 처리·내 티켓 인증 확인), 교환 이력 조회(`GET /api/exchange/history`, 마이페이지 '교환 이력' 화면 `/exchange/history`: 본인 이력만 최신순, 교환 당시 스냅샷, 읽기 전용). 차단·신고·이용 정지와 관리자 신고 관리. **미구현**: 7일 경과 알림. 다음 마이그레이션 번호는 V18부터. 상세 수치는 [STATS.md](STATS.md), 이력은 [HISTORY.md](HISTORY.md).
 
 ## 제품·교환 규칙 (확정)
 
@@ -126,7 +126,7 @@ DB는 Flyway V1~V16, 20개 테이블(social_account·performance_edit_proposal·
 - 화면: 헤더 벨을 누르면 바로 아래 말풍선(최신 5건, 모두 읽음, 알림 전체 보기), 알림 전체 보기는 `/notifications` 페이지다. 알림 클릭은 읽음 처리 후 이동한다: 채팅 메시지·예약 제안은 채팅 화면, 나머지는 매칭 카드. 벨은 데스크톱(768px 이상)에서 '내 매칭' 바로 오른쪽(관리자 링크 앞), 햄버거 폭에서는 햄버거 버튼 왼쪽에 둔다(인스턴스 하나). 새 알림은 STOMP `/user/queue/notifications`로 "새 알림이 생겼다"는 신호만 푸시하고(문구·상대 정보는 싣지 않음, 커밋 뒤 전파), 화면은 신호를 받으면 REST로 개수·목록을 다시 읽는다. 연결이 끊겨 있을 때만 화면이 보일 때 30초 폴링한다(연결 중에는 5분 안전 확인).
 - 알림 구조는 type 추가로 확장할 수 있게 둔다(예: 7일 경과 알림).
 - **사용자 차단·신고는 구현됨**(아래 '차단·신고·이용 정지' 절): 차단하면 후보에서 제외되고 채팅할 수 없으며, 신고는 관리자가 처리한다.
-- 관리자는 DB에서 ADMIN 역할을 직접 부여하는 방식으로 시작한다. 회원탈퇴는 물리 삭제가 아니라 익명화(로그·제재 FK 유지)한다.
+- 관리자는 DB에서 ADMIN 역할을 직접 부여하는 방식으로 시작한다. 회원탈퇴는 물리 삭제가 아니라 익명화다(규칙은 아래 '회원탈퇴·개인정보처리방침' 절).
 
 ### 관리자·공연 수정 제안·내 티켓 인증 (구현됨, V12 `performance_edit_proposal`·`seat_claim`)
 - 관리자는 DB에서 `users.role='ADMIN'`을 직접 부여한다. `/api/admin/**`는 서버가 ADMIN만 허용하고, 프론트는 `AdminRoute`(`/api/users/me`의 role)로 `/admin` 화면을 가린다. 헤더에는 ADMIN일 때만 '관리자' 링크가 보인다.
@@ -160,10 +160,23 @@ DB는 Flyway V1~V16, 20개 테이블(social_account·performance_edit_proposal·
 - 사용자당 제공자 1개(`social_account` UNIQUE(user_id, provider)). 이미 같은 제공자가 연결돼 있으면 409 `SOCIAL_ALREADY_LINKED`, 그 계정이 다른 사용자에게 연결돼 있으면 409 `SOCIAL_LINKED_OTHER`.
 - **연결 해제**: `DELETE /api/users/me/social/{provider}`(연결이 없으면 멱등 204). 마지막 로그인 수단(비밀번호 로그인 불가이고 연결이 이것뿐)이면 409 `LAST_LOGIN_METHOD`다. 해제 가능 여부는 `GET /api/users/me/social`의 `canUnlink`로 알린다. 제공자가 지금 꺼져 있어도 해제는 된다.
 
+### 회원탈퇴·개인정보처리방침 (구현됨, V17)
+- **API**: `DELETE /api/users/me` body `{password?, confirmText?}`(인증 필요, 성공 204). 본인 확인: 비밀번호 로그인 계정(`password_login_enabled`=1)은 비밀번호(불일치 400), 소셜 전용 계정은 `confirmText`가 정확히 `탈퇴합니다`여야 한다(아니면 400). ADMIN은 409 `ADMIN_CANNOT_WITHDRAW`(역할을 DB에서 해제한 뒤 탈퇴). 사용자당 분당 5회(성공·실패 모두 센다, 초과 429 `WITHDRAW_RATE_LIMITED`). 이미 탈퇴했거나 동시 탈퇴의 뒤쪽은 401.
+- **처리(한 트랜잭션)**: ①PENDING 좌석 인증 요청 거절(처리자는 본인, 사진은 커밋 뒤 삭제) ②열린 매칭(CHATTING·RESERVED) 시스템 취소와 예약 잠금 해제(`OpenMatchCanceller`) ③OPEN 요청 CLOSED, 활성 티켓 INACTIVE ④users 행 FOR UPDATE 후 같은 정리를 한 번 더(2차 정리) ⑤`social_account` 전부 삭제, users 익명화(이메일 `withdrawn.{id}@withdrawn.seatswap.invalid`, 닉네임 `탈퇴한 회원`, 무작위 BCrypt, `password_login_enabled`=0, `withdrawn_at`=KST 현재 시각, role 유지) ⑥수신자 알림 삭제 ⑦커밋 뒤 STOMP 연결 종료(실패는 삼킨다).
+- **보존**: 채팅·읽음 상태·교환 이력·차단·신고·제재·PENDING 공연 수정 제안은 지우지 않는다(FK 유지). 닉네임은 users에서 읽으므로 상대·관리자 화면에 '탈퇴한 회원'으로 나온다.
+- **잠금 순서(탈퇴)**: 인증 요청 → 티켓 id↑ → 요청 → 매칭 id↑ → users → 알림. users 행은 티켓·매칭 잠금 **뒤에** 잡는다(개발 규칙 참고).
+- **인증 차단**: `CustomUserDetailsService`(`loadUserById`·`loadUserByUsername`)가 탈퇴 계정을 거절한다 → 기존 액세스 토큰 401, STOMP CONNECT 거부, 로그인·refresh·소셜 exchange·소셜 연결 확정 400, 소셜 연결 해제 401. 같은 이메일·같은 소셜 계정으로 새 계정을 만들 수 있다.
+- 관리자 제재 대상이 탈퇴한 사용자이면 409 `TARGET_WITHDRAWN`.
+- **이용 정지 중인 사용자는 탈퇴할 수 없다**(403 `ACCOUNT_SUSPENDED`, 방침 §8은 문의처 요청으로 안내). 정책 확정 전까지 이 상태다.
+- **프런트**: 마이페이지 '회원탈퇴' 버튼이 모달(`WithdrawDialog`, 안내·본인 확인)을 연다. 성공하면 홈에서 "탈퇴가 완료됐어요" 안내를 한 번 보인다. 푸터(채팅 화면 제외)와 공개 라우트 `/privacy`(개인정보처리방침)가 있다. 방침의 운영자·문의 이메일·시행일은 빌드 환경변수 `VITE_PRIVACY_OPERATOR`·`VITE_PRIVACY_CONTACT_EMAIL`·`VITE_PRIVACY_EFFECTIVE_DATE`로 받고, 비어 있으면 '설정 필요'로 강조한다. 가입 화면에는 방침 링크와 "가입하면 동의한 것으로 봐요, 만 14세 미만은 가입할 수 없어요" 안내를 둔다(동의 체크박스·동의 기록은 없다).
+- **방침의 보유 기간**: 계정 정보는 탈퇴 즉시 삭제·익명화, 인증 사진은 처리가 끝나면 삭제, 받은 알림은 탈퇴할 때 삭제. 채팅·교환 이력·차단·신고·제재는 익명화해 서비스 운영 기간 동안 보관하고 서비스 종료 시 파기한다(자동 파기 스케줄은 없다).
+- 상세와 한계는 [wiki/decisions/withdraw-privacy-design.md](wiki/decisions/withdraw-privacy-design.md).
+
 ## 개발 규칙 (앞으로도 지킨다)
 
 근거와 사례는 [wiki/gotchas/lock-order-and-index-pitfalls.md](wiki/gotchas/lock-order-and-index-pitfalls.md).
 - 잠금 순서는 **티켓 id↑ → 요청 id↑ → 매칭**. 요청만 잠그는 update/delete 경로에서는 티켓을 잠그지 않는다.
+- 탈퇴(`WithdrawService`)는 users 행을 티켓·요청·매칭 잠금 **뒤에** FOR UPDATE로 잡는다. 제안은 티켓을 잠근 뒤 매칭을 INSERT하면서 users에 FK 공유 잠금을 걸므로, users를 먼저 X로 잡으면 교착한다. 반대로 티켓 등록·좌석 인증 요청·공연 수정 제안·소셜 연결 경로는 users를 FOR UPDATE로 먼저 잡고 탈퇴 여부를 확인한 뒤 진행한다.
 - **FK에 쓰이는 인덱스에 갱신 컬럼(status 등)을 붙이지 않는다**(FK 인덱스는 단일 컬럼). 교착 원인이 된다.
 - **이미 적용된 Flyway 마이그레이션 파일은 수정하지 않는다**(체크섬 불일치). 새 번호로 추가하고, 마이그레이션은 재실행 가능한 프로시저 패턴을 따른다. 이전 스키마가 남은 로컬 DB는 `docker compose down -v`로 비운 뒤 적용한다.
 - 실제 MySQL 통합 테스트는 환경변수 `SEATSWAP_IT_*`가 있을 때만 실행하며 개발 DB 보호 장치를 유지한다(IT용 DB 이름 규칙은 ops-rules).
@@ -210,9 +223,12 @@ DB는 Flyway V1~V16, 20개 테이블(social_account·performance_edit_proposal·
 
 - **구현 완료(2026-10-13, V15, 미병합)**: 예약 방식 변경(예약 버튼은 채팅 화면에서만, 예약 제안 → 상대 수락으로 RESERVED), 채팅 새 메시지 알림(헤더 벨), 벨 위치(데스크톱은 '내 매칭' 오른쪽).
 - **구현 완료(2026-10-13, V16, 미병합)**: 마이페이지 닉네임 수정·소셜 계정 연결·해제.
-- **요청됨·미착수(사용자 요청)**: 회원탈퇴·개인정보처리방침·footer 링크, 포스터 표시, 회차 정보 자동 채우기. 그 뒤 7일 경과 알림.
+- **구현 완료(2026-10-13, V17, 미병합)**: 회원탈퇴·개인정보처리방침(`/privacy`)·푸터.
+- **요청됨·미착수(사용자 요청)**: 포스터 표시, 회차 정보 자동 채우기. 그 뒤 7일 경과 알림.
+- **회원탈퇴 후속(정책 결정 필요)**: 이용 정지 중 탈퇴 허용 여부, 소셜 전용 계정의 재인증(지금은 확인 문구만), 인증 사진 삭제 실패 시 정리 작업, 보관 기간의 법적 근거 검토(공개 운영 전 전문가 검토 필요).
 
 ## 확인 필요 (열린 질문만)
 
 - (해결) 신고 처리용 최소 관리자 기능의 범위는 신고 목록·상세(채팅 근거)·처리·이용 정지·차단 현황으로 확정해 구현했다.
+- 회원탈퇴 정책 질문(이용 정지 중 탈퇴, 소셜 재인증, 보관 기간 법적 근거)은 wiki/decisions/withdraw-privacy-design.md의 한계 목록을 따른다.
 - 요구사항 문서 §7의 미해결 항목(Q-2~4, Q-6~8, Q-11~13): [후속요구사항 문서](산출물/04_요구사항정의서/후속요구사항_제안알림_교환됨_공연정보입력.md) §7 참고.

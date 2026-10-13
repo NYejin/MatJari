@@ -49,3 +49,6 @@ llm-wiki 스킬, researcher·wiki-curator 에이전트, `scripts/lint-wiki.mjs`�
 
 ## [2026-10-13] ingest | 프로필 수정·소셜 계정 연결 반영
 프로필 수정(닉네임)과 소셜 계정 연결·해제(V16, `feature/profile-edit`, 미병합)를 반영했다. 결정 페이지 `profile-edit-design.md`를 추가하고, 소셜 로그인 설계의 '연결 UI 없음'·'헤더 가짜 이메일' 서술을 고쳤다. 잠금·인덱스 함정 14절(로그인 CSRF, 해제 잠금 순서, 제약 이름 구분)과 용어집의 소셜 연결 절을 더했다. 프런트 빌드와 브라우저 점검 기록이 없어 confidence는 medium이다.
+
+## [2026-10-13] ingest | 회원탈퇴·개인정보처리방침 반영
+회원탈퇴(V17, `feature/withdraw`, 미병합)를 반영했다. 결정 페이지 `withdraw-privacy-design.md`를 추가해 익명화 범위와 이유, 대안 비교, 탈퇴 잠금 순서(users 먼저 폐기), 보관 기간 조사 요약, 한계 8개와 추가 관찰을 적었다. 함정 페이지 15절, 용어집 '회원 탈퇴' 절, 색인을 갱신했다.

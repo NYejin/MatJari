@@ -153,6 +153,7 @@ public class SeatClaimService {
         return transactionTemplate.execute(status -> {
             // 사용자 행 잠금이 첫 쿼리여야 한다(TicketService.create 와 같은 이유: RR 스냅샷 고정 전에 직렬화).
             userRepository.findByIdForUpdate(userId)
+                    .filter(u -> !u.isWithdrawn())
                     .orElseThrow(() -> new InsufficientAuthenticationException("인증된 사용자를 찾을 수 없습니다."));
             if (sessionId == null) {
                 throw new FieldValidationException("sessionId", "회차를 선택해주세요.");
@@ -334,6 +335,29 @@ public class SeatClaimService {
             deleteImageAfterCommit(claim.getId(), claim.getImageKey());
             return adminResponse(claim, nicknames(List.of(claim)));
         });
+    }
+
+    static final String WITHDRAWAL_REJECT_NOTE = "회원 탈퇴로 자동 거절되었습니다.";
+
+    /**
+     * 회원 탈퇴: 그 사용자의 PENDING 인증 요청을 모두 거절 처리한다(처리자 = 본인, 사유 고정 문구). 요청 행을 id 오름차순으로 잠그며
+     * (잠금 순서의 맨 앞: 인증 요청 -> 티켓 -> 요청 -> 매칭), 사진은 커밋 뒤 삭제한다. 활성 트랜잭션 안에서만 호출한다. 처리한 건수를 돌려준다.
+     */
+    @org.springframework.transaction.annotation.Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public int rejectPendingForWithdrawal(Long userId) {
+        LocalDateTime now = sessionTimePolicy.now();
+        int rejected = 0;
+        for (Long id : claimRepository.findPendingIdsByClaimant(userId)) {
+            SeatClaim claim = claimRepository.findByIdForUpdate(id).orElse(null);
+            if (claim == null || !claim.isPending()) {
+                continue; // 그 사이 관리자가 처리했다
+            }
+            claim.reject(userId, WITHDRAWAL_REJECT_NOTE, now);
+            claimRepository.saveAndFlush(claim);
+            deleteImageAfterCommit(claim.getId(), claim.getImageKey());
+            rejected++;
+        }
+        return rejected;
     }
 
     /** 커밋 뒤에 파일 삭제 -> 성공하면 별도 짧은 트랜잭션에서 image_deleted_at 기록. 어느 단계가 실패해도 처리 결과는 유지(로그만). */

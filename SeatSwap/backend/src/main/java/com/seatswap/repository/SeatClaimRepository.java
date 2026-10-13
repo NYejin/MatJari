@@ -54,6 +54,11 @@ public interface SeatClaimRepository extends JpaRepository<SeatClaim, Long> {
             """, countQuery = "select count(c) from SeatClaim c where c.status = :status")
     Page<SeatClaim> findPageByStatus(@Param("status") AdminReviewStatus status, Pageable pageable);
 
+    /** 잠금 없는 SELECT: 사용자의 PENDING 인증 요청 id (오름차순). 이어서 PK 로 잠그고 상태를 다시 확인한다. */
+    @Query("select c.id from SeatClaim c where c.claimantId = :userId "
+            + "and c.status = com.seatswap.domain.AdminReviewStatus.PENDING order by c.id")
+    java.util.List<Long> findPendingIdsByClaimant(@Param("userId") Long userId);
+
     long countByClaimantIdAndStatus(Long claimantId, AdminReviewStatus status);
 
     /** 같은 사용자의 같은 좌석 PENDING 요청 (uk_seat_claim_pending_seat 와 같은 키). */

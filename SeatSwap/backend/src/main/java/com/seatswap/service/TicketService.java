@@ -114,6 +114,7 @@ public class TicketService {
                 // 첫 일관 읽기에서 스냅샷이 고정되므로, 잠금 전에 다른 조회가 있으면 대기 후에도 옛 스냅샷으로
                 // 중복·상한 검사를 하게 된다(잠금 읽기 자체는 최신 데이터를 읽지만 이후 일반 SELECT는 스냅샷).
                 User user = userRepository.findByIdForUpdate(userId)
+                        .filter(u -> !u.isWithdrawn()) // 탈퇴와 겹친 요청: 탈퇴한 회원의 티켓은 만들지 않는다
                         .orElseThrow(() -> new InsufficientAuthenticationException("인증된 사용자를 찾을 수 없습니다."));
                 PerformanceSession session = sessionRepository.findWithPerformanceById(request.sessionId())
                         .orElseThrow(() -> new FieldValidationException("sessionId", SESSION_NOT_FOUND_MESSAGE));

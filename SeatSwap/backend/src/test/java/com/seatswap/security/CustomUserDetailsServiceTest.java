@@ -60,6 +60,17 @@ class CustomUserDetailsServiceTest {
     }
 
     @Test
+    void withdrawnUserIsRejectedLikeMissingUserEvenWithValidToken() {
+        User user = User.create("a@b.com", "encoded", "닉네임");
+        ReflectionTestUtils.setField(user, "id", 8L);
+        user.anonymizeForWithdrawal("randomhash", java.time.LocalDateTime.of(2026, 10, 13, 12, 0));
+        when(userRepository.findById(8L)).thenReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> service.loadUserById(8L)).isInstanceOf(UsernameNotFoundException.class);
+        assertThat(user.getEmail()).isEqualTo("withdrawn.8@withdrawn.seatswap.invalid");
+    }
+
+    @Test
     void missingUserThrowsUsernameNotFound() {
         when(userRepository.findById(99L)).thenReturn(Optional.empty());
 

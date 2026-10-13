@@ -115,7 +115,7 @@ public class AuthService {
         User user = userRepository.findByEmail(AuthInputNormalizer.normalizeEmail(request.email()))
                 .orElseThrow(() -> new SeatSwapException(LOGIN_FAIL_MESSAGE));
 
-        if (!passwordEncoder.matches(password, user.getPassword())) {
+        if (user.isWithdrawn() || !passwordEncoder.matches(password, user.getPassword())) {
             throw new SeatSwapException(LOGIN_FAIL_MESSAGE);
         }
         // 비밀번호가 맞은 뒤에만 정지 여부를 알려 준다(정지 여부로 계정 존재를 추측하지 못하게). 403 ACCOUNT_SUSPENDED
@@ -133,6 +133,7 @@ public class AuthService {
 
         Long userId = jwtTokenProvider.getUserId(token);
         User user = userRepository.findById(userId)
+                .filter(u -> !u.isWithdrawn())
                 .orElseThrow(() -> new SeatSwapException("사용자를 찾을 수 없습니다."));
         suspensionChecker.assertNotSuspended(user.getId());
 

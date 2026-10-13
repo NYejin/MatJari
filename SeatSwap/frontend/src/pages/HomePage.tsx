@@ -43,14 +43,25 @@ function readNotice(state: unknown): string | null {
 
 export default function HomePage() {
   const { isAuthenticated, isInitializing } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+  // 일회성 안내(state.notice) — 로그인 상태가 바뀌어도(탈퇴 직후 등) 한 번만 보이도록 여기서 읽고 히스토리에서 지운다
+  const [notice] = useState(() => readNotice(location.state));
+  useEffect(() => {
+    if (notice) navigate(location.pathname, { replace: true, state: null });
+    // 최초 1회
+  }, []);
   if (isInitializing) return null;
-  return isAuthenticated ? <PerformanceList /> : <GuestIntro />;
+  return isAuthenticated ? <PerformanceList notice={notice} /> : <GuestIntro notice={notice} />;
 }
 
-function GuestIntro() {
+function GuestIntro({ notice }: { notice: string | null }) {
   return (
     <div className={ui.page}>
       <div className={ui.container}>
+        <p className={liveRegionClass(notice, ui.notice)} role="status">
+          {notice ?? ""}
+        </p>
         <section className={`${ui.card} ${cls.intro}`} aria-labelledby="home-intro-title">
           <h1 id="home-intro-title" className={ui.pageTitle}>
             같은 공연, 원하는 자리로
@@ -73,10 +84,7 @@ function GuestIntro() {
   );
 }
 
-function PerformanceList() {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const [notice] = useState(() => readNotice(location.state));
+function PerformanceList({ notice }: { notice: string | null }) {
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebouncedValue(query.trim(), 300);
   const [state, setState] = useState<ListState>({ status: "loading" });
@@ -87,12 +95,6 @@ function PerformanceList() {
   const generation = useRef(0);
   /** 목록 기준 시각 — 검색어별 첫 요청 때 고정해 "더 보기"에도 같은 값을 보낸다 */
   const asOf = useRef(kstMinuteString());
-
-  // 일회성 안내(state.notice)는 히스토리에서 지워 새로고침 시 다시 보이지 않게
-  useEffect(() => {
-    if (notice) navigate(location.pathname, { replace: true, state: null });
-    // 최초 1회
-  }, []);
 
   // 검색어가 바뀌면 첫 페이지부터 다시
   useEffect(() => {

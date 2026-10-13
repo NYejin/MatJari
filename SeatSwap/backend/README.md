@@ -23,6 +23,7 @@
 - **공연·회차 등록/조회(FR-02)는 구현 완료** (`PerformanceController`, `PerformanceService`). 공연은 회차와 함께 등록하며, 등록 후에는 아무도 제목·공연장·회차를 수정하거나 공연·회차를 삭제할 수 없다(수정은 관리자 수정 제안 승인으로만 바뀌며 2026-10-12 구현, 아래 '관리자 API' 절). 공연장은 공연의 텍스트 속성 `venueName`(필수, 1~100자)이다.
 - **소셜 로그인(2026-10-12, `feature/social-login`, V14)은 구현 완료**: 카카오·구글·네이버, `/api/auth/social/**`(`SocialAuthController`, `service/social/`). 자세한 규칙은 아래 '소셜 로그인 (V14)' 절.
 - **마이페이지 닉네임 수정·소셜 계정 연결·해제(2026-10-13, `feature/profile-edit`, V16)는 구현 완료**: 자세한 규칙은 아래 '프로필 수정·소셜 계정 연결 (V16)' 절.
+- **회원탈퇴·개인정보처리방침(2026-10-13, `feature/withdraw`, V17)은 구현 완료**: `DELETE /api/users/me`, 익명화와 진행 중 교환 자동 정리. 자세한 규칙은 아래 '회원탈퇴·개인정보처리방침 (V17)' 절.
 - **링크 기반 공연 정보 미리보기(2026-10-12, `feature/link-autofill`)는 구현 완료**(`GET /api/performances/preview`, DB 변경 없음). 자세한 규칙은 아래 '링크 공연정보 미리보기' 절.
 - STOMP 스켈레톤(`config/WebSocketConfig`의 TODO)은 채팅 구현(V11, 2026-10-11)으로 대체됐다. 아래 '채팅 (V11)' 절 참고.
 - **티켓 등록(FR-03)은 구현 완료** (`TicketController`, `TicketService`, `SeatKeyNormalizer`). 좌석 1개를 텍스트(구역 필수, 열·번은 숫자 또는 문자)로 등록한다. 같은 회차·구역·열·번의 활성 티켓은 1개(DB `uk_ticket_active_seat`), 사용자당 활성 티켓 20개 상한(`users` 행 FOR UPDATE로 직렬화), 회차 당일 끝(다음날 0시 KST)까지만 등록할 수 있다. 교환 희망 범위·매칭·예약은 아래 교환 항목 참고. 내릴 때 예약 잠금이면 `TicketService.ensureCanDeactivate`가 409 `TICKET_RESERVED`로 막는다.
@@ -336,6 +337,7 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 - **V14 적용 안내 (소셜 로그인, `V14__social_account.sql`, 2026-10-12)**: 새 테이블 `social_account` 하나만 만든다. 기존 테이블(`users` 포함) 변경·데이터 이관·파괴적 단계는 없다. 컬럼: `id`, `user_id`(FK users, 단일 컬럼 KEY), `provider` VARCHAR(20) utf8mb4_bin(GOOGLE/KAKAO/NAVER CHECK), `provider_user_id` VARCHAR(100) utf8mb4_bin(빈 값 CHECK), `created_at`. UNIQUE(provider, provider_user_id). 재실행 가능한 프로시저 패턴. 다음 마이그레이션은 V16.
 - **V15 적용 안내 (예약 제안·채팅 알림, `V15__reserve_proposal_chat_notification.sql`, 2026-10-13)**: `exchange_match`에 `reserve_proposed_by_id`(FK users, 단일 컬럼 인덱스)·`reserve_proposed_at`을 추가한다(둘 다 NULL이거나 둘 다 NOT NULL, 제안은 CHATTING에서만, 제안자는 참여자라는 CHECK 3종. FK는 `reserved_by_id`와 같은 방식). `notification.type` CHECK를 6종으로 넓히고 `ck_notification_chat_dedup`(CHAT_MESSAGE는 `dedup_key = 'CHAT_MESSAGE:{matchId}:{recipientId}'` 형식 강제)을 추가한다. 기존 행은 백필 없이 만족한다. 재실행 가능한 프로시저 패턴. 테이블 수는 20 그대로다.
 - **V16 적용 안내 (비밀번호 로그인 가능 여부·사용자당 제공자 1개, `V16__user_password_login.sql`, 2026-10-13)**: 새 테이블은 없다(테이블 수 20 그대로). `users.password_login_enabled TINYINT(1) NOT NULL DEFAULT 1`을 추가하고, `social_account` 행이 있는 사용자는 백필로 0이 된다(0으로만 바꾸는 멱등 UPDATE). `social_account`에 `uk_social_account_user_provider (user_id, provider)`를 추가하며, 기존 중복 행이 있으면 SIGNAL로 중단한다. 재실행 가능한 프로시저 패턴, 파괴적 단계 없음. 다음 마이그레이션은 V17.
+- **V17 적용 안내 (회원 탈퇴 시각, `V17__user_withdrawn_at.sql`, 2026-10-13)**: 새 테이블은 없다(테이블 수 20 그대로). `users.withdrawn_at DATETIME(6) NULL`(NULL이면 활성)만 추가한다. 인덱스·CHECK·백필 없음, 파괴적 단계 없음. 되돌리기는 롤포워드(새 V 파일에서 컬럼 DROP).
 - 차단·신고·이용 정지(`user_block`, `abuse_report`, `user_sanction`)는 **V13에서 구현됐다**(V8은 예약 방식 변경, V9는 교환 완료·교환 이력, V10은 알림, V11은 채팅, V12는 관리자 처리 대상 두 테이블에 사용됨)(예전 문서의 'V6 이후'는 V6/V7이 추가금·소프트 삭제에 쓰이면서 밀렸다).
 - **V3 적용 안내 (`ticket` 좌석 컬럼)**: `zone_label/zone_key`, `row_key`, `col_key`, `status`, `created_at/updated_at`, 생성 컬럼 `active_flag`, `uk_ticket_active_seat`(회차·구역·열·번·active_flag), `idx_ticket_user_status`를 추가하고 `row_label`/`col_label`을 NOT NULL VARCHAR(20)으로 바꾼다.
   - 가드: `ticket`에 행이 있으면 아무것도 바꾸기 전에 SIGNAL로 실패한다(새 NOT NULL 구역 컬럼에 채울 값이 없음). 적용 전 `SELECT COUNT(*) FROM ticket;`가 0인지 확인한다. 행이 있어 실패했다면 테스트 행을 지우고 `flyway repair`(실패 기록 삭제) 후 다시 적용한다. 임시 프로시저 `v3_guard_ticket_empty`가 남을 수 있으나 재실행 시 먼저 DROP 한다.
@@ -616,6 +618,66 @@ propose의 상태는 '같은 요청 쌍의 가장 최근 매칭' 기준이다. �
 - 티켓이 URL 쿼리에 실린다(1회용·60초, 사용 뒤에는 무가치).
 - JWT 클레임에 자리표시 이메일 원문이 남는다(본인 토큰이며 화면에는 나오지 않는다).
 - 비밀번호·이메일 변경은 없다. 소셜 가입자는 비밀번호를 설정할 수 없다.
+
+## 회원탈퇴·개인정보처리방침 (V17, 2026-10-13, `feature/withdraw`)
+
+설계 근거·보관 기간 조사·한계 전체는 [회원탈퇴·개인정보처리방침 설계 근거](../../wiki/decisions/withdraw-privacy-design.md). 확정 규칙의 기준은 루트 `CLAUDE.md`다.
+
+### API
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| DELETE | /api/users/me | 회원 탈퇴(로그인 필요). 본문 `{password?, confirmText?}`. 성공 204, 기존 토큰은 즉시 무효 |
+
+- 비밀번호 로그인 계정(`password_login_enabled`=1): `password` 필수. BCrypt로 검사하며 72바이트 초과·빈 값·불일치는 400 `비밀번호가 올바르지 않습니다.`.
+- 소셜 전용 계정: `confirmText`가 정확히 `탈퇴합니다`여야 한다(아니면 400, 응답 `{confirmText}`).
+- ADMIN: 409 `ADMIN_CANNOT_WITHDRAW`. 역할을 DB에서 USER로 내린 뒤 탈퇴한다.
+- 사용자당 분당 5회(성공·실패 모두 센다, 서비스 내부 메모리 슬라이딩 윈도). 초과 429 `WITHDRAW_RATE_LIMITED`(`retryAfterSeconds` + `Retry-After` 헤더).
+- 이미 탈퇴한 계정(동시 탈퇴의 뒤쪽 포함)은 401.
+- 이용 정지 중인 사용자는 인증 필터에서 403 `ACCOUNT_SUSPENDED`로 막힌다. 정책 미확정(한계 1).
+
+### 처리 순서 (`WithdrawService`, READ_COMMITTED 한 트랜잭션)
+
+1. PENDING 좌석 인증 요청을 거절한다(처리자는 탈퇴자 본인, 메모 "회원 탈퇴로 자동 거절되었습니다."). 사진은 커밋 뒤 삭제한다.
+2. `OpenMatchCanceller.cancelAllOf`로 열린 매칭(CHATTING·RESERVED)을 시스템 취소하고 예약 잠금을 푼다.
+3. OPEN 요청을 CLOSED로, 활성 티켓을 INACTIVE로 바꾼다(DELETED 요청은 그대로).
+4. users 행을 FOR UPDATE로 잡고, 이미 탈퇴했으면 401. 그 뒤 1~3을 한 번 더 한다(2차 정리: 1차 정리 뒤 users 잠금 전에 생긴 활성 티켓 등).
+5. `social_account`를 전부 삭제하고 users를 익명화한다. 이메일 `withdrawn.{id}@withdrawn.seatswap.invalid`, 닉네임 `탈퇴한 회원`, 무작위 BCrypt, `password_login_enabled`=0, `withdrawn_at`=KST 현재 시각. role은 유지한다.
+6. 수신자 알림을 삭제한다(500개씩 id 목록으로, 트랜잭션 맨 끝). 상대에게 가는 알림은 없다.
+7. 커밋 뒤 `WebSocketSessionRegistry.closeAllOf`로 열린 STOMP 연결을 끊는다(실패는 삼킨다).
+
+**보존**: 채팅·읽음 상태·교환 이력·차단·신고·제재·PENDING 공연 수정 제안은 지우지 않는다(FK 유지). 닉네임은 users에서 읽으므로 상대·관리자 화면에 '탈퇴한 회원'으로 나온다. 교환 이력 화면에는 상대 정보가 없다.
+
+### 잠금 순서와 동시성
+
+- 순서: 인증 요청(id↑) → 티켓(id↑) → 요청 → 매칭(id↑) → users → 알림. **users를 먼저 잡지 않는다.**
+- 설계 초안의 'users 먼저'는 폐기했다. 제안은 티켓을 잠근 뒤 `exchange_match`를 INSERT하면서 users 행에 FK 공유 잠금을 요청하므로, 탈퇴가 users를 X로 먼저 잡으면 교착한다. 이용 정지도 같은 이유로 users 잠금 없이 취소한다.
+- users 잠금을 잡은 뒤에는 새 활성 티켓·PENDING 인증·소셜 연결이 생길 수 없다. 티켓 등록·인증 요청·공연 수정 제안·소셜 연결은 모두 users FOR UPDATE로 시작하며 탈퇴 여부를 확인하기 때문이다. 2차 정리는 1차 정리와 users 잠금 사이에 생긴 것을 마저 정리한다.
+
+### 인증 차단
+
+- `CustomUserDetailsService`의 `loadUserById`·`loadUserByUsername`이 탈퇴 계정을 `UsernameNotFoundException`으로 거절한다 → 기존 액세스 토큰은 401, STOMP CONNECT는 거부된다.
+- 로그인 400(기존 로그인 실패 응답과 같다), refresh 400, 소셜 exchange 400 `INVALID_LOGIN_CODE`, 소셜 연결 확정 400 `INVALID_LINK_CODE`, 소셜 연결 해제 401.
+- 같은 이메일·같은 소셜 계정으로 재가입할 수 있다(원래 이메일이 비워졌고 social_account가 삭제됐으므로). 소셜 콜백의 `loginOrSignup`은 social_account가 없어 새 가입으로 간다.
+- 관리자가 탈퇴한 사용자를 제재하려 하면 409 `TARGET_WITHDRAWN`(`AdminModerationService`).
+
+### 테스트
+
+- 단위·슬라이스: `WithdrawServiceTest`, `CustomUserDetailsServiceTest`, `UserControllerSliceTest`.
+- 실제 MySQL IT `WithdrawMysqlTest`(환경변수 `SEATSWAP_IT_*`가 있을 때만): 탈퇴 vs 새 제안, 예약 수락·철회, 교환 수락, 탈퇴×탈퇴, 소셜 연결 확정, 티켓 등록 7건(15라운드). 불변식: 활성 티켓 0, 열린 매칭 0, OPEN 요청 0, 잠금 행 = 2×RESERVED, social_account 0, 알림 0, PENDING 인증 0, 익명화 이메일 형식.
+- 기본 `./gradlew test`와 임시 MySQL IT를 포함해 전체 통과했다(실패·skip 0).
+- Fable 검증: 높음 없음. 중간 2건은 코드 버그가 아니라 정책 사항이라 한계로 남겼다. 낮음 지적은 반영했다(loadUserByUsername 탈퇴 검사, 탈퇴 대상 제재 409, 방침 문구 보정).
+
+### 알려진 한계
+
+1. 이용 정지 중인 사용자는 탈퇴할 수 없다(방침 §8은 문의처 요청으로 안내). 허용하려면 `JwtAuthenticationFilter`의 정지 예외에 `DELETE /api/users/me`를 추가해야 하며, 그 전에 정책 확정이 필요하다.
+2. 소셜 전용 계정은 재인증 없이 확인 문구만으로 탈퇴한다(액세스 토큰이 탈취되면 되돌릴 수 없다). 후속으로 제공자 재인증 또는 이메일 확인을 검토한다.
+3. 인증 사진 삭제는 커밋 뒤 1회 시도하고 실패하면 로그만 남긴다(재시도·정리 작업 없음). 고아 파일이 남을 수 있고 조회는 불가하다. 방침은 "처리 끝나면 삭제"라고 적었으므로 정리 작업을 후속으로 둔다.
+4. 교착 창 2개는 감지기 의존이다(MySQL 교착 시 503, 재시도). ①본인이 두 탭에서 요청 수정·삭제와 탈퇴를 동시에 실행(요청→매칭 vs 티켓→매칭→요청) ②1차 정리와 users 잠금 사이에 본인이 새 티켓을 등록하고 상대가 그 티켓에 제안하는 밀리초 창. 불변식은 깨지지 않는다.
+5. 보관 기간의 법적 근거는 확정되지 않았다. 자동 파기 스케줄은 없다(방침은 '서비스 운영 기간 동안 보관, 종료 시 파기').
+6. 가입 시 동의 기록과 14세 미만 확인 수단은 없다(문구만).
+7. JWT 클레임에 원래 이메일이 남지만 본인 브라우저에만 있고 로그아웃 때 지워진다. 인증 요청 거절 처리자 칸에는 '탈퇴한 회원'이 표시된다.
+8. 탈퇴 속도 제한은 서비스 내부 메모리다(재시작 시 초기화, 단일 인스턴스).
 
 ## 로컬 환경변수 (.env)
 
@@ -987,5 +1049,5 @@ docker rm -f seatswap-tmp-match
 6. 브라우저 수동 점검(차단·신고·정지 화면 포함), trust_score 컬럼 정리 여부 결정, 7일 경과 알림(미구현)
 7. (완료, 2026-10-12, 미병합) 소셜 로그인(V14).
 8. (완료, 2026-10-13, 미병합) 예약 제안·예약 수락·채팅 알림(V15), 벨 위치(데스크톱은 '내 매칭' 오른쪽). 예약 버튼은 채팅 화면에만 있다.
-9. 다음 요청(미착수, 사용자): 회원탈퇴·개인정보처리방침·footer 링크, 포스터 표시, 회차 정보 자동 채우기. 그 뒤 7일 경과 알림.
+9. (완료, 2026-10-13, `feature/withdraw`, V17, 미병합) 회원탈퇴·개인정보처리방침·푸터. 다음 요청(미착수, 사용자): 포스터 표시, 회차 정보 자동 채우기. 그 뒤 7일 경과 알림. 회원탈퇴 후속(정책 결정 필요): 이용 정지 중 탈퇴 허용 여부, 소셜 전용 계정 재인증, 인증 사진 정리 작업.
 10. (완료, 2026-10-13, `feature/profile-edit`, V16) 마이페이지 닉네임 수정·소셜 계정 연결·해제.

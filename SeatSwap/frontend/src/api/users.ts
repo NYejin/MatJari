@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { User } from "../types/user";
+import type { User, WithdrawRequest } from "../types/user";
 
 // 백엔드 UserController (@RequestMapping("/api/users")). baseURL에 /api가 포함되어 있다.
 export const usersApi = {
@@ -13,5 +13,13 @@ export const usersApi = {
   async updateNickname(nickname: string): Promise<User> {
     const { data } = await apiClient.patch<User>("/users/me", { nickname });
     return data;
+  },
+
+  /**
+   * DELETE /api/users/me — 회원탈퇴(익명화). 본인 확인: 비밀번호 계정은 password, 소셜 전용은 confirmText.
+   * 성공 204. 400 확인 불일치, 409 ADMIN_CANNOT_WITHDRAW, 429. axios.delete의 본문은 data 옵션으로 보낸다.
+   */
+  async withdraw(body: WithdrawRequest): Promise<void> {
+    await apiClient.delete("/users/me", { data: body });
   },
 };

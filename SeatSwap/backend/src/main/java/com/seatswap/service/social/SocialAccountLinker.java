@@ -33,6 +33,7 @@ public class SocialAccountLinker {
     @Transactional
     public void link(Long userId, SocialProvider provider, String providerUserId) {
         User user = userRepository.findByIdForUpdate(userId)
+                .filter(u -> !u.isWithdrawn()) // 탈퇴(익명화)한 계정에는 연결하지 않는다
                 .orElseThrow(SocialAuthException::invalidLinkCode);
         suspensionChecker.assertNotSuspended(user.getId());
 

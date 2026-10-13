@@ -1,4 +1,5 @@
 ﻿# update.ps1 을 작업 스케줄러에 등록한다(로그인 때와 N분마다 실행). 내 Windows 계정으로 실행되며 Docker Desktop 이 켜져 있어야 한다.
+# 관리자 권한은 필요 없다(일반 PowerShell 에서 실행).
 #   .\register-update-task.ps1                    # 5분마다
 #   .\register-update-task.ps1 -IntervalMinutes 10
 #   .\register-update-task.ps1 -Unregister        # 등록 해제
@@ -28,8 +29,12 @@ if ($WhatIf) { Write-Host '(what-if) 등록하지 않았습니다.'; exit 0 }
 
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arg -WorkingDirectory (Split-Path $script)
 $repeat = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes) -RepetitionDuration (New-TimeSpan -Days 3650)
-$logon = New-ScheduledTaskTrigger -AtLogOn
+# 로그인 트리거는 사용자를 내 계정으로 지정한다. 지정하지 않으면(모든 사용자) 관리자 권한이 필요해 '액세스가 거부되었습니다'가 난다
+$me = "$env:USERDOMAIN\$env:USERNAME"
+$logon = New-ScheduledTaskTrigger -AtLogOn -User $me
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
-Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger @($repeat, $logon) -Settings $settings `
-    -Description '맞자리 운영 이미지를 확인해 새 버전이 있으면 backend·web 을 교체한다' -Force | Out-Null
+# 내 계정으로 로그인했을 때만 실행(Docker Desktop 이 내 계정에서 돌기 때문). 일반 권한으로 등록된다
+$principal = New-ScheduledTaskPrincipal -UserId $me -LogonType Interactive -RunLevel Limited
+Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger @($repeat, $logon) -Settings $settings -Principal $principal `
+    -Description '맞자리 운영 이미지를 확인해 새 버전이 있으면 backend·web 을 교체한다' -Force -ErrorAction Stop | Out-Null
 Write-Host "작업 '$TaskName' 을 등록했습니다. 지금 한 번 실행해 보려면: Start-ScheduledTask -TaskName $TaskName"

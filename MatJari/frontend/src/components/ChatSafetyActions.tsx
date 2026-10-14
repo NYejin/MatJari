@@ -14,10 +14,15 @@ type Mode = "block" | "report" | "blocked" | "reported" | null;
 interface Props {
   matchId: number;
   counterpartName: string;
+  /** true면 ⋯(더보기) 버튼 + 팝오버 메뉴로 보여주고 패널은 모달로 띄운다 (채팅 헤더용) */
+  menu?: boolean;
 }
 
-export default function ChatSafetyActions({ matchId, counterpartName }: Props) {
+export default function ChatSafetyActions({ matchId, counterpartName, menu = false }: Props) {
   const [mode, setMode] = useState<Mode>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const moreBtnRef = useRef<HTMLButtonElement>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{ reason?: string; detail?: string }>({});
@@ -41,6 +46,31 @@ export default function ChatSafetyActions({ matchId, counterpartName }: Props) {
     setError(null);
     setFieldErrors({});
     setMode(next);
+  };
+
+  // 메뉴: 바깥 누르기·Esc로 닫는다 (Esc는 ⋯ 버튼으로 포커스를 돌려준다)
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointer = (e: PointerEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setMenuOpen(false);
+        moreBtnRef.current?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
+
+  const openFromMenu = (next: "block" | "report") => {
+    setMenuOpen(false);
+    open(next, moreBtnRef.current);
   };
 
   const close = () => {
@@ -109,8 +139,43 @@ export default function ChatSafetyActions({ matchId, counterpartName }: Props) {
   const detailErrorId = "report-detail-error";
   const reasonErrorId = "report-reason-error";
 
+  // 메뉴 모드: ⋯ 버튼의 팝오버에 차단·신고를 넣고, 확인/폼 패널은 화면 가운데 모달로 띄운다
+  const panelOverlay = menu ? "fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 [&>section]:w-full [&>section]:max-w-md [&>section]:mt-16" : "contents";
+  const itemCls = `flex min-h-11 w-full cursor-pointer items-center rounded-lg px-3 text-left text-[0.9375rem]/[normal] text-gray-900 active:bg-gray-100 ${FOCUS_RING}`;
+
   return (
-    <div className="flex flex-col gap-2">
+    <div className={menu ? "relative shrink-0" : "flex flex-col gap-2"}>
+      {menu ? (
+        <div ref={menuRef}>
+          <button
+            ref={moreBtnRef}
+            type="button"
+            aria-label="더보기"
+            aria-haspopup="true"
+            aria-expanded={menuOpen}
+            aria-controls="chat-more-menu"
+            onClick={() => setMenuOpen((v) => !v)}
+            disabled={submitting}
+            className={`inline-flex size-11 cursor-pointer items-center justify-center rounded-full text-gray-900 active:bg-gray-100 ${FOCUS_RING}`}
+          >
+            <svg viewBox="0 0 24 24" className="size-6" fill="currentColor" aria-hidden="true">
+              <circle cx="5" cy="12" r="1.8" />
+              <circle cx="12" cy="12" r="1.8" />
+              <circle cx="19" cy="12" r="1.8" />
+            </svg>
+          </button>
+          {menuOpen && (
+            <div id="chat-more-menu" className="absolute right-0 top-full z-40 mt-1 flex w-36 flex-col rounded-xl border border-gray-200 bg-white p-1 shadow-lg">
+              <button ref={blockBtnRef} type="button" className={itemCls} onClick={() => openFromMenu("block")}>
+                차단
+              </button>
+              <button ref={reportBtnRef} type="button" className={itemCls} onClick={() => openFromMenu("report")}>
+                신고
+              </button>
+            </div>
+          )}
+        </div>
+      ) : (
       <div className="flex gap-2">
         <button ref={blockBtnRef} type="button" className={button.outline} aria-expanded={mode === "block"} onClick={() => open("block", blockBtnRef.current)} disabled={submitting}>
           차단
@@ -119,6 +184,8 @@ export default function ChatSafetyActions({ matchId, counterpartName }: Props) {
           신고
         </button>
       </div>
+      )}
+      <div className={mode === null ? "hidden" : panelOverlay}>
 
       {mode === "block" && (
         <section className={panelBase} aria-labelledby="block-title" onKeyDown={onPanelKeyDown}>
@@ -272,6 +339,7 @@ export default function ChatSafetyActions({ matchId, counterpartName }: Props) {
           </div>
         </section>
       )}
+      </div>
     </div>
   );
 }

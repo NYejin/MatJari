@@ -802,14 +802,6 @@ export default function ChatPage() {
                           </p>
                         )}
                         <div className={`flex items-end gap-1.5 ${mine ? "justify-end" : "justify-start"}`}>
-                          {!mine && (
-                            <span
-                              aria-hidden="true"
-                              className={`flex size-8 shrink-0 items-center justify-center self-start rounded-full text-sm/[normal] font-semibold ${first ? "bg-primary-50 text-primary-800" : "invisible"}`}
-                            >
-                              {Array.from(counterpartName)[0] ?? ""}
-                            </span>
-                          )}
                           {mine && meta}
                           <div className={`${MSG_BUBBLE} ${radius} ${mine ? "bg-primary-600 text-white" : "bg-white text-gray-900"}`}>
                             <span className="sr-only">{mine ? "나: " : `${counterpartName}: `}</span>

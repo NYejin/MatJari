@@ -14,6 +14,7 @@
 ## 이력
 
 ### 2026-10-14
+- [변경] 채팅 화면 레이아웃 개편(전체 높이 채팅형: 헤더·거래 정보 카드·말풍선 배치·둥근 입력줄, 차단·신고는 ⋯ 메뉴) 및 예약 중 채팅 화면에 "교환이 끝나면 내 매칭 목록에서 [교환 수락]을 눌러주세요" 안내 추가. 상대 아바타는 사용자 지시로 제외 — `feature/chat-ui-redesign`
 - [결정] 배포를 self-hosted runner 방식에서 이미지 방식으로 교체: CI가 master 병합 때 이미지를 ghcr.io에 올리고 집 PC는 스케줄러로 pull·교체만 한다(public 저장소에서 self-hosted runner는 포크 PR 위험 — GitHub 경고). `deploy.yml` 삭제, `update.ps1`·`register-update-task.ps1`·`docker-compose.build.yml` 추가 — `feature/image-deploy`
 - [결정] 후속 개선 메모: 회차 입력칸 '분' 기본값 '00분', 날짜 자동입력 줄의 시각은 '오후' 기본·10분 단위 선택(구현은 나중에) — CLAUDE.md '후속 작업 목록'
 - [운영] CI/CD 추가: PR·master 푸시마다 GitHub에서 백엔드 전체 테스트(임시 MySQL)·프런트 빌드(`ci.yml`), master CI 성공 뒤에만 집 PC self-hosted runner가 `deploy.ps1`로 backend·web 재배포(`deploy.yml`, public 저장소라 PR 이벤트로는 실행 금지) — `feature/ci-cd`

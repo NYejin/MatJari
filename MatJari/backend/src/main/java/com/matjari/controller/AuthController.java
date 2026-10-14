@@ -5,6 +5,7 @@ import com.matjari.dto.request.LoginRequest;
 import com.matjari.dto.request.RefreshRequest;
 import com.matjari.dto.request.SignupRequest;
 import com.matjari.dto.response.EmailCodeResponse;
+import com.matjari.dto.response.EmailVerificationStatusResponse;
 import com.matjari.dto.response.TokenResponse;
 import com.matjari.dto.response.UserResponse;
 import com.matjari.service.AuthService;
@@ -26,6 +27,12 @@ public class AuthController {
     @PostMapping("/signup")
     public ResponseEntity<UserResponse> signup(@Valid @RequestBody SignupRequest request) {
         return ResponseEntity.ok(authService.signup(request));
+    }
+
+    /** 가입 화면이 인증번호 칸을 보일지 정하는 공개 조회(로그인 불필요). */
+    @GetMapping("/signup/email-verification")
+    public ResponseEntity<EmailVerificationStatusResponse> emailVerificationStatus() {
+        return ResponseEntity.ok(new EmailVerificationStatusResponse(emailVerificationService.isEnabled()));
     }
 
     /** 가입 전 이메일 인증번호 발송. 이미 가입된 이메일은 400 email, 너무 잦으면 429. */

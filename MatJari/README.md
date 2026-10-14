@@ -100,7 +100,7 @@ MatJari/
 | frontend에서 API 호출 실패(CORS 등) | SecurityConfig에 CORS 설정 적용됨 (localhost:5173 허용). 배포 시 실제 프론트 도메인으로 교체 필요 |
 | MySQL Workbench에서 `matjari` 계정으로 접속 시 Access denied | MySQL은 `MYSQL_USER`/`MYSQL_PASSWORD` 환경변수를 **데이터 볼륨이 비어있는 최초 기동 시에만** 읽어서 계정을 만든다. 이미 떠 있던 환경을 업데이트했다면 `docker compose down -v`로 볼륨까지 지운 뒤 `docker compose up --build`로 다시 띄워야 `matjari` 계정이 생성됨. (`-v` 없이 내리면 기존 볼륨이 남아 계정이 안 만들어짐) |
 
-## 운영 구성 (집 PC 온프레미스 등)
+## 운영 구성 (로컬 PC 온프레미스 등)
 
 개발용 `docker-compose.yml`과 별개로 `docker-compose.prod.yml`을 쓴다. 밖에 열리는 포트는 nginx(`web`) 하나뿐이고, DB·백엔드는 내부 네트워크에서만 쓴다. 화면·`/api`·`/ws`가 같은 주소라 CORS 설정이 필요 없다.
 
@@ -115,9 +115,9 @@ docker compose -f docker-compose.prod.yml up -d --build
 - 데이터는 Docker 볼륨(`mysql_data`, `upload_data`)에 있다. `down -v`는 DB까지 지운다. 백업: `docker compose -f docker-compose.prod.yml exec mysql mysqldump -u root -p matjari > backup.sql`.
 - 한계: 백엔드가 프록시 뒤라 IP별 속도 제한(소셜·인증번호 발송)이 접속자 전체에 합쳐서 적용된다. 시연·소규모에서는 문제없지만 공개 운영 전에 신뢰 프록시 헤더 처리가 필요하다.
 
-## 자동 배포 (CI/CD, 집 PC)
+## 자동 배포 (CI/CD, 로컬 PC)
 
-`master`에 병합하면 GitHub이 테스트를 돌리고, 통과하면 **도커 이미지(`backend`, `web`)를 ghcr.io에 올린다.** 집 PC는 몇 분마다 새 이미지가 있는지 확인해 가져와 교체한다. **PC가 GitHub의 코드를 실행하지 않는다**(self-hosted runner를 쓰지 않는 이유: public 저장소에서는 포크 PR로 내 PC에 코드가 실행될 위험이 있어서). 포트 개방이나 고정 IP도 필요 없다.
+`master`에 병합하면 GitHub이 테스트를 돌리고, 통과하면 **도커 이미지(`backend`, `web`)를 ghcr.io에 올린다.** 로컬 PC는 몇 분마다 새 이미지가 있는지 확인해 가져와 교체한다. **PC가 GitHub의 코드를 실행하지 않는다**(self-hosted runner를 쓰지 않는 이유: public 저장소에서는 포크 PR로 내 PC에 코드가 실행될 위험이 있어서). 포트 개방이나 고정 IP도 필요 없다.
 
 | 단계 | 어디서 | 무엇을 | 언제 |
 |---|---|---|---|

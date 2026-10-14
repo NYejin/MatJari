@@ -660,15 +660,16 @@ export default function ChatPage() {
             <div className="flex flex-col gap-1.5">
               <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
                 <div className="flex min-w-0 flex-1 basis-56 flex-col gap-0.5">
-                  {/* 내 자리·상대 자리는 라벨 알약으로 구분한다. 한 줄에 들어가면 한 줄, 넘치는 순간 상대 자리가 다음 줄로 내려간다 */}
+                  {/* 교환 방향은 내 자리 → 상대 자리 화살표로 보이고, 도착(상대) 자리를 강조한다. 내 자리·상대 자리는 라벨 알약으로 구분한다. 한 줄에 들어가면 한 줄, 넘치는 순간 상대 자리가 다음 줄로 내려간다 */}
                   <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
                     <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
                       <span className="rounded-full bg-primary-50 px-2 py-0.5 text-[0.6875rem]/[1.3] font-bold text-primary-800">내</span>
-                      <span className="text-[0.9375rem]/[1.4] font-bold text-gray-900">{formatSeat(match.mySeat)}</span>
+                      <span className="text-[0.8125rem]/[1.4] text-gray-600">{formatSeat(match.mySeat)}</span>
+                      <span aria-hidden="true" className="px-0.5 text-2xl/[1] font-light text-primary-600/40">→</span>
                     </span>
                     <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
                       <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[0.6875rem]/[1.3] font-bold text-gray-700">상대</span>
-                      <span className="text-[0.9375rem]/[1.4] font-bold text-gray-900">{formatSeat(match.counterpartSeat)}</span>
+                      <span className="text-base/[1.4] font-extrabold text-primary-800">{formatSeat(match.counterpartSeat)}</span>
                     </span>
                   </div>
                   <p className="text-[0.8125rem]/[1.4] text-gray-600">

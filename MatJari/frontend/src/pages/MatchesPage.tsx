@@ -214,6 +214,9 @@ export default function MatchesPage() {
 }
 
 /** dt: 좁을 때는 회색 작은 글자(원래 레이아웃), 480px 이상에서는 배지 모양 (ui.badge와 같은 모양) */
+/** 추가금이 실제로 있는 조건(받고/낼)만 보인다. 없음(X)·상관없음(ANY)은 표시하지 않는다 */
+const hasExtra = (type: string) => type === "POS" || type === "NEG";
+
 const DT_CLASS =
   "text-sm/[normal] text-gray-500 min-[30rem]:inline-flex min-[30rem]:items-center min-[30rem]:rounded-full min-[30rem]:bg-gray-100 min-[30rem]:px-2.5 min-[30rem]:py-0.5 min-[30rem]:text-[0.8125rem]/[normal] min-[30rem]:text-gray-700";
 /** 지금은 누를 수 없는 버튼 (aria-disabled). 대비는 AA를 유지하고 점선 테두리로 색 외에도 구분한다 */
@@ -347,33 +350,42 @@ function MatchCard({
       </div>
 
       {/* 좁은 화면(<480px): 라벨|값 한 줄 레이아웃, 넓은 화면: 2열 카드형(라벨 배지 위, 값 아래). 항목 래퍼는 좁을 때 contents라 dt/dd가 바로 그리드 칸이 된다 */}
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 min-[30rem]:grid-cols-2 min-[30rem]:gap-y-4">
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 min-[30rem]:grid-cols-[1fr_auto_1fr] min-[30rem]:gap-x-2 min-[30rem]:gap-y-4">
+        {/* 교환 방향: 내 자리 → 상대 자리. 넓은 화면은 두 칸 사이의 가운데 열(→), 좁은 화면은 두 줄 사이(↓)에 옅은 큰 화살표를 둔다 */}
         <div className="contents min-[30rem]:block">
           <dt className={DT_CLASS}>{completed ? "교환 전 내 자리" : "내 자리"}</dt>
           <dd className={`${DD_CLASS} min-w-0`}>
-            <span className="font-semibold">{formatSeat(m.mySeat)}</span>
+            <span className="text-gray-600">{formatSeat(m.mySeat)}</span>
             {m.myRequestDeleted && <DeletedTag label="내 교환 조건을 삭제했어요" text="(내 조건 삭제됨)" />}
             {myElsewhere && <span className="block text-sm/[normal] text-gray-700">{ELSEWHERE}</span>}
             <span className={`block text-sm/[normal] ${anyDeleted ? "text-gray-600" : "text-gray-500"}`}>{formatKstDateTime(m.mySeat.startsAt)}</span>
           </dd>
         </div>
+        <div aria-hidden="true" className="col-span-2 -my-1 pl-1 text-2xl/[1] font-light text-primary-600/40 min-[30rem]:col-span-1 min-[30rem]:my-0 min-[30rem]:self-center min-[30rem]:px-2 min-[30rem]:pl-2 min-[30rem]:text-center min-[30rem]:text-4xl/[1]">
+          <span className="min-[30rem]:hidden">↓</span>
+          <span className="hidden min-[30rem]:inline">→</span>
+        </div>
         <div className="contents min-[30rem]:block">
           <dt className={DT_CLASS}>{completed ? "받은 자리" : "상대 자리"}</dt>
           <dd className={`${DD_CLASS} min-w-0`}>
-            <span className="font-semibold">{formatSeat(m.counterpartSeat)}</span>
+            <span className="text-base/[normal] font-extrabold text-primary-800">{formatSeat(m.counterpartSeat)}</span>
             {m.counterpartRequestDeleted && <DeletedTag label="상대가 교환 조건을 삭제했어요" text="(삭제)" />}
             {counterpartElsewhere && <span className="block text-sm/[normal] text-gray-700">{ELSEWHERE}</span>}
             <span className={`block text-sm/[normal] ${anyDeleted ? "text-gray-600" : "text-gray-500"}`}>{formatKstDateTime(m.counterpartSeat.startsAt)}</span>
           </dd>
         </div>
-        <div className="contents min-[30rem]:block">
-          <dt className={DT_CLASS}>내 추가금</dt>
-          <dd className={DD_CLASS}>{formatExtra(m.myExtraType, m.myExtraAmount)}</dd>
-        </div>
-        <div className="contents min-[30rem]:block">
-          <dt className={DT_CLASS}>상대 추가금</dt>
-          <dd className={DD_CLASS}>{formatExtra(m.counterpartExtraType, m.counterpartExtraAmount)}</dd>
-        </div>
+        {hasExtra(m.myExtraType) && (
+          <div className="contents min-[30rem]:col-start-1 min-[30rem]:block">
+            <dt className={DT_CLASS}>내 추가금</dt>
+            <dd className={DD_CLASS}>{formatExtra(m.myExtraType, m.myExtraAmount)}</dd>
+          </div>
+        )}
+        {hasExtra(m.counterpartExtraType) && (
+          <div className="contents min-[30rem]:col-start-3 min-[30rem]:block">
+            <dt className={DT_CLASS}>상대 추가금</dt>
+            <dd className={DD_CLASS}>{formatExtra(m.counterpartExtraType, m.counterpartExtraAmount)}</dd>
+          </div>
+        )}
       </dl>
 
       {anyDeleted && (

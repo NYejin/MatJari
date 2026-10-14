@@ -151,11 +151,12 @@ function ChatRow({ match: m }: { match: ExchangeMatch }) {
       <span className={`flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-sm/[normal] ${unread ? "font-bold text-gray-900" : closed ? "text-gray-500" : "text-gray-700"}`}>
         <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
           <span className="rounded-full bg-primary-50 px-2 py-0.5 text-[0.6875rem]/[1.3] font-bold text-primary-800">내</span>
-          <span>{formatSeat(m.mySeat)}</span>
+          <span className="font-normal text-gray-600">{formatSeat(m.mySeat)}</span>
+          <span aria-hidden="true" className="px-0.5 text-2xl/[1] font-light text-primary-600/40">→</span>
         </span>
         <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
           <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[0.6875rem]/[1.3] font-bold text-gray-700">상대</span>
-          <span>{formatSeat(m.counterpartSeat)}</span>
+          <span className="text-base/[1.4] font-extrabold text-primary-800">{formatSeat(m.counterpartSeat)}</span>
         </span>
       </span>
     </Link>

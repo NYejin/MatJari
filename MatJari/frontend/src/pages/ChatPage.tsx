@@ -656,9 +656,9 @@ export default function ChatPage() {
             <div className="flex flex-col gap-1.5">
               <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
                 <div className="flex min-w-0 flex-1 basis-56 flex-col gap-0.5">
-                  <div className="flex min-w-0 items-center gap-2">
+                  <div className="flex min-w-0 items-start gap-2">
                     <span className={statusBadgeClass(match.status)}>{statusLabel(match.status)}</span>
-                    <p className="min-w-0 truncate text-[0.9375rem]/[1.4] font-bold text-gray-900">
+                    <p className="min-w-0 break-words text-[0.9375rem]/[1.4] font-bold text-gray-900">
                       내 {formatSeat(match.mySeat)} ↔ 상대 {formatSeat(match.counterpartSeat)}
                     </p>
                   </div>

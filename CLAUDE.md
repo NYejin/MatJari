@@ -187,12 +187,13 @@ DB는 Flyway V1~V20, 21개 테이블(email_verification·social_account·perform
 - 상세와 한계는 [wiki/decisions/withdraw-privacy-design.md](wiki/decisions/withdraw-privacy-design.md).
 
 ### 가입 이메일 인증번호 (구현됨, V19 `email_verification`)
-- **일반 회원가입은 이메일 소유 확인이 필요하다**(2026-10-13 사용자 결정). 남의 이메일로 선점 가입해 그 사람의 소셜 가입을 `EMAIL_EXISTS`로 막는 문제와 오타·가짜 이메일을 막고, 나중의 비밀번호 찾기 기반이 된다. 소셜 가입은 제공자 인증을 따르므로 해당 없다. 기존 계정은 소급 인증하지 않고, `users`에 컬럼도 추가하지 않는다(인증을 통과한 이메일로만 계정이 만들어지므로 새 계정은 모두 검증된 이메일).
+- **일반 회원가입은 이메일 소유 확인이 필요하다**(2026-10-13 사용자 결정. 단 지금은 임시로 꺼 둔 상태, 아래 참고). 남의 이메일로 선점 가입해 그 사람의 소셜 가입을 `EMAIL_EXISTS`로 막는 문제와 오타·가짜 이메일을 막고, 나중의 비밀번호 찾기 기반이 된다. 소셜 가입은 제공자 인증을 따르므로 해당 없다. 기존 계정은 소급 인증하지 않고, `users`에 컬럼도 추가하지 않는다(인증을 통과한 이메일로만 계정이 만들어지므로 새 계정은 모두 검증된 이메일).
 - **흐름**: 가입 화면에서 '인증번호 받기'(`POST /api/auth/signup/email-code {email}`) → 6자리 숫자 코드를 메일로 받아 → 가입 요청에 `emailCode`로 함께 보낸다(`POST /api/auth/signup`). 인증을 통과해야 계정이 만들어지며 별도 '확인' 단계나 검증 토큰은 없다. 이미 가입된 이메일은 400 `email`(가입 화면 중복 안내와 같은 응답), `.invalid` 예약 도메인은 거부.
 - **저장**: `email_verification`(PK email, `code_hash`=HMAC-SHA256(이메일+코드), attempts, sent_at, expires_at). 평문 코드는 저장하지 않고, 이메일당 행 1개를 다시 보낼 때 덮어쓴다. 유효 10분(`matjari.email-verification.code-ttl-seconds`), 재발송 대기 60초, 입력 5회(틀린 것 포함, 넘으면 새 코드 필요), 가입 성공 시 같은 트랜잭션에서 행을 지운다(1회용). 만료된 행은 코드를 보낼 때 가끔 쓸어 낸다(스케줄러 없음).
 - **검증 순서(중요)**: 가입 서비스에서 다른 입력 검증과 이메일 중복 확인을 모두 마친 **뒤** 마지막으로 코드를 확인한다(다른 오류로 시도 횟수를 쓰지 않게). 시도 횟수는 `REQUIRES_NEW`로 먼저 올려(가입이 롤백돼도 남는다, 병렬 추측 방지) 남은 횟수가 있을 때만 `DELETE … WHERE code_hash=?`로 소비한다. 가입이 이후 단계에서 실패해 롤백되면 행이 되살아난다. 오류는 400 `emailCode`.
 - **제한**: 마지막 발송 뒤 60초 안 재요청은 429 `EMAIL_CODE_COOLDOWN`, 10분 창에서 IP당 10회·이메일당 5회·전체 시간당 200회는 429 `EMAIL_CODE_RATE_LIMITED`(`retryAfterSeconds`+`Retry-After`, 메모리·단일 인스턴스, `getRemoteAddr()` 기준), 메일 발송 실패는 503 `EMAIL_SEND_FAILED`(행을 지워 바로 다시 요청 가능).
 - **발송 수단**: `matjari.mail.mode` = `log`(기본, 개발용: 메일 내용과 코드가 백엔드 로그에 찍힌다) | `smtp`(실제 발송, `SPRING_MAIL_HOST/PORT/USERNAME/PASSWORD`, 보내는 주소 `MATJARI_MAIL_FROM` 또는 사용자명). **백엔드 주소(`matjari.social.backend-base-url`)가 루프백이 아닌데 log 모드면 기동을 거부한다**(운영에서 코드가 로그에 남는 사고 방지; 인증 자체를 끄려면 `MATJARI_EMAIL_VERIFICATION_ENABLED=false`). 코드 해시 키는 `MATJARI_EMAIL_CODE_SECRET`(운영에서 새 값). 발송 수단은 `EmailSender` 인터페이스 뒤에 있어 SES·Resend 등으로 바꿀 수 있다.
+- **임시로 꺼 둔 상태(2026-10-14 사용자 결정)**: `matjari.email-verification.enabled` 기본값을 `false`로 바꿨다(`application.yml`, 환경변수 `MATJARI_EMAIL_VERIFICATION_ENABLED`). 꺼져 있으면 가입에 인증번호를 요구하지 않고(`verifyAndConsume` 건너뜀), 인증번호 발송 요청은 오류로 거절하며, 가입 화면은 공개 조회 `GET /api/auth/signup/email-verification`(`{enabled}`)으로 이를 알아 인증 칸을 숨긴다(조회 실패 때는 켜진 것으로 본다). 이 기간에 만든 계정은 이메일 소유가 확인되지 않았다. 다시 켜려면 기본값을 `true`로 되돌리고 운영은 `MAIL_MODE=smtp`를 설정한다.
 - **프런트**: 가입 화면 이메일 칸 아래 '인증번호 받기' 버튼(대기 중에는 '다시 받기 (N초 후)'), 발송 뒤 인증번호 칸 표시(이메일을 바꾸면 다시 받아야 한다). 개인정보처리방침에 인증번호 기록 항목·보유 기간·메일 발송 서비스 경유 문구를 더했다.
 - **한계**: 속도 제한·인증 시도는 단일 인스턴스 메모리/DB 기준(IP 제한은 프록시 뒤에서 합쳐질 수 있음), 메일이 스팸함으로 갈 수 있고 Gmail SMTP는 일일 한도가 있어 시연용이다(운영은 SES 등 도메인 인증 필요), 이메일 변경·비밀번호 찾기는 아직 없다, 실제 SMTP로는 미검증(로그 모드·목 발송기로만 점검). 상세는 [wiki/decisions/email-verification-design.md](wiki/decisions/email-verification-design.md).
 
@@ -215,7 +216,7 @@ DB는 Flyway V1~V20, 21개 테이블(email_verification·social_account·perform
 - 열린 매칭 시스템 취소(`OpenMatchCanceller`)는 티켓 id↑ → 매칭 id↑ 순서로 잠그고 호출 트랜잭션을 READ_COMMITTED로 연다. 후보 SQL의 차단 제외는 `NOT EXISTS` 두 개로 나눠 쓴다(OR는 전체 인덱스 스캔).
 - CHATTING을 벗어나는 모든 UPDATE(취소·거절·종료·요청 수정/삭제·티켓 내리기·차단·정지·시스템 취소·수락으로 RESERVED 전이)는 같은 문장에서 `reserve_proposed_*`를 NULL로 비운다(V15 CHECK: CHATTING이 아니면 제안 컬럼은 NULL).
 - 재사용 알림(`CHAT_MESSAGE`·`RESERVATION_PROPOSED`)의 쓰기는 **PK 행을 먼저 갱신**하고 없을 때만 `INSERT … ON DUPLICATE KEY UPDATE`로 만든다. 유니크 키 upsert를 먼저 하면 '읽은 알림 삭제'(PK 먼저 잠금)와 MySQL에서 교착한다.
-- **배포(집 PC)**: `master` 병합 → GitHub CI(`ci.yml`)의 테스트 통과 → 같은 워크플로의 `publish`가 도커 이미지(`matjari-backend`·`matjari-web`)를 ghcr.io에 푸시 → 집 PC의 작업 스케줄러가 `MatJari/deploy/update.ps1`로 이미지를 pull해 `backend`·`web`만 교체한다. **self-hosted runner는 쓰지 않는다**(public 저장소라 포크 PR로 내 PC에 코드가 실행될 위험 때문. 이미지는 master 푸시에서만 올리고 PR·포크는 올리지 못하게 유지). 배포 전용 clone에서만 돌리고 개발 작업 폴더에서는 돌리지 않는다. 되돌리기는 `.env`의 `IMAGE_TAG`를 이전 `sha-xxxxxxx`로. 설정은 `MatJari/README.md` '자동 배포(CI/CD)' 절.
+- **배포(로컬 PC)**: `master` 병합 → GitHub CI(`ci.yml`)의 테스트 통과 → 같은 워크플로의 `publish`가 도커 이미지(`matjari-backend`·`matjari-web`)를 ghcr.io에 푸시 → 로컬 PC의 작업 스케줄러가 `MatJari/deploy/update.ps1`로 이미지를 pull해 `backend`·`web`만 교체한다. **self-hosted runner는 쓰지 않는다**(public 저장소라 포크 PR로 내 PC에 코드가 실행될 위험 때문. 이미지는 master 푸시에서만 올리고 PR·포크는 올리지 못하게 유지). 배포 전용 clone에서만 돌리고 개발 작업 폴더에서는 돌리지 않는다. 되돌리기는 `.env`의 `IMAGE_TAG`를 이전 `sha-xxxxxxx`로. 설정은 `MatJari/README.md` '자동 배포(CI/CD)' 절.
 - 소스코드 수정분 전달은 `MMDD-순번_수정내역영문.zip`, 문서(계획서/요구사항정의서 등)는 압축 없이 단일 파일.
 
 ## 기술 스택·범위 제외

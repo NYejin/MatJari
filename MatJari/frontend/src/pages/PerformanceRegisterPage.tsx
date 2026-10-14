@@ -6,7 +6,6 @@ import { parseApiError } from "../api/errors";
 import {
   // TODO: 지우기
   // SESSION_TIME_STEP_HINT,
-  SESSION_TIME_STEP_SECONDS,
   formatKstDateTime,
   isPastKst,
   normalizeLocalDateTime,
@@ -14,8 +13,9 @@ import {
 } from "../api/dateTime";
 import TextField from "../components/TextField";
 import SessionDateTimePicker from "../components/SessionDateTimePicker";
+import TimeSelect from "../components/TimeSelect";
 import PosterImage from "../components/PosterImage";
-import { button, input, linkButton, liveRegionClass, ui } from "../components/ui";
+import { button, linkButton, liveRegionClass, ui } from "../components/ui";
 
 // FR-02 공연 등록 (보호 라우트 /performances/new) — 단계형:
 // ① 티켓팅 링크(이미 등록됐는지 확인) ② 공연 정보(제목·공연장 이름·회차) ③ 확인 후 등록.
@@ -63,7 +63,8 @@ const cls = {
   stepBody: "flex flex-col gap-4",
   actions: "flex flex-wrap justify-between gap-2",
   sessionList: "flex max-h-80 flex-col divide-y divide-gray-200 overflow-y-auto rounded-[10px] border border-gray-200 px-3",
-  sessionRow: "flex min-h-11 items-center justify-between gap-3 py-1.5",
+  // 좁은 화면에서는 날짜 글자가 눌리지 않게 날짜 라벨이 한 줄을 차지하고, 시각 선택·삭제 버튼은 다음 줄로 내려간다
+  sessionRow: "flex min-h-11 shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 py-1.5",
   summary: "grid grid-cols-[auto_1fr] gap-x-4 gap-y-2",
   summaryTerm: "text-sm/[normal] font-semibold text-gray-700",
   summaryDesc: "min-w-0 text-[0.9375rem]/[normal] break-all text-gray-900",
@@ -609,16 +610,10 @@ export default function PerformanceRegisterPage() {
         </p>
         {sessions.length > 1 && (
           <div className="flex flex-wrap items-end gap-2" role="group" aria-label="모든 회차 시각 한번에 넣기">
-            <label className="flex flex-col gap-1 text-sm/[normal] font-semibold text-gray-700">
-              모든 회차 시각 한번에 넣기
-              <input
-                type="time"
-                step={SESSION_TIME_STEP_SECONDS}
-                className={input.normal}
-                value={bulkTime}
-                onChange={(e) => setBulkTime(e.target.value)}
-              />
-            </label>
+            <div className="flex flex-col gap-1">
+              <span className="text-sm/[normal] font-semibold text-gray-700">모든 회차 시각 한번에 넣기</span>
+              <TimeSelect label="모든 회차 시각" value={bulkTime} onChange={setBulkTime} />
+            </div>
             <button type="button" className={button.outline} onClick={applyBulkTime}>
               적용
             </button>
@@ -629,14 +624,11 @@ export default function PerformanceRegisterPage() {
           <ul className={cls.sessionList} aria-label="추가한 회차">
             {sessions.map((r) => (
               <li key={r.id} className={cls.sessionRow}>
-                <span className={`${ui.body} min-w-0 flex-1`}>{rowLabel(r.value)}</span>
-                <input
-                  type="time"
-                  step={SESSION_TIME_STEP_SECONDS}
-                  className={input.normal + " !w-auto shrink-0"}
-                  aria-label={`${dotDate(dateOf(r.value))} 회차 시각`}
+                <span className={`${ui.body} min-w-[14rem] flex-1`}>{rowLabel(r.value)}</span>
+                <TimeSelect
+                  label={`${dotDate(dateOf(r.value))} 회차 시각`}
                   value={hasTime(r.value) ? r.value.slice(11, 16) : ""}
-                  onChange={(e) => setRowTime(r.id, e.target.value)}
+                  onChange={(time) => setRowTime(r.id, time)}
                 />
                 <button
                   type="button"

@@ -1,7 +1,7 @@
 import { apiClient } from "./client";
 import { requestTokenRefresh } from "./authClient";
 import type { User } from "../types/user";
-import type { EmailCodeResponse, LoginRequest, SignupRequest, TokenResponse } from "../types/auth";
+import type { EmailCodeResponse, EmailVerificationStatus, LoginRequest, SignupRequest, TokenResponse } from "../types/auth";
 
 // 백엔드 AuthController (@RequestMapping("/api/auth")). baseURL에 /api가 포함되어 있다.
 // 내 정보 조회(/me) API는 백엔드에 아직 없음.
@@ -14,6 +14,12 @@ export const authApi = {
   async signup(payload: SignupRequest): Promise<User> {
     const { data } = await apiClient.post<User>("/auth/signup", payload);
     return data;
+  },
+
+  /** 가입 이메일 인증번호를 쓰는지 (꺼져 있으면 가입 화면이 인증 칸을 숨긴다) */
+  async emailVerificationEnabled(): Promise<boolean> {
+    const { data } = await apiClient.get<EmailVerificationStatus>("/auth/signup/email-verification");
+    return data.enabled !== false;
   },
 
   /** 가입 전 이메일 인증번호 발송. 이미 가입된 이메일은 400 {email}, 너무 잦으면 429 */

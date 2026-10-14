@@ -41,7 +41,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * MATJARI_IT_* 환경변수가 없으면 건너뛴다. 메일 발송기는 목으로 바꿔 코드를 가로챈다. IP/이메일 한도는 넉넉히 열어 두고 한도 자체는 단위로 확인한다.
  */
 @ExtendWith(RealMysqlSupport.Condition.class)
-@SpringBootTest(properties = {"matjari.email-verification.ip-per10-min=100000", "matjari.email-verification.email-per10-min=100000",
+@SpringBootTest(properties = {"matjari.email-verification.enabled=true", "matjari.email-verification.ip-per10-min=100000", "matjari.email-verification.email-per10-min=100000",
         "matjari.email-verification.global-per-hour=100000"})
 @AutoConfigureMockMvc
 // 이 클래스만의 컨텍스트(목 발송기·한도 설정)라 끝나면 닫아 커넥션 풀을 돌려준다(MySQL 기본 최대 연결 수 보호)

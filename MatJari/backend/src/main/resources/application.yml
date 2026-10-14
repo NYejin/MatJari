@@ -54,8 +54,9 @@ matjari:
     mode: ${MATJARI_MAIL_MODE:log}
     from: ${MATJARI_MAIL_FROM:}
   email-verification:
-    # 일반 가입 전 이메일 인증번호. false 면 가입에 인증번호를 요구하지 않는다
-    enabled: ${MATJARI_EMAIL_VERIFICATION_ENABLED:true}
+    # 일반 가입 전 이메일 인증번호. false 면 가입에 인증번호를 요구하지 않는다(화면도 인증 칸을 숨긴다).
+    # 임시로 꺼 둔 상태(기본 false). 다시 켜려면 true 로 바꾸거나 MATJARI_EMAIL_VERIFICATION_ENABLED=true (켜면 운영은 MAIL_MODE=smtp 필요)
+    enabled: ${MATJARI_EMAIL_VERIFICATION_ENABLED:false}
     code-ttl-seconds: ${MATJARI_EMAIL_CODE_TTL_SECONDS:600}
     resend-cooldown-seconds: ${MATJARI_EMAIL_CODE_RESEND_SECONDS:60}
     max-attempts: ${MATJARI_EMAIL_CODE_MAX_ATTEMPTS:5}

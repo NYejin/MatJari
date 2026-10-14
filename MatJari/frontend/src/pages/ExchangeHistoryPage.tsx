@@ -69,7 +69,7 @@ export default function ExchangeHistoryPage() {
                 <dl className="flex flex-col gap-1">
                   <div>
                     <dt className="text-sm/[normal] font-semibold text-gray-700">기존 자리</dt>
-                    <dd className={`${ui.body} break-words`}>
+                    <dd className="text-sm/[normal] break-words text-gray-600">
                       {formatKstDateTime(h.oldStartsAt)} · {formatSeat(h.oldSeat)}
                     </dd>
                   </div>
@@ -78,7 +78,7 @@ export default function ExchangeHistoryPage() {
                   </div>
                   <div>
                     <dt className="text-sm/[normal] font-semibold text-gray-700">바꾼 자리</dt>
-                    <dd className={`${ui.body} break-words`}>
+                    <dd className="text-base/[normal] font-extrabold break-words text-primary-800">
                       {formatKstDateTime(h.newStartsAt)} · {formatSeat(h.newSeat)}
                     </dd>
                   </div>

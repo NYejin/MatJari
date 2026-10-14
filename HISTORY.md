@@ -14,6 +14,8 @@
 ## 이력
 
 ### 2026-10-14
+- [변경] 채팅 화면 2차 개선(입력창 스크롤바 제거, 가벼운 보내기 아이콘, ⋯ 모바일 바텀 시트, 거래 카드 우측 예약 버튼)과 '내 채팅' 목록 페이지(`/my/chats`) 및 마이페이지 '내 채팅' 링크 추가 — `feature/chat-ui-redesign`
+- [변경] 채팅 화면 레이아웃 개편(전체 높이 채팅형: 헤더·거래 정보 카드·말풍선 배치·둥근 입력줄, 차단·신고는 ⋯ 메뉴) 및 예약 중 채팅 화면에 "교환이 끝나면 내 매칭 목록에서 [교환 수락]을 눌러주세요" 안내 추가. 상대 아바타는 사용자 지시로 제외 — `feature/chat-ui-redesign`
 - [결정] 가입 이메일 인증번호를 임시로 끔: 인증 사용 기본값 false, 가입 화면은 공개 조회 `GET /api/auth/signup/email-verification`로 인증 칸을 숨김 (다시 켜려면 기본값을 true로 되돌림) — `feature/email-verification-off`
 - [문서] 서버 PC 표기를 '집 PC'에서 '로컬 PC'로 통일
 - [결정] 배포를 self-hosted runner 방식에서 이미지 방식으로 교체: CI가 master 병합 때 이미지를 ghcr.io에 올리고 로컬 PC는 스케줄러로 pull·교체만 한다(public 저장소에서 self-hosted runner는 포크 PR 위험 — GitHub 경고). `deploy.yml` 삭제, `update.ps1`·`register-update-task.ps1`·`docker-compose.build.yml` 추가 — `feature/image-deploy`

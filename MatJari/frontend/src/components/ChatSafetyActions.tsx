@@ -14,10 +14,15 @@ type Mode = "block" | "report" | "blocked" | "reported" | null;
 interface Props {
   matchId: number;
   counterpartName: string;
+  /** true면 ⋯(더보기) 버튼 + 팝오버 메뉴로 보여주고 패널은 모달로 띄운다 (채팅 헤더용) */
+  menu?: boolean;
 }
 
-export default function ChatSafetyActions({ matchId, counterpartName }: Props) {
+export default function ChatSafetyActions({ matchId, counterpartName, menu = false }: Props) {
   const [mode, setMode] = useState<Mode>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const moreBtnRef = useRef<HTMLButtonElement>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{ reason?: string; detail?: string }>({});
@@ -41,6 +46,42 @@ export default function ChatSafetyActions({ matchId, counterpartName }: Props) {
     setError(null);
     setFieldErrors({});
     setMode(next);
+  };
+
+  // 메뉴: 바깥 누르기·Esc로 닫는다 (Esc는 ⋯ 버튼으로 포커스를 돌려준다)
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointer = (e: PointerEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setMenuOpen(false);
+        moreBtnRef.current?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
+
+  // 메뉴가 열리면 첫 항목으로 포커스
+  useEffect(() => {
+    if (menuOpen) reportBtnRef.current?.focus();
+  }, [menuOpen]);
+
+  // 시트의 배경·닫기로 닫을 때도 ⋯ 버튼으로 포커스를 돌려준다
+  const closeMenu = () => {
+    setMenuOpen(false);
+    moreBtnRef.current?.focus();
+  };
+
+  const openFromMenu = (next: "block" | "report") => {
+    setMenuOpen(false);
+    open(next, moreBtnRef.current);
   };
 
   const close = () => {
@@ -109,8 +150,53 @@ export default function ChatSafetyActions({ matchId, counterpartName }: Props) {
   const detailErrorId = "report-detail-error";
   const reasonErrorId = "report-reason-error";
 
+  // 메뉴 모드: ⋯ 버튼의 팝오버에 차단·신고를 넣고, 확인/폼 패널은 화면 가운데 모달로 띄운다
+  const panelOverlay = menu ? "fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 [&>section]:w-full [&>section]:max-w-md [&>section]:mt-16" : "contents";
+  // 행 스타일: 모바일은 가운데 정렬의 전체 폭 행(높이 52px), 데스크톱은 왼쪽 정렬의 작은 행
+  const itemCls = `flex min-h-13 w-full cursor-pointer items-center justify-center px-3 text-center text-base/[normal] text-gray-900 active:bg-gray-100 md:min-h-11 md:justify-start md:text-left md:text-[0.9375rem]/[normal] ${FOCUS_RING}`;
+
   return (
-    <div className="flex flex-col gap-2">
+    <div className={menu ? "relative shrink-0" : "flex flex-col gap-2"}>
+      {menu ? (
+        <div ref={menuRef}>
+          <button
+            ref={moreBtnRef}
+            type="button"
+            aria-label="더보기"
+            aria-haspopup="true"
+            aria-expanded={menuOpen}
+            aria-controls="chat-more-menu"
+            onClick={() => setMenuOpen((v) => !v)}
+            disabled={submitting}
+            className={`inline-flex size-11 cursor-pointer items-center justify-center rounded-full text-gray-900 active:bg-gray-100 ${FOCUS_RING}`}
+          >
+            <svg viewBox="0 0 24 24" className="size-6" fill="currentColor" aria-hidden="true">
+              <circle cx="5" cy="12" r="1.8" />
+              <circle cx="12" cy="12" r="1.8" />
+              <circle cx="19" cy="12" r="1.8" />
+            </svg>
+          </button>
+          {menuOpen && (
+            // 모바일(md 미만): 아래에서 올라오는 바텀 시트 + 반투명 배경 / 데스크톱: ⋯ 아래 작은 드롭다운
+            <div id="chat-more-menu" className="fixed inset-0 z-50 flex flex-col justify-end md:absolute md:inset-auto md:top-full md:right-0 md:z-40 md:mt-1 md:block">
+              <div className="absolute inset-0 bg-black/40 md:hidden" onClick={closeMenu} aria-hidden="true" />
+              <div className="relative flex flex-col px-3 pb-[calc(12px+env(safe-area-inset-bottom))] md:w-40 md:p-0">
+                <div className="flex flex-col divide-y divide-gray-200 overflow-hidden rounded-2xl bg-white md:rounded-xl md:border md:border-gray-200 md:shadow-lg">
+                  <button ref={reportBtnRef} type="button" className={itemCls} onClick={() => openFromMenu("report")}>
+                    신고하기
+                  </button>
+                  <button ref={blockBtnRef} type="button" className={itemCls} onClick={() => openFromMenu("block")}>
+                    차단하기
+                  </button>
+                </div>
+                <button type="button" className={`${itemCls} mt-2 rounded-2xl bg-white font-semibold md:hidden`} onClick={closeMenu}>
+                  닫기
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
       <div className="flex gap-2">
         <button ref={blockBtnRef} type="button" className={button.outline} aria-expanded={mode === "block"} onClick={() => open("block", blockBtnRef.current)} disabled={submitting}>
           차단
@@ -119,6 +205,8 @@ export default function ChatSafetyActions({ matchId, counterpartName }: Props) {
           신고
         </button>
       </div>
+      )}
+      <div className={mode === null ? "hidden" : panelOverlay}>
 
       {mode === "block" && (
         <section className={panelBase} aria-labelledby="block-title" onKeyDown={onPanelKeyDown}>
@@ -272,6 +360,7 @@ export default function ChatSafetyActions({ matchId, counterpartName }: Props) {
           </div>
         </section>
       )}
+      </div>
     </div>
   );
 }

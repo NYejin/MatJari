@@ -238,10 +238,19 @@ function CandidateCard({
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
         <dt className={ui.muted}>내 희망 회차</dt>
         <dd className="text-sm/[normal] text-gray-900">{c.wantPriority}순위</dd>
-        <dt className={ui.muted}>내 조건</dt>
-        <dd className="text-sm/[normal] text-gray-900">{formatExtra(c.myExtraType, c.myExtraAmount)}</dd>
-        <dt className={ui.muted}>상대 조건</dt>
-        <dd className="text-sm/[normal] text-gray-900">{formatExtra(c.extraType, c.extraAmount)}</dd>
+        {/* 추가금이 실제로 있는 조건(받고/낼)만 보인다 */}
+        {(c.myExtraType === "POS" || c.myExtraType === "NEG") && (
+          <>
+            <dt className={ui.muted}>내 조건</dt>
+            <dd className="text-sm/[normal] text-gray-900">{formatExtra(c.myExtraType, c.myExtraAmount)}</dd>
+          </>
+        )}
+        {(c.extraType === "POS" || c.extraType === "NEG") && (
+          <>
+            <dt className={ui.muted}>상대 조건</dt>
+            <dd className="text-sm/[normal] text-gray-900">{formatExtra(c.extraType, c.extraAmount)}</dd>
+          </>
+        )}
         {c.settlementHint && (
           <>
             <dt className={ui.muted}>참고 금액</dt>

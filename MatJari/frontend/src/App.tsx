@@ -25,6 +25,7 @@ import AdminEditProposalsPage from "./pages/AdminEditProposalsPage";
 import MyEditProposalsPage from "./pages/MyEditProposalsPage";
 import MyBlocksPage from "./pages/MyBlocksPage";
 import MyReportsPage from "./pages/MyReportsPage";
+import MyChatsPage from "./pages/MyChatsPage";
 import AdminReportsPage from "./pages/AdminReportsPage";
 import AdminReportDetailPage from "./pages/AdminReportDetailPage";
 import AdminSanctionsPage from "./pages/AdminSanctionsPage";
@@ -61,7 +62,8 @@ export default function App() {
             <Route path="/seat-claims/new" element={<SeatClaimNewPage />} />
             <Route path="/my/seat-claims" element={<MySeatClaimsPage />} />
             <Route path="/my/edit-proposals" element={<MyEditProposalsPage />} />
-            <Route path="/my/blocks" element={<MyBlocksPage />} />
+            <Route path="/my/chats" element={<MyChatsPage />} />
+            <Route path="/my/blocks"element={<MyBlocksPage />} />
             <Route path="/my/reports" element={<MyReportsPage />} />
 
             {/* 관리자 전용 (UI 가드 — 최종 권한은 서버) */}

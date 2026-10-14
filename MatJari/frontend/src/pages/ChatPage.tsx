@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { CHAT_AFTER_SIZE, CHAT_MAX_LENGTH, CHAT_PAGE_SIZE, chatApi, countCodePoints, findReadMarkerId, generateClientMessageId, mergeMessages, nextReadTarget, truncateCodePoints, visiblePending } from "../api/chat";
 import { formatKstDateTime } from "../api/dateTime";
@@ -7,7 +7,7 @@ import { exchangeErrorMessage } from "../api/exchangeMessages";
 import { getRealtimeStatus, subscribeNotificationPush } from "../api/realtimeHub";
 import { formatSeat } from "../api/seat";
 import ChatSafetyActions from "../components/ChatSafetyActions";
-import { button, FOCUS_RING, input, linkButton, liveRegionClass, ui } from "../components/ui";
+import { button, FOCUS_RING, linkButton, liveRegionClass, ui } from "../components/ui";
 import { useAuth } from "../hooks/useAuth";
 import { useChatSocket } from "../hooks/useChatSocket";
 import type { ChatMessage, ChatPush, PendingChatMessage } from "../types/chat";
@@ -22,6 +22,10 @@ const READ_DEBOUNCE_MS = 600;
 /** 알림 신호(STOMP)를 놓치거나 연결이 끊긴 경우를 위한 매칭 상태 재조회 간격. 연결 중에는 10번에 한 번(5분)만 확인한다 */
 const MATCH_POLL_MS = 30_000;
 const MATCH_POLL_CONNECTED_EVERY = 10;
+/** 입력창 최대 높이: 5줄(24px) + 위아래 여백 20px */
+const TEXTAREA_MAX_PX = 140;
+/** 글자 수 카운터는 이 글자 수부터 눈에 보인다 */
+const COUNT_VISIBLE_FROM = 900;
 
 type ReserveAction = "propose" | "accept" | "decline" | "withdraw" | "unreserve";
 type ReserveConfirm = "propose" | "accept" | "unreserve";
@@ -80,6 +84,63 @@ function deriveBanners(m: ExchangeMatch): { text: string; strong?: boolean }[] {
   }
   return out;
 }
+
+/** 상태 뱃지 문구 (앱에서 쓰는 용어) */
+function statusLabel(status: ExchangeMatch["status"]): string {
+  return status === "CHATTING" ? "채팅 중" : status === "RESERVED" ? "예약 중" : status === "COMPLETED" ? "교환 완료" : "종료";
+}
+
+const BADGE_BASE = "inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-[0.8125rem]/[normal] font-semibold";
+function statusBadgeClass(status: ExchangeMatch["status"]): string {
+  return status === "RESERVED" ? `${BADGE_BASE} bg-primary-50 text-primary-800` : status === "CHATTING" ? `${BADGE_BASE} bg-gray-100 text-gray-700` : `${BADGE_BASE} bg-gray-100 text-gray-600`;
+}
+
+/** 상태 안내 배너 묶음: 1개면 그대로, 2개 이상이면 첫 줄만 보이고 펼치기 (UI 전용 상태) */
+function ChatBanners({ banners }: { banners: { text: string; strong?: boolean }[] }) {
+  const [open, setOpen] = useState(false);
+  if (banners.length === 0) return null;
+  const cls = (b: { strong?: boolean }) => `${b.strong ? "bg-accent-100 text-gray-900" : "bg-primary-50 text-primary-800"} rounded-[10px] px-3 py-1 text-[0.8125rem]/[1.4]`;
+  const shown = open ? banners : banners.slice(0, 1);
+  return (
+    <div className="flex flex-col gap-1">
+      {shown.map((b) => (
+        <p key={b.text} className={cls(b)}>
+          {b.text}
+        </p>
+      ))}
+      {banners.length > 1 && (
+        <button type="button" className={`self-start rounded px-1 py-1 text-[0.8125rem]/[normal] text-gray-600 underline underline-offset-2 ${FOCUS_RING}`} aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          {open ? "접기" : `안내 ${banners.length - 1}개 더 보기`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** 메시지 목록 위 안전 안내 띠: 기본 한 줄 요약, 누르면 전체 문구 */
+function SafetyStrip(): ReactNode {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="shrink-0 border-b border-gray-200 bg-gray-50 px-4 py-1.5">
+      <button type="button" className={`flex w-full items-center justify-between gap-2 rounded text-left text-[0.8125rem]/[normal] text-gray-600 ${FOCUS_RING}`} aria-expanded={open} aria-controls="chat-safety-text" onClick={() => setOpen((v) => !v)}>
+        <span>안전하게 거래하세요</span>
+        <span className="underline underline-offset-2">{open ? "접기" : "자세히"}</span>
+      </button>
+      {open && (
+        <p id="chat-safety-text" className={`${ui.hint} pt-1`}>
+          예매내역을 확인할 때 이름·연락처·결제 정보는 가리고 보여주세요. 메시지는 텍스트만 보낼 수 있고, 보낸 뒤에는 삭제·수정할 수 없어요.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** 거래 카드 오른쪽 슬롯의 작은 윤곽선 버튼 (터치 영역 40px) */
+const SLOT_BUTTON = `inline-flex min-h-10 shrink-0 cursor-pointer touch-manipulation items-center justify-center rounded-lg border border-primary-600 bg-white px-3 text-[0.8125rem]/[normal] font-semibold whitespace-nowrap text-primary-700 enabled:active:bg-primary-50 disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS_RING}`;
+/** 카드 안 보조 동작(거절·철회·예약 취소)용 작은 윤곽선 버튼 */
+const SMALL_OUTLINE = `inline-flex min-h-10 cursor-pointer touch-manipulation items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-[0.8125rem]/[normal] font-semibold whitespace-nowrap text-gray-900 enabled:active:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS_RING}`;
+
+const MSG_BUBBLE = "max-w-[75%] px-3.5 py-2 text-[0.9375rem]/[1.45] break-words whitespace-pre-wrap";
 
 export default function ChatPage() {
   const params = useParams();
@@ -337,6 +398,16 @@ export default function ChatPage() {
 
   useEffect(() => () => window.clearTimeout(announceTimerRef.current), []);
 
+  // 입력창 높이: 내용에 맞춰 늘어나되 약 5줄(120px + 여백)까지만 (UI 전용)
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, TEXTAREA_MAX_PX)}px`;
+    // 최대 높이를 넘으면 스크롤은 되되 막대는 숨긴다(overflow-y-hidden이어도 스크립트 스크롤은 되므로 키보드 이동은 auto로 연다)
+    el.style.overflowY = el.scrollHeight > TEXTAREA_MAX_PX ? "auto" : "hidden";
+  }, [text]);
+
   const onScroll = () => {
     const el = listRef.current;
     if (!el) return;
@@ -540,117 +611,173 @@ export default function ChatPage() {
   const disabledReasonId = "chat-disabled-reason";
   const fatal = matchError !== null && match === null;
 
+  const count = countCodePoints(text);
+  const sameDay = (a: ChatMessage, b: ChatMessage) => a.createdAt.slice(0, 10) === b.createdAt.slice(0, 10);
+  const sameGroup = (a: ChatMessage, b: ChatMessage) => a.senderId === b.senderId && sameDay(a, b);
+
   return (
-    <div className={`${ui.page} min-h-0`}>
-      <div className={`${ui.container} min-h-0 flex-1`}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h1 ref={headingRef} tabIndex={-1} className={`${ui.pageTitle} outline-none`}>
-            {match ? `${match.counterpartNickname}님과 채팅` : "채팅"}
-          </h1>
-          <Link to={backTo} className={linkButton.outline}>
-            내 매칭으로
+    // 전역 헤더 아래 남은 높이를 채우는 채팅 레이아웃: 헤더 / 거래 카드 / 메시지(여기만 스크롤) / 입력줄
+    <div className="flex min-h-0 flex-1 justify-center bg-surface">
+      <div className="flex min-h-0 w-full max-w-2xl flex-col bg-white sm:border-x sm:border-gray-200">
+        {/* 헤더 줄: ← 뒤로 / 상대 닉네임 / ⋯ 더보기(차단·신고) */}
+        <div className="flex shrink-0 items-center gap-1 border-b border-gray-200 bg-white px-2 py-1.5">
+          <Link to={backTo} aria-label="내 매칭으로" className={`inline-flex size-11 shrink-0 items-center justify-center rounded-full text-gray-900 active:bg-gray-100 ${FOCUS_RING}`}>
+            <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M15 5l-7 7 7 7" />
+            </svg>
           </Link>
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <h1 ref={headingRef} tabIndex={-1} className="min-w-0 truncate text-xl/[normal] font-bold text-gray-900 outline-none">
+              {match ? (
+                <>
+                  {match.counterpartNickname}
+                  <span className="sr-only">님과 채팅</span>
+                </>
+              ) : (
+                "채팅"
+              )}
+            </h1>
+            {/* 상태 뱃지(채팅 중·예약 중·교환 완료·종료)는 닉네임 오른쪽에 둔다 */}
+            {match && <span className={`shrink-0 ${statusBadgeClass(match.status)}`}>{statusLabel(match.status)}</span>}
+          </div>
+          {match && <ChatSafetyActions matchId={matchId} counterpartName={match.counterpartNickname} menu />}
         </div>
 
-        {match && <ChatSafetyActions matchId={matchId} counterpartName={match.counterpartNickname} />}
+        {/* 연결 상태 띠 (정상이면 비어 있음) */}
+        <p role="status" className={liveRegionClass(connectionText, connection === "failed" ? "shrink-0 bg-red-50 px-4 py-1.5 text-[0.8125rem]/[normal] text-red-700" : "shrink-0 bg-gray-100 px-4 py-1.5 text-[0.8125rem]/[normal] text-gray-700")}>
+          {connectionText}
+        </p>
 
         {fatal && (
-          <p className={ui.errorBox} role="alert">
+          <p className={`${ui.errorBox} m-4`} role="alert">
             {matchError}
           </p>
         )}
 
+        {/* 거래 정보 카드: 자리 요약 + 상태 뱃지, 안내 배너, 예약 블록. 길어지면 안쪽만 스크롤 */}
         {match && (
-          <div className="flex flex-col gap-2">
-            <p className={ui.muted}>
-              내 자리 {formatSeat(match.mySeat)} ({formatKstDateTime(match.mySeat.startsAt)}) ↔ 상대 자리 {formatSeat(match.counterpartSeat)} ({formatKstDateTime(match.counterpartSeat.startsAt)})
-            </p>
-            {banners.map((b) => (
-              <p key={b.text} className={b.strong ? ui.warning : ui.notice}>
-                {b.text}
-              </p>
-            ))}
-            {reservable && (
-              <div ref={reserveBlockRef} tabIndex={-1} aria-label="예약" className="flex flex-col gap-2 rounded-[10px] bg-white p-3 outline-none">
-                {reserveStateText && <p className={proposal === "THEIRS" ? ui.warning : ui.notice}>{reserveStateText}</p>}
-                {reserveConfirm === null && (
-                  <div className="flex flex-wrap gap-2">
-                    {match.status === "CHATTING" && proposal === "NONE" && (
-                      seatExchanged ? (
-                        <p className={ui.muted}>이미 교환된 좌석이라 예약을 제안할 수 없어요.</p>
-                      ) : (
-                        <button type="button" className={button.solid} onClick={() => setReserveConfirm("propose")} disabled={reserveBusy !== null}>
-                          예약 제안하기
-                        </button>
-                      )
-                    )}
-                    {proposal === "MINE" && (
-                      <button type="button" className={button.outline} onClick={() => void runReserve("withdraw")} disabled={reserveBusy !== null} aria-busy={reserveBusy === "withdraw"}>
-                        {reserveBusy === "withdraw" ? "처리 중..." : "제안 철회"}
-                      </button>
-                    )}
-                    {proposal === "THEIRS" && !seatExchanged && (
-                      <button type="button" className={button.solid} onClick={() => setReserveConfirm("accept")} disabled={reserveBusy !== null || match.myTicketReservedElsewhere || match.counterpartTicketReservedElsewhere}>
-                        예약 수락
-                      </button>
-                    )}
-                    {proposal === "THEIRS" && (
-                      <button type="button" className={button.outline} onClick={() => void runReserve("decline")} disabled={reserveBusy !== null} aria-busy={reserveBusy === "decline"}>
-                        {reserveBusy === "decline" ? "처리 중..." : "거절"}
-                      </button>
-                    )}
-                    {match.status === "RESERVED" && (
-                      <button type="button" className={button.outline} onClick={() => setReserveConfirm("unreserve")} disabled={reserveBusy !== null}>
-                        예약 취소
-                      </button>
-                    )}
+          <div className="relative max-h-[40dvh] shrink-0 overflow-y-auto overscroll-contain border-b border-gray-200 bg-white px-4 py-2">
+            <div className="flex flex-col gap-1.5">
+              <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
+                <div className="flex min-w-0 flex-1 basis-56 flex-col gap-0.5">
+                  {/* 교환 방향은 내 자리 → 상대 자리 화살표로 보이고, 도착(상대) 자리를 강조한다. 내 자리·상대 자리는 라벨 알약으로 구분한다. 한 줄에 들어가면 한 줄, 넘치는 순간 상대 자리가 다음 줄로 내려간다 */}
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                      <span className="rounded-full bg-primary-50 px-2 py-0.5 text-[0.6875rem]/[1.3] font-bold text-primary-800">내</span>
+                      <span className="text-[0.8125rem]/[1.4] text-gray-600">{formatSeat(match.mySeat)}</span>
+                      <span aria-hidden="true" className="px-0.5 text-2xl/[1] font-light text-primary-600/40">→</span>
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                      <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[0.6875rem]/[1.3] font-bold text-gray-700">상대</span>
+                      <span className="text-base/[1.4] font-extrabold text-primary-800">{formatSeat(match.counterpartSeat)}</span>
+                    </span>
                   </div>
-                )}
-                {reserveConfirm !== null && (
-                  <div ref={reserveConfirmRef} tabIndex={-1} className="flex flex-col gap-3 outline-none">
-                    <p className={ui.warning}>
-                      {reserveConfirm === "propose"
-                        ? `${counterpartName}님에게 예약을 제안할까요? 상대가 수락하면 두 티켓이 예약 중으로 잠기고, 다른 매칭에서는 쓸 수 없어요.`
-                        : reserveConfirm === "accept"
-                          ? "예약을 수락할까요? 수락하면 두 티켓이 예약 중으로 잠겨 다른 매칭에서는 쓸 수 없어요."
-                          : `취소하면 예약이 풀리고 두 티켓을 다시 쓸 수 있어요.${match.myAccepted || match.counterpartAccepted ? " 교환 수락 표시도 초기화돼요." : ""} 예약을 취소할까요?`}
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        className={reserveConfirm === "unreserve" ? button.danger : button.solid}
-                        onClick={() => void runReserve(reserveConfirm)}
-                        disabled={reserveBusy !== null}
-                        aria-busy={reserveBusy !== null}
-                      >
-                        {reserveBusy !== null ? "처리 중..." : reserveConfirm === "propose" ? "제안할게요" : reserveConfirm === "accept" ? "수락할게요" : "예약 취소할게요"}
-                      </button>
-                      <button type="button" className={button.outline} onClick={() => setReserveConfirm(null)} disabled={reserveBusy !== null}>
-                        돌아가기
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {reserveError && (
-                  <p className={ui.errorBox} role="alert">
-                    {reserveError}
+                  <p className="text-[0.8125rem]/[1.4] text-gray-600">
+                    {match.mySeat.startsAt === match.counterpartSeat.startsAt
+                      ? formatKstDateTime(match.mySeat.startsAt)
+                      : `내 ${formatKstDateTime(match.mySeat.startsAt)} · 상대 ${formatKstDateTime(match.counterpartSeat.startsAt)}`}
                   </p>
+                </div>
+                {/* 당근마켓의 '거래 후기' 자리: 지금 할 수 있는 예약 동작 하나 */}
+                {reservable && !seatExchanged && proposal === "NONE" && match.status === "CHATTING" && (
+                  <button type="button" className={SLOT_BUTTON} onClick={() => setReserveConfirm("propose")} disabled={reserveBusy !== null}>
+                    예약 제안
+                  </button>
+                )}
+                {reservable && !seatExchanged && proposal === "THEIRS" && (
+                  <button type="button" className={SLOT_BUTTON} onClick={() => setReserveConfirm("accept")} disabled={reserveBusy !== null || match.myTicketReservedElsewhere || match.counterpartTicketReservedElsewhere}>
+                    예약 수락
+                  </button>
                 )}
               </div>
-            )}
-            <p role="status" className={liveRegionClass(shownReserveNotice, ui.status)}>
-              {shownReserveNotice}
-            </p>
+              <ChatBanners banners={banners} />
+              {reservable && (
+                <div ref={reserveBlockRef} tabIndex={-1} aria-label="예약" className="flex flex-col gap-1.5 rounded-[10px] outline-none">
+                  {reserveStateText && <p className={proposal === "THEIRS" ? "rounded-[10px] bg-accent-100 px-3 py-1.5 text-[0.8125rem]/[1.4] text-gray-900" : "rounded-[10px] bg-primary-50 px-3 py-1.5 text-[0.8125rem]/[1.4] text-primary-800"}>{reserveStateText}</p>}
+                  {match.status === "CHATTING" && proposal === "NONE" && seatExchanged && (
+                    <p className="text-[0.8125rem]/[1.4] text-gray-600">이미 교환된 좌석이라 예약을 제안할 수 없어요.</p>
+                  )}
+                  {(proposal === "MINE" || proposal === "THEIRS" || match.status === "RESERVED") && (
+                    <div className="flex flex-wrap gap-2">
+                      {proposal === "MINE" && (
+                        <button type="button" className={SMALL_OUTLINE} onClick={() => void runReserve("withdraw")} disabled={reserveBusy !== null} aria-busy={reserveBusy === "withdraw"}>
+                          {reserveBusy === "withdraw" ? "처리 중..." : "제안 철회"}
+                        </button>
+                      )}
+                      {proposal === "THEIRS" && (
+                        <button type="button" className={SMALL_OUTLINE} onClick={() => void runReserve("decline")} disabled={reserveBusy !== null} aria-busy={reserveBusy === "decline"}>
+                          {reserveBusy === "decline" ? "처리 중..." : "거절"}
+                        </button>
+                      )}
+                      {match.status === "RESERVED" && (
+                        <button type="button" className={SMALL_OUTLINE} onClick={() => setReserveConfirm("unreserve")} disabled={reserveBusy !== null}>
+                          예약 취소
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {reserveConfirm !== null && (
+                    <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" onKeyDown={(e) => { if (e.key === "Escape" && reserveBusy === null) setReserveConfirm(null); }}>
+                      <button type="button" aria-label="닫기" tabIndex={-1} className="absolute inset-0 bg-black/40" onClick={() => reserveBusy === null && setReserveConfirm(null)} />
+                      <div
+                        ref={reserveConfirmRef}
+                        tabIndex={-1}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="예약 확인"
+                        className="relative flex w-full max-w-md flex-col gap-3 rounded-t-2xl bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] outline-none md:rounded-2xl"
+                      >
+                        <p className="text-[0.9375rem]/[1.5] text-gray-900">
+                          {reserveConfirm === "propose"
+                            ? `${counterpartName}님에게 예약을 제안할까요? 상대가 수락하면 두 티켓이 예약 중으로 잠기고, 다른 매칭에서는 쓸 수 없어요.`
+                            : reserveConfirm === "accept"
+                              ? "예약을 수락할까요? 수락하면 두 티켓이 예약 중으로 잠겨 다른 매칭에서는 쓸 수 없어요."
+                              : `취소하면 예약이 풀리고 두 티켓을 다시 쓸 수 있어요.${match.myAccepted || match.counterpartAccepted ? " 교환 수락 표시도 초기화돼요." : ""} 예약을 취소할까요?`}
+                        </p>
+                        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                          <button type="button" className={button.outline} onClick={() => setReserveConfirm(null)} disabled={reserveBusy !== null}>
+                            돌아가기
+                          </button>
+                          <button
+                            type="button"
+                            className={reserveConfirm === "unreserve" ? button.danger : button.solid}
+                            onClick={() => void runReserve(reserveConfirm)}
+                            disabled={reserveBusy !== null}
+                            aria-busy={reserveBusy !== null}
+                          >
+                            {reserveBusy !== null ? "처리 중..." : reserveConfirm === "propose" ? "제안할게요" : reserveConfirm === "accept" ? "수락할게요" : "예약 취소할게요"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {reserveError && (
+                    <p className={ui.errorBox} role="alert">
+                      {reserveError}
+                    </p>
+                  )}
+                  {/* 화면 안내일 뿐 저장되는 메시지가 아니다 */}
+                  {match.status === "RESERVED" && (
+                    <p className="text-[0.8125rem]/[1.4] text-gray-600">
+                      교환이 끝나면{" "}
+                      <Link to={backTo} className={`font-semibold text-primary-700 underline underline-offset-2 ${FOCUS_RING}`}>
+                        내 매칭 목록
+                      </Link>
+                      에서 [교환 수락]을 눌러주세요.
+                    </p>
+                  )}
+                </div>
+              )}
+              <p role="status" className={liveRegionClass(shownReserveNotice, ui.status)}>
+                {shownReserveNotice}
+              </p>
+            </div>
           </div>
         )}
 
         {!fatal && (
-          <section className={`${ui.card} flex min-h-0 flex-1 flex-col gap-3`} aria-label="채팅">
-            <p className={ui.hint}>예매내역을 확인할 때 이름·연락처·결제 정보는 가리고 보여주세요. 메시지는 텍스트만 보낼 수 있고, 보낸 뒤에는 삭제·수정할 수 없어요.</p>
-
-            <p role="status" className={liveRegionClass(connectionText, connection === "failed" ? ui.errorBox : ui.status)}>
-              {connectionText}
-            </p>
+          <section className="flex min-h-0 flex-1 flex-col" aria-label="채팅">
+            <SafetyStrip />
 
             <div className="relative flex min-h-0 flex-1 flex-col">
               <div
@@ -659,7 +786,7 @@ export default function ChatPage() {
                 tabIndex={0}
                 role="region"
                 aria-label="메시지 목록"
-                className={`min-h-48 max-h-[min(60vh,32rem)] flex-1 overflow-y-auto overscroll-contain rounded-[10px] bg-surface p-3 ${FOCUS_RING}`}
+                className={`relative min-h-0 flex-1 overflow-y-auto overscroll-contain bg-surface px-3 py-3 ${FOCUS_RING}`}
               >
                 {!loaded && !loadError && <p className={ui.muted}>메시지를 불러오는 중...</p>}
                 {loadError && (
@@ -683,36 +810,54 @@ export default function ChatPage() {
                   </div>
                 )}
                 {loaded && messages.length === 0 && shownPending.length === 0 && <p className={ui.muted}>아직 메시지가 없어요. 먼저 인사를 건네 보세요.</p>}
-                <ul className="flex flex-col gap-2">
+                <ul className="flex flex-col">
                   {messages.map((m, i) => {
                     const mine = m.senderId === me;
+                    const prev = i > 0 ? messages[i - 1] : null;
+                    const next = i < messages.length - 1 ? messages[i + 1] : null;
                     const day = formatDay(m.createdAt);
-                    const showDay = i === 0 || formatDay(messages[i - 1].createdAt) !== day;
+                    const showDay = prev === null || !sameDay(prev, m);
+                    const first = showDay || prev === null || !sameGroup(prev, m);
+                    const last = next === null || !sameGroup(m, next);
+                    // 시간은 같은 보낸 사람·같은 분의 연속 메시지 중 마지막에만
+                    const showTime = last || next === null || next.createdAt.slice(0, 16) !== m.createdAt.slice(0, 16);
+                    const marker = m.id === readMarkerId;
+                    // 묶음 안에서는 꼬리 쪽 모서리만 살짝 각지게 (묶음의 마지막 말풍선)
+                    const radius = mine ? (last ? "rounded-2xl rounded-br-md" : "rounded-2xl") : last ? "rounded-2xl rounded-bl-md" : "rounded-2xl";
+                    const meta = (showTime || marker) && (
+                      <span className={`flex shrink-0 flex-col ${mine ? "items-end" : "items-start"} text-[0.75rem]/[1.3] text-gray-600`}>
+                        {marker && <span>읽음</span>}
+                        {showTime && <span>{formatTime(m.createdAt)}</span>}
+                      </span>
+                    );
                     return (
-                      <li key={m.id} className="flex flex-col gap-2">
-                        {showDay && day && <p className="self-center text-[0.8125rem]/[normal] text-gray-600">{day}</p>}
-                        <div className={`flex flex-col gap-0.5 ${mine ? "items-end" : "items-start"}`}>
-                          <div className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-[0.9375rem]/[1.45] break-words whitespace-pre-wrap ${mine ? "bg-primary-600 text-white" : "bg-white text-gray-900"}`}>
+                      <li key={m.id} className={first && prev !== null ? "mt-3" : "mt-0.5"}>
+                        {showDay && day && (
+                          <p className="mt-1 mb-3 flex justify-center">
+                            <span className="rounded-full bg-gray-200 px-3 py-1 text-[0.75rem]/[normal] text-gray-700">{day}</span>
+                          </p>
+                        )}
+                        <div className={`flex items-end gap-1.5 ${mine ? "justify-end" : "justify-start"}`}>
+                          {mine && meta}
+                          <div className={`${MSG_BUBBLE} ${radius} ${mine ? "bg-primary-600 text-white" : "bg-white text-gray-900"}`}>
                             <span className="sr-only">{mine ? "나: " : `${counterpartName}: `}</span>
                             {m.content}
                           </div>
-                          <span className="text-[0.75rem]/[normal] text-gray-600">
-                            {formatTime(m.createdAt)}
-                            {m.id === readMarkerId && <span> · 읽음</span>}
-                          </span>
+                          {!mine && meta}
                         </div>
                       </li>
                     );
                   })}
                   {shownPending.map((p) => (
-                    <li key={p.clientMessageId} className="flex flex-col items-end gap-1">
-                      <div className="max-w-[85%] rounded-2xl bg-primary-600 px-3.5 py-2 text-[0.9375rem]/[1.45] break-words whitespace-pre-wrap text-white opacity-70">
-                        <span className="sr-only">나: </span>
-                        {p.content}
+                    <li key={p.clientMessageId} className="mt-2 flex flex-col items-end gap-1">
+                      <div className="flex items-end justify-end gap-1.5">
+                        {p.status === "sending" && <span className="shrink-0 text-[0.75rem]/[1.3] text-gray-600">보내는 중...</span>}
+                        <div className={`${MSG_BUBBLE} rounded-2xl rounded-br-md bg-primary-600 text-white opacity-70`}>
+                          <span className="sr-only">나: </span>
+                          {p.content}
+                        </div>
                       </div>
-                      {p.status === "sending" ? (
-                        <span className="text-[0.75rem]/[normal] text-gray-600">보내는 중...</span>
-                      ) : (
+                      {p.status !== "sending" && (
                         <div className="flex flex-col items-end gap-1">
                           <span className="text-[0.8125rem]/[normal] text-red-700" role="alert">
                             {p.error ?? "보내지 못했어요."}
@@ -743,7 +888,8 @@ export default function ChatPage() {
               {announce}
             </p>
 
-            <form onSubmit={onSubmit} className="sticky bottom-0 flex flex-col gap-2 bg-white pt-2 pb-[env(safe-area-inset-bottom)]">
+            {/* 입력줄: 하단 고정(flex 맨 아래), 키보드·홈 인디케이터에 가리지 않게 safe-area 패딩 */}
+            <form onSubmit={onSubmit} className="flex shrink-0 flex-col gap-1.5 border-t border-gray-200 bg-white px-3 pt-2 pb-[calc(8px+env(safe-area-inset-bottom))]">
               {closedChat && (
                 <p id={disabledReasonId} className={ui.muted}>
                   종료된 채팅이라 메시지를 보낼 수 없어요. 이전 대화만 볼 수 있어요.
@@ -752,26 +898,36 @@ export default function ChatPage() {
               <label htmlFor="chat-input" className="sr-only">
                 {counterpartName}님에게 보낼 메시지
               </label>
-              <textarea
-                id="chat-input"
-                ref={textareaRef}
-                rows={2}
-                value={text}
-                onChange={(e) => setText(truncateCodePoints(e.target.value, CHAT_MAX_LENGTH))}
-                onKeyDown={onKeyDown}
-                disabled={closedChat}
-                placeholder="메시지를 입력하세요 (Shift+Enter로 줄바꿈)"
-                aria-describedby={closedChat ? `${countId} ${disabledReasonId}` : countId}
-                className={`${input.normal} resize-none py-2.5`}
-              />
-              <div className="flex items-center justify-between gap-2">
-                <span id={countId} className={ui.hint}>
-                  {countCodePoints(text)}/{CHAT_MAX_LENGTH}자
-                </span>
-                <button type="submit" className={button.solid} disabled={closedChat || text.trim().length === 0}>
-                  보내기
+              {/* 알약 입력창: 테두리는 바깥 알약이 맡고 textarea는 테두리·스크롤바 없이 높이만 늘어난다 */}
+              <div className={`flex items-end rounded-3xl border pl-4 pr-1 focus-within:border-primary-600 focus-within:ring-3 focus-within:ring-primary-600/20 ${closedChat ? "border-gray-200 bg-gray-100" : "border-gray-300 bg-white"}`}>
+                <textarea
+                  id="chat-input"
+                  ref={textareaRef}
+                  rows={1}
+                  value={text}
+                  onChange={(e) => setText(truncateCodePoints(e.target.value, CHAT_MAX_LENGTH))}
+                  onKeyDown={onKeyDown}
+                  disabled={closedChat}
+                  placeholder="메시지 보내기"
+                  aria-describedby={closedChat ? `${countId} ${disabledReasonId}` : countId}
+                  className="box-border min-h-11 min-w-0 flex-1 resize-none overflow-y-hidden border-0 bg-transparent px-0 py-2.5 text-base/6 text-gray-900 outline-hidden [scrollbar-width:none] placeholder:text-gray-500 disabled:cursor-not-allowed [&::-webkit-scrollbar]:hidden"
+                />
+                <button
+                  type="submit"
+                  aria-label="보내기"
+                  className={`inline-flex size-11 shrink-0 cursor-pointer touch-manipulation items-center justify-center rounded-full text-primary-600 enabled:active:bg-primary-50 disabled:cursor-not-allowed disabled:text-gray-400 ${FOCUS_RING}`}
+                  disabled={closedChat || text.trim().length === 0}
+                >
+                  <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M21 3L3 10.5l7 3 3 7L21 3z" />
+                    <path d="M10 13.5L21 3" />
+                  </svg>
                 </button>
               </div>
+              {/* 평소에는 낭독용으로만 존재하고 900자 이상일 때 눈에 보인다 */}
+              <span id={countId} className={count >= COUNT_VISIBLE_FROM ? `${ui.hint} self-end pr-1` : "sr-only"}>
+                {count}/{CHAT_MAX_LENGTH}자
+              </span>
             </form>
           </section>
         )}

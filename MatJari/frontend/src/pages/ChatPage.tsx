@@ -626,16 +626,20 @@ export default function ChatPage() {
               <path d="M15 5l-7 7 7 7" />
             </svg>
           </Link>
-          <h1 ref={headingRef} tabIndex={-1} className="min-w-0 flex-1 truncate text-xl/[normal] font-bold text-gray-900 outline-none">
-            {match ? (
-              <>
-                {match.counterpartNickname}
-                <span className="sr-only">님과 채팅</span>
-              </>
-            ) : (
-              "채팅"
-            )}
-          </h1>
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <h1 ref={headingRef} tabIndex={-1} className="min-w-0 truncate text-xl/[normal] font-bold text-gray-900 outline-none">
+              {match ? (
+                <>
+                  {match.counterpartNickname}
+                  <span className="sr-only">님과 채팅</span>
+                </>
+              ) : (
+                "채팅"
+              )}
+            </h1>
+            {/* 상태 뱃지(채팅 중·예약 중·교환 완료·종료)는 닉네임 오른쪽에 둔다 */}
+            {match && <span className={`shrink-0 ${statusBadgeClass(match.status)}`}>{statusLabel(match.status)}</span>}
+          </div>
           {match && <ChatSafetyActions matchId={matchId} counterpartName={match.counterpartNickname} menu />}
         </div>
 
@@ -656,11 +660,16 @@ export default function ChatPage() {
             <div className="flex flex-col gap-1.5">
               <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
                 <div className="flex min-w-0 flex-1 basis-56 flex-col gap-0.5">
-                  <div className="flex min-w-0 items-start gap-2">
-                    <span className={statusBadgeClass(match.status)}>{statusLabel(match.status)}</span>
-                    <p className="min-w-0 break-words text-[0.9375rem]/[1.4] font-bold text-gray-900">
-                      내 {formatSeat(match.mySeat)} ↔ 상대 {formatSeat(match.counterpartSeat)}
-                    </p>
+                  {/* 내 자리·상대 자리는 라벨 알약으로 구분한다. 한 줄에 들어가면 한 줄, 넘치는 순간 상대 자리가 다음 줄로 내려간다 */}
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                      <span className="rounded-full bg-primary-50 px-2 py-0.5 text-[0.6875rem]/[1.3] font-bold text-primary-800">내</span>
+                      <span className="text-[0.9375rem]/[1.4] font-bold text-gray-900">{formatSeat(match.mySeat)}</span>
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                      <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[0.6875rem]/[1.3] font-bold text-gray-700">상대</span>
+                      <span className="text-[0.9375rem]/[1.4] font-bold text-gray-900">{formatSeat(match.counterpartSeat)}</span>
+                    </span>
                   </div>
                   <p className="text-[0.8125rem]/[1.4] text-gray-600">
                     {match.mySeat.startsAt === match.counterpartSeat.startsAt
@@ -669,12 +678,12 @@ export default function ChatPage() {
                   </p>
                 </div>
                 {/* 당근마켓의 '거래 후기' 자리: 지금 할 수 있는 예약 동작 하나 */}
-                {reservable && reserveConfirm === null && !seatExchanged && proposal === "NONE" && match.status === "CHATTING" && (
+                {reservable && !seatExchanged && proposal === "NONE" && match.status === "CHATTING" && (
                   <button type="button" className={SLOT_BUTTON} onClick={() => setReserveConfirm("propose")} disabled={reserveBusy !== null}>
                     예약 제안
                   </button>
                 )}
-                {reservable && reserveConfirm === null && !seatExchanged && proposal === "THEIRS" && (
+                {reservable && !seatExchanged && proposal === "THEIRS" && (
                   <button type="button" className={SLOT_BUTTON} onClick={() => setReserveConfirm("accept")} disabled={reserveBusy !== null || match.myTicketReservedElsewhere || match.counterpartTicketReservedElsewhere}>
                     예약 수락
                   </button>
@@ -684,10 +693,10 @@ export default function ChatPage() {
               {reservable && (
                 <div ref={reserveBlockRef} tabIndex={-1} aria-label="예약" className="flex flex-col gap-1.5 rounded-[10px] outline-none">
                   {reserveStateText && <p className={proposal === "THEIRS" ? "rounded-[10px] bg-accent-100 px-3 py-1.5 text-[0.8125rem]/[1.4] text-gray-900" : "rounded-[10px] bg-primary-50 px-3 py-1.5 text-[0.8125rem]/[1.4] text-primary-800"}>{reserveStateText}</p>}
-                  {reserveConfirm === null && match.status === "CHATTING" && proposal === "NONE" && seatExchanged && (
+                  {match.status === "CHATTING" && proposal === "NONE" && seatExchanged && (
                     <p className="text-[0.8125rem]/[1.4] text-gray-600">이미 교환된 좌석이라 예약을 제안할 수 없어요.</p>
                   )}
-                  {reserveConfirm === null && (proposal === "MINE" || proposal === "THEIRS" || match.status === "RESERVED") && (
+                  {(proposal === "MINE" || proposal === "THEIRS" || match.status === "RESERVED") && (
                     <div className="flex flex-wrap gap-2">
                       {proposal === "MINE" && (
                         <button type="button" className={SMALL_OUTLINE} onClick={() => void runReserve("withdraw")} disabled={reserveBusy !== null} aria-busy={reserveBusy === "withdraw"}>
@@ -707,27 +716,37 @@ export default function ChatPage() {
                     </div>
                   )}
                   {reserveConfirm !== null && (
-                    <div ref={reserveConfirmRef} tabIndex={-1} className="flex flex-col gap-2 outline-none">
-                      <p className="rounded-[10px] bg-accent-100 px-3 py-1.5 text-[0.8125rem]/[1.4] text-gray-900">
-                        {reserveConfirm === "propose"
-                          ? `${counterpartName}님에게 예약을 제안할까요? 상대가 수락하면 두 티켓이 예약 중으로 잠기고, 다른 매칭에서는 쓸 수 없어요.`
-                          : reserveConfirm === "accept"
-                            ? "예약을 수락할까요? 수락하면 두 티켓이 예약 중으로 잠겨 다른 매칭에서는 쓸 수 없어요."
-                            : `취소하면 예약이 풀리고 두 티켓을 다시 쓸 수 있어요.${match.myAccepted || match.counterpartAccepted ? " 교환 수락 표시도 초기화돼요." : ""} 예약을 취소할까요?`}
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          className={reserveConfirm === "unreserve" ? button.danger : button.solid}
-                          onClick={() => void runReserve(reserveConfirm)}
-                          disabled={reserveBusy !== null}
-                          aria-busy={reserveBusy !== null}
-                        >
-                          {reserveBusy !== null ? "처리 중..." : reserveConfirm === "propose" ? "제안할게요" : reserveConfirm === "accept" ? "수락할게요" : "예약 취소할게요"}
-                        </button>
-                        <button type="button" className={button.outline} onClick={() => setReserveConfirm(null)} disabled={reserveBusy !== null}>
-                          돌아가기
-                        </button>
+                    <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" onKeyDown={(e) => { if (e.key === "Escape" && reserveBusy === null) setReserveConfirm(null); }}>
+                      <button type="button" aria-label="닫기" tabIndex={-1} className="absolute inset-0 bg-black/40" onClick={() => reserveBusy === null && setReserveConfirm(null)} />
+                      <div
+                        ref={reserveConfirmRef}
+                        tabIndex={-1}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="예약 확인"
+                        className="relative flex w-full max-w-md flex-col gap-3 rounded-t-2xl bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] outline-none md:rounded-2xl"
+                      >
+                        <p className="text-[0.9375rem]/[1.5] text-gray-900">
+                          {reserveConfirm === "propose"
+                            ? `${counterpartName}님에게 예약을 제안할까요? 상대가 수락하면 두 티켓이 예약 중으로 잠기고, 다른 매칭에서는 쓸 수 없어요.`
+                            : reserveConfirm === "accept"
+                              ? "예약을 수락할까요? 수락하면 두 티켓이 예약 중으로 잠겨 다른 매칭에서는 쓸 수 없어요."
+                              : `취소하면 예약이 풀리고 두 티켓을 다시 쓸 수 있어요.${match.myAccepted || match.counterpartAccepted ? " 교환 수락 표시도 초기화돼요." : ""} 예약을 취소할까요?`}
+                        </p>
+                        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                          <button type="button" className={button.outline} onClick={() => setReserveConfirm(null)} disabled={reserveBusy !== null}>
+                            돌아가기
+                          </button>
+                          <button
+                            type="button"
+                            className={reserveConfirm === "unreserve" ? button.danger : button.solid}
+                            onClick={() => void runReserve(reserveConfirm)}
+                            disabled={reserveBusy !== null}
+                            aria-busy={reserveBusy !== null}
+                          >
+                            {reserveBusy !== null ? "처리 중..." : reserveConfirm === "propose" ? "제안할게요" : reserveConfirm === "accept" ? "수락할게요" : "예약 취소할게요"}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}

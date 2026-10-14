@@ -68,6 +68,17 @@ export default function ChatSafetyActions({ matchId, counterpartName, menu = fal
     };
   }, [menuOpen]);
 
+  // 메뉴가 열리면 첫 항목으로 포커스
+  useEffect(() => {
+    if (menuOpen) reportBtnRef.current?.focus();
+  }, [menuOpen]);
+
+  // 시트의 배경·닫기로 닫을 때도 ⋯ 버튼으로 포커스를 돌려준다
+  const closeMenu = () => {
+    setMenuOpen(false);
+    moreBtnRef.current?.focus();
+  };
+
   const openFromMenu = (next: "block" | "report") => {
     setMenuOpen(false);
     open(next, moreBtnRef.current);
@@ -141,7 +152,8 @@ export default function ChatSafetyActions({ matchId, counterpartName, menu = fal
 
   // 메뉴 모드: ⋯ 버튼의 팝오버에 차단·신고를 넣고, 확인/폼 패널은 화면 가운데 모달로 띄운다
   const panelOverlay = menu ? "fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 [&>section]:w-full [&>section]:max-w-md [&>section]:mt-16" : "contents";
-  const itemCls = `flex min-h-11 w-full cursor-pointer items-center rounded-lg px-3 text-left text-[0.9375rem]/[normal] text-gray-900 active:bg-gray-100 ${FOCUS_RING}`;
+  // 행 스타일: 모바일은 가운데 정렬의 전체 폭 행(높이 52px), 데스크톱은 왼쪽 정렬의 작은 행
+  const itemCls = `flex min-h-13 w-full cursor-pointer items-center justify-center px-3 text-center text-base/[normal] text-gray-900 active:bg-gray-100 md:min-h-11 md:justify-start md:text-left md:text-[0.9375rem]/[normal] ${FOCUS_RING}`;
 
   return (
     <div className={menu ? "relative shrink-0" : "flex flex-col gap-2"}>
@@ -165,13 +177,22 @@ export default function ChatSafetyActions({ matchId, counterpartName, menu = fal
             </svg>
           </button>
           {menuOpen && (
-            <div id="chat-more-menu" className="absolute right-0 top-full z-40 mt-1 flex w-36 flex-col rounded-xl border border-gray-200 bg-white p-1 shadow-lg">
-              <button ref={blockBtnRef} type="button" className={itemCls} onClick={() => openFromMenu("block")}>
-                차단
-              </button>
-              <button ref={reportBtnRef} type="button" className={itemCls} onClick={() => openFromMenu("report")}>
-                신고
-              </button>
+            // 모바일(md 미만): 아래에서 올라오는 바텀 시트 + 반투명 배경 / 데스크톱: ⋯ 아래 작은 드롭다운
+            <div id="chat-more-menu" className="fixed inset-0 z-50 flex flex-col justify-end md:absolute md:inset-auto md:top-full md:right-0 md:z-40 md:mt-1 md:block">
+              <div className="absolute inset-0 bg-black/40 md:hidden" onClick={closeMenu} aria-hidden="true" />
+              <div className="relative flex flex-col px-3 pb-[calc(12px+env(safe-area-inset-bottom))] md:w-40 md:p-0">
+                <div className="flex flex-col divide-y divide-gray-200 overflow-hidden rounded-2xl bg-white md:rounded-xl md:border md:border-gray-200 md:shadow-lg">
+                  <button ref={reportBtnRef} type="button" className={itemCls} onClick={() => openFromMenu("report")}>
+                    신고하기
+                  </button>
+                  <button ref={blockBtnRef} type="button" className={itemCls} onClick={() => openFromMenu("block")}>
+                    차단하기
+                  </button>
+                </div>
+                <button type="button" className={`${itemCls} mt-2 rounded-2xl bg-white font-semibold md:hidden`} onClick={closeMenu}>
+                  닫기
+                </button>
+              </div>
             </div>
           )}
         </div>

@@ -99,7 +99,7 @@ function statusBadgeClass(status: ExchangeMatch["status"]): string {
 function ChatBanners({ banners }: { banners: { text: string; strong?: boolean }[] }) {
   const [open, setOpen] = useState(false);
   if (banners.length === 0) return null;
-  const cls = (b: { strong?: boolean }) => `${b.strong ? "bg-accent-100 text-gray-900" : "bg-primary-50 text-primary-800"} rounded-[10px] px-3 py-1.5 text-[0.8125rem]/[1.4]`;
+  const cls = (b: { strong?: boolean }) => `${b.strong ? "bg-accent-100 text-gray-900" : "bg-primary-50 text-primary-800"} rounded-[10px] px-3 py-1 text-[0.8125rem]/[1.4]`;
   const shown = open ? banners : banners.slice(0, 1);
   return (
     <div className="flex flex-col gap-1">
@@ -134,6 +134,11 @@ function SafetyStrip(): ReactNode {
     </div>
   );
 }
+
+/** 거래 카드 오른쪽 슬롯의 작은 윤곽선 버튼 (터치 영역 40px) */
+const SLOT_BUTTON = `inline-flex min-h-10 shrink-0 cursor-pointer touch-manipulation items-center justify-center rounded-lg border border-primary-600 bg-white px-3 text-[0.8125rem]/[normal] font-semibold whitespace-nowrap text-primary-700 enabled:active:bg-primary-50 disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS_RING}`;
+/** 카드 안 보조 동작(거절·철회·예약 취소)용 작은 윤곽선 버튼 */
+const SMALL_OUTLINE = `inline-flex min-h-10 cursor-pointer touch-manipulation items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-[0.8125rem]/[normal] font-semibold whitespace-nowrap text-gray-900 enabled:active:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS_RING}`;
 
 const MSG_BUBBLE = "max-w-[75%] px-3.5 py-2 text-[0.9375rem]/[1.45] break-words whitespace-pre-wrap";
 
@@ -399,6 +404,8 @@ export default function ChatPage() {
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, TEXTAREA_MAX_PX)}px`;
+    // 최대 높이를 넘으면 스크롤은 되되 막대는 숨긴다(overflow-y-hidden이어도 스크립트 스크롤은 되므로 키보드 이동은 auto로 연다)
+    el.style.overflowY = el.scrollHeight > TEXTAREA_MAX_PX ? "auto" : "hidden";
   }, [text]);
 
   const onScroll = () => {
@@ -645,54 +652,63 @@ export default function ChatPage() {
 
         {/* 거래 정보 카드: 자리 요약 + 상태 뱃지, 안내 배너, 예약 블록. 길어지면 안쪽만 스크롤 */}
         {match && (
-          <div className="relative max-h-[40dvh] shrink-0 overflow-y-auto overscroll-contain border-b border-gray-200 bg-white px-4 py-3">
-            <div className="flex flex-col gap-2">
-              <div className="flex items-start justify-between gap-2">
-                <p className="min-w-0 text-sm/[1.45] text-gray-700">
-                  내 자리 {formatSeat(match.mySeat)} ({formatKstDateTime(match.mySeat.startsAt)}) ↔ 상대 자리 {formatSeat(match.counterpartSeat)} ({formatKstDateTime(match.counterpartSeat.startsAt)})
-                </p>
-                <span className={statusBadgeClass(match.status)}>{statusLabel(match.status)}</span>
+          <div className="relative max-h-[40dvh] shrink-0 overflow-y-auto overscroll-contain border-b border-gray-200 bg-white px-4 py-2">
+            <div className="flex flex-col gap-1.5">
+              <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
+                <div className="flex min-w-0 flex-1 basis-56 flex-col gap-0.5">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className={statusBadgeClass(match.status)}>{statusLabel(match.status)}</span>
+                    <p className="min-w-0 truncate text-[0.9375rem]/[1.4] font-bold text-gray-900">
+                      내 {formatSeat(match.mySeat)} ↔ 상대 {formatSeat(match.counterpartSeat)}
+                    </p>
+                  </div>
+                  <p className="text-[0.8125rem]/[1.4] text-gray-600">
+                    {match.mySeat.startsAt === match.counterpartSeat.startsAt
+                      ? formatKstDateTime(match.mySeat.startsAt)
+                      : `내 ${formatKstDateTime(match.mySeat.startsAt)} · 상대 ${formatKstDateTime(match.counterpartSeat.startsAt)}`}
+                  </p>
+                </div>
+                {/* 당근마켓의 '거래 후기' 자리: 지금 할 수 있는 예약 동작 하나 */}
+                {reservable && reserveConfirm === null && !seatExchanged && proposal === "NONE" && match.status === "CHATTING" && (
+                  <button type="button" className={SLOT_BUTTON} onClick={() => setReserveConfirm("propose")} disabled={reserveBusy !== null}>
+                    예약 제안
+                  </button>
+                )}
+                {reservable && reserveConfirm === null && !seatExchanged && proposal === "THEIRS" && (
+                  <button type="button" className={SLOT_BUTTON} onClick={() => setReserveConfirm("accept")} disabled={reserveBusy !== null || match.myTicketReservedElsewhere || match.counterpartTicketReservedElsewhere}>
+                    예약 수락
+                  </button>
+                )}
               </div>
               <ChatBanners banners={banners} />
               {reservable && (
-                <div ref={reserveBlockRef} tabIndex={-1} aria-label="예약" className="flex flex-col gap-2 rounded-[10px] outline-none">
-                  {reserveStateText && <p className={proposal === "THEIRS" ? ui.warning : ui.notice}>{reserveStateText}</p>}
-                  {reserveConfirm === null && (
+                <div ref={reserveBlockRef} tabIndex={-1} aria-label="예약" className="flex flex-col gap-1.5 rounded-[10px] outline-none">
+                  {reserveStateText && <p className={proposal === "THEIRS" ? "rounded-[10px] bg-accent-100 px-3 py-1.5 text-[0.8125rem]/[1.4] text-gray-900" : "rounded-[10px] bg-primary-50 px-3 py-1.5 text-[0.8125rem]/[1.4] text-primary-800"}>{reserveStateText}</p>}
+                  {reserveConfirm === null && match.status === "CHATTING" && proposal === "NONE" && seatExchanged && (
+                    <p className="text-[0.8125rem]/[1.4] text-gray-600">이미 교환된 좌석이라 예약을 제안할 수 없어요.</p>
+                  )}
+                  {reserveConfirm === null && (proposal === "MINE" || proposal === "THEIRS" || match.status === "RESERVED") && (
                     <div className="flex flex-wrap gap-2">
-                      {match.status === "CHATTING" && proposal === "NONE" && (
-                        seatExchanged ? (
-                          <p className={ui.muted}>이미 교환된 좌석이라 예약을 제안할 수 없어요.</p>
-                        ) : (
-                          <button type="button" className={button.solid} onClick={() => setReserveConfirm("propose")} disabled={reserveBusy !== null}>
-                            예약 제안하기
-                          </button>
-                        )
-                      )}
                       {proposal === "MINE" && (
-                        <button type="button" className={button.outline} onClick={() => void runReserve("withdraw")} disabled={reserveBusy !== null} aria-busy={reserveBusy === "withdraw"}>
+                        <button type="button" className={SMALL_OUTLINE} onClick={() => void runReserve("withdraw")} disabled={reserveBusy !== null} aria-busy={reserveBusy === "withdraw"}>
                           {reserveBusy === "withdraw" ? "처리 중..." : "제안 철회"}
                         </button>
                       )}
-                      {proposal === "THEIRS" && !seatExchanged && (
-                        <button type="button" className={button.solid} onClick={() => setReserveConfirm("accept")} disabled={reserveBusy !== null || match.myTicketReservedElsewhere || match.counterpartTicketReservedElsewhere}>
-                          예약 수락
-                        </button>
-                      )}
                       {proposal === "THEIRS" && (
-                        <button type="button" className={button.outline} onClick={() => void runReserve("decline")} disabled={reserveBusy !== null} aria-busy={reserveBusy === "decline"}>
+                        <button type="button" className={SMALL_OUTLINE} onClick={() => void runReserve("decline")} disabled={reserveBusy !== null} aria-busy={reserveBusy === "decline"}>
                           {reserveBusy === "decline" ? "처리 중..." : "거절"}
                         </button>
                       )}
                       {match.status === "RESERVED" && (
-                        <button type="button" className={button.outline} onClick={() => setReserveConfirm("unreserve")} disabled={reserveBusy !== null}>
+                        <button type="button" className={SMALL_OUTLINE} onClick={() => setReserveConfirm("unreserve")} disabled={reserveBusy !== null}>
                           예약 취소
                         </button>
                       )}
                     </div>
                   )}
                   {reserveConfirm !== null && (
-                    <div ref={reserveConfirmRef} tabIndex={-1} className="flex flex-col gap-3 outline-none">
-                      <p className={ui.warning}>
+                    <div ref={reserveConfirmRef} tabIndex={-1} className="flex flex-col gap-2 outline-none">
+                      <p className="rounded-[10px] bg-accent-100 px-3 py-1.5 text-[0.8125rem]/[1.4] text-gray-900">
                         {reserveConfirm === "propose"
                           ? `${counterpartName}님에게 예약을 제안할까요? 상대가 수락하면 두 티켓이 예약 중으로 잠기고, 다른 매칭에서는 쓸 수 없어요.`
                           : reserveConfirm === "accept"
@@ -722,7 +738,7 @@ export default function ChatPage() {
                   )}
                   {/* 화면 안내일 뿐 저장되는 메시지가 아니다 */}
                   {match.status === "RESERVED" && (
-                    <p className="text-[0.8125rem]/[1.45] text-gray-600">
+                    <p className="text-[0.8125rem]/[1.4] text-gray-600">
                       교환이 끝나면{" "}
                       <Link to={backTo} className={`font-semibold text-primary-700 underline underline-offset-2 ${FOCUS_RING}`}>
                         내 매칭 목록
@@ -862,7 +878,8 @@ export default function ChatPage() {
               <label htmlFor="chat-input" className="sr-only">
                 {counterpartName}님에게 보낼 메시지
               </label>
-              <div className="flex items-end gap-2">
+              {/* 알약 입력창: 테두리는 바깥 알약이 맡고 textarea는 테두리·스크롤바 없이 높이만 늘어난다 */}
+              <div className={`flex items-end rounded-3xl border pl-4 pr-1 focus-within:border-primary-600 focus-within:ring-3 focus-within:ring-primary-600/20 ${closedChat ? "border-gray-200 bg-gray-100" : "border-gray-300 bg-white"}`}>
                 <textarea
                   id="chat-input"
                   ref={textareaRef}
@@ -873,16 +890,17 @@ export default function ChatPage() {
                   disabled={closedChat}
                   placeholder="메시지 보내기"
                   aria-describedby={closedChat ? `${countId} ${disabledReasonId}` : countId}
-                  className="min-h-11 min-w-0 flex-1 resize-none rounded-3xl border border-gray-300 bg-white px-4 py-2.5 text-base/6 text-gray-900 outline-hidden placeholder:text-gray-500 focus-visible:border-primary-600 focus-visible:ring-3 focus-visible:ring-primary-600/20 disabled:bg-gray-100"
+                  className="box-border min-h-11 min-w-0 flex-1 resize-none overflow-y-hidden border-0 bg-transparent px-0 py-2.5 text-base/6 text-gray-900 outline-hidden [scrollbar-width:none] placeholder:text-gray-500 disabled:cursor-not-allowed [&::-webkit-scrollbar]:hidden"
                 />
                 <button
                   type="submit"
                   aria-label="보내기"
-                  className={`inline-flex size-11 shrink-0 cursor-pointer touch-manipulation items-center justify-center rounded-full border border-primary-600 bg-primary-600 text-white enabled:active:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS_RING}`}
+                  className={`inline-flex size-11 shrink-0 cursor-pointer touch-manipulation items-center justify-center rounded-full text-primary-600 enabled:active:bg-primary-50 disabled:cursor-not-allowed disabled:text-gray-400 ${FOCUS_RING}`}
                   disabled={closedChat || text.trim().length === 0}
                 >
-                  <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M12 19V5M5 12l7-7 7 7" />
+                  <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M21 3L3 10.5l7 3 3 7L21 3z" />
+                    <path d="M10 13.5L21 3" />
                   </svg>
                 </button>
               </div>

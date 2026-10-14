@@ -1,4 +1,4 @@
-﻿# 운영 compose 자동 갱신 스크립트 (집 PC). 작업 스케줄러가 몇 분마다 실행한다(register-update-task.ps1).
+﻿# 운영 compose 자동 갱신 스크립트 (로컬 PC). 작업 스케줄러가 몇 분마다 실행한다(register-update-task.ps1).
 #   .\MatJari\deploy\update.ps1            # 새 이미지가 있으면 가져와 backend·web 을 교체한다
 #   .\MatJari\deploy\update.ps1 -DryRun    # 하는 일만 출력한다(아무것도 바꾸지 않는다)
 #

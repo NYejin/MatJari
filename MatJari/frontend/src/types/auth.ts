@@ -21,6 +21,11 @@ export interface SignupRequest {
   emailCode?: string;
 }
 
+/** GET /api/auth/signup/email-verification 응답 — 가입 인증번호 사용 여부 */
+export interface EmailVerificationStatus {
+  enabled: boolean;
+}
+
 /** POST /api/auth/signup/email-code 응답 — 유효 시간과 다시 보낼 수 있기까지의 대기 시간(초) */
 export interface EmailCodeResponse {
   expiresInSeconds: number;

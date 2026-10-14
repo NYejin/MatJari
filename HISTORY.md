@@ -14,9 +14,11 @@
 ## 이력
 
 ### 2026-10-14
-- [결정] 배포를 self-hosted runner 방식에서 이미지 방식으로 교체: CI가 master 병합 때 이미지를 ghcr.io에 올리고 집 PC는 스케줄러로 pull·교체만 한다(public 저장소에서 self-hosted runner는 포크 PR 위험 — GitHub 경고). `deploy.yml` 삭제, `update.ps1`·`register-update-task.ps1`·`docker-compose.build.yml` 추가 — `feature/image-deploy`
+- [결정] 가입 이메일 인증번호를 임시로 끔: 인증 사용 기본값 false, 가입 화면은 공개 조회 `GET /api/auth/signup/email-verification`로 인증 칸을 숨김 (다시 켜려면 기본값을 true로 되돌림) — `feature/email-verification-off`
+- [문서] 서버 PC 표기를 '집 PC'에서 '로컬 PC'로 통일
+- [결정] 배포를 self-hosted runner 방식에서 이미지 방식으로 교체: CI가 master 병합 때 이미지를 ghcr.io에 올리고 로컬 PC는 스케줄러로 pull·교체만 한다(public 저장소에서 self-hosted runner는 포크 PR 위험 — GitHub 경고). `deploy.yml` 삭제, `update.ps1`·`register-update-task.ps1`·`docker-compose.build.yml` 추가 — `feature/image-deploy`
 - [결정] 후속 개선 메모: 회차 입력칸 '분' 기본값 '00분', 날짜 자동입력 줄의 시각은 '오후' 기본·10분 단위 선택(구현은 나중에) — CLAUDE.md '후속 작업 목록'
-- [운영] CI/CD 추가: PR·master 푸시마다 GitHub에서 백엔드 전체 테스트(임시 MySQL)·프런트 빌드(`ci.yml`), master CI 성공 뒤에만 집 PC self-hosted runner가 `deploy.ps1`로 backend·web 재배포(`deploy.yml`, public 저장소라 PR 이벤트로는 실행 금지) — `feature/ci-cd`
+- [운영] CI/CD 추가: PR·master 푸시마다 GitHub에서 백엔드 전체 테스트(임시 MySQL)·프런트 빌드(`ci.yml`), master CI 성공 뒤에만 로컬 PC self-hosted runner가 `deploy.ps1`로 backend·web 재배포(`deploy.yml`, public 저장소라 PR 이벤트로는 실행 금지) — `feature/ci-cd`
 - [구현] 공연 수정 제안에 회차 수정 추가(회차 추가·시각 변경·삭제, V20 `session_changes`): 생성·승인 두 시점 검사, 사용 중인 회차 삭제는 422 `SESSION_IN_USE`, 승인 때 충돌은 409 `SESSION_EDIT_CONFLICT` — `feature/session-edit-proposal`
 - [구현] 연속된 공연 기간(100일 이하) 전체를 회차 날짜로 자동 입력('기간 전체 채우기'·'시각 한번에 넣기'), 날짜 후보 상한 2일→100일 — `feature/session-edit-proposal`
 

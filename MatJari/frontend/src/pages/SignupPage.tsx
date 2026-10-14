@@ -40,10 +40,10 @@ interface FormValues {
   nickname: string;
 }
 
-function validate(values: FormValues, codeRequested: boolean): FieldErrors {
+function validate(values: FormValues, codeRequested: boolean, verificationOn: boolean): FieldErrors {
   return compactErrors<Field>({
     email: validateEmail(values.email),
-    emailCode: codeRequested ? validateEmailCode(values.emailCode) : "먼저 '인증번호 받기'를 눌러 메일로 받은 번호를 입력해주세요.",
+    emailCode: !verificationOn ? undefined : codeRequested ? validateEmailCode(values.emailCode) : "먼저 '인증번호 받기'를 눌러 메일로 받은 번호를 입력해주세요.",
     password: validateSignupPassword(values.password),
     passwordConfirm: validatePasswordConfirm(values.password, values.passwordConfirm),
     nickname: validateNickname(values.nickname),
@@ -79,6 +79,16 @@ export default function SignupPage() {
   const [now, setNow] = useState(() => Date.now());
   const [sending, setSending] = useState(false);
   const [codeNotice, setCodeNotice] = useState<string | null>(null);
+  // 서버가 인증번호를 쓰는지. 확인하기 전·확인 실패 때는 켜진 것으로 본다(서버가 켜져 있는데 칸이 없으면 가입이 막히므로)
+  const [verificationOn, setVerificationOn] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    authApi.emailVerificationEnabled().then((on) => alive && setVerificationOn(on)).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // 다시 받기 대기 시간 표시용 1초 타이머 (대기 중일 때만 돈다)
   useEffect(() => {
@@ -136,7 +146,7 @@ export default function SignupPage() {
     e.preventDefault();
     if (submitting) return;
 
-    const errors = validate(values, codeRequested);
+    const errors = validate(values, codeRequested, verificationOn);
     setFieldErrors(errors);
     setFormError(null);
     if (Object.keys(errors).length > 0) return;
@@ -150,7 +160,7 @@ export default function SignupPage() {
         email,
         password,
         nickname: normalizeNickname(values.nickname),
-        emailCode: values.emailCode.trim(),
+        ...(verificationOn ? { emailCode: values.emailCode.trim() } : {}),
       });
     } catch (err) {
       const parsed = parseApiError(err, "회원가입에 실패했습니다. 잠시 후 다시 시도해 주세요.");
@@ -194,6 +204,7 @@ export default function SignupPage() {
             placeholder="you@example.com"
           />
 
+          {verificationOn && (
           <div className="flex flex-col gap-2">
             <button
               type="button"
@@ -214,8 +225,9 @@ export default function SignupPage() {
               {codeRequested ? codeNotice : null}
             </p>
           </div>
+          )}
 
-          {codeRequested && (
+          {verificationOn && codeRequested && (
             <TextField
               id="signup-email-code"
               label="인증번호"
@@ -230,7 +242,7 @@ export default function SignupPage() {
               hint="메일로 받은 숫자 6자리"
             />
           )}
-          {!codeRequested && fieldErrors.emailCode && (
+          {verificationOn && !codeRequested && fieldErrors.emailCode && (
             <p className="text-[0.8125rem]/[normal] text-red-600" role="alert">
               {fieldErrors.emailCode}
             </p>

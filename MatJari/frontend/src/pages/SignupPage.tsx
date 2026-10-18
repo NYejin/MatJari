@@ -296,6 +296,15 @@ export default function SignupPage() {
           <p className="text-[0.8125rem]/[normal] text-gray-700">
             가입하면{" "}
             <Link
+              to="/terms"
+              target="_blank"
+              rel="noopener"
+              className="font-semibold text-primary-700 underline underline-offset-2"
+            >
+              서비스 이용약관
+            </Link>
+            과{" "}
+            <Link
               to="/privacy"
               target="_blank"
               rel="noopener"
@@ -303,7 +312,7 @@ export default function SignupPage() {
             >
               개인정보처리방침
             </Link>
-            에 동의한 것으로 봐요. 만 14세 미만은 가입할 수 없어요.
+            에 동의한 것으로 봅니다. 만 14세 미만은 가입할 수 없습니다.
           </p>
         </form>
 

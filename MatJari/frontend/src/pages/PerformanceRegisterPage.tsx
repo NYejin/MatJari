@@ -1,8 +1,17 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import type { PerformancePreview } from "../types/performance";
+import axios from "axios";
+import type { AiSessionsSource, PerformancePreview } from "../types/performance";
 import { getConflictPerformanceId, performancesApi } from "../api/performances";
-import { parseApiError } from "../api/errors";
+import { getErrorCode, getErrorNumber, parseApiError } from "../api/errors";
+import {
+  hasAnyShape,
+  mergeAiSessions,
+  mergeAiZones,
+  toPayloadZones,
+  validateZoneRows,
+  type ZoneRow,
+} from "../api/zones";
 import {
   // TODO: 지우기
   // SESSION_TIME_STEP_HINT,
@@ -15,6 +24,7 @@ import TextField from "../components/TextField";
 import SessionDateTimePicker from "../components/SessionDateTimePicker";
 import TimeSelect from "../components/TimeSelect";
 import PosterImage from "../components/PosterImage";
+import ZoneEditor, { zoneNameInputId } from "../components/ZoneEditor";
 import { button, linkButton, liveRegionClass, ui } from "../components/ui";
 
 // FR-02 공연 등록 (보호 라우트 /performances/new) — 단계형:
@@ -49,6 +59,31 @@ type AutoFillNote = { kind: "filled" | "none" | "unsupported" | "failed"; period
 const dotDate = (d: string) => d.replace(/-/g, ".");
 function periodText(start: string, end: string | null): string {
   return end && end !== start ? `${dotDate(start)} ~ ${dotDate(end)}` : dotDate(start);
+}
+
+const AI_NOTICE = "AI가 읽은 결과입니다. 맞는지 확인하고 필요하면 고쳐 주세요.";
+const AI_SOURCE_LABEL: Record<AiSessionsSource, string> = {
+  TEXT_RULE: "본문에서 읽었어요",
+  AI: "AI가 읽었어요",
+  NONE: "읽을 수 있는 회차를 찾지 못했어요",
+};
+
+function waitText(seconds: number | null): string {
+  if (seconds === null || seconds <= 0) return "잠시";
+  if (seconds < 60) return `${Math.ceil(seconds)}초`;
+  const m = Math.floor(seconds / 60);
+  const sec = Math.ceil(seconds % 60);
+  return sec > 0 ? `${m}분 ${sec}초` : `${m}분`;
+}
+
+/** AI 읽기 실패 문구. 등록을 막지 않는 안내이므로 항상 "직접 입력"으로 이어 준다 */
+function aiErrorText(err: unknown): string {
+  const code = getErrorCode(err);
+  if (code === "UNSUPPORTED_SITE") return "이 사이트는 AI 읽기를 지원하지 않아요. 직접 입력해 주세요.";
+  if (code === "AI_RATE_LIMITED" || (axios.isAxiosError(err) && err.response?.status === 429)) {
+    return `AI 읽기를 너무 자주 사용했어요. ${waitText(getErrorNumber(err, "retryAfterSeconds"))} 뒤에 다시 시도하거나 직접 입력해 주세요.`;
+  }
+  return "읽지 못했어요. 직접 입력해 주세요.";
 }
 
 /** yyyy-MM-dd → M/d (버튼 문구용) */
@@ -98,6 +133,7 @@ const FIELD_FOCUS_ID: Record<string, string> = {
 };
 /** 여러 필드가 한꺼번에 틀렸을 때 먼저 보여줄 순서 */
 const FIELD_ORDER = ["sourceUrl", "title", "venueName", "sessions"] as const;
+const ZONE_FOCUS_ID = "perf-zone-add";
 
 /** id 요소로 포커스. 래퍼(div)면 그 안의 첫 입력 컨트롤로 */
 function focusById(id: string) {
@@ -121,12 +157,14 @@ export default function PerformanceRegisterPage() {
   const previewedUrl = useRef<string | null>(null);
   const lastPrefill = useRef<{ title: string; venue: string } | null>(null);
   const previewAbort = useRef<AbortController | null>(null);
+  const aiAbort = useRef<AbortController | null>(null);
   const unmounted = useRef(false);
   useEffect(() => {
     unmounted.current = false;
     return () => {
       unmounted.current = true;
       previewAbort.current?.abort();
+      aiAbort.current?.abort();
     };
   }, []);
 
@@ -161,6 +199,25 @@ export default function PerformanceRegisterPage() {
   /** 기간 전체 채우기·시각 한번에 넣기의 결과 안내(낭독) */
   const [bulkNote, setBulkNote] = useState("");
   const [sessionError, setSessionError] = useState<string>();
+  // 구역 확인 (선택 사항): AI가 읽은 구역과 직접 추가한 구역
+  const [zoneRows, setZoneRows] = useState<ZoneRow[]>([]);
+  const [seatmapAspect, setSeatmapAspect] = useState<number | null>(null);
+  const [zoneError, setZoneError] = useState<string>();
+  // AI 읽기 (실패해도 등록은 막히지 않는다)
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiDisabled, setAiDisabled] = useState(false);
+  const [aiInfo, setAiInfo] = useState<string | null>(null);
+  const [aiFail, setAiFail] = useState<string | null>(null);
+  /** AI가 읽은 결과가 화면에 있음(안내문 표시 조건) */
+  const [aiSessionsShown, setAiSessionsShown] = useState(false);
+  const [aiZonesShown, setAiZonesShown] = useState(false);
+  // 응답을 기다리는 10~40초 사이에 사용자가 고친 값을 덮지 않도록 응답 처리 때 최신 값을 ref에서 읽는다
+  const sessionsRef = useRef<SessionRow[]>([]);
+  sessionsRef.current = sessions;
+  const zoneRowsRef = useRef<ZoneRow[]>([]);
+  zoneRowsRef.current = zoneRows;
+  const aspectRef = useRef<number | null>(null);
+  aspectRef.current = seatmapAspect;
   // ③ 등록
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<{ message: string; step?: Step; focusId?: string } | null>(null);
@@ -272,6 +329,67 @@ export default function PerformanceRegisterPage() {
       setLookupError(parseApiError(err, "링크를 확인하지 못했습니다.").message);
     } finally {
       setChecking(false);
+    }
+  };
+
+  /** AI로 회차·구역 읽기. 사용자가 입력한 줄은 덮어쓰지 않고, 실패해도 직접 입력으로 계속할 수 있다 */
+  const runAi = async () => {
+    if (aiLoading) return;
+    const controller = new AbortController();
+    aiAbort.current = controller;
+    setAiLoading(true);
+    setAiInfo(null);
+    setAiFail(null);
+    try {
+      const r = await performancesApi.aiExtract(sourceUrl.trim(), controller.signal);
+      if (unmounted.current) return;
+      if (!r.aiEnabled) setAiDisabled(true);
+      const notes: string[] = [];
+
+      // 회차: 같은 날짜의 빈 시각 줄은 시각만 채우고, 새 날짜·새 시각은 줄을 추가한다
+      const merged = mergeAiSessions(sessionsRef.current, r.sessions ?? [], {
+        max: SESSIONS_MAX,
+        accept: (v) => !isPastKst(v) && !validateSessionTimeStep(v),
+        makeRow: (v) => ({ id: ++rowId.current, value: v }),
+      });
+      const applied = merged.filled + merged.added;
+      if (applied > 0) {
+        setSessions([...merged.rows].sort(compareRow));
+        setSessionError(undefined);
+        setBulkNote("");
+      }
+      const source = r.sessionsSource ?? "NONE";
+      if (source === "AI" && (r.sessions?.length ?? 0) > 0) setAiSessionsShown(true);
+      notes.push(
+        applied > 0
+          ? `회차 ${AI_SOURCE_LABEL[source]}. ${applied}개를 반영했어요${merged.filled > 0 ? ` (시각만 채운 줄 ${merged.filled}개 포함)` : ""}.${merged.skipped > 0 ? ` 이미 있거나 지난 회차 등 ${merged.skipped}개는 건너뛰었어요.` : ""}`
+          : (r.sessions?.length ?? 0) > 0
+            ? "읽은 회차가 모두 이미 있거나 지난 회차예요."
+            : `회차: ${AI_SOURCE_LABEL.NONE}. 직접 입력해 주세요.`,
+      );
+
+      // 구역: 이미 있는 이름은 건드리지 않고 새 구역만 더한다(모양이 없던 줄에는 모양을 채운다)
+      const incoming = r.zones ?? [];
+      if (incoming.length > 0) {
+        const z = mergeAiZones(zoneRowsRef.current, incoming);
+        setZoneRows(z.rows);
+        setZoneError(undefined);
+        if (typeof r.seatmapAspect === "number" && r.seatmapAspect > 0 && aspectRef.current === null) setSeatmapAspect(r.seatmapAspect);
+        setAiZonesShown(true);
+        notes.push(`구역 ${z.added}개를 읽었어요.${z.dropped > 0 ? ` 최대 개수를 넘어 ${z.dropped}개는 넣지 못했어요.` : ""} 아래 '구역 확인'에서 확인해 주세요.`);
+      } else {
+        notes.push("구역은 읽지 못했어요. 필요하면 아래에서 직접 추가해 주세요.");
+      }
+      if (r.truncatedSlices > 0) notes.push("페이지가 길어 일부는 읽지 못했을 수 있어요.");
+      if (r.aiError) notes.push("AI가 일부를 읽지 못했어요.");
+      setAiInfo(notes.join(" "));
+    } catch (err) {
+      if (unmounted.current) return;
+      if (controller.signal.aborted || axios.isCancel(err)) setAiInfo("AI 읽기를 취소했어요. 직접 입력하거나 다시 시도할 수 있어요.");
+      else setAiFail(aiErrorText(err));
+    } finally {
+      if (aiAbort.current === controller) aiAbort.current = null;
+      if (!unmounted.current) setAiLoading(false);
     }
   };
 
@@ -404,13 +522,18 @@ export default function PerformanceRegisterPage() {
     // 단계를 오가는 사이 지난 회차가 생겼으면 알려준다
     else if (sessions.some((r) => !hasTime(r.value))) sErr = "시각이 비어 있는 회차가 있어요. 시각을 고르거나 그 줄을 삭제해주세요.";
     else if (sessions.some((r) => isPastKst(r.value))) sErr = "지난 회차가 있어요. 삭제한 뒤 진행해주세요.";
+    const zoneErrs = validateZoneRows(zoneRows);
+    const badZone = zoneRows.find((r) => zoneErrs[r.id]);
+    const zErr = badZone ? "구역 이름을 확인해주세요. 이름이 비었거나 길거나 겹치는 구역은 고치거나 삭제해주세요." : undefined;
     setTitleError(tErr);
     setVenueError(vErr);
     setSessionError(sErr);
+    setZoneError(zErr);
     if (tErr) focusById("perf-title");
     else if (vErr) focusById("perf-venue");
     else if (sErr) focusById("perf-sessions");
-    if (tErr || vErr || sErr) return;
+    else if (badZone) focusById(zoneNameInputId(badZone.id));
+    if (tErr || vErr || sErr || zErr) return;
     goTo(2);
   };
 
@@ -425,6 +548,10 @@ export default function PerformanceRegisterPage() {
         title: title.trim(),
         venueName: venueName.trim(),
         sessions: sessions.map((r) => r.value),
+        // 구역은 선택 사항: 없으면 필드를 보내지 않는다. 모양이 하나도 없으면 비율도 보내지 않는다
+        ...(zoneRows.length > 0
+          ? { zones: toPayloadZones(zoneRows), seatmapAspect: hasAnyShape(zoneRows) ? seatmapAspect : null }
+          : {}),
       });
       navigate(`/performances/${created.id}`, { replace: true });
     } catch (err) {
@@ -441,11 +568,21 @@ export default function PerformanceRegisterPage() {
       if (fe.venueName) setVenueError(fe.venueName);
       const sessionsKey = Object.keys(fe).find((k) => k === "sessions" || k.startsWith("sessions"));
       if (sessionsKey) setSessionError(fe[sessionsKey]);
+      const zonesKey = Object.keys(fe).find((k) => k === "zones" || k.startsWith("zones") || k === "seatmapAspect");
+      if (zonesKey) setZoneError(fe[zonesKey]);
       const first = FIELD_ORDER.find((k) => (k === "sessions" ? !!sessionsKey : !!fe[k]));
+      if (!first && zonesKey) {
+        setSubmitError({ message: parsed.message, step: 1, focusId: ZONE_FOCUS_ID });
+        setSubmitting(false);
+        return;
+      }
       setSubmitError({ message: parsed.message, step: first ? FIELD_STEP[first] : undefined, focusId: first ? FIELD_FOCUS_ID[first] : undefined });
       setSubmitting(false);
     }
   };
+
+  /** 링크 중복 확인을 통과한 링크일 때만 AI 읽기를 켠다 */
+  const linkConfirmed = checkedUrl.current !== null && checkedUrl.current === sourceUrl.trim();
 
   let body: ReactNode;
   if (step === 0) {
@@ -540,6 +677,58 @@ export default function PerformanceRegisterPage() {
         </div>
         <PosterImage key={posterUrl ?? "none"} url={posterUrl} title={title || "공연"} className="self-start" />
         </div>
+        <section
+          className="flex flex-col gap-2 rounded-[10px] border border-gray-200 p-3.5"
+          aria-labelledby="perf-ai-title"
+          aria-busy={aiLoading}
+        >
+          <h3 id="perf-ai-title" className="text-[0.9375rem]/[normal] font-bold text-gray-900">
+            AI로 회차·구역 읽기
+          </h3>
+          {aiDisabled ? (
+            <p className={ui.notice}>AI 읽기를 지금 사용할 수 없어요. 직접 입력해 주세요.</p>
+          ) : (
+            <>
+              <p className={ui.hint}>
+                공개된 공연 상세 페이지의 본문과 이미지를 AI가 읽어 회차와 구역을 제안해요. 10~40초 걸릴 수 있어요. 읽지 못해도 직접
+                입력해서 등록할 수 있어요.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  className={`${button.solid} aria-disabled:cursor-not-allowed aria-disabled:opacity-60`}
+                  onClick={runAi}
+                  disabled={!linkConfirmed}
+                  aria-disabled={aiLoading || undefined}
+                  aria-busy={aiLoading}
+                >
+                  {aiLoading && (
+                    <span
+                      aria-hidden="true"
+                      className="size-4 animate-spin rounded-full border-2 border-white/40 border-t-white motion-reduce:animate-none"
+                    />
+                  )}
+                  {aiLoading ? "읽는 중..." : "AI로 회차·구역 읽기"}
+                </button>
+                {aiLoading && (
+                  <button type="button" className={button.outline} onClick={() => aiAbort.current?.abort()}>
+                    취소
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+          <p className={liveRegionClass(aiLoading ? "loading" : aiInfo, ui.status)} role="status">
+            {aiLoading ? "AI가 페이지를 읽는 중이에요. 최대 40초 정도 걸릴 수 있어요." : (aiInfo ?? "")}
+          </p>
+          {aiFail && (
+            <p className={ui.errorBox} role="alert">
+              {aiFail}
+            </p>
+          )}
+          {aiSessionsShown && <p className={ui.notice}>{AI_NOTICE}</p>}
+        </section>
+
         <form id="perf-sessions" className="flex flex-col gap-2" onSubmit={addSession} noValidate>
           <div className="flex flex-wrap items-end gap-2">
             <SessionDateTimePicker
@@ -643,6 +832,17 @@ export default function PerformanceRegisterPage() {
           </ul>
         )}
 
+        <section className="flex flex-col gap-3" aria-labelledby="perf-zone-title">
+          <h3 id="perf-zone-title" className={ui.sectionTitle}>
+            구역 확인
+          </h3>
+          <p className={ui.hint}>
+            티켓 등록·교환 조건에서 구역을 목록으로 고를 수 있게 해 줘요. 선택 사항이고, 비워도 등록할 수 있어요.
+          </p>
+          {aiZonesShown && zoneRows.length > 0 && <p className={ui.notice}>{AI_NOTICE}</p>}
+          <ZoneEditor rows={zoneRows} aspect={seatmapAspect} onChange={(r) => { setZoneRows(r); setZoneError(undefined); }} serverError={zoneError} />
+        </section>
+
         <div className={cls.actions}>
           <button type="button" className={button.outline} onClick={() => goTo(0)}>
             이전
@@ -673,7 +873,20 @@ export default function PerformanceRegisterPage() {
               ))}
             </ul>
           </dd>
+          <dt className={cls.summaryTerm}>구역</dt>
+          <dd className={cls.summaryDesc}>
+            {zoneRows.length > 0 ? (
+              <ul>
+                {zoneRows.map((r) => (
+                  <li key={r.id}>{r.name.trim()}</li>
+                ))}
+              </ul>
+            ) : (
+              "없음"
+            )}
+          </dd>
         </dl>
+        {(aiSessionsShown || (aiZonesShown && zoneRows.length > 0)) && <p className={ui.notice}>{AI_NOTICE}</p>}
 
         {submitError && (
           <div className={`${ui.errorBox} flex flex-col items-start gap-2`} role="alert">

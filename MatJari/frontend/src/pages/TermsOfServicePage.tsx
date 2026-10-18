@@ -18,12 +18,13 @@ const cls = {
   missing: "rounded bg-accent-100 px-1.5 py-0.5 font-semibold text-gray-900",
 } as const;
 
-function Section({ n, title, children }: { n: number; title: string; children: ReactNode }) {
-  const id = `terms-s${n}`;
+/** n은 조 번호. suffix가 있으면 "제5조의2"처럼 가지 번호를 붙인다(다른 조 번호는 바꾸지 않는다) */
+function Section({ n, suffix, title, children }: { n: number; suffix?: number; title: string; children: ReactNode }) {
+  const id = `terms-s${n}${suffix ? `-${suffix}` : ""}`;
   return (
     <section aria-labelledby={id} className="flex flex-col gap-2">
       <h2 id={id} className={ui.sectionTitle}>
-        제{n}조 ({title})
+        제{n}조{suffix ? `의${suffix}` : ""} ({title})
       </h2>
       <div className={`flex flex-col gap-2 break-words ${ui.body}`}>{children}</div>
     </section>
@@ -106,6 +107,17 @@ export default function TermsOfServicePage() {
             <p>
               서비스는 조건이 맞는 후보를 보여 줄 뿐 점수화, 추천, 순위 매기기를 하지 않으며, 후보의 선택은 이용자가 직접 합니다.
             </p>
+          </Section>
+
+          <Section n={5} suffix={2} title="생성형 AI 기반 기능">
+            <ul className={cls.list}>
+              <li>
+                서비스는 공연 등록 때 공개된 공연 상세 페이지의 본문과 이미지를 생성형 AI로 읽어 회차와 좌석 구역 정보를
+                제안합니다.
+              </li>
+              <li>AI가 읽은 결과는 부정확할 수 있으며, 등록 전에 이용자가 확인하고 고쳐야 합니다.</li>
+              <li>운영자는 AI가 제안한 정보의 정확성을 보증하지 않습니다.</li>
+            </ul>
           </Section>
 
           <Section n={6} title="서비스의 성격과 책임 범위">

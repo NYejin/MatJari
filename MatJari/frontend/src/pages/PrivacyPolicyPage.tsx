@@ -19,7 +19,8 @@ const cls = {
   missing: "rounded bg-accent-100 px-1.5 py-0.5 font-semibold text-gray-900",
 } as const;
 
-function Section({ n, title, children }: { n: number; title: string; children: ReactNode }) {
+/** n은 절 번호(가지 번호는 "7의2"처럼 문자열). 다른 절 번호는 바꾸지 않는다 */
+function Section({ n, title, children }: { n: number | string; title: string; children: ReactNode }) {
   const id = `privacy-s${n}`;
   return (
     <section aria-labelledby={id} className="flex flex-col gap-2">
@@ -158,6 +159,19 @@ export default function PrivacyPolicyPage() {
               서비스는 개인정보 처리를 외부에 위탁하지 않습니다. 다만 이메일 인증번호는 운영자가 설정한 메일 발송 서비스(SMTP)를 통해
               보내므로, 인증번호를 받을 때 입력한 이메일 주소가 그 서비스를 거칩니다.
             </p>
+          </Section>
+
+          <Section n="7의2" title="공연 정보 읽기를 위한 외부 AI 서비스 이용(국외 이전)">
+            <ul className={cls.list}>
+              <li>
+                공연 정보 읽기를 위해 공개된 공연 상세 페이지의 본문과 이미지를 외부 AI 서비스(Anthropic PBC, 미국)에 전송합니다.
+              </li>
+              <li>이용자의 이메일·닉네임 등 식별 정보는 전송하지 않습니다.</li>
+              <li>
+                제공사의 약관에 따르면 API로 전송한 내용은 모델 학습에 사용되지 않으며 기본적으로 30일 이내에 삭제됩니다.
+                제공사의 정책이 바뀌면 이 내용도 바뀔 수 있습니다.
+              </li>
+            </ul>
           </Section>
 
           <Section n={8} title="정보주체의 권리와 행사 방법">

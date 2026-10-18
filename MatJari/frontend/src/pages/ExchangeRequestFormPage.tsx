@@ -17,6 +17,7 @@ import {
   type RangeInput,
 } from "../api/seat";
 import { ticketsApi } from "../api/tickets";
+import { useZoneNames } from "../hooks/useZoneNames";
 import { extraAmountId, extraTypeId } from "../components/ExtraFields";
 import SeatRangeCard, { rangeFieldId } from "../components/SeatRangeCard";
 import WantSessionsEditor, {
@@ -184,6 +185,8 @@ function FormBody({ data }: { data: Loaded }) {
   const navigate = useNavigate();
   const uidCounter = useRef(0);
   const nextUid = () => ++uidCounter.current;
+  /** 같은 공연의 구역 목록은 화면에서 한 번만 불러와 모든 범위 카드가 공유한다 */
+  const zoneNames = useZoneNames(performance.id);
 
   const [cards, setCards] = useState<CardState[]>(() =>
     existing && existing.ranges.length > 0
@@ -511,6 +514,7 @@ function FormBody({ data }: { data: Loaded }) {
                     onRemove={() => removeCard(i)}
                     onDuplicate={() => duplicateCard(i)}
                     canDuplicate={cards.length < WANT_MAX_RANGES}
+                    zoneNames={zoneNames}
                     removable={cards.length > 1}
                   />
                 );

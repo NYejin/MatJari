@@ -87,7 +87,7 @@ class PerformanceControllerSliceTest {
                 "KSPO DOME", null, List.of(),
                 new PerformanceDetailResponse.Registrant(1L, "등록자"), canEdit,
                 List.of(new SessionResponse(7L, SHOW)),
-                LocalDateTime.of(2026, 10, 6, 14, 3, 21));
+                LocalDateTime.of(2026, 10, 6, 14, 3, 21), false);
     }
 
     @Test
@@ -144,7 +144,7 @@ class PerformanceControllerSliceTest {
                          "venueName":"KSPO DOME","seatmapAspect":null,"zones":[],
                          "registrant":{"id":1,"nickname":"등록자"},"canEdit":true,
                          "sessions":[{"id":7,"startsAt":"2026-11-01T19:00"}],
-                         "createdAt":"2026-10-06T14:03:21"}
+                         "createdAt":"2026-10-06T14:03:21","hidden":false}
                         """, true));
     }
 

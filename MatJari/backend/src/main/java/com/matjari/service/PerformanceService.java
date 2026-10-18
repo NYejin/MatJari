@@ -233,7 +233,8 @@ public class PerformanceService {
                 new PerformanceDetailResponse.Registrant(registrant.getId(), registrant.getNickname()),
                 performance.isRegisteredBy(userId),
                 sessions.stream().map(SessionResponse::from).toList(),
-                performance.getCreatedAt());
+                performance.getCreatedAt(),
+                performance.isHidden());
     }
 
     /** 토큰은 유효하나 사용자가 없는 경우 → 401 (spring-boot-conventions 예외 조항). */

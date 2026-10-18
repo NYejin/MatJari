@@ -163,6 +163,7 @@ public class SeatClaimService {
             if (!sessionTimePolicy.now().isBefore(session.registrationDeadline())) {
                 throw new BusinessRuleException("SESSION_CLOSED", SESSION_CLOSED_MESSAGE);
             }
+            SessionChangePlanner.ensureNotHidden(session.getPerformance());
 
             Map<String, String> errors = new LinkedHashMap<>();
             String[] z = normalize(errors, SeatKeyNormalizer.ZONE,

@@ -145,29 +145,66 @@ public class WithdrawService {
         random.nextBytes(raw);
         String unknownPassword = passwordEncoder.encode(Base64.getUrlEncoder().withoutPadding().encodeToString(raw));
 
+        runWithdrawal(userId, null, unknownPassword, null);
+        log.info("Withdrawal completed (userId={})", userId);
+    }
+
+    /**
+     * 관리자 강제 탈퇴(AdminUserService). 비밀번호·재인증 없이 같은 정리·익명화 코어를 쓴다. 대상이 ADMIN 이면 409 ADMIN_CANNOT_WITHDRAW,
+     * 이미 탈퇴했으면 409 TARGET_WITHDRAWN, 없으면 404. PENDING 좌석 인증 거절의 처리자는 그 관리자다.
+     * atEnd 는 같은 트랜잭션의 맨 끝(알림 삭제 뒤)에서 실행된다(조치 기록 쓰기용).
+     */
+    public void forceWithdraw(Long adminId, Long targetId, Runnable atEnd) {
+        User current = userRepository.findById(targetId)
+                .orElseThrow(() -> new com.matjari.exception.NotFoundException("사용자를 찾을 수 없습니다."));
+        if (current.isWithdrawn()) {
+            throw targetWithdrawn();
+        }
+        if (current.getRole() == UserRole.ADMIN) {
+            throw adminCannotWithdraw();
+        }
+        byte[] raw = new byte[32];
+        random.nextBytes(raw);
+        String unknownPassword = passwordEncoder.encode(Base64.getUrlEncoder().withoutPadding().encodeToString(raw));
+        runWithdrawal(targetId, adminId, unknownPassword, atEnd);
+        log.info("Forced withdrawal completed (userId={}, adminId={})", targetId, adminId);
+    }
+
+    /** 본인 탈퇴(adminId=null)와 강제 탈퇴가 공유하는 트랜잭션 코어. 잠금 순서는 클래스 Javadoc 그대로다. */
+    private void runWithdrawal(Long userId, Long adminId, String unknownPassword, Runnable atEnd) {
+        boolean forced = adminId != null;
         transactionTemplate.executeWithoutResult(status -> {
-            cleanUp(userId);   // 1차: 잠금 순서대로 열린 매칭·티켓·인증 요청 정리
+            cleanUp(userId, adminId);   // 1차: 잠금 순서대로 열린 매칭·티켓·인증 요청 정리
             User user = userRepository.findByIdForUpdate(userId)
-                    .filter(u -> !u.isWithdrawn())   // 동시에 들어온 다른 탈퇴가 먼저 끝났다
+                    .filter(u -> forced || !u.isWithdrawn())   // 동시에 들어온 다른 탈퇴가 먼저 끝났다
                     .orElseThrow(WithdrawService::unauthenticated);
+            if (forced && user.isWithdrawn()) {
+                throw targetWithdrawn();
+            }
             if (user.getRole() == UserRole.ADMIN) {   // 확인 뒤 관리자로 승격된 경우(롤백)
                 throw adminCannotWithdraw();
             }
-            cleanUp(userId);   // 2차: users 잠금 뒤에는 새 티켓·인증 요청이 생기지 않는다. 그 사이 생긴 것을 마저 정리(보통 0건)
+            cleanUp(userId, adminId);   // 2차: users 잠금 뒤에는 새 티켓·인증 요청이 생기지 않는다. 그 사이 생긴 것을 마저 정리(보통 0건)
 
             socialAccountRepository.deleteAllByUserId(userId);
             user.anonymizeForWithdrawal(unknownPassword, timePolicy.now());
             userRepository.saveAndFlush(user);
 
-            deleteNotificationsOf(userId);   // 맨 끝
+            deleteNotificationsOf(userId);   // 알림 삭제
             closeSocketsAfterCommit(userId);
+            if (atEnd != null) {
+                atEnd.run();   // 맨 끝: 조치 기록
+            }
         });
-        log.info("Withdrawal completed (userId={})", userId);
     }
 
     /** 인증 요청 거절 -> 열린 매칭 시스템 취소 -> 활성 티켓의 요청 CLOSED + 티켓 INACTIVE. 멱등이다. */
-    private void cleanUp(Long userId) {
-        seatClaimService.rejectPendingForWithdrawal(userId);
+    private void cleanUp(Long userId, Long adminId) {
+        if (adminId == null) {
+            seatClaimService.rejectPendingForWithdrawal(userId);
+        } else {
+            seatClaimService.rejectPendingForWithdrawal(userId, adminId);
+        }
         // 열린 매칭 취소: 내 활성 티켓과 상대 티켓을 id 오름차순으로 잠근 뒤 매칭 id 오름차순으로 잠가 취소하고 예약 잠금을 푼다.
         matchCanceller.cancelAllOf(userId);
         LocalDateTime now = timePolicy.now();
@@ -273,6 +310,10 @@ public class WithdrawService {
 
     private static InsufficientAuthenticationException unauthenticated() {
         return new InsufficientAuthenticationException("인증된 사용자를 찾을 수 없습니다.");
+    }
+
+    private static ConflictException targetWithdrawn() {
+        return new ConflictException("이미 탈퇴한 사용자입니다.", Map.of("code", "TARGET_WITHDRAWN"));
     }
 
     private static ConflictException adminCannotWithdraw() {

@@ -109,18 +109,23 @@ interface Props {
   rowErrors: Record<string, string>;
   formError: string | null;
   disabled?: boolean;
+  /** 삭제할 수 없는 기존 회차 id (사용 중인 회차). 삭제 버튼을 막고 사유를 보인다 */
+  lockedIds?: ReadonlySet<number>;
+  /** 관리자 직접 수정처럼 '제안'이 아닌 문맥의 제목·안내 */
+  title?: string;
+  hint?: string;
 }
 
-export default function SessionEditor({ rows, onChange, rowErrors, formError, disabled }: Props) {
+export default function SessionEditor({ rows, onChange, rowErrors, formError, disabled, lockedIds, title, hint }: Props) {
   const baseId = useId();
   const update = (key: string, patch: Partial<SessionRow>) =>
     onChange(rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
 
   return (
     <fieldset className="flex min-w-0 flex-col gap-3 border-0 p-0">
-      <legend className={`${ui.label} mb-1.5`}>회차 수정 (선택)</legend>
+      <legend className={`${ui.label} mb-1.5`}>{title ?? "회차 수정 (선택)"}</legend>
       <p className={ui.hint}>
-        시각을 바꾸면 변경, '삭제'를 누르면 삭제를 제안해요. 새 회차는 '회차 추가'로 넣어 주세요. 10분 단위로 입력해요.
+        {hint ?? "시각을 바꾸면 변경, '삭제'를 누르면 삭제를 제안해요. 새 회차는 '회차 추가'로 넣어 주세요. 10분 단위로 입력해요."}
       </p>
       <ul className="flex flex-col gap-3">
         {rows.map((r, i) => {
@@ -159,7 +164,7 @@ export default function SessionEditor({ rows, onChange, rowErrors, formError, di
                     type="button"
                     className={r.removed ? button.outline : button.dangerOutline}
                     aria-pressed={r.removed}
-                    disabled={disabled}
+                    disabled={disabled || (r.sessionId !== null && !!lockedIds?.has(r.sessionId))}
                     onClick={() => update(r.key, { removed: !r.removed, value: r.original ?? r.value })}
                   >
                     {r.removed ? "삭제 취소" : "삭제"}
@@ -167,7 +172,10 @@ export default function SessionEditor({ rows, onChange, rowErrors, formError, di
                   </button>
                 )}
               </div>
-              {r.removed && <p className={ui.hint}>이 회차는 삭제하도록 제안해요.</p>}
+              {r.removed && <p className={ui.hint}>{title ? "이 회차는 삭제돼요." : "이 회차는 삭제하도록 제안해요."}</p>}
+              {r.sessionId !== null && lockedIds?.has(r.sessionId) && (
+                <p className={ui.hint}>티켓이나 교환 조건이 걸려 있어 삭제할 수 없어요. 시각 변경은 가능해요.</p>
+              )}
               {err && (
                 <p id={`${id}-err`} className={ui.fieldError}>
                   {err}

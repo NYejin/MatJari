@@ -30,6 +30,7 @@ const CODE_MESSAGES: Record<string, string> = {
   BLOCK_LIMIT_REACHED: "차단할 수 있는 사용자 수를 넘었어요. 차단 목록에서 해제한 뒤 다시 시도해 주세요.",
   REPORT_ALREADY_OPEN: "이 채팅에 접수된 신고가 아직 처리 중이에요. 처리 결과는 '내 신고 내역'에서 볼 수 있어요.",
   REPORT_LIMIT_REACHED: "처리 중인 신고가 너무 많아요. 처리가 끝난 뒤 다시 신고해 주세요.",
+  PERFORMANCE_HIDDEN: "내려간 공연이에요. 새 티켓 등록과 교환 요청은 할 수 없어요.",
   BUSY: "요청이 몰려 처리하지 못했어요. 잠시 후 다시 시도해주세요.",
 };
 

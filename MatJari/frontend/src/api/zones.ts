@@ -78,20 +78,21 @@ export function previewHeight(aspect: number | null | undefined): number {
 }
 
 /** 다각형 조각들을 SVG points 문자열로. 꼭짓점이 3개 미만이거나 숫자가 아닌 조각은 건너뛴다 */
-export function polygonPoints(polygons: number[][][] | null): string[] {
+/** sy: 세로 환산 배율(= 미리보기 높이 / 1000). 좌표는 가로·세로를 각각 1000으로 정규화한 값이라 세로는 sy 를 곱해 viewBox 에 맞춘다 */
+export function polygonPoints(polygons: number[][][] | null, sy = 1): string[] {
   if (!polygons) return [];
   const out: string[] = [];
   for (const piece of polygons) {
     if (!Array.isArray(piece) || piece.length < 3) continue;
     const pts = piece.filter((p) => Array.isArray(p) && p.length >= 2 && Number.isFinite(p[0]) && Number.isFinite(p[1]));
     if (pts.length < 3) continue;
-    out.push(pts.map((p) => `${p[0]},${p[1]}`).join(" "));
+    out.push(pts.map((p) => `${p[0]},${p[1] * sy}`).join(" "));
   }
   return out;
 }
 
 /** 가장 큰(경계 상자 기준) 조각의 중심 — 이름 라벨 위치. 조각이 없으면 null */
-export function labelAnchor(polygons: number[][][] | null): { x: number; y: number } | null {
+export function labelAnchor(polygons: number[][][] | null, sy = 1): { x: number; y: number } | null {
   if (!polygons) return null;
   let best: { x: number; y: number; area: number } | null = null;
   for (const piece of polygons) {
@@ -106,7 +107,7 @@ export function labelAnchor(polygons: number[][][] | null): { x: number; y: numb
     const area = (maxX - minX) * (maxY - minY);
     if (!best || area > best.area) best = { x: (minX + maxX) / 2, y: (minY + maxY) / 2, area };
   }
-  return best ? { x: best.x, y: best.y } : null;
+  return best ? { x: best.x, y: best.y * sy } : null;
 }
 
 // ---- 회차 병합 ----

@@ -21,6 +21,7 @@ export const hasShapedZone = (zones: PerformanceZone[] | null | undefined) =>
 export default function ZoneMap({ zones, aspect, selected = null, onSelect }: ZoneMapProps) {
   const shaped = zones.filter((z) => polygonPoints(z.shapePolygons).length > 0);
   const height = previewHeight(aspect);
+  const sy = height / 1000;
   const selectable = !!onSelect;
 
   const onTap = useCallback(
@@ -59,7 +60,7 @@ export default function ZoneMap({ zones, aspect, selected = null, onSelect }: Zo
             onKeyDown={selectable ? (e) => key(e, z.name) : undefined}
             className={selectable ? "cursor-pointer outline-none focus-visible:[&>polygon]:stroke-[4]" : undefined}
           >
-            {polygonPoints(z.shapePolygons).map((pts, i) => (
+            {polygonPoints(z.shapePolygons, sy).map((pts, i) => (
               <polygon
                 key={i}
                 points={pts}
@@ -74,7 +75,7 @@ export default function ZoneMap({ zones, aspect, selected = null, onSelect }: Zo
         );
       })}
       {shaped.map((z) => {
-        const a = labelAnchor(z.shapePolygons);
+        const a = labelAnchor(z.shapePolygons, sy);
         if (!a) return null;
         const on = z.name === selected;
         return (

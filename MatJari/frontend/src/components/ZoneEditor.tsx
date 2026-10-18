@@ -39,7 +39,7 @@ export default function ZoneEditor({ rows, aspect, onChange, disabled = false, s
   const shaped = rows.filter((r) => polygonPoints(r.shapePolygons).length > 0);
   const height = previewHeight(aspect);
   const activeRow = shaped.find((r) => r.id === active);
-  const activeBox = activeRow ? polygonsBox(activeRow.shapePolygons) : null;
+  const activeBox = activeRow ? polygonsBox(activeRow.shapePolygons, height / 1000) : null;
 
   const add = (e: FormEvent) => {
     e.preventDefault();
@@ -77,7 +77,7 @@ export default function ZoneEditor({ rows, aspect, onChange, disabled = false, s
           <ZoomableSeatmap width={1000} height={height} label={previewLabel} focusBox={activeBox} focusKey={active}>
             {shaped.map((r) => {
               const on = r.id === active;
-              return polygonPoints(r.shapePolygons).map((pts, i) => (
+              return polygonPoints(r.shapePolygons, height / 1000).map((pts, i) => (
                 <polygon
                   key={`${r.id}-${i}`}
                   points={pts}
@@ -90,7 +90,7 @@ export default function ZoneEditor({ rows, aspect, onChange, disabled = false, s
               ));
             })}
             {shaped.map((r) => {
-              const a = labelAnchor(r.shapePolygons);
+              const a = labelAnchor(r.shapePolygons, height / 1000);
               if (!a) return null;
               const on = r.id === active;
               return (

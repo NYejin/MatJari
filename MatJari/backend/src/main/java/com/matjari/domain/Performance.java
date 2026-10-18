@@ -8,6 +8,7 @@ import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -52,6 +53,10 @@ public class Performance {
     @Column(name = "venue_name", nullable = false, length = VENUE_NAME_MAX_LENGTH)
     private String venueName;
 
+    /** 좌석표 가로/세로 비율(V21, 구역 모양을 그릴 때 쓴다). 없으면 null, 있으면 0 초과. 등록 때만 정해진다. */
+    @Column(name = "seatmap_aspect", precision = 6, scale = 3, updatable = false)
+    private BigDecimal seatmapAspect;
+
     /** 사용자가 입력한 티켓팅 사이트 링크 원문 (공연 중복 판정의 기준). */
     @Column(name = "source_url", nullable = false, length = SOURCE_URL_MAX_LENGTH)
     private String sourceUrl;
@@ -87,6 +92,15 @@ public class Performance {
      */
     public static Performance create(String venueName, String title, String sourceUrl, String sourceKey,
                                      User registrant) {
+        return create(venueName, title, sourceUrl, sourceKey, registrant, null);
+    }
+
+    /** seatmapAspect 는 서비스가 PerformanceZoneSanitizer 로 정리한 값(null 가능, 있으면 0 초과). */
+    public static Performance create(String venueName, String title, String sourceUrl, String sourceKey,
+                                     User registrant, BigDecimal seatmapAspect) {
+        if (seatmapAspect != null && seatmapAspect.signum() <= 0) {
+            throw new IllegalArgumentException("seatmapAspect는 0보다 커야 합니다.");
+        }
         requireNonNull(registrant, "registrant");
         requireText(sourceUrl, SOURCE_URL_MAX_LENGTH, "sourceUrl");
         requireText(sourceKey, SOURCE_KEY_MAX_LENGTH, "sourceKey");
@@ -97,6 +111,7 @@ public class Performance {
         performance.sourceUrl = sourceUrl.strip();
         performance.sourceKey = sourceKey;
         performance.registrant = registrant;
+        performance.seatmapAspect = seatmapAspect;
         return performance;
     }
 

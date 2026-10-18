@@ -6,6 +6,7 @@ import com.matjari.dto.response.PerformanceDetailResponse;
 import com.matjari.dto.response.PerformanceLookupResponse;
 import com.matjari.dto.response.PerformancePreviewResponse;
 import com.matjari.dto.response.PerformanceSummaryResponse;
+import com.matjari.dto.response.PerformanceZonesResponse;
 import com.matjari.security.AuthUserPrincipal;
 import com.matjari.service.PerformanceService;
 import com.matjari.service.linkinfo.PerformancePreviewService;
@@ -74,6 +75,12 @@ public class PerformanceController {
         java.util.Map<String, String> body = new java.util.LinkedHashMap<>();
         body.put("posterUrl", previewService.poster(principal.userId(), detail.sourceUrl()));
         return body;
+    }
+
+    /** 공연의 구역 목록(이름·모양, sortOrder 순)과 좌석표 비율. 구역이 없으면 zones=[]. 없는 공연은 404. */
+    @GetMapping("/{id}/zones")
+    public PerformanceZonesResponse zones(@PathVariable Long id) {
+        return performanceService.getZones(id);
     }
 
     @GetMapping("/{id}")

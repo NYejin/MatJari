@@ -6,6 +6,7 @@ import com.matjari.dto.response.PageResponse;
 import com.matjari.dto.response.PerformanceDetailResponse;
 import com.matjari.dto.response.PerformanceLookupResponse;
 import com.matjari.dto.response.PerformanceSummaryResponse;
+import com.matjari.dto.response.PerformanceZonesResponse;
 import com.matjari.dto.response.SessionResponse;
 import com.matjari.exception.ConflictException;
 import com.matjari.exception.NotFoundException;
@@ -83,7 +84,7 @@ class PerformanceControllerSliceTest {
 
     private static PerformanceDetailResponse detail(boolean canEdit) {
         return new PerformanceDetailResponse(100L, "두아 리파 내한", "https://tickets.interpark.com/goods/1",
-                "KSPO DOME",
+                "KSPO DOME", null, List.of(),
                 new PerformanceDetailResponse.Registrant(1L, "등록자"), canEdit,
                 List.of(new SessionResponse(7L, SHOW)),
                 LocalDateTime.of(2026, 10, 6, 14, 3, 21));
@@ -101,9 +102,9 @@ class PerformanceControllerSliceTest {
     void listResponseShape() throws Exception {
         when(performanceService.search(eq("두아"), eq(0), eq(20), eq(null))).thenReturn(new PageResponse<>(
                 List.of(new PerformanceSummaryResponse(100L, "두아 리파 내한",
-                        "KSPO DOME", SHOW, 2),
+                        "KSPO DOME", SHOW, 2, 3),
                         new PerformanceSummaryResponse(101L, "지난 공연",
-                                "KSPO DOME", null, 1)),
+                                "KSPO DOME", null, 1, 0)),
                 0, 20, 2, 1));
 
         mockMvc.perform(auth(get("/api/performances").param("query", "두아")))
@@ -111,9 +112,9 @@ class PerformanceControllerSliceTest {
                 .andExpect(content().json("""
                         {"content":[
                           {"id":100,"title":"두아 리파 내한","venueName":"KSPO DOME",
-                           "nextSessionStartsAt":"2026-11-01T19:00","sessionCount":2},
+                           "nextSessionStartsAt":"2026-11-01T19:00","sessionCount":2,"zoneCount":3},
                           {"id":101,"title":"지난 공연","venueName":"KSPO DOME",
-                           "nextSessionStartsAt":null,"sessionCount":1}],
+                           "nextSessionStartsAt":null,"sessionCount":1,"zoneCount":0}],
                          "page":0,"size":20,"totalElements":2,"totalPages":1}
                         """, true));
     }
@@ -140,11 +141,56 @@ class PerformanceControllerSliceTest {
                 .andExpect(status().isOk())
                 .andExpect(content().json("""
                         {"id":100,"title":"두아 리파 내한","sourceUrl":"https://tickets.interpark.com/goods/1",
-                         "venueName":"KSPO DOME",
+                         "venueName":"KSPO DOME","seatmapAspect":null,"zones":[],
                          "registrant":{"id":1,"nickname":"등록자"},"canEdit":true,
                          "sessions":[{"id":7,"startsAt":"2026-11-01T19:00"}],
                          "createdAt":"2026-10-06T14:03:21"}
                         """, true));
+    }
+
+    @Test
+    void zonesEndpointShapeAndNotFound() throws Exception {
+        when(performanceService.getZones(100L)).thenReturn(new PerformanceZonesResponse(
+                new java.math.BigDecimal("1.500"), List.of(
+                new PerformanceDetailResponse.Zone("A구역", List.of(List.of(List.of(0, 0), List.of(10, 0), List.of(10, 10)))),
+                new PerformanceDetailResponse.Zone("스탠딩", null))));
+        when(performanceService.getZones(404L)).thenThrow(new NotFoundException("공연을 찾을 수 없습니다."));
+
+        mockMvc.perform(auth(get("/api/performances/100/zones")))
+                .andExpect(status().isOk())
+                .andExpect(content().json("""
+                        {"seatmapAspect":1.5,"zones":[
+                          {"name":"A구역","shapePolygons":[[[0,0],[10,0],[10,10]]]},
+                          {"name":"스탠딩","shapePolygons":null}]}
+                        """, true));
+        mockMvc.perform(auth(get("/api/performances/404/zones"))).andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/performances/100/zones")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void createAcceptsZonesAndRejectsOverHundred() throws Exception {
+        when(performanceService.create(eq(1L), any(PerformanceCreateRequest.class))).thenReturn(detail(true));
+        mockMvc.perform(auth(post("/api/performances")).contentType(MediaType.APPLICATION_JSON).content("""
+                        {"sourceUrl":"https://tickets.interpark.com/goods/1","title":"t","venueName":"V",
+                         "sessions":["2026-11-01T19:00"],"seatmapAspect":1.25,
+                         "zones":[{"name":"A","shapePolygons":[[[0,0],[1,0],[1,1]]]},{"name":"B"},
+                                  {"name":"C","shapePolygons":"bad"}]}
+                        """))
+                .andExpect(status().isCreated());
+        verify(performanceService).create(eq(1L), argThat(r -> r.zones().size() == 3
+                && r.zones().get(1).shapePolygons() == null
+                && r.seatmapAspect().compareTo(new java.math.BigDecimal("1.25")) == 0));
+
+        StringBuilder many = new StringBuilder("[");
+        for (int i = 0; i < 101; i++) {
+            many.append(i == 0 ? "" : ",").append("{\"name\":\"z").append(i).append("\"}");
+        }
+        many.append("]");
+        mockMvc.perform(auth(post("/api/performances")).contentType(MediaType.APPLICATION_JSON).content(
+                        "{\"sourceUrl\":\"https://a.com\",\"title\":\"t\",\"venueName\":\"V\","
+                                + "\"sessions\":[\"2026-11-01T19:00\"],\"zones\":" + many + "}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.zones").value("구역은 한 번에 100개까지 등록할 수 있습니다."));
     }
 
     @Test

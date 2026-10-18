@@ -41,6 +41,8 @@ services:
       MATJARI_SOCIAL_KAKAO_CLIENT_SECRET: ${SOCIAL_KAKAO_CLIENT_SECRET:-}
       MATJARI_SOCIAL_NAVER_CLIENT_ID: ${SOCIAL_NAVER_CLIENT_ID:-}
       MATJARI_SOCIAL_NAVER_CLIENT_SECRET: ${SOCIAL_NAVER_CLIENT_SECRET:-}
+      # AI(공연 상세 이미지 읽기, 구현 예정): 값이 비어 있으면 AI 기능은 꺼진다. 키는 .env 에만 둔다(.env.example 참고)
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       MATJARI_SOCIAL_BACKEND_BASE_URL: ${SOCIAL_BACKEND_BASE_URL:-http://localhost:8080}
       MATJARI_SOCIAL_FRONTEND_BASE_URL: ${SOCIAL_FRONTEND_BASE_URL:-http://localhost:5173}
       # 가입 전 이메일 인증번호: 기본 log 모드(메일 내용이 백엔드 로그에 찍힘, 개발용). 운영은 smtp + SPRING_MAIL_* 필요(.env.example 참고)

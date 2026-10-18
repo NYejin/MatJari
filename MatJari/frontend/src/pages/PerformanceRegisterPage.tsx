@@ -203,11 +203,12 @@ export default function PerformanceRegisterPage() {
   const [zoneRows, setZoneRows] = useState<ZoneRow[]>([]);
   const [seatmapAspect, setSeatmapAspect] = useState<number | null>(null);
   const [zoneError, setZoneError] = useState<string>();
-  // AI 읽기 (실패해도 등록은 막히지 않는다)
+  // AI 읽기: 링크 확인 직후 자동으로 한 번 읽는다 (실패해도 등록은 막히지 않는다)
   const [aiLoading, setAiLoading] = useState(false);
-  const [aiDisabled, setAiDisabled] = useState(false);
-  const [aiInfo, setAiInfo] = useState<string | null>(null);
-  const [aiFail, setAiFail] = useState<string | null>(null);
+  /** 상태 줄 문구. tone=error이고 retry이면 '다시 읽기' 버튼을 보인다 */
+  const [aiNote, setAiNote] = useState<{ text: string; tone: "info" | "error"; retry: boolean } | null>(null);
+  /** 이미 AI 읽기를 시작한 링크 — 같은 링크로 돌아와도 다시 부르지 않는다 */
+  const aiUrl = useRef<string | null>(null);
   /** AI가 읽은 결과가 화면에 있음(안내문 표시 조건) */
   const [aiSessionsShown, setAiSessionsShown] = useState(false);
   const [aiZonesShown, setAiZonesShown] = useState(false);
@@ -312,6 +313,7 @@ export default function PerformanceRegisterPage() {
     if (url === checkedUrl.current) {
       if (url !== previewedUrl.current) await readPreview(url);
       goTo(1);
+      if (url !== aiUrl.current) void runAi(url);
       return;
     }
     setChecking(true);
@@ -325,6 +327,7 @@ export default function PerformanceRegisterPage() {
       // 중복이 없을 때만 링크에서 공연 정보를 읽는다 (실패해도 2단계로 간다)
       if (url !== previewedUrl.current) await readPreview(url);
       goTo(1);
+      if (url !== aiUrl.current) void runAi(url);
     } catch (err) {
       setLookupError(parseApiError(err, "링크를 확인하지 못했습니다.").message);
     } finally {
@@ -332,19 +335,19 @@ export default function PerformanceRegisterPage() {
     }
   };
 
-  /** AI로 회차·구역 읽기. 사용자가 입력한 줄은 덮어쓰지 않고, 실패해도 직접 입력으로 계속할 수 있다 */
-  const runAi = async () => {
-    if (aiLoading) return;
+  /** AI로 회차·구역 읽기(자동 1회, 실패하면 '다시 읽기'). 사용자가 입력한 줄·칸은 덮어쓰지 않고 빈 곳만 채운다 */
+  const runAi = async (url: string) => {
+    aiAbort.current?.abort(); // 다른 링크의 진행 중 호출은 버린다
     const controller = new AbortController();
     aiAbort.current = controller;
+    aiUrl.current = url;
     setAiLoading(true);
-    setAiInfo(null);
-    setAiFail(null);
+    setAiNote(null);
+    setAiSessionsShown(false);
+    setAiZonesShown(false);
     try {
-      const r = await performancesApi.aiExtract(sourceUrl.trim(), controller.signal);
-      if (unmounted.current) return;
-      if (!r.aiEnabled) setAiDisabled(true);
-      const notes: string[] = [];
+      const r = await performancesApi.aiExtract(url, controller.signal);
+      if (unmounted.current || aiAbort.current !== controller) return;
 
       // 회차: 같은 날짜의 빈 시각 줄은 시각만 채우고, 새 날짜·새 시각은 줄을 추가한다
       const merged = mergeAiSessions(sessionsRef.current, r.sessions ?? [], {
@@ -360,13 +363,13 @@ export default function PerformanceRegisterPage() {
       }
       const source = r.sessionsSource ?? "NONE";
       if (source === "AI" && (r.sessions?.length ?? 0) > 0) setAiSessionsShown(true);
-      notes.push(
+      const parts: string[] = [
         applied > 0
-          ? `회차 ${AI_SOURCE_LABEL[source]}. ${applied}개를 반영했어요${merged.filled > 0 ? ` (시각만 채운 줄 ${merged.filled}개 포함)` : ""}.${merged.skipped > 0 ? ` 이미 있거나 지난 회차 등 ${merged.skipped}개는 건너뛰었어요.` : ""}`
+          ? `회차: ${AI_SOURCE_LABEL[source]}, ${applied}개 반영`
           : (r.sessions?.length ?? 0) > 0
-            ? "읽은 회차가 모두 이미 있거나 지난 회차예요."
-            : `회차: ${AI_SOURCE_LABEL.NONE}. 직접 입력해 주세요.`,
-      );
+            ? "읽은 회차는 모두 이미 있거나 지난 회차예요"
+            : `회차: ${AI_SOURCE_LABEL.NONE}`,
+      ];
 
       // 구역: 이미 있는 이름은 건드리지 않고 새 구역만 더한다(모양이 없던 줄에는 모양을 채운다)
       const incoming = r.zones ?? [];
@@ -376,20 +379,27 @@ export default function PerformanceRegisterPage() {
         setZoneError(undefined);
         if (typeof r.seatmapAspect === "number" && r.seatmapAspect > 0 && aspectRef.current === null) setSeatmapAspect(r.seatmapAspect);
         setAiZonesShown(true);
-        notes.push(`구역 ${z.added}개를 읽었어요.${z.dropped > 0 ? ` 최대 개수를 넘어 ${z.dropped}개는 넣지 못했어요.` : ""} 아래 '구역 확인'에서 확인해 주세요.`);
+        parts.push(`구역 ${z.added}개 읽음${z.dropped > 0 ? ` (최대 개수를 넘어 ${z.dropped}개 제외)` : ""}`);
       } else {
-        notes.push("구역은 읽지 못했어요. 필요하면 아래에서 직접 추가해 주세요.");
+        parts.push("구역은 읽지 못했어요");
       }
-      if (r.truncatedSlices > 0) notes.push("페이지가 길어 일부는 읽지 못했을 수 있어요.");
-      if (r.aiError) notes.push("AI가 일부를 읽지 못했어요.");
-      setAiInfo(notes.join(" "));
+      let text = `${parts.join(" · ")}.`;
+      if (r.truncatedSlices > 0) text += " 페이지가 길어 일부는 읽지 못했을 수 있어요.";
+      if (r.aiError) text += " AI가 일부를 읽지 못했어요.";
+      if (!r.aiEnabled) text += " AI 읽기는 지금 사용할 수 없어요. 직접 입력해 주세요.";
+      setAiNote({ text, tone: "info", retry: false });
     } catch (err) {
-      if (unmounted.current) return;
-      if (controller.signal.aborted || axios.isCancel(err)) setAiInfo("AI 읽기를 취소했어요. 직접 입력하거나 다시 시도할 수 있어요.");
-      else setAiFail(aiErrorText(err));
+      if (unmounted.current || aiAbort.current !== controller) return;
+      if (controller.signal.aborted || axios.isCancel(err)) setAiNote({ text: "AI 읽기를 취소했어요. 직접 입력하거나 다시 읽을 수 있어요.", tone: "error", retry: true });
+      else {
+        const unsupported = getErrorCode(err) === "UNSUPPORTED_SITE";
+        setAiNote({ text: aiErrorText(err), tone: unsupported ? "info" : "error", retry: !unsupported });
+      }
     } finally {
-      if (aiAbort.current === controller) aiAbort.current = null;
-      if (!unmounted.current) setAiLoading(false);
+      if (aiAbort.current === controller) {
+        aiAbort.current = null;
+        if (!unmounted.current) setAiLoading(false);
+      }
     }
   };
 
@@ -581,9 +591,6 @@ export default function PerformanceRegisterPage() {
     }
   };
 
-  /** 링크 중복 확인을 통과한 링크일 때만 AI 읽기를 켠다 */
-  const linkConfirmed = checkedUrl.current !== null && checkedUrl.current === sourceUrl.trim();
-
   let body: ReactNode;
   if (step === 0) {
     body = (
@@ -677,57 +684,31 @@ export default function PerformanceRegisterPage() {
         </div>
         <PosterImage key={posterUrl ?? "none"} url={posterUrl} title={title || "공연"} className="self-start" />
         </div>
-        <section
-          className="flex flex-col gap-2 rounded-[10px] border border-gray-200 p-3.5"
-          aria-labelledby="perf-ai-title"
-          aria-busy={aiLoading}
-        >
-          <h3 id="perf-ai-title" className="text-[0.9375rem]/[normal] font-bold text-gray-900">
-            AI로 회차·구역 읽기
-          </h3>
-          {aiDisabled ? (
-            <p className={ui.notice}>AI 읽기를 지금 사용할 수 없어요. 직접 입력해 주세요.</p>
-          ) : (
-            <>
-              <p className={ui.hint}>
-                공개된 공연 상세 페이지의 본문과 이미지를 AI가 읽어 회차와 구역을 제안해요. 10~40초 걸릴 수 있어요. 읽지 못해도 직접
-                입력해서 등록할 수 있어요.
+        {/* AI 읽기 상태 줄 — 읽는 동안에도 아래 입력칸은 그대로 쓸 수 있다 */}
+        <div className="flex flex-col gap-2">
+          {(aiLoading || aiNote) && (
+            <div className={`${aiNote?.tone === "error" && !aiLoading ? ui.errorBox : ui.notice} flex flex-wrap items-center gap-x-3 gap-y-1`}>
+              <p className="min-w-0 flex-1 basis-56" role="status" aria-busy={aiLoading}>
+                {aiLoading ? "AI가 회차와 구역을 읽는 중이에요. 기다리지 않고 직접 입력해도 돼요." : aiNote?.text}
               </p>
-              <div className="flex flex-wrap items-center gap-2">
+              {aiLoading && (
+                <button type="button" className={`${button.outline} shrink-0`} onClick={() => aiAbort.current?.abort()}>
+                  취소
+                </button>
+              )}
+              {!aiLoading && aiNote?.retry && (
                 <button
                   type="button"
-                  className={`${button.solid} aria-disabled:cursor-not-allowed aria-disabled:opacity-60`}
-                  onClick={runAi}
-                  disabled={!linkConfirmed}
-                  aria-disabled={aiLoading || undefined}
-                  aria-busy={aiLoading}
+                  className={`${ui.link} min-h-11 shrink-0 cursor-pointer touch-manipulation px-1`}
+                  onClick={() => void runAi(aiUrl.current ?? sourceUrl.trim())}
                 >
-                  {aiLoading && (
-                    <span
-                      aria-hidden="true"
-                      className="size-4 animate-spin rounded-full border-2 border-white/40 border-t-white motion-reduce:animate-none"
-                    />
-                  )}
-                  {aiLoading ? "읽는 중..." : "AI로 회차·구역 읽기"}
+                  다시 읽기
                 </button>
-                {aiLoading && (
-                  <button type="button" className={button.outline} onClick={() => aiAbort.current?.abort()}>
-                    취소
-                  </button>
-                )}
-              </div>
-            </>
+              )}
+            </div>
           )}
-          <p className={liveRegionClass(aiLoading ? "loading" : aiInfo, ui.status)} role="status">
-            {aiLoading ? "AI가 페이지를 읽는 중이에요. 최대 40초 정도 걸릴 수 있어요." : (aiInfo ?? "")}
-          </p>
-          {aiFail && (
-            <p className={ui.errorBox} role="alert">
-              {aiFail}
-            </p>
-          )}
-          {aiSessionsShown && <p className={ui.notice}>{AI_NOTICE}</p>}
-        </section>
+          {!aiLoading && (aiSessionsShown || (aiZonesShown && zoneRows.length > 0)) && <p className={ui.hint}>{AI_NOTICE}</p>}
+        </div>
 
         <form id="perf-sessions" className="flex flex-col gap-2" onSubmit={addSession} noValidate>
           <div className="flex flex-wrap items-end gap-2">
@@ -839,7 +820,6 @@ export default function PerformanceRegisterPage() {
           <p className={ui.hint}>
             티켓 등록·교환 조건에서 구역을 목록으로 고를 수 있게 해 줘요. 선택 사항이고, 비워도 등록할 수 있어요.
           </p>
-          {aiZonesShown && zoneRows.length > 0 && <p className={ui.notice}>{AI_NOTICE}</p>}
           <ZoneEditor rows={zoneRows} aspect={seatmapAspect} onChange={(r) => { setZoneRows(r); setZoneError(undefined); }} serverError={zoneError} />
         </section>
 

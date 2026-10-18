@@ -124,6 +124,21 @@ public class GlobalExceptionHandler {
                 .header("Retry-After", String.valueOf(e.getRetryAfterSeconds())).body(body);
     }
 
+    // AI 추출 오류: 400 UNSUPPORTED_SITE / 429 AI_RATE_LIMITED(+Retry-After) / 503 AI_UNAVAILABLE·PAGE_FETCH_FAILED
+    @ExceptionHandler(com.matjari.service.aiextract.DetailExtractionService.AiExtractException.class)
+    public ResponseEntity<Map<String, Object>> handleAiExtract(
+            com.matjari.service.aiextract.DetailExtractionService.AiExtractException e) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("code", e.getCode());
+        body.put("message", e.getMessage());
+        ResponseEntity.BodyBuilder builder = ResponseEntity.status(e.getStatus());
+        if (e.getRetryAfterSeconds() > 0) {
+            body.put("retryAfterSeconds", e.getRetryAfterSeconds());
+            builder.header("Retry-After", String.valueOf(e.getRetryAfterSeconds()));
+        }
+        return builder.body(body);
+    }
+
     // 행 잠금 대기 초과·교착(CannotAcquireLockException 포함) -> 503 일반 문구. 잠시 뒤 다시 시도하면 된다
     @ExceptionHandler(PessimisticLockingFailureException.class)
     public ResponseEntity<Map<String, String>> handleLockFailure(PessimisticLockingFailureException e) {

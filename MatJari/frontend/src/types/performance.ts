@@ -24,7 +24,39 @@ export interface PerformanceDetail {
   venueName: string;
   registrant: { id: number; nickname: string };
   sessions: PerformanceSession[];
+  /** 공연 상세에 구역이 포함될 수 있다(없을 수 있음). 드롭다운은 전용 zones 조회를 쓴다 */
+  zones?: PerformanceZone[];
   createdAt: string;
+}
+
+/**
+ * 구역 한 개. shapePolygons 는 다각형 조각 배열(조각마다 꼭짓점 [x, y]), 좌표는 0~1000 정규화(지도 폭·높이를 각각 1000으로 본다).
+ * 모양이 없으면 null
+ */
+export interface PerformanceZone {
+  name: string;
+  shapePolygons: number[][][] | null;
+}
+
+/** GET /api/performances/{id}/zones */
+export interface PerformanceZonesResponse {
+  seatmapAspect: number | null;
+  zones: PerformanceZone[];
+}
+
+/** POST /api/performances/ai-extract 응답 */
+export type AiSessionsSource = "TEXT_RULE" | "AI" | "NONE";
+export interface AiExtractResult {
+  sessions: { date: string; time: string }[];
+  sessionsSource: AiSessionsSource;
+  zones: PerformanceZone[];
+  /** 지도 가로/세로 비율(폭÷높이). 없으면 null */
+  seatmapAspect: number | null;
+  aiEnabled: boolean;
+  aiError: string | null;
+  cached: boolean;
+  /** 페이지가 길어 못 읽은 조각 수(0이면 전부 읽음) */
+  truncatedSlices: number;
 }
 
 /** GET /api/performances/lookup — 없으면 performanceId가 null이거나 생략될 수 있다 */
@@ -68,4 +100,8 @@ export interface PerformanceCreateRequest {
   venueName: string;
   /** 회차 시작 시각 목록 (1개 이상) */
   sessions: string[];
+  /** 구역(선택, 최대 100개). 없어도 등록된다 */
+  zones?: PerformanceZone[];
+  /** 지도 가로/세로 비율(선택) */
+  seatmapAspect?: number | null;
 }

@@ -2,6 +2,7 @@ import type { RangeErrors, RangeField, RangeInput } from "../api/seat";
 import type { ExtraType } from "../types/exchange";
 import ExtraFields from "./ExtraFields";
 import TextField from "./TextField";
+import ZoneSelectField from "./ZoneSelectField";
 import { button, ui } from "./ui";
 
 // 희망 좌석 범위 카드 1장: (구역, 열 시작~끝, 번 시작~끝). 좌석표 없이 텍스트로 입력한다.
@@ -22,6 +23,8 @@ interface SeatRangeCardProps {
   onRemove: () => void;
   onDuplicate: () => void;
   canDuplicate: boolean;
+  /** 공연에 등록된 구역 목록. 있으면 구역 입력이 드롭다운(+직접 입력)이 된다 */
+  zoneNames?: string[] | null;
   /** 카드가 1장뿐일 때는 지울 수 없다 */
   removable: boolean;
 }
@@ -41,6 +44,7 @@ export default function SeatRangeCard({
   onRemove,
   onDuplicate,
   canDuplicate,
+  zoneNames = null,
   removable,
 }: SeatRangeCardProps) {
   const field = (name: RangeField, label: string, extra?: { hint?: string; placeholder?: string }) => (
@@ -62,7 +66,20 @@ export default function SeatRangeCard({
   return (
     <fieldset className="flex min-w-0 flex-col gap-6 rounded-[10px] border border-gray-200 p-3.5" disabled={disabled}>
       <legend className="px-1 text-sm/[normal] font-bold text-gray-900">희망 범위 {number}</legend>
-      {field("zone", "구역", { hint: "티켓에 적힌 그대로 입력해주세요. (예: 1층 A구역)", placeholder: "예: 1층 A구역" })}
+      <ZoneSelectField
+        id={rangeFieldId(uid, "zone")}
+        label="구역"
+        value={value.zone}
+        zoneNames={zoneNames}
+        onValueChange={(v) => onChange("zone", v)}
+        error={errors.zone}
+        hint="티켓에 적힌 그대로 입력해주세요. (예: 1층 A구역)"
+        placeholder="예: 1층 A구역"
+        disabled={disabled}
+        autoComplete="off"
+        autoCapitalize="characters"
+        spellCheck={false}
+      />
       <div className="grid grid-cols-2 gap-3 text-center sm:grid-cols-4">
         {field("rowFrom", "열 시작", { placeholder: "예: 3" })}
         {field("rowTo", "열 끝", { placeholder: "비우면 한 열" })}

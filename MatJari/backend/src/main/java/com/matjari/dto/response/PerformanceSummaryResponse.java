@@ -11,5 +11,6 @@ public record PerformanceSummaryResponse(
         String venueName,
         @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = DateTimeFormats.MINUTE)
         LocalDateTime nextSessionStartsAt,
-        long sessionCount
+        long sessionCount,
+        long zoneCount
 ) {}

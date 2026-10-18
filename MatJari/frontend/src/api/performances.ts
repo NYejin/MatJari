@@ -2,12 +2,14 @@ import axios from "axios";
 import { apiClient } from "./client";
 import type { PageResponse } from "../types/page";
 import type {
+  AiExtractResult,
   PerformanceCreateRequest,
   PerformanceDetail,
   PerformanceListParams,
   PerformanceLookup,
   PerformancePreview,
   PerformanceSummary,
+  PerformanceZonesResponse,
 } from "../types/performance";
 
 // 공연·회차 (FR-02). 모두 로그인 필요 — 401은 client.ts 인터셉터가 재발급·재시도 처리.
@@ -45,6 +47,21 @@ export const performancesApi = {
   async poster(id: number, signal?: AbortSignal): Promise<string | null> {
     const { data } = await apiClient.get<{ posterUrl: string | null }>(`/performances/${id}/poster`, { signal });
     return data.posterUrl ?? null;
+  },
+
+  /**
+   * POST /api/performances/ai-extract — 링크 페이지를 AI로 읽어 회차·구역 제안. 10~40초 걸릴 수 있어 signal로 취소할 수 있다.
+   * 오류 본문 {code, message[, retryAfterSeconds]}: 400 UNSUPPORTED_SITE, 429 AI_RATE_LIMITED, 503 AI_UNAVAILABLE·PAGE_FETCH_FAILED
+   */
+  async aiExtract(sourceUrl: string, signal?: AbortSignal): Promise<AiExtractResult> {
+    const { data } = await apiClient.post<AiExtractResult>("/performances/ai-extract", { sourceUrl }, { signal });
+    return data;
+  },
+
+  /** GET /api/performances/{id}/zones — 구역 이름·모양(sortOrder 순) */
+  async zones(id: number, signal?: AbortSignal): Promise<PerformanceZonesResponse> {
+    const { data } = await apiClient.get<PerformanceZonesResponse>(`/performances/${id}/zones`, { signal });
+    return data;
   },
 
   /** POST /api/performances → 201 상세. 이미 등록된 공연이면 409 {message, performanceId} */

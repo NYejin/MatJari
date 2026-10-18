@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 
 import java.net.URI;
 import java.time.Clock;
+import java.time.LocalDate;
 import java.util.ArrayDeque;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -159,6 +160,37 @@ public class PerformancePreviewService {
         } catch (RuntimeException e) { // FetchFailedException 및 예상 밖 파싱 오류: 미리보기는 실패해도 등록을 막지 않는다
             log.info("링크 미리보기 실패 (site={}, id={}): {}", site, id, e.toString());
             return PerformancePreviewResponse.empty(STATUS_FETCH_FAILED, site);
+        } finally {
+            concurrency.release();
+        }
+    }
+
+    /** AI 추출용: 고정 템플릿으로 받은 페이지와 파싱된 공연 기간. 캐시하지 않는다. */
+    public record FetchedPage(Document document, LocalDate periodStart, LocalDate periodEnd) {}
+
+    /**
+     * 이미 SourceKeyResolver 로 검증한 사이트(yes24|ticketlink|melon)와 숫자 id 의 페이지를 고정 템플릿 URL로 받는다.
+     * 사이트 속도 제한·동시 실행 제한을 미리보기와 같이 쓰며, 막히거나 실패하면 FetchFailedException.
+     */
+    public FetchedPage fetchPage(String site, String id) {
+        if (!KEY.matcher(site + ":" + id).matches()) {
+            throw new PageFetcher.FetchFailedException("unsupported site");
+        }
+        if (!concurrency.tryAcquire()) {
+            throw new PageFetcher.FetchFailedException("busy");
+        }
+        try {
+            if (!tryWindow(siteWindows, site, sitePerMinute)) {
+                throw new PageFetcher.FetchFailedException("site rate limit");
+            }
+            Document doc = pageFetcher.fetch(URI.create(template(site, id)));
+            LinkInfoParsers.ParsedInfo info;
+            try {
+                info = LinkInfoParsers.parse(site, doc);
+            } catch (RuntimeException e) {
+                info = new LinkInfoParsers.ParsedInfo(null, null, null, null);
+            }
+            return new FetchedPage(doc, info.periodStart(), info.periodEnd());
         } finally {
             concurrency.release();
         }

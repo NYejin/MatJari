@@ -199,7 +199,7 @@ public class PageFetcher {
     }
 
     /** 공인 인터넷 주소가 아니면 true (루프백·사설·링크로컬·CGNAT·멀티캐스트·0.0.0.0/8·예약·IPv6 ULA·IPv4-mapped 내부 주소). */
-    static boolean isBlockedAddress(InetAddress a) {
+    public static boolean isBlockedAddress(InetAddress a) {
         if (a.isAnyLocalAddress() || a.isLoopbackAddress() || a.isLinkLocalAddress()
                 || a.isSiteLocalAddress() || a.isMulticastAddress()) {
             return true;

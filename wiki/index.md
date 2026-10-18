@@ -3,7 +3,7 @@ title: 위키 목차
 type: index
 tags: [index]
 sources: []
-updated: 2026-10-13
+updated: 2026-10-18
 confidence: high
 status: draft
 ---
@@ -37,6 +37,8 @@ status: draft
 - [공연 포스터 표시 설계 근거](decisions/poster-display-design.md): 서버가 이미지를 저장·프록시하지 않고 주소만 읽어 인라인 링크로 보여 주는 이유, DB에 저장하지 않고 재조회한 이유, 택하지 않은 대안, 로드 실패 시 숨김과 대체 링크 없음, 저작권 조사 요약과 미확인 항목, 한계.
 
 - [가입 이메일 인증번호 설계 근거](decisions/email-verification-design.md): 가입 전 인증을 택한 이유(남의 이메일 선점·소셜 EMAIL_EXISTS 차단), 코드 동봉 방식, 시도 횟수를 REQUIRES_NEW로 먼저 올리는 이유(롤백 우회 방지), HMAC 해시, 발송 제한, log 모드 운영 기동 거부, 택하지 않은 대안, 한계.
+
+- [AI 회차·구역 읽기 설계 근거](decisions/ai-detail-extract-design.md): 목적과 처리 순서(본문 규칙→슬라이싱→1차·2차 호출→서버 재검증), Haiku 5.5 기본·무료 티어와 구독 로그인을 쓰지 않은 이유, 법·약관 조사 요약과 미확인 항목, 구역 규칙, 작은 표본 시험 결과, 한계·후속.
 
 ## 함정
 

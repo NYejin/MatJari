@@ -1,6 +1,6 @@
 ---
 name: project-knowledge
-description: 맞자리의 현재 유효한 서비스 개요·확정 교환 규칙·기능 목록과 구현 상태·데이터 모델(Flyway V1~V19)·API/화면 요약. 기능 구현이나 설계 질문에 답하기 전에 먼저 참고한다. 결정이 바뀌면 이 문서의 해당 항목을 직접 고친다(이력은 HISTORY.md, 산출물/07_작업일지, wiki/).
+description: 맞자리의 현재 유효한 서비스 개요·확정 교환 규칙·기능 목록과 구현 상태·데이터 모델(Flyway V1~V20)·API/화면 요약. 기능 구현이나 설계 질문에 답하기 전에 먼저 참고한다. 결정이 바뀌면 이 문서의 해당 항목을 직접 고친다(이력은 HISTORY.md, 산출물/07_작업일지, wiki/).
 ---
 
 # 프로젝트 지식 요약
@@ -26,7 +26,7 @@ description: 맞자리의 현재 유효한 서비스 개요·확정 교환 규�
 | Frontend | React + TypeScript + Vite + Tailwind CSS v4 (Tailwind 유틸리티만 사용, 브레이크포인트 640/768/1024px 고정, 브랜드색 primary #8A2BE2 / secondary #BEA886(글자색 금지) / accent #E8A33D) |
 | Backend | Spring Boot 3.3.13(Security 6.3.10) + JPA + Flyway, JWT 인증. WebSocket(STOMP, `/ws`)은 채팅 푸시에 구현됨(커스텀 CONNECT 인증 인터셉터, 사용자 큐만 구독) |
 | Frontend 추가 | `@stomp/stompjs` ^7.3(채팅 화면 전용), `VITE_WS_URL`(없으면 API 주소에서 계산) |
-| DB | MySQL 8.0 (Flyway V1~V19) |
+| DB | MySQL 8.0 (Flyway V1~V20) |
 | 배포 | `MatJari/docker-compose.yml`: mysql · backend · frontend 3개. 시간대 KST(Clock Asia/Seoul, TZ=Asia/Seoul) |
 
 - 이미지 인식 서비스(FastAPI/OpenCV/Tesseract)는 동결로 삭제됐다.
@@ -142,12 +142,12 @@ description: 맞자리의 현재 유효한 서비스 개요·확정 교환 규�
 | 닉네임 수정·소셜 계정 연결·해제(마이페이지, 본인이 명시적으로 연결, 로그인 세션 확정) | 구현 (V16) |
 | 링크 기반 공연 정보 자동 입력(제목·공연장·공연 기간) | 구현 (DB 변경 없음) |
 | 공연 포스터 표시(인라인 링크, 허용 호스트 3종, 로드 실패 시 숨김) | 구현 (DB 변경 없음, 병합됨) |
-| 회차 날짜 미리 채우기(공연 기간 2일 이하만 날짜, 시각은 직접 입력) | 구현 (DB 변경 없음, 병합됨) |
+| 회차 날짜 미리 채우기(공연 기간 100일 이하의 모든 날짜, 시각은 직접 입력·오전/오후 기본 오후·10분 단위 선택) | 구현 (DB 변경 없음, 병합됨) |
 | 관리자 페이지·공연 수정 제안·내 티켓 인증 | 구현 (V12) |
 | 회원탈퇴(모달·확인, 익명화, 진행 중 교환 자동 정리)·개인정보처리방침 `/privacy`·푸터·가입 화면 방침 안내 | 구현 (V17, 병합됨) |
 | 신뢰도 점수 제거(`users.trust_score` 컬럼, 응답 `trustScore`, 마이페이지 표시 삭제) | 구현 (V18, 미커밋) |
 
-## 5. 데이터 모델 (Flyway V1~V19, 21개 테이블 + flyway_schema_history)
+## 5. 데이터 모델 (Flyway V1~V20, 21개 테이블 + flyway_schema_history)
 
 기준 다이어그램 `산출물/08_ERD/erd.dot`, 설계 근거 `산출물/08_ERD/exchange-schema-design.md`. 규칙은 `erd-conventions` 스킬.
 
@@ -181,8 +181,9 @@ description: 맞자리의 현재 유효한 서비스 개요·확정 교환 규�
 - **V16**: `users.password_login_enabled`(일반 가입 1, 소셜 가입 0, 백필은 `social_account` 보유자 0)와 `social_account` UNIQUE(user_id, provider)(사용자당 제공자 1개). 재실행 가능한 프로시저 패턴, 파괴적 단계 없음. 다음 마이그레이션은 V17.
 - **V17**: `users.withdrawn_at` DATETIME(6) NULL 추가(인덱스·CHECK·백필 없음, 재실행 가능한 프로시저 패턴, 파괴적 단계 없음). 익명화 값은 서비스가 같은 트랜잭션에서 쓴다. 다음 마이그레이션은 V18.
 - **V18**: `users.trust_score` 컬럼 제거(폐기된 신뢰도 점수, 가입 때 0.0만 저장되던 값). 재실행 가능한 프로시저이며 컬럼이 있을 때만 DROP한다. 값은 복구되지 않고 되돌리기는 롤포워드만 가능하다. 엔티티 필드와 `/api/users/me`의 `trustScore`도 함께 없앴다. 테이블 수 20 그대로.
+- **V20**: `performance_edit_proposal.session_changes`(JSON NULL, 공연 수정 제안의 회차 변경 목록 ADD/CHANGE/REMOVE). 테이블 수는 그대로다.
 - **V19**: `email_verification`(가입 전 이메일 인증번호: PK email, code_hash HMAC-SHA256, attempts, sent_at, expires_at). users와 FK 없음, 가입 성공 시 행 삭제(1회용). 재실행 가능한 프로시저 패턴, 파괴적 단계 없음.
-- **다음**: V20부터. 현재 계획된 스키마 변경은 없다(7일 경과 알림은 보류).
+- **다음**: V21부터. 현재 계획된 스키마 변경은 없다(7일 경과 알림은 보류).
 
 ## 6. API 요약
 
@@ -196,7 +197,7 @@ description: 맞자리의 현재 유효한 서비스 개요·확정 교환 규�
 | 소셜 로그인 | `GET /api/auth/social/providers`(활성 제공자, 인증 불필요), `GET /api/auth/social/{google\|kakao\|naver}/authorize`(302, state 쿠키 `ss_oauth`), `GET .../{provider}/callback`(항상 302: 성공 `/auth/callback#code=`, 실패 `/login?socialError=`), `POST /api/auth/social/exchange {code}`(→ TokenResponse, 일회용 60초, 정지 재검사). IP당 분당 30회(429 `SOCIAL_RATE_LIMITED`) |
 | 공연 | `GET /api/performances`(제목 검색·페이지, asOf로 기준 시각 고정)·`/{id}`·`/lookup`(링크 중복 확인), `POST /api/performances` |
 | 공연 포스터 | `GET /api/performances/{id}/poster` → `{posterUrl}`(로그인 필요, 없으면 null, 공연 없으면 404). 링크 미리보기 응답에도 `posterUrl` 추가. 실패·제한·스위치 꺼짐은 오류 없이 null |
-| 회차 날짜 후보 | `GET /api/performances/preview` 응답의 `sessionCandidates`(`[{date, time:null}]`, 항상 배열, 공연 기간 2일 이하일 때만 날짜. `time`은 지금 항상 null이며 AI 상세정보 출처가 채울 자리) |
+| 회차 날짜 후보 | `GET /api/performances/preview` 응답의 `sessionCandidates`(`[{date, time:null}]`, 항상 배열, 공연 기간이 100일 이하일 때 첫날부터 마지막 날까지 모든 날짜. `time`은 지금 항상 null이며 AI 상세정보 출처가 채울 자리) |
 | 티켓 | `POST /api/tickets {sessionId, zone, row, col}`, `GET /api/tickets/me`, `DELETE /api/tickets/{id}` |
 | 교환 요청 | `POST /api/exchange/requests {ticketId, wantSessions[{sessionId,priority}], ranges[{zone,rowFrom,rowTo,colFrom,colTo,extraType,extraAmount}]}`, `GET .../me`, `PATCH`·`DELETE .../{id}`, `GET .../{id}/candidates` |
 | 매칭 | `POST /api/exchange/requests/{id}/proposals {targetRequestId}`, `POST /api/exchange/matches/{id}/reserve`(예약 제안)·`reserve/accept`(예약 수락)·`reserve/decline`(예약 제안 거절, 제안받은 쪽)·`reserve/withdraw`(제안 철회, 제안자)·`unreserve`(예약 취소)·`complete`(교환 수락)·`reject`·`cancel`, `GET /api/exchange/matches/me?role=SENT\|RECEIVED\|ALL&status&page&size`, `GET /api/exchange/matches/{id}` |

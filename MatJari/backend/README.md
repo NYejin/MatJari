@@ -91,7 +91,7 @@
 
 ### 회차 날짜 후보 (sessionCandidates, 2026-10-13, `feature/session-prefill`, DB 변경 없음)
 
-- 응답 `sessionCandidates`는 `[{date:"yyyy-MM-dd", time:null}]`이며 항상 배열이다(없으면 `[]`). 공연 기간(`periodStart`·`periodEnd`)의 시작·종료가 모두 있고 시작~종료가 **2일 이하**(시작·종료 포함, 상수 `PerformancePreviewResponse.MAX_PERIOD_DAYS_FOR_CANDIDATES`=2)일 때만 그 날짜들을 담는다. 3일 이상, 기간 없음, 시작>종료면 빈 배열이다(회차 수를 날짜로 알 수 없다).
+- 응답 `sessionCandidates`는 `[{date:"yyyy-MM-dd", time:null}]`이며 항상 배열이다(없으면 `[]`). 공연 기간(`periodStart`·`periodEnd`)의 시작·종료가 모두 있고 시작~종료가 **100일 이하**(시작·종료 포함, 상수 `PerformancePreviewResponse.MAX_PERIOD_DAYS_FOR_CANDIDATES`=100)일 때 첫날부터 마지막 날까지 모든 날짜를 담는다. 100일 초과, 기간 없음, 시작>종료면 빈 배열이다(2026-10-14에 2일 이하에서 확대).
 - `time`은 지금 항상 null이다. 세 사이트의 회차 시각은 Ajax라 읽지 못하며, 나중에 AI 등 상세정보 출처가 붙으면 같은 필드를 채워 내려 주도록 구조만 열어 두었다(구현 없음).
 - 생성은 `PerformancePreviewResponse.ok`가 `candidatesFromPeriod`로 한다. 실패·NO_INFO 응답(`empty`)은 항상 빈 배열이다.
 - 새 외부 요청은 없다. 기존 파싱 결과의 기간으로 계산하므로 SSRF 규칙·속도 제한·캐시는 그대로다. 포스터 스위치가 꺼져 `posterUrl`만 null이 돼도 후보는 유지된다(`withoutPoster`).
@@ -1127,6 +1127,6 @@ docker rm -f matjari-tmp-match
 8. (완료, 2026-10-13, 병합됨) 예약 제안·예약 수락·채팅 알림(V15), 벨 위치(데스크톱은 '내 매칭' 오른쪽). 예약 버튼은 채팅 화면에만 있다.
 9. (완료, 2026-10-13, `feature/withdraw`, V17, 병합됨) 회원탈퇴·개인정보처리방침·푸터. 다음 요청(미착수): AI 상세정보 읽기로 회차 시각 채우기(구조만 열림). 7일 경과 알림은 보류(2026-10-13). 회원탈퇴 후속: 정지 중 제한 로그인, 소셜 전용 계정 재인증, 인증 사진 정리 작업.
 10. (완료, 2026-10-13, `feature/profile-edit`, V16) 마이페이지 닉네임 수정·소셜 계정 연결·해제.
-11. (완료, 2026-10-13, `feature/session-prefill`, DB 변경 없음, 병합됨) 회차 날짜 미리 채우기(`sessionCandidates`, 공연 기간 2일 이하만 날짜). 시각은 직접 입력이다.
+11. (완료, 2026-10-13, `feature/session-prefill`, DB 변경 없음, 병합됨) 회차 날짜 미리 채우기(`sessionCandidates`, 공연 기간 100일 이하의 모든 날짜 — 2026-10-14에 2일 이하에서 확대). 시각은 직접 입력이다.
 12. (완료, 2026-10-13, `feature/remove-trust-score`, V18, 미커밋) 폐기된 신뢰도 점수 컬럼 제거(`users.trust_score`, 응답 `trustScore`).
 13. (완료, 2026-10-13, `feature/email-verification`, V19) 가입 전 이메일 인증번호(`email_verification`, `POST /api/auth/signup/email-code`, 가입 요청의 `emailCode`). 메일은 `MATJARI_MAIL_MODE=log`(개발)·`smtp`(운영, `SPRING_MAIL_*`)이고 운영에서 log 모드면 기동을 거부한다. 다음 마이그레이션은 V20.

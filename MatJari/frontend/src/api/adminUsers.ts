@@ -116,6 +116,7 @@ export const ADMIN_USER_CODE_MESSAGES: Record<string, string> = {
   TARGET_WITHDRAWN: "이미 탈퇴한 사용자예요. 화면을 새로 불러와 주세요.",
   CANNOT_PROMOTE_SUSPENDED: "이용 정지 중인 사용자는 관리자로 올릴 수 없어요. 정지를 먼저 해제해 주세요.",
   SANCTION_ALREADY_ACTIVE: "이미 이용 정지 중인 사용자예요.",
+  CANNOT_WITHDRAW_SELF: "자기 자신은 강제 탈퇴시킬 수 없어요.",
 };
 
 export const ACTION_LABEL: Record<string, string> = {
@@ -125,10 +126,9 @@ export const ACTION_LABEL: Record<string, string> = {
   PERFORMANCE_SESSIONS: "공연 회차 수정",
   PERFORMANCE_ZONES: "공연 구역 수정",
   USER_SUSPEND: "이용 정지",
-  UNSUSPEND: "정지 해제",
   USER_UNSUSPEND: "정지 해제",
-  ROLE_CHANGE: "역할 변경",
-  FORCE_WITHDRAW: "강제 탈퇴",
+  USER_ROLE_CHANGE: "역할 변경",
+  USER_FORCE_WITHDRAW: "강제 탈퇴",
 };
 
 export const TARGET_TYPE_LABEL: Record<string, string> = {

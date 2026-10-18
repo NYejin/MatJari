@@ -8,6 +8,9 @@ const MENUS = [
   { to: "/admin/reports", title: "신고 처리", desc: "사용자 신고와 채팅 근거를 확인하고 처리해요." },
   { to: "/admin/sanctions", title: "이용 정지 관리", desc: "이용 정지 중인 사용자를 확인하고 해제해요." },
   { to: "/admin/blocks", title: "차단 현황", desc: "사용자 간 차단 현황을 확인해요." },
+  { to: "/admin/performances", title: "공연 관리", desc: "공연을 내리거나 정보·회차·구역을 고쳐요." },
+  { to: "/admin/users", title: "이용자 관리", desc: "이용자를 검색하고 정지·역할 변경·강제 탈퇴를 처리해요." },
+  { to: "/admin/logs", title: "조치 기록", desc: "관리자가 한 조치의 기록을 확인해요." },
 ] as const;
 
 export default function AdminDashboardPage() {

@@ -10,6 +10,8 @@ import {
   zoneNameError,
   type ZoneRow,
 } from "../api/zones";
+import { polygonsBox } from "../api/zoomMath";
+import ZoomableSeatmap from "./ZoomableSeatmap";
 import { button, input, ui } from "./ui";
 
 // 공연 등록 2단계의 "구역 확인" — 이름 수정·삭제·직접 추가와 (모양이 있으면) 작은 SVG 미리보기.
@@ -36,6 +38,8 @@ export default function ZoneEditor({ rows, aspect, onChange, disabled = false, s
   const errors = validateZoneRows(rows);
   const shaped = rows.filter((r) => polygonPoints(r.shapePolygons).length > 0);
   const height = previewHeight(aspect);
+  const activeRow = shaped.find((r) => r.id === active);
+  const activeBox = activeRow ? polygonsBox(activeRow.shapePolygons) : null;
 
   const add = (e: FormEvent) => {
     e.preventDefault();
@@ -70,13 +74,7 @@ export default function ZoneEditor({ rows, aspect, onChange, disabled = false, s
     <div className="flex flex-col gap-3">
       {shaped.length > 0 && (
         <div className="flex flex-col gap-1">
-          <svg
-            viewBox={`0 0 1000 ${height}`}
-            role="img"
-            aria-label={previewLabel}
-            className="max-h-80 w-full max-w-full rounded-[10px] border border-gray-300 bg-gray-50"
-            preserveAspectRatio="xMidYMid meet"
-          >
+          <ZoomableSeatmap width={1000} height={height} label={previewLabel} focusBox={activeBox} focusKey={active}>
             {shaped.map((r) => {
               const on = r.id === active;
               return polygonPoints(r.shapePolygons).map((pts, i) => (
@@ -84,8 +82,9 @@ export default function ZoneEditor({ rows, aspect, onChange, disabled = false, s
                   key={`${r.id}-${i}`}
                   points={pts}
                   strokeLinejoin="round"
+                  vectorEffect="non-scaling-stroke"
                   className={on ? "fill-accent-100 stroke-gray-900" : "fill-primary-50 stroke-primary-700"}
-                  strokeWidth={on ? 6 : 3}
+                  strokeWidth={on ? 3 : 1.5}
                   fillOpacity={0.85}
                 />
               ));
@@ -113,8 +112,8 @@ export default function ZoneEditor({ rows, aspect, onChange, disabled = false, s
                 </text>
               );
             })}
-          </svg>
-          <p className={ui.hint}>목록의 구역 이름 옆 &lsquo;위치 보기&rsquo;를 누르면 지도에서 진하게 표시돼요. 이름과 위치가 맞는지 확인하세요.</p>
+          </ZoomableSeatmap>
+          <p className={ui.hint}>목록의 구역 이름 옆 &lsquo;위치 보기&rsquo;를 누르면 지도에서 진하게 표시되고 그 구역으로 확대돼요. 지도는 +/− 버튼이나 두 손가락으로 확대하고 드래그로 옮길 수 있어요. 이름과 위치가 맞는지 확인하세요.</p>
         </div>
       )}
 

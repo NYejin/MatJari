@@ -52,6 +52,8 @@ services:
       MATJARI_SOCIAL_KAKAO_CLIENT_SECRET: ${SOCIAL_KAKAO_CLIENT_SECRET:-}
       MATJARI_SOCIAL_NAVER_CLIENT_ID: ${SOCIAL_NAVER_CLIENT_ID:-}
       MATJARI_SOCIAL_NAVER_CLIENT_SECRET: ${SOCIAL_NAVER_CLIENT_SECRET:-}
+      # AI(공연 상세 이미지 읽기, 구현 예정): 값이 비어 있으면 AI 기능은 꺼진다. 키는 .env 에만 둔다(.env.example 참고)
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       # 가입 이메일 인증번호. 접속 주소가 localhost 가 아니면 log 모드는 기동이 거부된다 → smtp 로 설정
       MATJARI_MAIL_MODE: ${MAIL_MODE:-log}
       MATJARI_MAIL_FROM: ${MAIL_FROM:-}

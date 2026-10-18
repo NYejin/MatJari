@@ -97,7 +97,7 @@ class DetailExtractionServiceTest {
         fetcher = mock(DetailImageFetcher.class);
         when(fetcher.fetch(anyString(), any())).thenReturn(List.of(new DetailImageFetcher.DetailImage("u", png(1000, 3000), 1000, 3000)));
         Clock clock = Clock.fixed(Instant.parse("2026-10-18T03:00:00Z"), ZoneId.of("Asia/Seoul"));
-        service = new DetailExtractionService(new SourceKeyResolver(), preview, parser, fetcher, new ImageSlicer(props), fake,
+        service = new DetailExtractionService(new SourceKeyResolver(), preview, parser, fetcher, new ImageSlicer(props), new ShapeSegmenter(), fake,
                 new AiUsageLimiter(clock, props), props, clock);
     }
 

@@ -90,6 +90,7 @@ public class DetailExtractionService {
     private final SessionTextParser textParser;
     private final DetailImageFetcher imageFetcher;
     private final ImageSlicer slicer;
+    private final ShapeSegmenter segmenter;
     private final DetailExtractor extractor;
     private final AiUsageLimiter limiter;
     private final AiProperties properties;
@@ -98,12 +99,13 @@ public class DetailExtractionService {
 
     public DetailExtractionService(SourceKeyResolver sourceKeyResolver, PerformancePreviewService previewService,
                                    SessionTextParser textParser, DetailImageFetcher imageFetcher, ImageSlicer slicer,
-                                   DetailExtractor extractor, AiUsageLimiter limiter, AiProperties properties, Clock clock) {
+                                   ShapeSegmenter segmenter, DetailExtractor extractor, AiUsageLimiter limiter, AiProperties properties, Clock clock) {
         this.sourceKeyResolver = sourceKeyResolver;
         this.previewService = previewService;
         this.textParser = textParser;
         this.imageFetcher = imageFetcher;
         this.slicer = slicer;
+        this.segmenter = segmenter;
         this.extractor = extractor;
         this.limiter = limiter;
         this.properties = properties;
@@ -243,7 +245,10 @@ public class DetailExtractionService {
                     }
                     log.info("AI 좌석표 구간: 이미지 {}, 조각 {}~{}/{}, 합친 크기 {}x{}, 사용 크기 {}x{}", loc.imageIndex(), a, b, sl.size(),
                             merged.width(), merged.height(), target.width(), target.height());
-                    shapes = extractor.second(target.jpeg(), names);
+                    shapes = labelShapes(target, names); // 실제 픽셀 윤곽(ShapeSegmenter) + AI가 고른 번호
+                    if (shapes.isEmpty()) {
+                        shapes = extractor.second(target.jpeg(), names);
+                    }
                     if (!shapeQualityOk(names, shapes)) { // 좌표 기준이 어긋나거나 형식이 틀린 응답이 가끔 오므로 한 번만 다시 시도한다
                         log.info("AI 2차 모양 품질 미달, 한 번 다시 시도");
                         shapes = extractor.second(target.jpeg(), names);
@@ -307,6 +312,102 @@ public class DetailExtractionService {
             cacheIfUseful(key, r);
         }
         return r;
+    }
+
+    /**
+     * 좌석표에서 색 덩어리(도형 후보)를 찾아 AI가 구역 이름마다 고른 번호로 모양을 만든다. 결과가 없거나 쓸 수 없으면(AI 미지원·후보 3개 미만·
+     * 구역의 30% 미만만 연결됨) 빈 목록이라 호출자가 AI 좌표 방식(2차)으로 넘어간다.
+     */
+    private List<DetailExtractor.RawZone> labelShapes(ImageSlicer.SliceImage target, List<String> names) {
+        try {
+            ShapeSegmenter.Result seg = segmenter.segment(target.jpeg());
+            if (seg == null || seg.segments().size() < 3) {
+                return List.of();
+            }
+            List<DetailExtractor.RawLabel> labels = extractor.label(target.jpeg(), seg.annotatedJpeg(), names, seg.segments().size());
+            if (labels == null) {
+                return List.of();
+            }
+            List<DetailExtractor.RawZone> zones = dropTinyOutliers(shapesFromLabels(labels, seg));
+            log.info("AI 번호 방식: 도형 후보 {}개, 연결된 구역 {}개 / 이름 {}개", seg.segments().size(), zones.size(), names.size());
+            if (validShapeRatio(names, zones) < 0.3) {
+                return List.of();
+            }
+            return zones;
+        } catch (RuntimeException e) {
+            log.info("AI 번호 방식 실패, 좌표 방식으로 대체: {}", e.getClass().getSimpleName());
+            return List.of();
+        }
+    }
+
+    /**
+     * 조각 넓이가 전체 조각 넓이 중앙값의 20% 미만인 것(범례 막대·글자 조각이 구역으로 섞인 경우)을 버린다.
+     * 조각이 남지 않는 구역은 목록에서 빠진다(이름은 1차 목록으로 유지).
+     */
+    static List<DetailExtractor.RawZone> dropTinyOutliers(List<DetailExtractor.RawZone> zones) {
+        List<Double> areas = new ArrayList<>();
+        for (DetailExtractor.RawZone z : zones) {
+            for (List<List<Integer>> p : z.polygons()) {
+                areas.add(polygonArea(p));
+            }
+        }
+        if (areas.size() < 5) {
+            return zones;
+        }
+        areas.sort(Double::compare);
+        double min = areas.get(areas.size() / 2) * 0.2;
+        List<DetailExtractor.RawZone> out = new ArrayList<>();
+        for (DetailExtractor.RawZone z : zones) {
+            List<List<List<Integer>>> keep = new ArrayList<>();
+            for (List<List<Integer>> p : z.polygons()) {
+                if (polygonArea(p) >= min) {
+                    keep.add(p);
+                }
+            }
+            if (!keep.isEmpty()) {
+                out.add(new DetailExtractor.RawZone(z.name(), keep));
+            }
+        }
+        return out;
+    }
+
+    private static double polygonArea(List<List<Integer>> p) {
+        double a = 0;
+        for (int i = 0; i < p.size(); i++) {
+            List<Integer> q = p.get(i), r = p.get((i + 1) % p.size());
+            a += (double) q.get(0) * r.get(1) - (double) r.get(0) * q.get(1);
+        }
+        return Math.abs(a) / 2;
+    }
+
+    /** 번호 -> 도형 윤곽(0~1000 정수 좌표)으로 바꾼다. 없는 번호·이미 쓴 번호는 무시하고 구역당 8조각까지만 쓴다. */
+    static List<DetailExtractor.RawZone> shapesFromLabels(List<DetailExtractor.RawLabel> labels, ShapeSegmenter.Result seg) {
+        Map<Integer, ShapeSegmenter.Segment> byId = new LinkedHashMap<>();
+        for (ShapeSegmenter.Segment s : seg.segments()) {
+            byId.put(s.id(), s);
+        }
+        java.util.Set<Integer> used = new java.util.HashSet<>();
+        List<DetailExtractor.RawZone> out = new ArrayList<>();
+        for (DetailExtractor.RawLabel l : labels) {
+            List<List<List<Integer>>> polys = new ArrayList<>();
+            for (Integer id : l.segmentIds() == null ? List.<Integer>of() : l.segmentIds()) {
+                ShapeSegmenter.Segment s = id == null ? null : byId.get(id);
+                if (s == null || polys.size() >= MAX_POLYGONS || !used.add(id)) {
+                    continue;
+                }
+                List<List<Integer>> poly = new ArrayList<>();
+                for (int[] pt : s.pixels()) {
+                    int x = (int) Math.max(0, Math.min(1000, Math.round(pt[0] * 1000.0 / Math.max(1, seg.width() - 1))));
+                    int y = (int) Math.max(0, Math.min(1000, Math.round(pt[1] * 1000.0 / Math.max(1, seg.height() - 1))));
+                    poly.add(List.of(x, y));
+                }
+                polys.add(poly);
+            }
+            if (!polys.isEmpty()) {
+                out.add(new DetailExtractor.RawZone(l.name(), polys));
+            }
+        }
+        return out;
     }
 
     private Response build(List<SessionDto> rule, List<SessionDto> ai, List<ZoneDto> zones, Double aspect,

@@ -43,6 +43,17 @@ public interface DetailExtractor {
     /** 1차: 모든 조각을 한 번에 보내 회차·구역 이름·좌석표 위치를 받는다. */
     FirstPass first(List<Part> parts) throws ExtractionFailedException;
 
+    /** 이름 하나에 해당하는 도형 조각 번호들(ShapeSegmenter 가 매긴 번호). */
+    record RawLabel(String name, List<Integer> segmentIds) {}
+
+    /**
+     * 원본 좌석표와 도형 후보에 번호를 그린 이미지를 함께 보내 구역 이름마다 해당하는 번호를 받는다. 기본 구현은 null(지원 안 함).
+     */
+    default List<RawLabel> label(byte[] originalJpeg, byte[] numberedJpeg, List<String> names, int segmentCount)
+            throws ExtractionFailedException {
+        return null;
+    }
+
     /** 합친 이미지를 띠로 나눠 보내 좌석 배치도가 있는 띠 범위를 찾는다. 찾지 못하면 null(호출자는 합친 이미지를 그대로 쓴다). 기본 구현은 null. */
     default StripRange locate(List<Part> strips) throws ExtractionFailedException {
         return null;

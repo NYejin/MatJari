@@ -28,6 +28,8 @@ export interface PerformanceDetail {
   zones?: PerformanceZone[];
   /** 구역 지도 가로/세로 비율(없을 수 있음) */
   seatmapAspect?: number | null;
+  /** 관리자가 내린 공연이면 true (새 티켓 등록·교환 요청 불가) */
+  hidden?: boolean;
   createdAt: string;
 }
 

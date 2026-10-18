@@ -30,6 +30,8 @@ import AdminReportsPage from "./pages/AdminReportsPage";
 import AdminReportDetailPage from "./pages/AdminReportDetailPage";
 import AdminSanctionsPage from "./pages/AdminSanctionsPage";
 import AdminBlocksPage from "./pages/AdminBlocksPage";
+import AdminPerformancesPage from "./pages/AdminPerformancesPage";
+import AdminPerformanceDetailPage from "./pages/AdminPerformanceDetailPage";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import TermsOfServicePage from "./pages/TermsOfServicePage";
 
@@ -77,6 +79,8 @@ export default function App() {
               <Route path="/admin/reports/:id" element={<AdminReportDetailPage />} />
               <Route path="/admin/sanctions" element={<AdminSanctionsPage />} />
               <Route path="/admin/blocks" element={<AdminBlocksPage />} />
+              <Route path="/admin/performances" element={<AdminPerformancesPage />} />
+              <Route path="/admin/performances/:id" element={<AdminPerformanceDetailPage />} />
             </Route>
           </Route>
         </Route>

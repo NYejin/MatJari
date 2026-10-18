@@ -109,19 +109,30 @@ export default function PerformanceDetailPage() {
     const { detail } = state;
     content = (
       <>
+        {detail.hidden && (
+          <p className={ui.warning} role="status">
+            내려간 공연이에요. 새 티켓 등록과 교환 요청은 할 수 없어요.
+          </p>
+        )}
         <InfoSection detail={detail} />
         <SessionsSection detail={detail} />
         <ZoneMapSection detail={detail} />
-        <EditProposalSection detail={detail} />
+        {!detail.hidden && <EditProposalSection detail={detail} />}
         <section className={`${ui.card} flex flex-col gap-4`} aria-labelledby="perf-coming-title">
           <h2 id="perf-coming-title" className={ui.sectionTitle}>
             티켓
           </h2>
-          <p className={ui.body}>이 공연의 티켓을 가지고 있다면 등록하고, 바꾸고 싶은 자리를 정해 상대를 찾아보세요.</p>
+          <p className={ui.body}>
+            {detail.hidden
+              ? "내려간 공연이라 새 티켓을 등록할 수 없어요. 이미 등록한 티켓과 진행 중인 교환은 내 티켓·내 매칭에서 확인해 주세요."
+              : "이 공연의 티켓을 가지고 있다면 등록하고, 바꾸고 싶은 자리를 정해 상대를 찾아보세요."}
+          </p>
           <div className="flex flex-wrap gap-2">
-            <Link to={`/tickets/new?performanceId=${detail.id}`} className={linkButton.solid}>
-              이 공연 티켓 등록
-            </Link>
+            {!detail.hidden && (
+              <Link to={`/tickets/new?performanceId=${detail.id}`} className={linkButton.solid}>
+                이 공연 티켓 등록
+              </Link>
+            )}
             <Link to="/tickets" className={linkButton.outline}>
               내 티켓
             </Link>

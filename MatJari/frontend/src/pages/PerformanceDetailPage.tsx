@@ -7,6 +7,7 @@ import type { PerformanceDetail } from "../types/performance";
 import { button, input, linkButton, liveRegionClass, ui } from "../components/ui";
 import TextField from "../components/TextField";
 import PosterImage from "../components/PosterImage";
+import ZoneMap, { hasShapedZone } from "../components/ZoneMap";
 import {
   EDIT_ERROR_MESSAGES,
   EDIT_REASON_MAX,
@@ -110,6 +111,7 @@ export default function PerformanceDetailPage() {
       <>
         <InfoSection detail={detail} />
         <SessionsSection detail={detail} />
+        <ZoneMapSection detail={detail} />
         <EditProposalSection detail={detail} />
         <section className={`${ui.card} flex flex-col gap-4`} aria-labelledby="perf-coming-title">
           <h2 id="perf-coming-title" className={ui.sectionTitle}>
@@ -191,6 +193,20 @@ function InfoSection({ detail }: { detail: PerformanceDetail }) {
 }
 
 // ---- 회차 (읽기 전용) ----
+
+function ZoneMapSection({ detail }: { detail: PerformanceDetail }) {
+  const zones = detail.zones ?? [];
+  if (!hasShapedZone(zones)) return null;
+  return (
+    <section className={`${ui.card} flex flex-col gap-3`} aria-labelledby="perf-zonemap-title">
+      <h2 id="perf-zonemap-title" className={ui.sectionTitle}>
+        구역 지도
+      </h2>
+      <ZoneMap zones={zones} aspect={detail.seatmapAspect} />
+      <p className={ui.hint}>AI가 상세 이미지에서 읽은 구역 모양이라 실제와 다를 수 있어요. 지도는 +/− 버튼이나 두 손가락으로 확대하고 드래그로 옮길 수 있어요.</p>
+    </section>
+  );
+}
 
 function SessionsSection({ detail }: { detail: PerformanceDetail }) {
   const sessions = [...detail.sessions].sort((a, b) => compareLocalDateTime(a.startsAt, b.startsAt));

@@ -30,6 +30,8 @@ interface Props {
   /** 이 상자가 보이도록 자동 확대·이동한다(focusKey가 바뀔 때만) */
   focusBox?: Box | null;
   focusKey?: unknown;
+  /** 드래그·핀치가 아닌 짧은 탭(클릭)이 끝난 화면 좌표. 구역 선택처럼 도형을 누르는 동작에 쓴다 */
+  onTap?: (clientX: number, clientY: number) => void;
   children: ReactNode;
 }
 
@@ -37,7 +39,7 @@ const DOUBLE_TAP_MS = 320;
 const TAP_SLOP_PX = 10;
 const toolBtn = `${button.outline} !px-0 min-w-11 aria-disabled:cursor-not-allowed aria-disabled:opacity-60`;
 
-export default function ZoomableSeatmap({ width: W, height: H, label, focusBox, focusKey, children }: Props) {
+export default function ZoomableSeatmap({ width: W, height: H, label, focusBox, focusKey, onTap, children }: Props) {
   const [view, setView] = useState<ZoomView>(FULL_VIEW);
   const viewRef = useRef<ZoomView>(FULL_VIEW);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -174,6 +176,7 @@ export default function ZoomableSeatmap({ width: W, height: H, label, focusBox, 
     if (pointers.current.size > 0) return;
     const t = tap.current;
     tap.current = null;
+    if (!canceled && t && !t.moved) onTap?.(e.clientX, e.clientY);
     // 마우스는 onDoubleClick, 손가락·펜은 연속 두 번의 짧은 탭으로 맞춤↔2.5배
     if (canceled || !t || t.moved || e.pointerType === "mouse") {
       lastTap.current = null;

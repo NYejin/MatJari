@@ -6,11 +6,11 @@ import { ROW_COL_MAX, ZONE_MAX } from "../api/seat";
 import { getErrorStatus, performancesApi } from "../api/performances";
 import { ticketsApi } from "../api/tickets";
 import TextField from "../components/TextField";
-import ZoneSelectField from "../components/ZoneSelectField";
+import ZonePickField from "../components/ZonePickField";
 import { button, input, linkButton, liveRegionClass, ui } from "../components/ui";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { usePagedList } from "../hooks/usePagedList";
-import { useZoneNames } from "../hooks/useZoneNames";
+import { useZones } from "../hooks/useZones";
 import type { PerformanceDetail, PerformanceSummary } from "../types/performance";
 
 // FR-03 티켓 등록 (보호 라우트 /tickets/new[?performanceId=&sessionId=]).
@@ -174,7 +174,7 @@ function TicketForm({ performanceId, presetSessionId, canChangePerformance, onCh
   const [detailState, setDetailState] = useState<DetailState>({ status: "loading" });
   const [retryKey, setRetryKey] = useState(0);
   /** 공연에 등록된 구역 목록(없거나 실패하면 null → 텍스트 입력) */
-  const zoneNames = useZoneNames(performanceId);
+  const zoneData = useZones(performanceId);
   const [sessionId, setSessionId] = useState<number | null>(presetSessionId);
   const [zone, setZone] = useState("");
   const [row, setRow] = useState("");
@@ -418,11 +418,11 @@ function TicketForm({ performanceId, presetSessionId, canChangePerformance, onCh
           내 좌석
         </h2>
         <p className={ui.hint}>티켓에 적힌 그대로 입력해주세요. 열·번 끝의 ‘열’, ‘번’은 빼도 돼요.</p>
-        <ZoneSelectField
+        <ZonePickField
           id={FIELD_ID.zone}
           label="구역"
           value={zone}
-          zoneNames={zoneNames}
+          zoneData={zoneData}
           onValueChange={(v) => {
             setZone(v);
             clear("zone");

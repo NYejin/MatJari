@@ -25,6 +25,7 @@ import SessionDateTimePicker from "../components/SessionDateTimePicker";
 import TimeSelect from "../components/TimeSelect";
 import PosterImage from "../components/PosterImage";
 import ZoneEditor, { zoneNameInputId } from "../components/ZoneEditor";
+import ZoneMap, { hasShapedZone } from "../components/ZoneMap";
 import { button, linkButton, liveRegionClass, ui } from "../components/ui";
 
 // FR-02 공연 등록 (보호 라우트 /performances/new) — 단계형:
@@ -818,7 +819,7 @@ export default function PerformanceRegisterPage() {
             구역 확인
           </h3>
           <p className={ui.hint}>
-            티켓 등록·교환 조건에서 구역을 목록으로 고를 수 있게 해 줘요. 선택 사항이고, 비워도 등록할 수 있어요.
+            티켓 등록·교환 조건에서 구역 지도를 눌러 구역을 고를 수 있게 해 줘요. 선택 사항이고, 비워도 등록할 수 있어요.
           </p>
           <ZoneEditor rows={zoneRows} aspect={seatmapAspect} onChange={(r) => { setZoneRows(r); setZoneError(undefined); }} serverError={zoneError} />
         </section>
@@ -866,6 +867,12 @@ export default function PerformanceRegisterPage() {
             )}
           </dd>
         </dl>
+        {hasShapedZone(toPayloadZones(zoneRows)) && (
+          <div className="flex flex-col gap-1.5">
+            <span className={ui.label}>구역 지도</span>
+            <ZoneMap zones={toPayloadZones(zoneRows)} aspect={seatmapAspect} />
+          </div>
+        )}
         {(aiSessionsShown || (aiZonesShown && zoneRows.length > 0)) && <p className={ui.notice}>{AI_NOTICE}</p>}
 
         {submitError && (

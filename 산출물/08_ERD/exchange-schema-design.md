@@ -1,7 +1,9 @@
-# 교환 도메인 스키마 설계안 (V3~V18 구현 완료; V8 한 명 예약 방식은 10절(V15로 '제안 -> 상대 수락'으로 대체), 알림 V10은 1.13절, 차단·신고·이용 정지 V13은 12절, 소셜 로그인 계정 V14는 13절, 예약 제안·알림 6종 V15는 14절, 비밀번호 로그인 가능 여부·사용자당 제공자 1개 V16은 15절, 회원 탈퇴 시각 V17은 16절, 신뢰도 점수 컬럼 제거 V18은 17절)
+# 교환 도메인 스키마 설계안 (V3~V21 구현 완료; V21 공연 구역 목록·좌석표 비율은 19절; V8 한 명 예약 방식은 10절(V15로 '제안 -> 상대 수락'으로 대체), 알림 V10은 1.13절, 차단·신고·이용 정지 V13은 12절, 소셜 로그인 계정 V14는 13절, 예약 제안·알림 6종 V15는 14절, 비밀번호 로그인 가능 여부·사용자당 제공자 1개 V16은 15절, 회원 탈퇴 시각 V17은 16절, 신뢰도 점수 컬럼 제거 V18은 17절)
 
 작성 2026-10-08 / 브랜치 `docs/exchange-schema-design` / 상태: **V3~V18 구현 완료**(설계 확정 2026-10-08 사용자 답변 반영, 남은 확인 필요는 6절 끝). 현재 DB는 V1~V18(20개 테이블)이고 **다음 마이그레이션은 V19**이다. V18은 `users.trust_score` 컬럼 제거(17절)다. V17은 `users.withdrawn_at`(16절)이다. V15는 예약 제안 2컬럼과 알림 type 6종(14절)이다. V16은 `users.password_login_enabled`와 `social_account`의 사용자당 제공자 1개 유니크(15절)다. V12는 관리자 처리 대상 두 테이블(11절), V13은 차단·신고·이용 정지 세 테이블(12절), V14는 소셜 로그인 계정 `social_account`(13절)다. 교환 수락→교환 완료(`EXCHANGED`+새 티켓+`exchange_history`)는 V9로 구현 완료. `user_block`·`abuse_report`·`user_sanction`은 V13으로 구현 완료(1.6절, 12절). 채팅(`chat_message`·`chat_read_state`)은 V11로 구현 완료(1.9절). 알림(`notification`)은 V10으로 구현 완료(1.13절). 아래 인용문은 날짜순 구현 기록이며, 본문 중 '(대체됨)'·취소선·V4/V5 시점 표기는 이력이고 현행 기준은 9절(V6·V7)·10절(V8)·1.7절 표다.
 
+> **구현 완료 (2026-10-18, `feature/ai-extract-backend`, V21)**: 공연 구역 목록 `performance_zone`과 `performance.seatmap_aspect`는 **V21(`V21__performance_zone.sql`)** 로 구현됐고 현재 DB는 V1~V21(22개 테이블)이다. 다음 마이그레이션은 V22다. 자세한 컬럼·제약·인덱스는 19절.
+>
 > **구현 상태 (2026-10-08, 브랜치 `feature/ticket-register`, 미커밋)**: 1.1절 ticket 변경은 **V3로 구현 완료**(`V3__ticket_seat_columns.sql`, ticket 행이 있으면 SIGNAL 가드로 실패, 생성 컬럼 `active_flag`, `uk_ticket_active_seat`, `idx_ticket_user_status`; 정규화 키는 서비스 `SeatKeyNormalizer`가 NFKC·공백 제거·대문자·앞 0 제거·끝의 '열'/'번' 제거로 만든다). 티켓 등록 API(`POST /api/tickets`, `GET /api/tickets/me`, `DELETE /api/tickets/{id}`)도 구현됨. V4 희망 쪽은 아래 메모대로 구현 완료다.
 >
 > **구현 상태 갱신 (2026-10-08, 브랜치 `feature/exchange-candidates`, 미커밋)**: **2절 후보 조회 구현 완료** — `GET /api/exchange/requests/{id}/candidates?page&size`(기본 20, 최대 100), `ExchangeCandidateRepository`(네이티브 SQL)·`ExchangeCandidateService`. 스키마 변경 없음(V4 인덱스로 충분). 2절 SQL과 다른 점은 2절 끝의 '구현 반영' 참고(STRAIGHT_JOIN, 정렬, **차단·같은 쌍 채팅·예약 잠금 제외는 V5 테이블이 없어 미적용** — 확장 지점 `additionalExclusions()`; **V5(위 갱신)에서 같은 쌍 채팅·예약 잠금은 적용, 차단만 미적용**). X–X·NEG–NEG 성립은 사용자 미확정 기본값이었으나 2026-10-09 7차 답변으로 성립 확정.
@@ -1238,3 +1240,16 @@ CHECK 3개 (V8 `ck_exchange_match_reserved`와 같은 안전망 성격, NULL 통
 - 인덱스·제약: PK(email), `idx_email_verification_expires`(expires_at, 만료 행 정리), `ck_email_verification_attempts`(attempts >= 0). `users`와 FK가 없어 갱신 컬럼(attempts)이 있어도 FK 교착 함정과 무관하다.
 - 수명: 가입 성공 시 같은 트랜잭션에서 DELETE(1회용, 롤백되면 되살아남). 만료된 행은 코드를 보낼 때 1시간 이상 지난 것만 쓸어 낸다(스케줄러 없음).
 - 규칙: 재실행 가능한 프로시저 패턴, 파괴적 단계 없음. 되돌리기는 롤포워드(DROP). 다음 마이그레이션은 V20.
+
+## 19. V21: 공연 구역 목록·좌석표 비율 (2026-10-18, `V21__performance_zone.sql`, `feature/ai-extract-backend`)
+
+- 목적: 공연 등록 때 AI가 상세 이미지에서 읽은 구역 이름·모양을 사용자가 확인·수정한 목록으로 공연과 함께 저장한다. 티켓 등록·교환 조건에서 구역을 드롭다운으로 고르는 데 쓰고, 목록이 없는 공연은 기존처럼 텍스트로 입력한다. 원본 이미지는 저장하지 않는다. 모양은 1단계에서 저장만 하고 2단계에서 SVG 클릭 선택에 쓴다.
+- 테이블 `performance_zone`: `id` PK, `performance_id` BIGINT NN(FK → performance), `name` VARCHAR(30) NN(표시용, 공백 정리 후 1~30자, 기본 collation), `name_key` VARCHAR(50) NN(utf8mb4_bin, `ticket.zone_key`와 같은 타입·길이·collation), `sort_order` SMALLINT NN(>= 0), `shape_polygons` JSON NULL(`[[[x,y],...],...]`, 0~1000 정규화 좌표), `created_at` DATETIME(6) NN. 행은 갱신하지 않는다(목록 교체는 삭제 후 INSERT).
+- 제약·인덱스: `uk_performance_zone_name_key` UNIQUE(name_key, performance_id), `idx_performance_zone_performance`(performance_id, FK 전용 단일 컬럼), `fk_performance_zone_performance`(ON DELETE/UPDATE 미지정, 공연은 삭제하지 않는다). CHECK: `ck_performance_zone_name`(TRIM 후 길이 1 이상), `ck_performance_zone_name_key`(길이 1 이상), `ck_performance_zone_sort`(>= 0), `ck_performance_zone_shape`(JSON 구조만: 배열, 조각 1~8개, 조각마다 배열이고 꼭짓점 3~40개, 저장 크기 16 KiB 이하).
+- 유일 키를 `(name_key, performance_id)`로 둔 이유: performance_id를 선두로 두면 그 유일 키가 FK 인덱스로 쓰이고, 나중에 이름 수정으로 name_key가 UPDATE될 때 FK 인덱스 변경으로 보고 부모 performance 행에 공유 잠금이 걸린다(V5·V7에서 재현한 문제). 그래서 FK 전용 단일 컬럼 인덱스를 따로 둔다.
+- `performance.seatmap_aspect` DECIMAL(6,3) NULL(좌석표 가로/세로 비율, `ck_performance_seatmap_aspect`: NULL이거나 0 초과). 등록 요청의 값이 범위(0 초과 999.999 이하) 밖이면 서버가 버린다.
+- 구역 키 정규화: `name_key`는 서비스(`SeatKeyNormalizer.zoneKey`)가 만든다. DB는 키만 저장하고 검사하지 않는다. 같은 `name_key`는 한 구역으로 합친다(처음 표기 유지, 모양 조각은 이어 붙이고 8개 초과분은 버림). 모양이 규칙에 어긋나면 그 구역의 모양만 null로 버린다(오류 아님). 서버는 목록 밖 구역도 거절하지 않는다(티켓·교환 조건의 `zone_*`은 텍스트이며 FK가 아니다).
+- 잠금: 이 테이블은 티켓 id↑ → 요청 id↑ → 매칭 잠금 사슬 밖이다. 티켓·요청·매칭은 이 테이블을 참조하지 않으며, 쓰기는 공연 등록(또는 관리자 승인) 트랜잭션에서 공연 행 다음에만 한다. 교환 경로는 읽기만 한다.
+- 재실행 가능한 프로시저 패턴(INFORMATION_SCHEMA 가드), 파괴적 단계 없음. 되돌리기는 롤포워드(테이블·컬럼·CHECK 삭제). 테이블 수 21 -> 22.
+- ERD: `산출물/08_ERD/erd.dot`에 `performance_zone` 노드와 `performance -> performance_zone`(1:N), `performance.seatmap_aspect`를 반영했다. ERD.png는 이 환경에 graphviz가 없어 만들지 못했다(DOT 문법만 점검).
+- 다음 마이그레이션은 V22다.

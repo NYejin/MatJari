@@ -1,6 +1,6 @@
 ---
 name: project-knowledge
-description: 맞자리의 현재 유효한 서비스 개요·확정 교환 규칙·기능 목록과 구현 상태·데이터 모델(Flyway V1~V20)·API/화면 요약. 기능 구현이나 설계 질문에 답하기 전에 먼저 참고한다. 결정이 바뀌면 이 문서의 해당 항목을 직접 고친다(이력은 HISTORY.md, 산출물/07_작업일지, wiki/).
+description: 맞자리의 현재 유효한 서비스 개요·확정 교환 규칙·기능 목록과 구현 상태·데이터 모델(Flyway V1~V21)·API/화면 요약. 기능 구현이나 설계 질문에 답하기 전에 먼저 참고한다. 결정이 바뀌면 이 문서의 해당 항목을 직접 고친다(이력은 HISTORY.md, 산출물/07_작업일지, wiki/).
 ---
 
 # 프로젝트 지식 요약
@@ -26,7 +26,7 @@ description: 맞자리의 현재 유효한 서비스 개요·확정 교환 규�
 | Frontend | React + TypeScript + Vite + Tailwind CSS v4 (Tailwind 유틸리티만 사용, 브레이크포인트 640/768/1024px 고정, 브랜드색 primary #8A2BE2 / secondary #BEA886(글자색 금지) / accent #E8A33D) |
 | Backend | Spring Boot 3.3.13(Security 6.3.10) + JPA + Flyway, JWT 인증. WebSocket(STOMP, `/ws`)은 채팅 푸시에 구현됨(커스텀 CONNECT 인증 인터셉터, 사용자 큐만 구독) |
 | Frontend 추가 | `@stomp/stompjs` ^7.3(채팅 화면 전용), `VITE_WS_URL`(없으면 API 주소에서 계산) |
-| DB | MySQL 8.0 (Flyway V1~V20) |
+| DB | MySQL 8.0 (Flyway V1~V21) |
 | 배포 | `MatJari/docker-compose.yml`: mysql · backend · frontend 3개. 시간대 KST(Clock Asia/Seoul, TZ=Asia/Seoul) |
 
 - 이미지 인식 서비스(FastAPI/OpenCV/Tesseract)는 동결로 삭제됐다.
@@ -120,6 +120,12 @@ description: 맞자리의 현재 유효한 서비스 개요·확정 교환 규�
 - 방침 `/privacy`(푸터 링크, 공개) 보유 기간: 계정 정보는 탈퇴 즉시 삭제·익명화, 인증 사진은 처리 끝나면 삭제, 받은 알림은 탈퇴 때 삭제, 채팅·교환 이력·차단·신고·제재는 익명화해 서비스 운영 기간 동안 보관하고 종료 때 파기(자동 파기 스케줄 없음).
 - 상세와 한계 8개: `wiki/decisions/withdraw-privacy-design.md`. 확정 규칙의 기준은 루트 `CLAUDE.md`.
 
+### 3.12 공연 구역 목록·AI 회차·구역 읽기 (V21, 2026-10-18 `feature/ai-extract-backend`)
+- 공연 등록의 선택 필드 `zones[{name, shapePolygons}]`(최대 100개)와 `seatmapAspect`(좌석표 가로/세로 비율, 범위 밖이면 버림)를 `performance_zone`·`performance.seatmap_aspect`에 저장한다. 구역 이름은 공백 정리 후 1~30자(아니면 400 `zones`).
+- **구역 규칙**: 정규화 키(`name_key`, 서비스 `SeatKeyNormalizer.zoneKey`)가 같으면 **한 구역**으로 합친다(처음 표기 유지, 모양 조각은 이어 붙이고 8개 초과분은 버림). 모양이 규칙에 어긋나면 오류가 아니라 그 구역의 모양만 버린다. **서버는 목록 밖 구역을 거절하지 않는다**(티켓·교환 조건의 `zone`은 텍스트 규칙으로만 검사). 목록은 입력 편의다.
+- 조회: `GET /api/performances/{id}/zones` → `{seatmapAspect, zones[{name, shapePolygons}]}`(sortOrder 순, 구역이 없으면 `zones=[]`, 없는 공연 404). 목록이 있는 공연은 티켓 등록·교환 조건에서 구역을 드롭다운으로 고르고, 없으면 텍스트로 입력한다.
+- **AI 읽기**: 등록 2단계의 'AI로 회차·구역 읽기'가 `POST /api/performances/ai-extract`를 부른다. 회차 날짜·시각과 구역 이름·모양을 읽으며, 사용자가 확인·수정한 뒤에만 저장된다(자동 등록 없음). 원본 이미지는 저장하지 않는다. `ANTHROPIC_API_KEY`가 없거나 `matjari.ai.enabled=false`면 규칙 결과만 돌려주고 `aiEnabled=false`다. 상세 이미지 AI 호출은 멜론 상세 이미지가 있을 때만 한다. 제한과 설정은 백엔드 README 'AI 공연 정보 추출' 절.
+
 ## 4. 기능 목록과 구현 상태
 
 | 기능 | 상태 |
@@ -146,16 +152,19 @@ description: 맞자리의 현재 유효한 서비스 개요·확정 교환 규�
 | 관리자 페이지·공연 수정 제안·내 티켓 인증 | 구현 (V12) |
 | 회원탈퇴(모달·확인, 익명화, 진행 중 교환 자동 정리)·개인정보처리방침 `/privacy`·푸터·가입 화면 방침 안내 | 구현 (V17, 병합됨) |
 | 신뢰도 점수 제거(`users.trust_score` 컬럼, 응답 `trustScore`, 마이페이지 표시 삭제) | 구현 (V18, 미커밋) |
+| 공연 구역 목록 저장·조회, 티켓·교환 조건 구역 드롭다운 | 구현 (V21) |
+| AI 회차·구역 읽기(등록 2단계 'AI로 회차·구역 읽기', 사용자 확인 후 저장) | 구현 (읽기 자체는 DB 변경 없음, 결과 저장은 V21 구역 테이블. 키가 없으면 규칙 결과만, 사용자·전체 하루 호출 상한) |
 
-## 5. 데이터 모델 (Flyway V1~V20, 21개 테이블 + flyway_schema_history)
+## 5. 데이터 모델 (Flyway V1~V21, 22개 테이블 + flyway_schema_history)
 
 기준 다이어그램 `산출물/08_ERD/erd.dot`, 설계 근거 `산출물/08_ERD/exchange-schema-design.md`. 규칙은 `erd-conventions` 스킬.
 
 | 테이블 | 요지 |
 |---|---|
 | `users` | role USER/ADMIN, `password_login_enabled` TINYINT(1) NOT NULL 기본 1(V16, 일반 가입 1·소셜 가입 0, 마지막 로그인 수단 판단), `withdrawn_at` DATETIME(6) NULL(V17, NULL=활성, 값이 있으면 탈퇴 후 익명화) |
-| `performance` | `venue_name` VARCHAR(100) NOT NULL, `source_key` unique, 등록자 FK |
+| `performance` | `venue_name` VARCHAR(100) NOT NULL, `source_key` unique, 등록자 FK, `seatmap_aspect` DECIMAL(6,3) NULL(V21, 좌석표 가로/세로 비율, 0 초과) |
 | `performance_session` | 회차, `starts_at` 분 단위, UK(performance_id, starts_at) |
+| `performance_zone` | 공연별 구역 목록(V21). `performance_id` FK, `name` VARCHAR(30), `name_key` VARCHAR(50) bin(티켓 `zone_key`와 같은 정규화), UK(name_key, performance_id)로 같은 이름은 한 구역, `sort_order`, `shape_polygons` JSON NULL(다각형 조각 배열, 0~1000 정규화 좌표, CHECK는 구조만). 티켓·교환 조건과 FK 없음 |
 | `ticket` | 회차·소유자 FK, `zone/row/col_label`(표시용)+`_key`(정규화), `status` ACTIVE/INACTIVE/EXCHANGED(V9, 교환 완료된 기존 티켓), 생성 컬럼 `active_flag`, UK `uk_ticket_active_seat`(회차·구역·열·번·active_flag), `idx_ticket_user_status`. `seatmap_id` 없음 |
 | `exchange_request` | 티켓당 미삭제 요청 1개(생성 컬럼 `live_flag` + `uk_exchange_request_live_ticket`), status OPEN/CLOSED/DELETED, `deleted_at` |
 | `exchange_want_range` | 입력 범위(구역·열 from/to·번 from/to) + 범위별 `extra_type`(X/ANY/POS/NEG)·`extra_amount` |
@@ -183,7 +192,8 @@ description: 맞자리의 현재 유효한 서비스 개요·확정 교환 규�
 - **V18**: `users.trust_score` 컬럼 제거(폐기된 신뢰도 점수, 가입 때 0.0만 저장되던 값). 재실행 가능한 프로시저이며 컬럼이 있을 때만 DROP한다. 값은 복구되지 않고 되돌리기는 롤포워드만 가능하다. 엔티티 필드와 `/api/users/me`의 `trustScore`도 함께 없앴다. 테이블 수 20 그대로.
 - **V20**: `performance_edit_proposal.session_changes`(JSON NULL, 공연 수정 제안의 회차 변경 목록 ADD/CHANGE/REMOVE). 테이블 수는 그대로다.
 - **V19**: `email_verification`(가입 전 이메일 인증번호: PK email, code_hash HMAC-SHA256, attempts, sent_at, expires_at). users와 FK 없음, 가입 성공 시 행 삭제(1회용). 재실행 가능한 프로시저 패턴, 파괴적 단계 없음.
-- **다음**: V21부터. 현재 계획된 스키마 변경은 없다(7일 경과 알림은 보류).
+- **V21**: `performance_zone` 신설(공연별 구역 목록, 같은 이름은 한 구역, 모양은 JSON 다각형 조각 배열) 과 `performance.seatmap_aspect`(좌석표 비율) 추가. 재실행 가능한 프로시저 패턴, 파괴적 단계 없음. 테이블 수 21 -> 22. 되돌리기는 롤포워드.
+- **다음**: V22부터. 현재 계획된 스키마 변경은 없다(7일 경과 알림은 보류).
 
 ## 6. API 요약
 
@@ -195,7 +205,9 @@ description: 맞자리의 현재 유효한 서비스 개요·확정 교환 규�
 | 프로필·소셜 연결 | `PATCH /api/users/me {nickname}`, `GET /api/users/me/social`(`{accounts, providers, canUnlink}`), `POST /api/users/me/social/{provider}/link`(`{authorizeUrl}`, 60초 1회 티켓), `POST /api/users/me/social/confirm {code}`(60초 1회 확정 코드, 확정 사용자와 코드 사용자가 같을 때만 저장), `DELETE /api/users/me/social/{provider}`(204 멱등, 마지막 로그인 수단이면 409 `LAST_LOGIN_METHOD`). 모두 로그인 필요 |
 | 회원탈퇴 | `DELETE /api/users/me {password?, confirmText?, reauthCode?}`(204, 본인 확인, 분당 5회 429 `WITHDRAW_RATE_LIMITED`, ADMIN 409 `ADMIN_CANNOT_WITHDRAW`, 이미 탈퇴한 계정 401). 로그인 필요 |
 | 소셜 로그인 | `GET /api/auth/social/providers`(활성 제공자, 인증 불필요), `GET /api/auth/social/{google\|kakao\|naver}/authorize`(302, state 쿠키 `ss_oauth`), `GET .../{provider}/callback`(항상 302: 성공 `/auth/callback#code=`, 실패 `/login?socialError=`), `POST /api/auth/social/exchange {code}`(→ TokenResponse, 일회용 60초, 정지 재검사). IP당 분당 30회(429 `SOCIAL_RATE_LIMITED`) |
-| 공연 | `GET /api/performances`(제목 검색·페이지, asOf로 기준 시각 고정)·`/{id}`·`/lookup`(링크 중복 확인), `POST /api/performances` |
+| 공연 | `GET /api/performances`(제목 검색·페이지, asOf로 기준 시각 고정)·`/{id}`·`/lookup`(링크 중복 확인), `POST /api/performances`(선택 필드 `zones[{name, shapePolygons}]`(최대 100개, 같은 이름은 한 구역)·`seatmapAspect`, V21) |
+| 공연 구역 | `GET /api/performances/{id}/zones` → `{seatmapAspect, zones[{name, shapePolygons}]}`(sortOrder 순, 구역 없으면 `zones=[]`, 없는 공연 404, 로그인 필요) |
+| AI 회차·구역 읽기 | `POST /api/performances/ai-extract {sourceUrl}` → `{sessions, sessionsSource, zones, seatmapAspect, aiEnabled, aiError, cached, truncatedSlices}`. 로그인 필요. 제한: 사용자당 하루(KST) 5회·전체 하루 40회(초과 429 `AI_RATE_LIMITED`+Retry-After), 동시 2개. 지원 사이트는 YES24·티켓링크·멜론티켓(그 외 400 `UNSUPPORTED_SITE`), 페이지 읽기 실패 503 `PAGE_FETCH_FAILED`, AI·규칙 결과 모두 없으면 503 `AI_UNAVAILABLE`. 성공 결과는 24시간 메모리 캐시 |
 | 공연 포스터 | `GET /api/performances/{id}/poster` → `{posterUrl}`(로그인 필요, 없으면 null, 공연 없으면 404). 링크 미리보기 응답에도 `posterUrl` 추가. 실패·제한·스위치 꺼짐은 오류 없이 null |
 | 회차 날짜 후보 | `GET /api/performances/preview` 응답의 `sessionCandidates`(`[{date, time:null}]`, 항상 배열, 공연 기간이 100일 이하일 때 첫날부터 마지막 날까지 모든 날짜. `time`은 지금 항상 null이며 AI 상세정보 출처가 채울 자리) |
 | 티켓 | `POST /api/tickets {sessionId, zone, row, col}`, `GET /api/tickets/me`, `DELETE /api/tickets/{id}` |
@@ -218,10 +230,10 @@ description: 맞자리의 현재 유효한 서비스 개요·확정 교환 규�
 | `/login`, `/signup` | 인증 |
 | `/auth/callback` | 소셜 로그인 후 중간 화면. 프래그먼트 `#code=`를 읽어 URL을 정리하고 `POST /api/auth/social/exchange`로 토큰을 저장한 뒤 `/`로 이동한다(코드가 없거나 실패하면 `/login?socialError=INVALID_LOGIN_CODE`). 로그인·가입 화면 하단 '또는' 구분선 아래에 활성 제공자 버튼이 있고, 로그인 화면은 `?socialError=`를 한국어 안내로 표시한다 |
 | `/privacy` | 개인정보처리방침(공개). 운영자·문의 이메일·시행일은 `VITE_PRIVACY_*`, 미설정이면 '설정 필요' 강조 |
-| `/performances/new` | 공연 등록(3단계), `/performances/:id` 공연 상세(읽기 전용, 보호 라우트, '이 공연 티켓 등록' 버튼, 포스터는 정보 카드 오른쪽) |
+| `/performances/new` | 공연 등록(3단계; 2단계에 'AI로 회차·구역 읽기'와 구역 확인, 구역 목록·좌석표 비율 저장), `/performances/:id` 공연 상세(읽기 전용, 보호 라우트, '이 공연 티켓 등록' 버튼, 포스터는 정보 카드 오른쪽) |
 | `/me` | 마이페이지: 닉네임 인라인 수정(저장하면 헤더 즉시 반영), 이메일(자리표시면 '소셜 계정으로 가입해 이메일이 없어요'), '소셜 계정 연결' 카드(연결·해제, 해제 불가면 사유 안내), 내 티켓·내 매칭·교환 이력 링크, 회원탈퇴 버튼은 모달(`WithdrawDialog`)을 연다 |
-| `/tickets/new`, `/tickets` | 티켓 등록 / 내 티켓(내리기·교환 조건 진입) |
-| `/tickets/:ticketId/exchange` | 희망 조건 폼: 범위 카드(구역·열·번 범위, 카드마다 추가금 라디오 4개, 카드 복제, 클라이언트 겹침 경고), 요청 단위 희망 회차 우선순위, 총 N석 합집합 미리보기와 5,000석·50범위 경고, 마감 회차 선택 불가 |
+| `/tickets/new`, `/tickets` | 티켓 등록(공연에 구역 목록이 있으면 구역 드롭다운, 없으면 텍스트) / 내 티켓(내리기·교환 조건 진입) |
+| `/tickets/:ticketId/exchange` | 희망 조건 폼: 범위 카드(구역 드롭다운(목록이 있을 때)·열·번 범위, 카드마다 추가금 라디오 4개, 카드 복제, 클라이언트 겹침 경고), 요청 단위 희망 회차 우선순위, 총 N석 합집합 미리보기와 5,000석·50범위 경고, 마감 회차 선택 불가 |
 | `/exchange/requests/:requestId/candidates` | 후보 목록·제안하기('내 조건/상대 조건', 참고용 금액 구간, 신뢰도 표시 없음) |
 | `/exchange/matches` | 내 매칭(보낸/받은 탭): 'RESERVED=예약 중', CHATTING='진행 중' 라벨(미확정), CHATTING 카드는 제안 여부 문구와 '채팅' 버튼만(예약하기 버튼 없음), '예약 취소'(2단계 확인), RESERVED에서 '교환 수락'(2단계 확인, 수락 후 "상대 수락을 기다려요"), 완료 카드는 교환 전 자리와 받은 자리 표시, 교환된 좌석 카드는 예약·교환 수락 비활성 + "이미 교환된 좌석이에요"(본인·상대 양쪽), 예약 중 '거절/채팅 종료'는 숨기지 않고 사유를 안내하며 비활성, 삭제된 요청은 회색 '(삭제)'/'(내 조건 삭제됨)', 카드에 '채팅' 링크와 안 읽은 뱃지 |
 | `/exchange/matches/:matchId/chat` | 채팅 화면: 상단 상태 배너(시스템 메시지 대체), 메시지 목록, 입력창(1000자 카운터, IME 조합 중 전송 금지), '읽음' 표시. 상단 예약 블록(NONE '예약 제안하기', MINE '제안 철회', THEIRS '예약 수락'·'거절', RESERVED '예약 취소', 종료 매칭은 숨김)과 상대의 제안·수락·거절·취소 실시간 반영(알림 신호·폴링). 종료된 매칭은 열람만 되고 입력 비활성. STOMP 연결은 앱 전체가 탭당 하나를 공유(알림 푸시와 같은 연결, 지수 백오프 재연결, 재연결 시 `after` 커서로 빈 구간 채움) |

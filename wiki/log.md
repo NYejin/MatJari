@@ -79,3 +79,6 @@ llm-wiki 스킬, researcher·wiki-curator 에이전트, `scripts/lint-wiki.mjs`�
 
 ## [2026-10-14] ingest | 공연 수정 제안 회차 수정과 날짜 후보 확대 반영
 공연 수정 제안에 회차 수정(V20 `session_changes`, `feature/session-edit-proposal`)을 넣고 날짜 후보를 연속 기간 100일 이하 전체로 넓혔다. `admin-design.md`에 '회차 수정 제안' 절(JSON 컬럼 선택, 삭제 제한, 맞바꾸기 거부, 승인 충돌 처리)을, `link-autofill-design.md` 6.1에 후보 범위를 2일에서 100일로 넓힌 이유를 추가했다. 확정 규칙은 CLAUDE.md '공연 수정 제안'·'링크 기반 공연정보 자동 입력' 절이다.
+
+## [2026-10-18] ingest | AI 회차·구역 읽기 결정 정리
+AI 회차·구역 읽기(V21 `performance_zone`, `feature/ai-extract-backend`)의 근거를 결정 페이지 `ai-detail-extract-design.md`로 정리했다(처리 순서, 모델 선택과 무료 티어·구독 로그인 비채택 이유, 법·약관 조사 요약, 구역 규칙, 시험 결과, 한계·후속). 용어집에 'AI 읽기·구역' 절을 더하고 색인에 등록했다. 약관·법 해석과 정확도는 미확인·작은 표본이라 confidence는 medium이다.

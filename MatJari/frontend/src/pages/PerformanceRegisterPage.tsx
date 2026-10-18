@@ -734,8 +734,8 @@ export default function PerformanceRegisterPage() {
             <p className={ui.hint}>
               링크에 적힌 공연 기간: {periodText(autoFill.periodStart, autoFill.periodEnd)} ·{" "}
               {candidateDates.length > 0
-                ? "회차 시각은 링크에서 읽을 수 없어 직접 골라 주세요. 날짜는 공연 기간에 맞춰 미리 채워 뒀으니 맞는지 확인하고 다르면 고쳐 주세요."
-                : "회차 일시는 링크에서 읽을 수 없어 직접 입력해 주세요."}
+                ? "날짜는 공연 기간에 맞춰, 시각은 링크 본문과 AI가 읽은 값으로 채워져요. 맞는지 확인하고 다르면 고쳐 주세요. 시각을 읽지 못했다면 직접 골라 주세요."
+                : "회차는 링크에서 읽은 값으로 채워져요. 읽지 못했다면 직접 입력해 주세요."}
             </p>
           )}
           {candidateDates.length > 1 && (

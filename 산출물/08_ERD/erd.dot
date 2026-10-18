@@ -1,9 +1,10 @@
-// 맞자리 ERD -- 현재 스키마: V1~V20 (users, performance, performance_session, ticket + 교환 희망 4개 + 매칭·잠금 2개 + 교환 이력 1개 + 알림 1개 + 채팅 2개 + 관리자 2개(V12) + 차단·신고·정지 3개(V13) + 소셜 계정 1개(V14) + 이메일 인증번호 1개(V19) = 21개 테이블; V6·V7은 컬럼 변경만, V9는 ticket.status EXCHANGED 추가와 exchange_history 신설, V10은 notification 신설, V11은 chat_message·chat_read_state 신설, V12는 performance_edit_proposal·seat_claim 신설, V13은 user_block·abuse_report·user_sanction 신설, V14는 social_account 신설, V15는 exchange_match 예약 제안 2컬럼과 notification type 6종 확장(테이블 수 그대로), V16은 users.password_login_enabled 컬럼과 social_account (user_id, provider) 유니크 추가(테이블 수 그대로), V17은 users.withdrawn_at 컬럼 추가(회원탈퇴, 테이블 수 그대로), V18은 users.trust_score 컬럼 제거(폐기된 신뢰도 점수, 테이블 수 그대로))
+// 맞자리 ERD -- 현재 스키마: V1~V21 (users, performance, performance_session, ticket + 교환 희망 4개 + 매칭·잠금 2개 + 교환 이력 1개 + 알림 1개 + 채팅 2개 + 관리자 2개(V12) + 차단·신고·정지 3개(V13) + 소셜 계정 1개(V14) + 이메일 인증번호 1개(V19) + 공연 구역 1개(V21) = 22개 테이블; V6·V7은 컬럼 변경만, V9는 ticket.status EXCHANGED 추가와 exchange_history 신설, V10은 notification 신설, V11은 chat_message·chat_read_state 신설, V12는 performance_edit_proposal·seat_claim 신설, V13은 user_block·abuse_report·user_sanction 신설, V14는 social_account 신설, V15는 exchange_match 예약 제안 2컬럼과 notification type 6종 확장(테이블 수 그대로), V16은 users.password_login_enabled 컬럼과 social_account (user_id, provider) 유니크 추가(테이블 수 그대로), V17은 users.withdrawn_at 컬럼 추가(회원탈퇴, 테이블 수 그대로), V18은 users.trust_score 컬럼 제거(폐기된 신뢰도 점수, 테이블 수 그대로), V21은 performance_zone 신설(테이블 +1)과 performance.seatmap_aspect 컬럼 추가)
 // 2026-10-13: V19(V19__email_verification.sql) 구현(feature/email-verification) = email_verification(가입 전 이메일 인증번호: PK email, code_hash HMAC-SHA256 CHAR(64), attempts, sent_at, expires_at, idx_email_verification_expires). users와 FK 없음(가입 전 이메일), 가입 성공 시 행 삭제. 재실행 가능한 프로시저, 파괴적 단계 없음. 이 변경으로 ERD.png는 재생성하지 않았다(dot 미설치).
+// 2026-10-18: V21(V21__performance_zone.sql) 구현(feature/ai-extract-backend) = performance_zone(공연별 구역 목록, performance_id FK, name_key는 ticket.zone_key와 같은 VARCHAR(50) utf8mb4_bin, shape_polygons JSON NULL 구조 CHECK) 신설과 performance.seatmap_aspect DECIMAL(6,3) NULL 추가. 티켓·교환 조건은 구역을 텍스트(zone_*)로만 가지므로 performance_zone과 FK가 없다. 이 변경으로 ERD.png는 재생성하지 않았다(dot 미설치, DOT 문법만 점검).
 // 생성: dot -Tpng erd.dot -o ERD.png   (한글 라벨: 나눔고딕 등 한글 폰트 필요)
 // 2026-10-07 방향 전환으로 좌석표 트랙(좌석표·수정 로그·신고·제재 테이블)과 후기 테이블을 제외하고 새로 작성. 이후 교환 테이블이 V4~V8로 구현되어 현재 색으로 추가됐다.
 // 이전 설계(12~16개 테이블)는 git 태그 archive/seatmap-track-20261007 에 보관되어 있다.
-// 기준: MatJari/backend/src/main/resources/db/migration/V1__init_schema.sql + V2__drop_venue_use_venue_name.sql + V3__ticket_seat_columns.sql + V4__exchange_want_tables.sql + V5__exchange_match_tables.sql + V6__exchange_extra_per_range.sql + V7__exchange_request_soft_delete.sql + V8__exchange_match_single_reserve.sql + V9__exchange_complete_history.sql + V10__notification.sql + V11__chat_message.sql + V12__admin_edit_proposal_seat_claim.sql + V13__block_report_sanction.sql + V14__social_account.sql + V15__reserve_proposal_chat_notification.sql + V16__user_password_login.sql + V17__user_withdrawn_at.sql + V18__drop_user_trust_score.sql
+// 기준: MatJari/backend/src/main/resources/db/migration/V1__init_schema.sql + V2__drop_venue_use_venue_name.sql + V3__ticket_seat_columns.sql + V4__exchange_want_tables.sql + V5__exchange_match_tables.sql + V6__exchange_extra_per_range.sql + V7__exchange_request_soft_delete.sql + V8__exchange_match_single_reserve.sql + V9__exchange_complete_history.sql + V10__notification.sql + V11__chat_message.sql + V12__admin_edit_proposal_seat_claim.sql + V13__block_report_sanction.sql + V14__social_account.sql + V15__reserve_proposal_chat_notification.sql + V16__user_password_login.sql + V17__user_withdrawn_at.sql + V18__drop_user_trust_score.sql + V19__email_verification.sql + V20__edit_proposal_session_changes.sql + V21__performance_zone.sql
 // 2026-10-08: V3에서 ticket에 구역·열·번(label+key)·status·시각 추가(구현 완료).
 // 2026-10-08: V4(V4__exchange_want_tables.sql)로 exchange_request·exchange_want_range·exchange_want_seat·exchange_want_session 구현 완료(현재). (당시 메모) 차단·매칭·잠금·채팅·이력은 예정이었다 -> 현재: 매칭·잠금은 V5 구현, 차단·채팅·이력은 V9 이후
 // 2026-10-08: V5(V5__exchange_match_tables.sql)로 exchange_match·exchange_ticket_lock 구현 완료(현재). user_block·chat_message·exchange_history는 예정(V9 이후)
@@ -21,7 +22,7 @@
 // 시각 컬럼(created_at, updated_at, starts_at 등)은 모두 KST(Asia/Seoul) 벽시계 시각
 digraph MatJariERD {
   graph [rankdir=LR, fontname="NanumGothic,Malgun Gothic", fontsize=12, labelloc=t, nodesep=0.5, ranksep=1.2, splines=true,
-         label=<<B>맞자리 ERD - 현재 스키마 (V1~V20, 21개 테이블)</B><BR/>시각 컬럼은 모두 KST 기준 / 교환 희망 4개는 V4, 매칭·예약 잠금 2개는 V5, 범위별 추가금·요청 소프트 삭제는 V6·V7, 한 명 예약 방식은 V8 적용, 교환 완료·이력은 V9 적용, 알림은 V10 적용, 채팅은 V11 적용 / 관리자 두 테이블은 V12 적용 / 차단·신고·이용 정지 세 테이블은 V13 적용 / 소셜 로그인 계정은 V14 적용 / 예약 제안·알림 6종은 V15 적용 / 비밀번호 로그인 가능 여부·사용자당 제공자 1개는 V16 적용 / 회원탈퇴 시각은 V17 적용 / 신뢰도 점수 컬럼 제거는 V18 적용>];
+         label=<<B>맞자리 ERD - 현재 스키마 (V1~V21, 22개 테이블)</B><BR/>시각 컬럼은 모두 KST 기준 / 교환 희망 4개는 V4, 매칭·예약 잠금 2개는 V5, 범위별 추가금·요청 소프트 삭제는 V6·V7, 한 명 예약 방식은 V8 적용, 교환 완료·이력은 V9 적용, 알림은 V10 적용, 채팅은 V11 적용 / 관리자 두 테이블은 V12 적용 / 차단·신고·이용 정지 세 테이블은 V13 적용 / 소셜 로그인 계정은 V14 적용 / 예약 제안·알림 6종은 V15 적용 / 비밀번호 로그인 가능 여부·사용자당 제공자 1개는 V16 적용 / 회원탈퇴 시각은 V17 적용 / 신뢰도 점수 컬럼 제거는 V18 적용 / 이메일 인증번호는 V19 적용 / 공연 수정 제안의 회차 변경은 V20 적용 / 공연 구역 목록과 좌석표 비율은 V21 적용>];
   node  [shape=plain, fontname="NanumGothic,Malgun Gothic", fontsize=10];
   edge  [fontname="NanumGothic,Malgun Gothic", fontsize=9, dir=both, arrowtail=tee, arrowhead=crow];
 
@@ -29,7 +30,7 @@ digraph MatJariERD {
   legend [label=<
     <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3">
       <TR><TD COLSPAN="2" BGCOLOR="#DDDDDD"><B>범례</B></TD></TR>
-      <TR><TD BGCOLOR="#FFFFFF" WIDTH="18"> </TD><TD ALIGN="LEFT">현재 (V1~V20)</TD></TR>
+      <TR><TD BGCOLOR="#FFFFFF" WIDTH="18"> </TD><TD ALIGN="LEFT">현재 (V1~V21)</TD></TR>
       <TR><TD>PK/FK/UK</TD><TD ALIGN="LEFT">키 / 제약</TD></TR>
       <TR><TD>NN</TD><TD ALIGN="LEFT">NOT NULL</TD></TR>
       <TR><TD>점선</TD><TD ALIGN="LEFT">FK가 아닌 참조 (sanction_id, resolved_ticket_id)</TD></TR>
@@ -80,6 +81,7 @@ digraph MatJariERD {
       <TR><TD>FK</TD><TD ALIGN="LEFT">registrant_id → users (NN)</TD></TR>
       <TR><TD> </TD><TD ALIGN="LEFT">title (200, NN)</TD></TR>
       <TR><TD> </TD><TD ALIGN="LEFT">venue_name VARCHAR(100) NN (공연장 이름 텍스트, 등록 후 수정 불가)</TD></TR>
+      <TR><TD> </TD><TD ALIGN="LEFT">seatmap_aspect DECIMAL(6,3) NULL (V21, 좌석표 가로/세로 비율, 0 초과 CHECK)</TD></TR>
       <TR><TD> </TD><TD ALIGN="LEFT">source_url (2048, NN)</TD></TR>
       <TR><TD>UK</TD><TD ALIGN="LEFT">source_key (500, NN, utf8mb4_bin)</TD></TR>
       <TR><TD> </TD><TD ALIGN="LEFT">created_at / updated_at (NN)</TD></TR>
@@ -94,6 +96,21 @@ digraph MatJariERD {
       <TR><TD> </TD><TD ALIGN="LEFT">created_at (NN)</TD></TR>
       <TR><TD COLSPAN="2" ALIGN="LEFT">uk_performance_session_performance_starts_at (performance_id, starts_at)</TD></TR>
       <TR><TD COLSPAN="2" ALIGN="LEFT">idx_performance_session_starts_at (starts_at)</TD></TR>
+    </TABLE>>];
+
+  // ---------- 공연 구역 목록 (V21, 구현 2026-10-18) ----------
+  performance_zone [label=<
+    <TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">
+      <TR><TD COLSPAN="2" BGCOLOR="#BDD7EE"><B>performance_zone</B> (PerformanceZone, V21, 공연별 구역 목록)</TD></TR>
+      <TR><TD>PK</TD><TD ALIGN="LEFT">id</TD></TR>
+      <TR><TD>FK</TD><TD ALIGN="LEFT">performance_id → performance (NN)</TD></TR>
+      <TR><TD> </TD><TD ALIGN="LEFT">name VARCHAR(30) NN (표시용, 공백 정리 후 1~30자)</TD></TR>
+      <TR><TD>UK</TD><TD ALIGN="LEFT">name_key VARCHAR(50) NN (bin, ticket.zone_key와 같은 정규화 키)</TD></TR>
+      <TR><TD> </TD><TD ALIGN="LEFT">sort_order SMALLINT NN (CHECK &gt;= 0)</TD></TR>
+      <TR><TD> </TD><TD ALIGN="LEFT">shape_polygons JSON NULL ([[[x,y],...],...], 0~1000 정규화 좌표; CHECK는 조각 1~8개·꼭짓점 3~40개 구조만, 좌표 범위는 서비스)</TD></TR>
+      <TR><TD> </TD><TD ALIGN="LEFT">created_at DATETIME(6) NN (행을 갱신하지 않고 목록은 삭제 후 INSERT)</TD></TR>
+      <TR><TD COLSPAN="2" ALIGN="LEFT">uk_performance_zone_name_key (name_key, performance_id) / idx_performance_zone_performance (performance_id, FK 단일 컬럼)</TD></TR>
+      <TR><TD COLSPAN="2" ALIGN="LEFT">ticket·교환 조건과 FK 없음(zone_* 텍스트로 대응), 쓰기는 공연 등록·관리자 승인 트랜잭션에서만</TD></TR>
     </TABLE>>];
 
   // ---------- 티켓 ----------
@@ -119,7 +136,7 @@ digraph MatJariERD {
 
   // ---------- 주석 노드 ----------
   note_scope [shape=note, fontsize=10, label="교환 범위는 공연(Performance) 단위 (2026-10-07):\l같은 공연의 다른 회차 티켓끼리도 교환 가능.\lticket은 회차만 참조하고 공연은 performance_session.performance로 얻는다.\l"];
-  note_design [shape=note, fontsize=10, label="전부 구현 완료 (교환 희망 4개는 V4, 매칭·잠금 2개는 V5, 범위별 추가금·소프트 삭제는 V6·V7, 한 명 예약 방식은 V8, 교환 완료·이력·EXCHANGED는 V9, 알림은 V10, 채팅은 V11, 공연 수정 제안·좌석 인증은 V12, 차단·신고·이용 정지는 V13, 소셜 로그인 계정은 V14, 예약 제안(제안 -> 상대 수락)·알림 6종은 V15, 비밀번호 로그인 가능 여부·사용자당 제공자 1개는 V16, 회원탈퇴 시각은 V17, 신뢰도 점수 컬럼 제거는 V18)\l상세: 산출물/08_ERD/exchange-schema-design.md\l후기·신뢰도 테이블 없음. 신고는 교환 상대만 대상(채팅 화면), 자동 제재 없음.\l교환 완료 후 기존 티켓의 교환 요청은 CLOSED, 그 티켓의 다른 CHATTING 매칭은 자동 취소하지 않음(Q-15)\l"];
+  note_design [shape=note, fontsize=10, label="전부 구현 완료 (교환 희망 4개는 V4, 매칭·잠금 2개는 V5, 범위별 추가금·소프트 삭제는 V6·V7, 한 명 예약 방식은 V8, 교환 완료·이력·EXCHANGED는 V9, 알림은 V10, 채팅은 V11, 공연 수정 제안·좌석 인증은 V12, 차단·신고·이용 정지는 V13, 소셜 로그인 계정은 V14, 예약 제안(제안 -> 상대 수락)·알림 6종은 V15, 비밀번호 로그인 가능 여부·사용자당 제공자 1개는 V16, 회원탈퇴 시각은 V17, 신뢰도 점수 컬럼 제거는 V18, 공연 구역 목록과 좌석표 비율은 V21)\l상세: 산출물/08_ERD/exchange-schema-design.md\l후기·신뢰도 테이블 없음. 신고는 교환 상대만 대상(채팅 화면), 자동 제재 없음.\l교환 완료 후 기존 티켓의 교환 요청은 CLOSED, 그 티켓의 다른 CHATTING 매칭은 자동 취소하지 않음(Q-15)\l"];
 
   // ---------- 교환 도메인: 희망 4개 테이블은 현재(V4), 매칭·잠금은 현재(V5), 교환 이력(V9)·채팅(V11)은 현재, 차단·신고·정지(V13)는 현재 ----------
   exchange_request [label=<
@@ -377,6 +394,9 @@ digraph MatJariERD {
   abuse_report -> user_sanction [style=dotted, color=gray, constraint=false, label="sanction_id (FK 아님)"];
   // ---------- 소셜 로그인 계정 관계 (V14) ----------
   users -> social_account [label="1:N 소셜 계정"];
+
+  // ---------- 공연 구역 관계 (V21) ----------
+  performance -> performance_zone [label="1:N"];
 
   // ---------- 배치 보조 ----------
   legend -> users [style=invis];

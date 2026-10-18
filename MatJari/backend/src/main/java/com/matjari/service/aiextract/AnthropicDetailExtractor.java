@@ -12,6 +12,7 @@ import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.MessageParam;
 import com.anthropic.models.messages.OutputConfig;
+import com.anthropic.models.messages.ThinkingConfigDisabled;
 import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.TextBlockParam;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -157,7 +158,7 @@ public class AnthropicDetailExtractor implements DetailExtractor {
         OutputConfig.Effort effort = "second".equals(stage) || "locate".equals(stage) ? OutputConfig.Effort.LOW : null;
         long started = System.nanoTime();
         try {
-            MessageCreateParams params = buildParams(properties.getModel(), system, blocks, schema, maxTokens, effort);
+            MessageCreateParams params = buildParams(properties.getModel(), system, blocks, schema, maxTokens, effort, effort != null);
             Message message = client().messages().create(params);
             long ms = (System.nanoTime() - started) / 1_000_000;
             log.info("AI 호출 ({}): {}ms, inputTokens={}, outputTokens={}, blocks={}", stage, ms,
@@ -192,6 +193,12 @@ public class AnthropicDetailExtractor implements DetailExtractor {
     /** effort 가 null 이면 모델 기본값을 쓴다(좌표만 옮기는 2차 호출은 LOW 로 생각 시간을 줄인다). */
     static MessageCreateParams buildParams(String model, String system, List<ContentBlockParam> blocks,
                                            Map<String, Object> schema, long maxTokens, OutputConfig.Effort effort) {
+        return buildParams(model, system, blocks, schema, maxTokens, effort, false);
+    }
+
+    /** noThinking 은 생각 단계를 끈다(Haiku 5.5 는 effort high 이하에서만 허용; 좌표·위치만 옮기는 호출에서 지연과 토큰을 줄인다). */
+    static MessageCreateParams buildParams(String model, String system, List<ContentBlockParam> blocks,
+                                           Map<String, Object> schema, long maxTokens, OutputConfig.Effort effort, boolean noThinking) {
         JsonOutputFormat.Schema.Builder sb = JsonOutputFormat.Schema.builder();
         schema.forEach((k, v) -> sb.putAdditionalProperty(k, JsonValue.from(v)));
         OutputConfig.Builder cb = OutputConfig.builder()
@@ -200,13 +207,16 @@ public class AnthropicDetailExtractor implements DetailExtractor {
             cb.effort(effort);
         }
         OutputConfig config = cb.build();
-        return MessageCreateParams.builder()
+        MessageCreateParams.Builder mb = MessageCreateParams.builder()
                 .model(model)
                 .maxTokens(maxTokens)
                 .system(system)
                 .outputConfig(config)
-                .addUserMessage(MessageParam.Content.ofBlockParams(blocks))
-                .build();
+                .addUserMessage(MessageParam.Content.ofBlockParams(blocks));
+        if (noThinking) {
+            mb.thinking(ThinkingConfigDisabled.builder().build());
+        }
+        return mb.build();
     }
 
     static List<ContentBlockParam> toBlocks(List<Part> parts) {

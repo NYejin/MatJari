@@ -324,11 +324,14 @@ public class DetailExtractionService {
             if (seg == null || seg.segments().size() < 3) {
                 return List.of();
             }
-            List<DetailExtractor.RawLabel> labels = extractor.label(target.jpeg(), seg.annotatedJpeg(), names, seg.segments().size());
-            if (labels == null) {
+            DetailExtractor.LabelResult result = voteLabels(target, seg, names);
+            if (result == null) {
                 return List.of();
             }
-            List<DetailExtractor.RawZone> zones = dropTinyOutliers(shapesFromLabels(labels, seg));
+            writeDebug(target, seg, result);
+            // nonSeatSegments 는 점검용 기록이다(AI가 구역에 연결한 번호가 우선하며, 무대 같은 큰 구조물은 아래 넓이 검사가 거른다)
+            List<DetailExtractor.RawLabel> labels = result.zones();
+            List<DetailExtractor.RawZone> zones = dropOutliers(shapesFromLabels(labels, seg));
             log.info("AI 번호 방식: 도형 후보 {}개, 연결된 구역 {}개 / 이름 {}개", seg.segments().size(), zones.size(), names.size());
             if (validShapeRatio(names, zones) < 0.3) {
                 return List.of();
@@ -341,10 +344,10 @@ public class DetailExtractionService {
     }
 
     /**
-     * 조각 넓이가 전체 조각 넓이 중앙값의 20% 미만인 것(범례 막대·글자 조각이 구역으로 섞인 경우)을 버린다.
+     * 조각 넓이가 전체 조각 넓이 중앙값의 20% 미만(범례 막대·글자 조각)이거나 10배 초과(무대·돌출 무대처럼 아주 큰 구조물; 넓은 FLOOR 구역은 남긴다)인 것을 버린다.
      * 조각이 남지 않는 구역은 목록에서 빠진다(이름은 1차 목록으로 유지).
      */
-    static List<DetailExtractor.RawZone> dropTinyOutliers(List<DetailExtractor.RawZone> zones) {
+    static List<DetailExtractor.RawZone> dropOutliers(List<DetailExtractor.RawZone> zones) {
         List<Double> areas = new ArrayList<>();
         for (DetailExtractor.RawZone z : zones) {
             for (List<List<Integer>> p : z.polygons()) {
@@ -355,12 +358,15 @@ public class DetailExtractionService {
             return zones;
         }
         areas.sort(Double::compare);
-        double min = areas.get(areas.size() / 2) * 0.2;
+        double median = areas.get(areas.size() / 2);
+        double min = median * 0.2;
+        double max = median * 10;
         List<DetailExtractor.RawZone> out = new ArrayList<>();
         for (DetailExtractor.RawZone z : zones) {
             List<List<List<Integer>>> keep = new ArrayList<>();
             for (List<List<Integer>> p : z.polygons()) {
-                if (polygonArea(p) >= min) {
+                double a = polygonArea(p);
+                if (a >= min && a <= max) {
                     keep.add(p);
                 }
             }
@@ -369,6 +375,113 @@ public class DetailExtractionService {
             }
         }
         return out;
+    }
+
+    /** 같은 질문을 병렬로 이 횟수만큼 보내 도형마다 다수결로 구역을 정한다(AI 답이 실행마다 조금씩 흔들리는 것을 줄인다). */
+    static final int LABEL_VOTES = 3;
+
+    private DetailExtractor.LabelResult voteLabels(ImageSlicer.SliceImage target, ShapeSegmenter.Result seg, List<String> names) {
+        List<java.util.concurrent.CompletableFuture<DetailExtractor.LabelResult>> calls = new ArrayList<>();
+        for (int i = 0; i < LABEL_VOTES; i++) {
+            calls.add(java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                try {
+                    return extractor.label(target.jpeg(), seg.annotatedJpeg(), seg.tilesJpeg(), names, seg.segments().size());
+                } catch (RuntimeException e) {
+                    log.info("AI 번호 매기기 한 번 실패: {}", e.getClass().getSimpleName());
+                    return null;
+                }
+            }));
+        }
+        List<DetailExtractor.LabelResult> runs = new ArrayList<>();
+        for (java.util.concurrent.CompletableFuture<DetailExtractor.LabelResult> c : calls) {
+            DetailExtractor.LabelResult r = c.join();
+            if (r != null && r.zones() != null) {
+                runs.add(r);
+            }
+        }
+        return combineVotes(runs);
+    }
+
+    /** 도형 번호마다 가장 많이 나온 구역을 고른다. 표가 같으면 구역이 아닌 쪽(빈 이름)을 따른다. 결과가 없으면 null. */
+    static DetailExtractor.LabelResult combineVotes(List<DetailExtractor.LabelResult> runs) {
+        if (runs.isEmpty()) {
+            return null;
+        }
+        Map<Integer, Map<String, Integer>> votes = new LinkedHashMap<>();
+        for (DetailExtractor.LabelResult r : runs) {
+            for (DetailExtractor.RawLabel l : r.zones()) {
+                for (Integer id : l.segmentIds() == null ? List.<Integer>of() : l.segmentIds()) {
+                    if (id != null) {
+                        votes.computeIfAbsent(id, k -> new LinkedHashMap<>()).merge(l.name(), 1, Integer::sum);
+                    }
+                }
+            }
+            for (Integer id : r.nonSeatSegments() == null ? List.<Integer>of() : r.nonSeatSegments()) {
+                if (id != null) {
+                    votes.computeIfAbsent(id, k -> new LinkedHashMap<>()).merge("", 1, Integer::sum);
+                }
+            }
+        }
+        Map<String, List<Integer>> byName = new LinkedHashMap<>();
+        List<Integer> nonSeat = new ArrayList<>();
+        for (Map.Entry<Integer, Map<String, Integer>> e : votes.entrySet()) {
+            String best = "";
+            int bestCount = 0;
+            boolean tie = false;
+            for (Map.Entry<String, Integer> v : e.getValue().entrySet()) {
+                if (v.getValue() > bestCount) {
+                    best = v.getKey();
+                    bestCount = v.getValue();
+                    tie = false;
+                } else if (v.getValue() == bestCount) {
+                    tie = true;
+                }
+            }
+            if (tie || best.isEmpty()) {
+                nonSeat.add(e.getKey());
+            } else {
+                byName.computeIfAbsent(best, k -> new ArrayList<>()).add(e.getKey());
+            }
+        }
+        List<DetailExtractor.RawLabel> zones = new ArrayList<>();
+        for (Map.Entry<String, List<Integer>> e : byName.entrySet()) {
+            zones.add(new DetailExtractor.RawLabel(e.getKey(), e.getValue()));
+        }
+        return new DetailExtractor.LabelResult(zones, nonSeat);
+    }
+
+    private static int linkedCount(DetailExtractor.LabelResult r) {
+        int n = 0;
+        for (DetailExtractor.RawLabel l : r.zones()) {
+            if (l.segmentIds() != null && !l.segmentIds().isEmpty()) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    private void writeDebug(ImageSlicer.SliceImage target, ShapeSegmenter.Result seg, DetailExtractor.LabelResult result) {
+        String dir = properties.getDebugDir();
+        if (dir == null || dir.isBlank()) {
+            return;
+        }
+        try {
+            java.nio.file.Path d = java.nio.file.Path.of(dir);
+            java.nio.file.Files.createDirectories(d);
+            java.nio.file.Files.write(d.resolve("target.jpg"), target.jpeg());
+            java.nio.file.Files.write(d.resolve("numbered.jpg"), seg.annotatedJpeg());
+            java.nio.file.Files.write(d.resolve("tiles.jpg"), seg.tilesJpeg());
+            StringBuilder sb = new StringBuilder("{\"width\":" + seg.width() + ",\"height\":" + seg.height() + ",\"nonSeat\":" + result.nonSeatSegments() + ",\"zones\":{");
+            boolean first = true;
+            for (DetailExtractor.RawLabel l : result.zones()) {
+                sb.append(first ? "" : ",").append('"').append(l.name().replace("\"", "")).append("\":").append(l.segmentIds());
+                first = false;
+            }
+            sb.append("}}");
+            java.nio.file.Files.writeString(d.resolve("labels.json"), sb.toString());
+        } catch (java.io.IOException | RuntimeException e) {
+            log.info("AI 디버그 저장 실패: {}", e.getClass().getSimpleName());
+        }
     }
 
     private static double polygonArea(List<List<Integer>> p) {
@@ -404,10 +517,37 @@ public class DetailExtractionService {
                 polys.add(poly);
             }
             if (!polys.isEmpty()) {
-                out.add(new DetailExtractor.RawZone(l.name(), polys));
+                out.add(new DetailExtractor.RawZone(l.name(), joinParts(polys)));
             }
         }
         return out;
+    }
+
+    /**
+     * 한 구역이 색으로 갈라진 조각들(예: VIP 부분 + 일반석 부분)이면 틈 없는 하나의 매끄러운 블록으로 합친다:
+     * 조각들의 볼록 껍질 넓이가 조각 넓이 합의 1.35배 이하(조각들이 서로 붙어 한 블록을 이룸)일 때만, 아니면 그대로 둔다.
+     */
+    static List<List<List<Integer>>> joinParts(List<List<List<Integer>>> polys) {
+        if (polys.size() < 2) {
+            return polys;
+        }
+        List<int[]> pts = new ArrayList<>();
+        double sum = 0;
+        for (List<List<Integer>> p : polys) {
+            sum += polygonArea(p);
+            for (List<Integer> pt : p) {
+                pts.add(new int[]{pt.get(0), pt.get(1)});
+            }
+        }
+        List<int[]> hull = ShapeSegmenter.convexHull(pts);
+        if (hull.size() < 3 || hull.size() > 40) {
+            return polys;
+        }
+        List<List<Integer>> joined = new ArrayList<>();
+        for (int[] p : hull) {
+            joined.add(List.of(p[0], p[1]));
+        }
+        return polygonArea(joined) <= sum * 1.35 ? List.of(joined) : polys;
     }
 
     private Response build(List<SessionDto> rule, List<SessionDto> ai, List<ZoneDto> zones, Double aspect,

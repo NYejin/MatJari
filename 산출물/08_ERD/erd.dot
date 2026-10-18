@@ -21,7 +21,7 @@
 // 시각 컬럼(created_at, updated_at, starts_at 등)은 모두 KST(Asia/Seoul) 벽시계 시각
 digraph MatJariERD {
   graph [rankdir=LR, fontname="NanumGothic,Malgun Gothic", fontsize=12, labelloc=t, nodesep=0.5, ranksep=1.2, splines=true,
-         label=<<B>맞자리 ERD - 현재 스키마 (V1~V19, 21개 테이블)</B><BR/>시각 컬럼은 모두 KST 기준 / 교환 희망 4개는 V4, 매칭·예약 잠금 2개는 V5, 범위별 추가금·요청 소프트 삭제는 V6·V7, 한 명 예약 방식은 V8 적용, 교환 완료·이력은 V9 적용, 알림은 V10 적용, 채팅은 V11 적용 / 관리자 두 테이블은 V12 적용 / 차단·신고·이용 정지 세 테이블은 V13 적용 / 소셜 로그인 계정은 V14 적용 / 예약 제안·알림 6종은 V15 적용 / 비밀번호 로그인 가능 여부·사용자당 제공자 1개는 V16 적용 / 회원탈퇴 시각은 V17 적용 / 신뢰도 점수 컬럼 제거는 V18 적용>];
+         label=<<B>맞자리 ERD - 현재 스키마 (V1~V20, 21개 테이블)</B><BR/>시각 컬럼은 모두 KST 기준 / 교환 희망 4개는 V4, 매칭·예약 잠금 2개는 V5, 범위별 추가금·요청 소프트 삭제는 V6·V7, 한 명 예약 방식은 V8 적용, 교환 완료·이력은 V9 적용, 알림은 V10 적용, 채팅은 V11 적용 / 관리자 두 테이블은 V12 적용 / 차단·신고·이용 정지 세 테이블은 V13 적용 / 소셜 로그인 계정은 V14 적용 / 예약 제안·알림 6종은 V15 적용 / 비밀번호 로그인 가능 여부·사용자당 제공자 1개는 V16 적용 / 회원탈퇴 시각은 V17 적용 / 신뢰도 점수 컬럼 제거는 V18 적용>];
   node  [shape=plain, fontname="NanumGothic,Malgun Gothic", fontsize=10];
   edge  [fontname="NanumGothic,Malgun Gothic", fontsize=9, dir=both, arrowtail=tee, arrowhead=crow];
 
@@ -29,7 +29,7 @@ digraph MatJariERD {
   legend [label=<
     <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3">
       <TR><TD COLSPAN="2" BGCOLOR="#DDDDDD"><B>범례</B></TD></TR>
-      <TR><TD BGCOLOR="#FFFFFF" WIDTH="18"> </TD><TD ALIGN="LEFT">현재 (V1~V19)</TD></TR>
+      <TR><TD BGCOLOR="#FFFFFF" WIDTH="18"> </TD><TD ALIGN="LEFT">현재 (V1~V20)</TD></TR>
       <TR><TD>PK/FK/UK</TD><TD ALIGN="LEFT">키 / 제약</TD></TR>
       <TR><TD>NN</TD><TD ALIGN="LEFT">NOT NULL</TD></TR>
       <TR><TD>점선</TD><TD ALIGN="LEFT">FK가 아닌 참조 (sanction_id, resolved_ticket_id)</TD></TR>

@@ -1,11 +1,11 @@
 ---
 name: erd-conventions
-description: DB 엔티티/ERD 관련 작업(신규 테이블, 관계 수정, JPA 엔티티 작성) 시 반드시 참고. 현재 기준선 V1~V19(21개 테이블: users·performance·performance_session·ticket, 교환 희망 4개, 매칭·잠금 2개, 교환 이력 1개, 알림 1개, 채팅 2개, 관리자 2개(performance_edit_proposal·seat_claim), 차단·신고·제재 3개(user_block·abuse_report·user_sanction), 소셜 로그인 1개(social_account))과 네이밍·제약·마이그레이션 규칙을 담고 있다. 좌석표·수정 로그·제재 설계는 삭제되어 태그 archive/seatmap-track-20261007에 보관된다. 기준 다이어그램은 산출물/08_ERD/erd.dot.
+description: DB 엔티티/ERD 관련 작업(신규 테이블, 관계 수정, JPA 엔티티 작성) 시 반드시 참고. 현재 기준선 V1~V20(21개 테이블: users·performance·performance_session·ticket, 교환 희망 4개, 매칭·잠금 2개, 교환 이력 1개, 알림 1개, 채팅 2개, 관리자 2개(performance_edit_proposal·seat_claim), 차단·신고·제재 3개(user_block·abuse_report·user_sanction), 소셜 로그인 1개(social_account))과 네이밍·제약·마이그레이션 규칙을 담고 있다. 좌석표·수정 로그·제재 설계는 삭제되어 태그 archive/seatmap-track-20261007에 보관된다. 기준 다이어그램은 산출물/08_ERD/erd.dot.
 ---
 
 # ERD 컨벤션
 
-## 기준선 (21개 테이블, Flyway V1~V19)
+## 기준선 (21개 테이블, Flyway V1~V20)
 
 | 테이블 | 요점 |
 |---|---|
@@ -75,7 +75,7 @@ description: DB 엔티티/ERD 관련 작업(신규 테이블, 관계 수정, JPA
 
 - 가입 전 이메일 인증번호. PK는 `email`(정규화된 이메일, 이메일당 행 1개를 덮어씀), `code_hash` CHAR(64)=HMAC-SHA256, `attempts`(CHECK >= 0), `sent_at`·`expires_at`(만료 행 정리용 인덱스). users와 FK가 없고(가입 전 이메일) 가입 성공 트랜잭션에서 행을 지운다. 재실행 가능한 프로시저, 파괴적 단계 없음.
 
-### 다음 마이그레이션 (V20부터)
+### 다음 마이그레이션 (V21부터)
 
 - V13 차단·신고·제재(`user_block`·`abuse_report`·`user_sanction`)는 구현 완료다. 차단 제외는 `ExchangeCandidateRepository`에, 채팅 쓰기 차단 검사는 서비스에 들어 있다.
 - 7일 경과 알림은 2026-10-13 사용자 결정으로 보류했다(스키마 변경이 필요한지는 다시 요청될 때 설계).
@@ -115,7 +115,7 @@ description: DB 엔티티/ERD 관련 작업(신규 테이블, 관계 수정, JPA
 `ddl-auto: validate` — Hibernate는 스키마를 만들거나 고치지 않고 엔티티와 일치하는지 검증만 한다(불일치 시 기동 실패).
 
 - 변경은 `MatJari/backend/src/main/resources/db/migration/V{n}__{snake_description}.sql`을 **새로 추가**해서만 한다. 번호는 마지막 번호 + 1(다음은 V20).
-- **이미 적용된 파일(V1~V19)은 수정 금지**(체크섬 불일치로 기동 실패). 잘못됐으면 새 V 파일로 고친다. 로컬 개발 DB를 되돌릴 때는 `docker compose down -v`.
+- **이미 적용된 파일(V1~V20)은 수정 금지**(체크섬 불일치로 기동 실패). 잘못됐으면 새 V 파일로 고친다. 로컬 개발 DB를 되돌릴 때는 `docker compose down -v`.
 - 새 엔티티·컬럼·인덱스·길이·NOT NULL·collation 변경은 엔티티 수정과 **같은 커밋에 마이그레이션 파일을 함께 작성**한다.
 - 이관이 있는 변경은 재실행 가능한 프로시저 패턴(INFORMATION_SCHEMA 가드; V2·V3·V6~V18 전부 이 패턴을 쓴다. V4·V5는 신규 테이블뿐이라 해당 없음)으로 쓴다. 데이터를 이관할 수 없는 변경은 파일 맨 앞에서 임시 프로시저 + `SIGNAL SQLSTATE '45000'`으로 즉시 실패시킨다(MySQL DDL은 트랜잭션에 묶이지 않아 중간 실패 시 앞선 변경이 남기 때문). 실패 후에는 데이터를 고치고 `flyway repair` 후 재시도.
 - 요구 버전은 MySQL 8.0.16 이상(CHECK 강제). Flyway baseline 설정은 없다(V1은 빈 DB 전용). 이전 스키마가 남은 로컬 DB는 `docker compose down -v`로 비운다.
@@ -124,7 +124,7 @@ description: DB 엔티티/ERD 관련 작업(신규 테이블, 관계 수정, JPA
 
 ## 08_ERD 반영 규칙
 
-`산출물/08_ERD/erd.dot`이 기준 다이어그램이다. 현재 erd.dot은 V1~V19·21개 테이블(`email_verification`, `social_account`, `user_block`·`abuse_report`·`user_sanction`, `performance_edit_proposal`·`seat_claim`, `exchange_history`·`notification`·`chat_message`·`chat_read_state` 포함)까지 그려야 한다. 현재 테이블은 파란 헤더로 두고, 아직 없는 예정 테이블이 생기면 주황 헤더 노드로 둔다. 삭제된 좌석표·수정 로그·제재 테이블은 그리지 않는다(설계는 태그 `archive/seatmap-track-20261007`의 이전 erd.dot과 마이그레이션에 보관). 시각 컬럼(created_at/updated_at/starts_at)은 KST 기준이라는 주석을 유지한다. 새 V 파일이 추가되면 erd.dot도 함께 갱신하고 이 문서의 기준선 표를 갱신한다. 설계 상세는 `산출물/08_ERD/exchange-schema-design.md`.
+`산출물/08_ERD/erd.dot`이 기준 다이어그램이다. 현재 erd.dot은 V1~V20·21개 테이블(`email_verification`, `social_account`, `user_block`·`abuse_report`·`user_sanction`, `performance_edit_proposal`·`seat_claim`, `exchange_history`·`notification`·`chat_message`·`chat_read_state` 포함)까지 그려야 한다. 현재 테이블은 파란 헤더로 두고, 아직 없는 예정 테이블이 생기면 주황 헤더 노드로 둔다. 삭제된 좌석표·수정 로그·제재 테이블은 그리지 않는다(설계는 태그 `archive/seatmap-track-20261007`의 이전 erd.dot과 마이그레이션에 보관). 시각 컬럼(created_at/updated_at/starts_at)은 KST 기준이라는 주석을 유지한다. 새 V 파일이 추가되면 erd.dot도 함께 갱신하고 이 문서의 기준선 표를 갱신한다. 설계 상세는 `산출물/08_ERD/exchange-schema-design.md`.
 
 ## 변경 시 절차
 

@@ -2,6 +2,7 @@ package com.matjari.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -14,6 +15,8 @@ public record PerformanceDetailResponse(
         String title,
         String sourceUrl,
         String venueName,
+        BigDecimal seatmapAspect,
+        List<Zone> zones,
         Registrant registrant,
         boolean canEdit,
         List<SessionResponse> sessions,
@@ -21,4 +24,7 @@ public record PerformanceDetailResponse(
         LocalDateTime createdAt
 ) {
     public record Registrant(Long id, String nickname) {}
+
+    /** 구역(sortOrder 순). shapePolygons 는 없으면 null. */
+    public record Zone(String name, List<List<List<Integer>>> shapePolygons) {}
 }

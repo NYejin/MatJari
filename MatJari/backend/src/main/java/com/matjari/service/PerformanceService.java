@@ -2,18 +2,21 @@ package com.matjari.service;
 
 import com.matjari.domain.Performance;
 import com.matjari.domain.PerformanceSession;
+import com.matjari.domain.PerformanceZone;
 import com.matjari.domain.User;
 import com.matjari.dto.request.PerformanceCreateRequest;
 import com.matjari.dto.response.PageResponse;
 import com.matjari.dto.response.PerformanceDetailResponse;
 import com.matjari.dto.response.PerformanceLookupResponse;
 import com.matjari.dto.response.PerformanceSummaryResponse;
+import com.matjari.dto.response.PerformanceZonesResponse;
 import com.matjari.dto.response.SessionResponse;
 import com.matjari.exception.ConflictException;
 import com.matjari.exception.FieldValidationException;
 import com.matjari.exception.NotFoundException;
 import com.matjari.repository.PerformanceRepository;
 import com.matjari.repository.PerformanceSessionRepository;
+import com.matjari.repository.PerformanceZoneRepository;
 import com.matjari.repository.UserRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -25,6 +28,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -51,6 +55,7 @@ public class PerformanceService {
 
     private final PerformanceRepository performanceRepository;
     private final PerformanceSessionRepository sessionRepository;
+    private final PerformanceZoneRepository zoneRepository;
     private final UserRepository userRepository;
     private final SourceKeyResolver sourceKeyResolver;
     private final SessionTimePolicy sessionTimePolicy;
@@ -58,12 +63,14 @@ public class PerformanceService {
 
     public PerformanceService(PerformanceRepository performanceRepository,
                               PerformanceSessionRepository sessionRepository,
+                              PerformanceZoneRepository zoneRepository,
                               UserRepository userRepository,
                               SourceKeyResolver sourceKeyResolver,
                               SessionTimePolicy sessionTimePolicy,
                               PlatformTransactionManager transactionManager) {
         this.performanceRepository = performanceRepository;
         this.sessionRepository = sessionRepository;
+        this.zoneRepository = zoneRepository;
         this.userRepository = userRepository;
         this.sourceKeyResolver = sourceKeyResolver;
         this.sessionTimePolicy = sessionTimePolicy;
@@ -109,6 +116,12 @@ public class PerformanceService {
                         .collect(Collectors.toMap(PerformanceSessionRepository.SessionStats::getPerformanceId,
                                 Function.identity()));
 
+        Map<Long, Long> zoneCounts = result.isEmpty()
+                ? Map.of()
+                : zoneRepository.countByPerformanceIds(result.map(Performance::getId).getContent()).stream()
+                        .collect(Collectors.toMap(PerformanceZoneRepository.ZoneCount::getPerformanceId,
+                                PerformanceZoneRepository.ZoneCount::getZoneCount));
+
         List<PerformanceSummaryResponse> content = result.getContent().stream()
                 .map(p -> {
                     PerformanceSessionRepository.SessionStats s = stats.get(p.getId());
@@ -117,7 +130,8 @@ public class PerformanceService {
                             p.getTitle(),
                             p.getVenueName(),
                             s == null ? null : s.getNextStartsAt(),
-                            s == null || s.getSessionCount() == null ? 0 : s.getSessionCount());
+                            s == null || s.getSessionCount() == null ? 0 : s.getSessionCount(),
+                            zoneCounts.getOrDefault(p.getId(), 0L));
                 })
                 .toList();
         return new PageResponse<>(content, result.getNumber(), result.getSize(),
@@ -128,7 +142,17 @@ public class PerformanceService {
     public PerformanceDetailResponse get(Long performanceId, Long userId) {
         Performance performance = performanceRepository.findDetailById(performanceId)
                 .orElseThrow(() -> new NotFoundException(NOT_FOUND_MESSAGE));
-        return toDetail(performance, sessionRepository.findByPerformance_IdOrderByStartsAtAsc(performanceId), userId);
+        return toDetail(performance, sessionRepository.findByPerformance_IdOrderByStartsAtAsc(performanceId),
+                zoneRepository.findByPerformanceIdOrderBySortOrderAscIdAsc(performanceId), userId);
+    }
+
+    /** 공연의 구역 목록(sortOrder 순)과 좌석표 비율. 없는 공연은 404. 구역이 없으면 zones=[]. */
+    @Transactional(readOnly = true)
+    public PerformanceZonesResponse getZones(Long performanceId) {
+        Performance performance = performanceRepository.findById(performanceId)
+                .orElseThrow(() -> new NotFoundException(NOT_FOUND_MESSAGE));
+        return new PerformanceZonesResponse(performance.getSeatmapAspect(),
+                toZoneResponses(zoneRepository.findByPerformanceIdOrderBySortOrderAscIdAsc(performanceId)));
     }
 
     /**
@@ -148,6 +172,8 @@ public class PerformanceService {
         String title = cleanTitle(request.title());
         String venueName = cleanVenueName(request.venueName());
         List<LocalDateTime> startsAts = sessionTimePolicy.normalizeAll(request.sessions(), "sessions");
+        List<PerformanceZoneSanitizer.Zone> zoneInputs = PerformanceZoneSanitizer.sanitize(request.zones());
+        BigDecimal seatmapAspect = PerformanceZoneSanitizer.sanitizeAspect(request.seatmapAspect());
 
         try {
             return transactionTemplate.execute(status -> {
@@ -158,13 +184,23 @@ public class PerformanceService {
                 User registrant = requireUser(userId);
 
                 Performance performance = performanceRepository.saveAndFlush(
-                        Performance.create(venueName, title, sourceUrl, sourceKey, registrant));
+                        Performance.create(venueName, title, sourceUrl, sourceKey, registrant, seatmapAspect));
                 List<PerformanceSession> sessions = new ArrayList<>();
                 for (LocalDateTime startsAt : startsAts) {
                     sessions.add(sessionRepository.save(PerformanceSession.create(performance, startsAt)));
                 }
                 sessionRepository.flush();
-                return toDetail(performance, sessions, userId);
+                // 구역은 공연 행 다음에만 쓴다(다른 잠금 없음). 같은 트랜잭션이라 실패하면 공연도 롤백된다.
+                List<PerformanceZone> zones = new ArrayList<>();
+                for (int i = 0; i < zoneInputs.size(); i++) {
+                    PerformanceZoneSanitizer.Zone z = zoneInputs.get(i);
+                    zones.add(PerformanceZone.create(performance, z.name(), z.nameKey(), i, z.shapePolygons()));
+                }
+                if (!zones.isEmpty()) {
+                    zoneRepository.saveAll(zones);
+                    zoneRepository.flush();
+                }
+                return toDetail(performance, sessions, zones, userId);
             });
         } catch (DataIntegrityViolationException e) {
             if (!DataIntegrityViolations.isViolationOf(e, UNIQUE_SOURCE_KEY)) {
@@ -178,14 +214,22 @@ public class PerformanceService {
         }
     }
 
+    private static List<PerformanceDetailResponse.Zone> toZoneResponses(List<PerformanceZone> zones) {
+        return zones.stream()
+                .map(z -> new PerformanceDetailResponse.Zone(z.getName(), z.getShapePolygons()))
+                .toList();
+    }
+
     private PerformanceDetailResponse toDetail(Performance performance, List<PerformanceSession> sessions,
-                                               Long userId) {
+                                               List<PerformanceZone> zones, Long userId) {
         User registrant = performance.getRegistrant();
         return new PerformanceDetailResponse(
                 performance.getId(),
                 performance.getTitle(),
                 performance.getSourceUrl(),
                 performance.getVenueName(),
+                performance.getSeatmapAspect(),
+                toZoneResponses(zones),
                 new PerformanceDetailResponse.Registrant(registrant.getId(), registrant.getNickname()),
                 performance.isRegisteredBy(userId),
                 sessions.stream().map(SessionResponse::from).toList(),

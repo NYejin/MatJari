@@ -13,6 +13,7 @@ import com.matjari.exception.NotFoundException;
 import com.matjari.exception.MatJariException;
 import com.matjari.repository.PerformanceRepository;
 import com.matjari.repository.PerformanceSessionRepository;
+import com.matjari.repository.PerformanceZoneRepository;
 import com.matjari.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -53,6 +54,7 @@ class PerformanceServiceTest {
 
     private PerformanceRepository performanceRepository;
     private PerformanceSessionRepository sessionRepository;
+    private PerformanceZoneRepository zoneRepository;
     private UserRepository userRepository;
     private PerformanceService service;
 
@@ -63,8 +65,9 @@ class PerformanceServiceTest {
     void setUp() {
         performanceRepository = mock(PerformanceRepository.class);
         sessionRepository = mock(PerformanceSessionRepository.class);
+        zoneRepository = mock(PerformanceZoneRepository.class);
         userRepository = mock(UserRepository.class);
-        service = new PerformanceService(performanceRepository, sessionRepository, userRepository,
+        service = new PerformanceService(performanceRepository, sessionRepository, zoneRepository, userRepository,
                 new SourceKeyResolver(), PerformanceFixtures.timePolicy(),
                 PerformanceFixtures.noopTransactionManager());
 
@@ -291,5 +294,86 @@ class PerformanceServiceTest {
                     });
         }
         verify(performanceRepository, never()).saveAndFlush(any());
+    }
+
+    // ---- 구역 (V21) ----
+
+    private static PerformanceCreateRequest.ZoneInput zone(String name, Object shape) {
+        return new PerformanceCreateRequest.ZoneInput(name, shape);
+    }
+
+    private static List<List<List<Integer>>> tri(int offset) {
+        return List.of(List.of(List.of(offset, 0), List.of(offset + 10, 0), List.of(offset, 10)));
+    }
+
+    private static PerformanceCreateRequest zoneRequest(List<PerformanceCreateRequest.ZoneInput> zones,
+                                                        java.math.BigDecimal aspect) {
+        return new PerformanceCreateRequest(URL, "제목", "KSPO DOME", List.of(NOW.plusDays(2)), zones, aspect);
+    }
+
+    @Test
+    void createSavesZonesInInputOrderAfterPerformanceAndReturnsThem() {
+        stubInserts();
+        PerformanceDetailResponse detail = service.create(1L, zoneRequest(List.of(
+                zone(" A  구역 ", List.of(List.of(List.of(0.4, 999.6), List.of(10, 0), List.of(10, 10)))),
+                zone("스탠딩", null),
+                zone("a구역", tri(100))), new java.math.BigDecimal("1.23456")));
+
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<List<com.matjari.domain.PerformanceZone>> captor =
+                org.mockito.ArgumentCaptor.forClass(List.class);
+        InOrder order = inOrder(performanceRepository, zoneRepository);
+        order.verify(performanceRepository).saveAndFlush(any(Performance.class));
+        order.verify(zoneRepository).saveAll(captor.capture());
+        assertThat(captor.getValue()).extracting("name", "nameKey", "sortOrder")
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("A 구역", "A구역", (short) 0),
+                        org.assertj.core.groups.Tuple.tuple("스탠딩", "스탠딩", (short) 1));
+        assertThat(detail.zones()).extracting("name").containsExactly("A 구역", "스탠딩");
+        assertThat(detail.zones().get(0).shapePolygons()).hasSize(2); // 같은 키 두 구역의 조각이 이어 붙음
+        assertThat(detail.zones().get(0).shapePolygons().get(0).get(0)).containsExactly(0, 1000);
+        assertThat(detail.seatmapAspect()).isEqualByComparingTo("1.235");
+    }
+
+    @Test
+    void createWithoutZonesWritesNoZoneRows() {
+        stubInserts();
+        PerformanceDetailResponse detail = service.create(1L, request(List.of(NOW.plusDays(2))));
+
+        verify(zoneRepository, never()).saveAll(any());
+        assertThat(detail.zones()).isEmpty();
+        assertThat(detail.seatmapAspect()).isNull();
+    }
+
+    @Test
+    void createRejectsTooLongZoneNameBeforeAnyInsert() {
+        assertThatThrownBy(() -> service.create(1L, zoneRequest(List.of(zone("가".repeat(31), null)), null)))
+                .isInstanceOfSatisfying(FieldValidationException.class,
+                        e -> assertThat(e.getField()).isEqualTo("zones"));
+        verify(performanceRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void getReturnsZonesAndSearchCountsZonesInOneQuery() {
+        Performance p = performance(100L, "KSPO DOME", registrant);
+        when(performanceRepository.findDetailById(100L)).thenReturn(Optional.of(p));
+        when(sessionRepository.findByPerformance_IdOrderByStartsAtAsc(100L)).thenReturn(List.of());
+        when(zoneRepository.findByPerformanceIdOrderBySortOrderAscIdAsc(100L)).thenReturn(List.of(
+                com.matjari.domain.PerformanceZone.create(p, "A", "A", 0, tri(0))));
+        assertThat(service.get(100L, 1L).zones()).extracting("name").containsExactly("A");
+
+        when(performanceRepository.search(any(), any(), any(Pageable.class))).thenReturn(new PageImpl<>(
+                List.of(p, performance(101L, "V", registrant)), PageRequest.of(0, 20), 2));
+        PerformanceZoneRepository.ZoneCount count = mock(PerformanceZoneRepository.ZoneCount.class);
+        when(count.getPerformanceId()).thenReturn(100L);
+        when(count.getZoneCount()).thenReturn(3L);
+        when(zoneRepository.countByPerformanceIds(any())).thenReturn(List.of(count));
+        assertThat(service.search(null, 0, 20, null).content()).extracting("zoneCount").containsExactly(3L, 0L);
+        verify(zoneRepository).countByPerformanceIds(List.of(100L, 101L));
+    }
+
+    @Test
+    void getZonesIs404ForUnknownPerformance() {
+        when(performanceRepository.findById(9L)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.getZones(9L)).isInstanceOf(NotFoundException.class);
     }
 }

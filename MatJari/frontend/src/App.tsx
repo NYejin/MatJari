@@ -31,6 +31,7 @@ import AdminReportDetailPage from "./pages/AdminReportDetailPage";
 import AdminSanctionsPage from "./pages/AdminSanctionsPage";
 import AdminBlocksPage from "./pages/AdminBlocksPage";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
+import TermsOfServicePage from "./pages/TermsOfServicePage";
 
 export default function App() {
   return (
@@ -44,6 +45,7 @@ export default function App() {
           <Route path="/auth/callback" element={<SocialCallbackPage />} />
           {/* 개인정보처리방침: 공개 (로그인 불필요, 리다이렉트 없음) */}
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
+          <Route path="/terms" element={<TermsOfServicePage />} />
 
           <Route element={<ProtectedRoute />}>
             {/* 공연 API는 모두 로그인 필요 → 상세도 보호 라우트 (비로그인 진입 시 로그인 후 복귀) */}

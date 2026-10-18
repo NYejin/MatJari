@@ -158,28 +158,35 @@ public class AdminModerationService {
         LocalDateTime now = LocalDateTime.now(clock);
         Long sanctionId = null;
         if (sanctionInput != null) {
-            Long targetId = report.getReportedId();
-            User target = userRepository.findById(targetId)
-                    .orElseThrow(() -> new NotFoundException("대상 사용자를 찾을 수 없습니다."));
-            if (target.isWithdrawn()) {
-                throw new ConflictException("탈퇴한 사용자는 제재할 수 없습니다.", Map.of("code", "TARGET_WITHDRAWN"));
-            }
-            if (target.getRole() == UserRole.ADMIN || targetId.equals(adminId)) {
-                throw new ConflictException("관리자 계정은 제재할 수 없습니다.", Map.of("code", "CANNOT_SANCTION_ADMIN"));
-            }
-            if (!sanctionRepository.findActiveForUpdate(targetId, now).isEmpty()) {
-                throw new ConflictException("이미 이용 정지 중인 사용자입니다.", Map.of("code", "SANCTION_ALREADY_ACTIVE"));
-            }
-            // 열린 매칭 시스템 취소(티켓 -> 요청 -> 매칭 잠금)는 users 행 잠금 없이, user_sanction INSERT 보다 먼저.
-            cancellerProvider.getObject().cancelAllOf(targetId);
-            UserSanction sanction = sanctionRepository.saveAndFlush(
-                    UserSanction.suspend(targetId, report.getId(), sanctionNote, now, sanctionInput.days(), adminId));
-            sanctionId = sanction.getId();
-            closeSocketsAfterCommit(targetId);
+            sanctionId = createSanction(adminId, report.getReportedId(), report.getId(), sanctionNote, sanctionInput.days(), now);
         }
         report.resolve(adminId, note, sanctionId, now);
         reportRepository.saveAndFlush(report);
         return toAdminReports(List.of(report)).get(0);
+    }
+
+    /**
+     * 이용 정지 생성 코어(신고 처리와 관리자 직접 정지가 공유). 호출 트랜잭션은 READ_COMMITTED 이고 호출 전에 ExchangeMatch 를 읽지 않아야 한다.
+     * 대상 users 행은 잠그지 않는다(위 Javadoc). 탈퇴자 409 TARGET_WITHDRAWN, ADMIN·자기 자신 409 CANNOT_SANCTION_ADMIN,
+     * 이미 정지 중 409 SANCTION_ALREADY_ACTIVE. 순서: 검사 -> OpenMatchCanceller -> user_sanction INSERT -> 커밋 뒤 연결 종료. reportId 는 직접 정지면 null.
+     */
+    Long createSanction(Long adminId, Long targetId, Long reportId, String note, Integer days, LocalDateTime now) {
+        User target = userRepository.findById(targetId)
+                .orElseThrow(() -> new NotFoundException("대상 사용자를 찾을 수 없습니다."));
+        if (target.isWithdrawn()) {
+            throw new ConflictException("탈퇴한 사용자는 제재할 수 없습니다.", Map.of("code", "TARGET_WITHDRAWN"));
+        }
+        if (target.getRole() == UserRole.ADMIN || targetId.equals(adminId)) {
+            throw new ConflictException("관리자 계정은 제재할 수 없습니다.", Map.of("code", "CANNOT_SANCTION_ADMIN"));
+        }
+        if (!sanctionRepository.findActiveForUpdate(targetId, now).isEmpty()) {
+            throw new ConflictException("이미 이용 정지 중인 사용자입니다.", Map.of("code", "SANCTION_ALREADY_ACTIVE"));
+        }
+        // 열린 매칭 시스템 취소(티켓 -> 요청 -> 매칭 잠금)는 users 행 잠금 없이, user_sanction INSERT 보다 먼저.
+        cancellerProvider.getObject().cancelAllOf(targetId);
+        UserSanction sanction = sanctionRepository.saveAndFlush(UserSanction.suspend(targetId, reportId, note, now, days, adminId));
+        closeSocketsAfterCommit(targetId);
+        return sanction.getId();
     }
 
     /** 커밋된 뒤에만 대상의 STOMP 연결을 닫는다(롤백이면 닫지 않는다). 실패해도 처리 결과에는 영향이 없다. */

@@ -97,6 +97,11 @@ public class User {
         this.withdrawnAt = now;
     }
 
+    /** 관리자 역할 변경. 규칙(자기 자신·마지막 관리자 등)은 AdminUserService 가 먼저 판단한다. */
+    public void changeRole(UserRole role) {
+        this.role = role;
+    }
+
     /** 닉네임 변경. 검증·정규화는 호출 쪽(UserService)이 한다. */
     public void changeNickname(String nickname) {
         this.nickname = nickname;

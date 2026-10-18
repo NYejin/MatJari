@@ -346,6 +346,12 @@ public class SeatClaimService {
      */
     @org.springframework.transaction.annotation.Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
     public int rejectPendingForWithdrawal(Long userId) {
+        return rejectPendingForWithdrawal(userId, userId);
+    }
+
+    /** 관리자 강제 탈퇴용: 처리자(processorId)를 관리자로 기록한다. */
+    @org.springframework.transaction.annotation.Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public int rejectPendingForWithdrawal(Long userId, Long processorId) {
         LocalDateTime now = sessionTimePolicy.now();
         int rejected = 0;
         for (Long id : claimRepository.findPendingIdsByClaimant(userId)) {
@@ -353,7 +359,7 @@ public class SeatClaimService {
             if (claim == null || !claim.isPending()) {
                 continue; // 그 사이 관리자가 처리했다
             }
-            claim.reject(userId, WITHDRAWAL_REJECT_NOTE, now);
+            claim.reject(processorId, WITHDRAWAL_REJECT_NOTE, now);
             claimRepository.saveAndFlush(claim);
             deleteImageAfterCommit(claim.getId(), claim.getImageKey());
             rejected++;

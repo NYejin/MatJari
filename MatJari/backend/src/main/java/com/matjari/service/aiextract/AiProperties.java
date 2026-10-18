@@ -39,4 +39,18 @@ public class AiProperties {
     private int maxSlices = 24;
     /** crop 결과 높이 상한(px). */
     private int cropMaxHeight = 2400;
+
+    /** false면 AI를 호출하지 않는다(키(ANTHROPIC_API_KEY)가 없어도 실질 비활성). */
+    private boolean enabled = true;
+    /** 모델 이름. 날짜 접미사를 붙이지 않는다. */
+    private String model = "claude-haiku-5-5";
+    private int requestTimeoutSeconds = 60;
+    /** 사용자당 하루(KST) AI 호출 상한. 서버 재시작 때 초기화된다(메모리 기반). */
+    private int dailyPerUser = 5;
+    private int dailyGlobal = 40;
+    private int maxConcurrent = 2;
+    private int cacheTtlHours = 24;
+    private int cacheMaxEntries = 200;
+    private int firstMaxTokens = 4000;
+    private int secondMaxTokens = 6000;
 }

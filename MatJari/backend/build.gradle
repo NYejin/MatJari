@@ -24,6 +24,7 @@ dependencies {
     implementation 'org.flywaydb:flyway-mysql'
     runtimeOnly 'com.mysql:mysql-connector-j:8.4.0'
     implementation 'org.jsoup:jsoup:1.18.3'
+    implementation("com.anthropic:anthropic-java:2.34.0")
     implementation 'org.springframework.boot:spring-boot-starter-mail'
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'

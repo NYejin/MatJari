@@ -117,3 +117,12 @@ matjari:
     slice-height: ${MATJARI_AI_SLICE_HEIGHT:1400}
     slice-overlap: ${MATJARI_AI_SLICE_OVERLAP:0.2}
     max-slices: ${MATJARI_AI_MAX_SLICES:24}
+    # AI 호출(Anthropic). 키는 환경변수 ANTHROPIC_API_KEY(설정에 두지 않는다). 키가 없으면 AI 없이 본문 규칙 결과만 돌려준다.
+    enabled: ${MATJARI_AI_ENABLED:true}
+    model: ${MATJARI_AI_MODEL:claude-haiku-5-5}
+    request-timeout-seconds: ${MATJARI_AI_REQUEST_TIMEOUT_SECONDS:60}
+    daily-per-user: ${MATJARI_AI_DAILY_PER_USER:5}
+    daily-global: ${MATJARI_AI_DAILY_GLOBAL:40}
+    max-concurrent: ${MATJARI_AI_MAX_CONCURRENT:2}
+    cache-ttl-hours: ${MATJARI_AI_CACHE_TTL_HOURS:24}
+    cache-max-entries: ${MATJARI_AI_CACHE_MAX_ENTRIES:200}

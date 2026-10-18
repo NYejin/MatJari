@@ -684,6 +684,12 @@ export default function ChatPage() {
                     예약 제안
                   </button>
                 )}
+                {/* 내가 제안한 상태: '예약 제안' 자리에서 '제안 철회'로 바뀐다(보조 버튼 색, 같은 크기) */}
+                {reservable && proposal === "MINE" && match.status === "CHATTING" && (
+                  <button type="button" className={`${SMALL_OUTLINE} shrink-0`} onClick={() => void runReserve("withdraw")} disabled={reserveBusy !== null} aria-busy={reserveBusy === "withdraw"}>
+                    {reserveBusy === "withdraw" ? "처리 중..." : "제안 철회"}
+                  </button>
+                )}
                 {reservable && !seatExchanged && proposal === "THEIRS" && (
                   <button type="button" className={SLOT_BUTTON} onClick={() => setReserveConfirm("accept")} disabled={reserveBusy !== null || match.myTicketReservedElsewhere || match.counterpartTicketReservedElsewhere}>
                     예약 수락
@@ -699,11 +705,6 @@ export default function ChatPage() {
                   )}
                   {(proposal === "MINE" || proposal === "THEIRS" || match.status === "RESERVED") && (
                     <div className="flex flex-wrap gap-2">
-                      {proposal === "MINE" && (
-                        <button type="button" className={SMALL_OUTLINE} onClick={() => void runReserve("withdraw")} disabled={reserveBusy !== null} aria-busy={reserveBusy === "withdraw"}>
-                          {reserveBusy === "withdraw" ? "처리 중..." : "제안 철회"}
-                        </button>
-                      )}
                       {proposal === "THEIRS" && (
                         <button type="button" className={SMALL_OUTLINE} onClick={() => void runReserve("decline")} disabled={reserveBusy !== null} aria-busy={reserveBusy === "decline"}>
                           {reserveBusy === "decline" ? "처리 중..." : "거절"}

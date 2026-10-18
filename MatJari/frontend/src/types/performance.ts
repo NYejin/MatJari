@@ -26,6 +26,8 @@ export interface PerformanceDetail {
   sessions: PerformanceSession[];
   /** 공연 상세에 구역이 포함될 수 있다(없을 수 있음). 드롭다운은 전용 zones 조회를 쓴다 */
   zones?: PerformanceZone[];
+  /** 구역 지도 가로/세로 비율(없을 수 있음) */
+  seatmapAspect?: number | null;
   createdAt: string;
 }
 

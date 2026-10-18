@@ -56,14 +56,19 @@ public class ImageSlicer {
 
     /** 디코드할 수 없는 이미지(WebP 등)는 IllegalArgumentException. */
     public SliceResult slice(byte[] imageBytes) {
+        return sliceWith(imageBytes, properties.getSliceHeight(), properties.getSliceOverlap(), properties.getMaxSlices());
+    }
+
+    /** 지정한 높이·겹침·상한으로 자른다(좌석표 위치를 더 촘촘히 찾을 때 작은 높이의 띠로 쓴다). */
+    public SliceResult sliceWith(byte[] imageBytes, int sliceHeightPx, double sliceOverlap, int maxSlices) {
         BufferedImage img = load(imageBytes);
         int w = img.getWidth();
         int h = img.getHeight();
-        int sliceHeight = Math.max(1, properties.getSliceHeight());
-        double overlap = Math.min(0.9, Math.max(0.0, properties.getSliceOverlap()));
+        int sliceHeight = Math.max(1, sliceHeightPx);
+        double overlap = Math.min(0.9, Math.max(0.0, sliceOverlap));
         int step = Math.max(1, (int) Math.round(sliceHeight * (1.0 - overlap)));
         int total = h <= sliceHeight ? 1 : 1 + (int) Math.ceil((h - sliceHeight) / (double) step);
-        int max = Math.max(1, properties.getMaxSlices());
+        int max = Math.max(1, maxSlices);
         List<SliceImage> slices = new ArrayList<>();
         for (int k = 0; k < total && k < max; k++) {
             int top = k * step;

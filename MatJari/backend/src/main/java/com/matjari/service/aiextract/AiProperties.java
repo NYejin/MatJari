@@ -52,5 +52,5 @@ public class AiProperties {
     private int cacheTtlHours = 24;
     private int cacheMaxEntries = 200;
     private int firstMaxTokens = 4000;
-    private int secondMaxTokens = 6000;
+    private int secondMaxTokens = 12000;
 }

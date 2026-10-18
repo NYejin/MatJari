@@ -197,6 +197,8 @@ public class DetailExtractionService {
         List<SessionDto> aiSessions = List.of();
         List<ZoneDto> zones = List.of();
         Double aspect = null;
+        int cropW = 0;
+        int cropH = 0;
         boolean aiError = false;
         try (AiUsageLimiter.Permit ignored = limiter.acquire(userId)) {
             DetailExtractor.FirstPass first = extractor.first(parts);
@@ -213,9 +215,62 @@ public class DetailExtractionService {
                     ImageSlicer.SliceImage last1 = sl.get(b - 1);
                     ImageSlicer.SliceImage merged = slicer.crop(images.get(loc.imageIndex() - 1).bytes(),
                             first1.top(), last1.top() + last1.height());
-                    shapes = extractor.second(merged.jpeg(), names);
-                    if (merged.height() > 0) {
-                        aspect = Math.round(merged.width() * 1000.0 / merged.height()) / 1000.0;
+                    ImageSlicer.SliceImage target = merged;
+                    try { // 좌석표가 있는 띠만 잘라 내면 좌표 기준이 분명해지고 모양이 더 정확하다(좌표 대신 띠 번호로 위치를 묻는다)
+                        ImageSlicer.SliceResult strips = slicer.sliceWith(merged.jpeg(), 450, 0.25, 12);
+                        if (strips.slices().size() >= 2) {
+                            List<DetailExtractor.Part> sp = new ArrayList<>();
+                            for (ImageSlicer.SliceImage st : strips.slices()) {
+                                sp.add(DetailExtractor.Part.ofText("[띠 " + (st.index() + 1) + "/" + strips.slices().size() + "]"));
+                                sp.add(DetailExtractor.Part.ofImage(st.jpeg()));
+                            }
+                            DetailExtractor.StripRange range = extractor.locate(sp);
+                            if (range != null) {
+                                int n = strips.slices().size();
+                                ImageSlicer.SliceImage s1 = strips.slices().get(Math.min(n, range.first()) - 1);
+                                ImageSlicer.SliceImage s2 = strips.slices().get(Math.min(n, range.last()) - 1);
+                                int h = merged.height();
+                                int yTop = Math.max(0, s1.top());
+                                int yBottom = Math.min(h, s2.top() + s2.height());
+                                if (yBottom - yTop >= 200) {
+                                    target = slicer.crop(images.get(loc.imageIndex() - 1).bytes(), first1.top() + yTop, first1.top() + yBottom);
+                                }
+                            }
+                        }
+                    } catch (RuntimeException e) {
+                        log.info("AI 좌석표 띠 찾기 실패, 합친 이미지를 그대로 사용: {}", e.getClass().getSimpleName());
+                        target = merged;
+                    }
+                    log.info("AI 좌석표 구간: 이미지 {}, 조각 {}~{}/{}, 합친 크기 {}x{}, 사용 크기 {}x{}", loc.imageIndex(), a, b, sl.size(),
+                            merged.width(), merged.height(), target.width(), target.height());
+                    shapes = extractor.second(target.jpeg(), names);
+                    if (!shapeQualityOk(names, shapes)) { // 좌표 기준이 어긋나거나 형식이 틀린 응답이 가끔 오므로 한 번만 다시 시도한다
+                        log.info("AI 2차 모양 품질 미달, 한 번 다시 시도");
+                        shapes = extractor.second(target.jpeg(), names);
+                        if (!shapeQualityOk(names, shapes)) { // 믿을 수 없는 모양은 버리고 이름만 유지한다
+                            log.info("AI 2차 모양 품질 미달, 모양은 버리고 이름만 유지");
+                            shapes = List.of();
+                        }
+                    }
+                    if (log.isInfoEnabled()) {
+                        int polyCount = 0, badPolys = 0;
+                        for (DetailExtractor.RawZone rz : shapes) {
+                            for (List<List<Integer>> rp : rz.polygons() == null ? List.<List<List<Integer>>>of() : rz.polygons()) {
+                                polyCount++;
+                                if (!validPolygon(rp)) {
+                                    if (badPolys == 0) {
+                                        log.info("AI 2차 무효 조각 예: 구역={}, 꼭짓점 수={}, 앞부분={}", rz.name(), rp == null ? -1 : rp.size(), rp == null ? "null" : rp.subList(0, Math.min(3, rp.size())));
+                                    }
+                                    badPolys++;
+                                }
+                            }
+                        }
+                        log.info("AI 2차 응답: 구역 {}개, 조각 {}개(무효 {}개)", shapes.size(), polyCount, badPolys);
+                    }
+                    if (target.height() > 0) {
+                        aspect = Math.round(target.width() * 1000.0 / target.height()) / 1000.0;
+                        cropW = target.width();
+                        cropH = target.height();
                     }
                 } catch (RuntimeException e) { // 2차 실패해도 1차 이름 목록은 유지(모양만 null)
                     log.info("AI 2차 실패, 이름만 유지: {}", e.getClass().getSimpleName());
@@ -224,6 +279,14 @@ public class DetailExtractionService {
                 }
             }
             zones = mergeZones(names, shapes);
+            logExtent(zones, cropW, cropH);
+            if (aspect != null && cropW > 0 && cropH > 0) { // 좌석표가 잘라 낸 이미지의 일부만 차지해도 미리보기가 꽉 차도록 모양 좌표를 좌석표 영역에 맞춘다
+                FitResult fit = fitToBounds(zones, cropW, cropH);
+                if (fit != null) {
+                    zones = fit.zones();
+                    aspect = fit.aspect();
+                }
+            }
             if (aspect != null && zones.stream().noneMatch(z -> z.shapePolygons() != null)) {
                 aspect = null;
             }
@@ -360,6 +423,120 @@ public class DetailExtractionService {
             out.add(new ZoneDto(e.getValue(), ok ? List.copyOf(p.size() > MAX_POLYGONS ? p.subList(0, MAX_POLYGONS) : p) : null));
         }
         return out;
+    }
+
+    /**
+     * 모양이 쓸 만한지 본다: 유효한 모양을 가진 구역이 절반 이상이고, 잘라 낸 좌석표 이미지 안에서 모양들이 가로 45% 이상·세로 25% 이상을 덮는다
+     * (좌표 기준이 어긋나 한쪽으로 몰리거나 찌그러진 응답을 걸러 낸다). 구역 이름이 없으면 true.
+     */
+    static boolean shapeQualityOk(List<String> names, List<DetailExtractor.RawZone> shapes) {
+        if (names == null || names.isEmpty()) {
+            return true;
+        }
+        if (validShapeRatio(names, shapes) < 0.5) {
+            return false;
+        }
+        int minX = 1000, minY = 1000, maxX = 0, maxY = 0, n = 0;
+        for (DetailExtractor.RawZone z : shapes) {
+            for (List<List<Integer>> poly : z.polygons() == null ? List.<List<List<Integer>>>of() : z.polygons()) {
+                if (!validPolygon(poly)) {
+                    continue;
+                }
+                for (List<Integer> pt : poly) {
+                    minX = Math.min(minX, pt.get(0)); maxX = Math.max(maxX, pt.get(0));
+                    minY = Math.min(minY, pt.get(1)); maxY = Math.max(maxY, pt.get(1));
+                    n++;
+                }
+            }
+        }
+        return n > 0 && maxX - minX >= 450 && maxY - minY >= 250;
+    }
+
+    /** 구역 이름 목록 중 유효한 모양을 가진 구역의 비율. */
+    static double validShapeRatio(List<String> names, List<DetailExtractor.RawZone> shapes) {
+        List<ZoneDto> z = mergeZones(names, shapes);
+        if (z.isEmpty()) {
+            return 1.0;
+        }
+        long ok = z.stream().filter(x -> x.shapePolygons() != null).count();
+        return (double) ok / z.size();
+    }
+
+    private static void logExtent(List<ZoneDto> zones, int cropW, int cropH) {
+        int minX = 1000, minY = 1000, maxX = 0, maxY = 0, n = 0;
+        for (ZoneDto z : zones) {
+            if (z.shapePolygons() == null) {
+                continue;
+            }
+            for (List<List<Integer>> poly : z.shapePolygons()) {
+                for (List<Integer> pt : poly) {
+                    minX = Math.min(minX, pt.get(0)); maxX = Math.max(maxX, pt.get(0));
+                    minY = Math.min(minY, pt.get(1)); maxY = Math.max(maxY, pt.get(1));
+                    n++;
+                }
+            }
+        }
+        if (n > 0) {
+            log.info("AI 구역 모양 범위(보정 전): x {}~{}, y {}~{}, 꼭짓점 {}개, 기준 이미지 {}x{}", minX, maxX, minY, maxY, n, cropW, cropH);
+        }
+    }
+
+    record FitResult(List<ZoneDto> zones, double aspect) {}
+
+    /**
+     * 모든 구역 모양의 바깥 사각형을 구해(둘레 3% 여백, 최소 10) 그 사각형이 0~1000 전체가 되도록 좌표를 다시 계산하고,
+     * 그 사각형의 실제 가로/세로 비율을 돌려준다. 모양이 하나도 없거나 너무 작으면(폭·높이 20 미만) null이다.
+     * cropW·cropH 는 모양 좌표의 기준이 된 이미지의 픽셀 크기다.
+     */
+    static FitResult fitToBounds(List<ZoneDto> zones, int cropW, int cropH) {
+        int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE;
+        boolean any = false;
+        for (ZoneDto z : zones) {
+            if (z.shapePolygons() == null) {
+                continue;
+            }
+            for (List<List<Integer>> poly : z.shapePolygons()) {
+                for (List<Integer> pt : poly) {
+                    minX = Math.min(minX, pt.get(0));
+                    maxX = Math.max(maxX, pt.get(0));
+                    minY = Math.min(minY, pt.get(1));
+                    maxY = Math.max(maxY, pt.get(1));
+                    any = true;
+                }
+            }
+        }
+        if (!any || cropW <= 0 || cropH <= 0 || maxX - minX < 20 || maxY - minY < 20) {
+            return null;
+        }
+        int mx = Math.max(10, (int) Math.round((maxX - minX) * 0.03));
+        int my = Math.max(10, (int) Math.round((maxY - minY) * 0.03));
+        double x0 = minX - mx, y0 = minY - my;
+        double spanX = (maxX - minX) + 2.0 * mx, spanY = (maxY - minY) + 2.0 * my;
+        List<ZoneDto> out = new ArrayList<>();
+        for (ZoneDto z : zones) {
+            if (z.shapePolygons() == null) {
+                out.add(z);
+                continue;
+            }
+            List<List<List<Integer>>> polys = new ArrayList<>();
+            for (List<List<Integer>> poly : z.shapePolygons()) {
+                List<List<Integer>> np = new ArrayList<>();
+                for (List<Integer> pt : poly) {
+                    int nx = (int) Math.max(0, Math.min(1000, Math.round((pt.get(0) - x0) / spanX * 1000.0)));
+                    int ny = (int) Math.max(0, Math.min(1000, Math.round((pt.get(1) - y0) / spanY * 1000.0)));
+                    np.add(List.of(nx, ny));
+                }
+                polys.add(List.copyOf(np));
+            }
+            out.add(new ZoneDto(z.name(), List.copyOf(polys)));
+        }
+        double widthPx = spanX / 1000.0 * cropW;
+        double heightPx = spanY / 1000.0 * cropH;
+        double aspect = Math.round(widthPx / heightPx * 1000.0) / 1000.0;
+        if (aspect <= 0 || aspect > 999.999) {
+            return null;
+        }
+        return new FitResult(List.copyOf(out), aspect);
     }
 
     private static boolean validPolygon(List<List<Integer>> p) {

@@ -87,7 +87,8 @@ class DetailExtractionServiceTest {
         fake.firstResult = new DetailExtractor.FirstPass(
                 List.of(new DetailExtractor.RawSession("2026-11-01", "19:00"), new DetailExtractor.RawSession("2026-11-01", "19:05")),
                 List.of("A구역", " B 구역 "), new DetailExtractor.SeatMapLocation(true, 1, 1, 2));
-        fake.secondResult = List.of(new DetailExtractor.RawZone("A구역", List.of(TRI)));
+        // 모양이 좌석표 영역을 충분히 덮어야 품질 검사를 통과한다(가로 45%·세로 25% 이상)
+        fake.secondResult = List.of(new DetailExtractor.RawZone("A구역", List.of(List.of(List.of(0, 0), List.of(1000, 0), List.of(0, 1000)))));
         preview = mock(PerformancePreviewService.class);
         when(preview.fetchPage(anyString(), anyString())).thenReturn(
                 new PerformancePreviewService.FetchedPage(Jsoup.parse("<html><body>x</body></html>"), null, null));
@@ -119,7 +120,10 @@ class DetailExtractionServiceTest {
         assertThat(r.sessions()).containsExactly(new DetailExtractionService.SessionDto("2026-11-01", "19:00")); // 19:05 는 10분 단위 아님
         assertThat(r.zones()).hasSize(2);
         assertThat(r.zones().get(0).name()).isEqualTo("A구역");
-        assertThat(r.zones().get(0).shapePolygons()).containsExactly(TRI);
+        // 좌석표 영역에 맞춰 좌표가 다시 계산되므로 조각 수·꼭짓점 수와 범위만 확인한다
+        assertThat(r.zones().get(0).shapePolygons()).hasSize(1);
+        assertThat(r.zones().get(0).shapePolygons().get(0)).hasSize(3);
+        assertThat(r.zones().get(0).shapePolygons().get(0)).allSatisfy(pt -> assertThat(pt).allSatisfy(v -> assertThat(v).isBetween(0, 1000)));
         assertThat(r.zones().get(1).shapePolygons()).isNull();
         assertThat(r.seatmapAspect()).isNotNull().isGreaterThan(0.0);
         assertThat(fake.secondCalls).isEqualTo(1);

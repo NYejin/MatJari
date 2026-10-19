@@ -33,10 +33,12 @@ public class ShapeSegmenter {
     static final int MAX_SEGMENTS = 150;
     private static final int BG_DISTANCE = 38;
     private static final int MIN_KEY_PIXELS = 150;
-    private static final int MIN_AREA = 450;
+    private static final int MIN_AREA = 300;
     private static final int MAX_VERTICES = 40;
     /** 가로·세로 중 짧은 변이 이보다 작으면(글자 조각·가는 선) 구역 도형 후보에서 뺀다. */
-    private static final int MIN_SIDE = 22;
+    private static final int MIN_SIDE = 16;
+    /** 이미지의 이 비율을 넘는 덩어리는 배경 그라데이션 등으로 보고 도형 후보에서 뺀다(무대도 이보다 작다). */
+    private static final double MAX_AREA_RATIO = 0.10;
     /** 이 크기(픽셀) 이하의 닫힌 구멍은 글자 자리로 보고 메운다. */
     private static final int MAX_HOLE = 500;
     /** 색 묶음의 연결 요소가 이보다 작으면 잡티로 보고 버린다(합치기 전 기준이라 작다). */
@@ -48,9 +50,11 @@ public class ShapeSegmenter {
     private static final double MERGE_RATIO = 0.2;
     /** 합칠 때 두 요소 모두 이 크기(픽셀) 이상이어야 한다: 작은 경계 조각이 서로 다른 블록을 잇는 다리가 되는 것을 막는다. */
     private static final int MERGE_MIN_AREA = 250;
+    /** 합칠 수 있는 요소의 최대 크기(이미지 대비 비율). 블록 한 개는 1% 안팎이다. */
+    private static final double MERGE_MAX_RAW_RATIO = 0.04;
 
     /** pixels: 외곽 꼭짓점 [x,y] 목록(원본 픽셀 좌표). */
-    public record Segment(int id, List<int[]> pixels, int area, int cx, int cy) {}
+    public record Segment(int id, List<int[]> pixels, int area, int cx, int cy, double sat) {}
 
     public record Result(int width, int height, List<Segment> segments, byte[] annotatedJpeg, byte[] tilesJpeg) {}
 
@@ -68,8 +72,8 @@ public class ShapeSegmenter {
         if (w < 50 || h < 50 || (long) w * h > 12_000_000L) {
             return null;
         }
-        int[] rgb = img.getRGB(0, 0, w, h, null, 0, w);
-        int[] bg = borderMedian(rgb, w, h);
+        int[] rgb = medianFilter(img.getRGB(0, 0, w, h, null, 0, w), w, h); // 빗금·디더링 질감을 지워 같은 블록이 한 색이 되게 한다
+        int[] bg = dominantColor(rgb);
         boolean[] fg = new boolean[w * h];
         int[] key = new int[w * h];
         for (int i = 0; i < rgb.length; i++) {
@@ -94,10 +98,26 @@ public class ShapeSegmenter {
             for (int i = 0; i < m.length; i++) {
                 m[i] = fg[i] && key[i] == e.getKey();
             }
-            m = fillSmallHoles(close(m, w, h), w, h);
+            // 색이 있거나(채도 0.3 이상) 아주 어두운 블록만 3x3 으로 닫아 잡티를 메운다. 밝은 회색 블록은 닫으면 블록 사이 1~2px 틈이 메워져 이웃 블록이 띠로 이어진다
+            double satSum = 0, valSum = 0;
+            int satN = 0;
+            for (int i = 0; i < m.length; i++) {
+                if (m[i]) {
+                    int r = (rgb[i] >> 16) & 255, g = (rgb[i] >> 8) & 255, b = rgb[i] & 255;
+                    int mx = Math.max(r, Math.max(g, b)), mn = Math.min(r, Math.min(g, b));
+                    satSum += mx == 0 ? 0 : (double) (mx - mn) / mx;
+                    valSum += mx;
+                    satN++;
+                }
+            }
+            if (satN > 0 && (satSum / satN >= 0.3 || valSum / satN < 70)) { // 색이 있거나 아주 어두운(검은) 블록
+                m = close(m, w, h);
+            }
+            m = fillSmallHoles(m, w, h);
             collectRaw(m, w, h, rgb, owner, raws);
         }
         List<Segment> found = buildSegments(owner, raws, fg, w, h);
+        found = dropOutsideCluster(dropStageLike(found));
         // 큰 것부터 남기고, 더 큰 도형 안에 중심이 든 작은 도형(글자 조각 등)은 버린다
         found.sort(Comparator.comparingInt(Segment::area).reversed());
         List<Segment> kept = new ArrayList<>();
@@ -105,7 +125,8 @@ public class ShapeSegmenter {
         for (Segment s : found) {
             boolean inside = false;
             for (int k = 0; k < kept.size(); k++) {
-                if (kept.get(k).area() >= s.area() * 2 && keptPolys.get(k).contains(s.cx(), s.cy())) {
+                // 블록 안의 글자 조각(블록이 2~10배 큼)만 버린다. 거대한 배경 덩어리는 그 안의 블록을 지우면 안 된다
+                if (kept.get(k).area() >= s.area() * 2 && kept.get(k).area() <= s.area() * 10 && keptPolys.get(k).contains(s.cx(), s.cy())) {
                     inside = true;
                     break;
                 }
@@ -120,9 +141,60 @@ public class ShapeSegmenter {
         List<Segment> numbered = new ArrayList<>();
         for (int i = 0; i < kept.size(); i++) {
             Segment s = kept.get(i);
-            numbered.add(new Segment(i + 1, s.pixels(), s.area(), s.cx(), s.cy()));
+            numbered.add(new Segment(i + 1, s.pixels(), s.area(), s.cx(), s.cy(), s.sat()));
         }
         return new Result(w, h, List.copyOf(numbered), annotate(img, numbered), tileSheet(img, numbered));
+    }
+
+    /** 채널별 3x3 중간값 필터(질감 제거). 5x5 는 블록 사이 2px 틈을 지워 이웃 블록이 한 덩어리가 되므로 3x3 으로 한다. */
+    static int[] medianFilter(int[] src, int w, int h) {
+        int[] out = new int[src.length];
+        int[] r = new int[9], g = new int[9], b = new int[9];
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int n = 0;
+                for (int dy = -1; dy <= 1; dy++) {
+                    int yy = Math.min(h - 1, Math.max(0, y + dy));
+                    for (int dx = -1; dx <= 1; dx++) {
+                        int v = src[yy * w + Math.min(w - 1, Math.max(0, x + dx))];
+                        r[n] = (v >> 16) & 255;
+                        g[n] = (v >> 8) & 255;
+                        b[n] = v & 255;
+                        n++;
+                    }
+                }
+                Arrays.sort(r);
+                Arrays.sort(g);
+                Arrays.sort(b);
+                out[y * w + x] = (r[4] << 16) | (g[4] << 8) | b[4];
+            }
+        }
+        return out;
+    }
+
+    /**
+     * 배경색: 이미지에서 가장 많이 쓰인 색(색을 16단계로 묶은 최빈 칸의 평균색). 가장자리 색을 쓰면 지도 주변에 어두운 페이지 여백이 있을 때
+     * 흰 지도 판 전체를 도형으로 오인한다.
+     */
+    static int[] dominantColor(int[] rgb) {
+        int[] count = new int[4096];
+        long[] sr = new long[4096], sg = new long[4096], sb = new long[4096];
+        for (int v : rgb) {
+            int r = (v >> 16) & 255, g = (v >> 8) & 255, b = v & 255;
+            int k = (r >> 4) * 256 + (g >> 4) * 16 + (b >> 4);
+            count[k]++;
+            sr[k] += r;
+            sg[k] += g;
+            sb[k] += b;
+        }
+        int best = 0;
+        for (int k = 1; k < 4096; k++) {
+            if (count[k] > count[best]) {
+                best = k;
+            }
+        }
+        int c = Math.max(1, count[best]);
+        return new int[]{(int) (sr[best] / c), (int) (sg[best] / c), (int) (sb[best] / c)};
     }
 
     private static int[] borderMedian(int[] rgb, int w, int h) {
@@ -245,6 +317,75 @@ public class ShapeSegmenter {
         return out;
     }
 
+    /**
+     * 채도가 낮고(회색·검은색) 도형 크기 중앙값의 2.5배를 넘는 큰 구조물(무대·돌출 무대·통로)은 좌석 블록 후보에서 뺀다.
+     * 연한 회색 좌석 블록(예: 2F 구역)은 중앙값 크기라 남는다.
+     */
+    static List<Segment> dropStageLike(List<Segment> found) {
+        if (found.size() < 5) {
+            return found;
+        }
+        int[] areas = found.stream().mapToInt(Segment::area).sorted().toArray();
+        double median = areas[areas.length / 2];
+        List<Segment> out = new ArrayList<>();
+        for (Segment sg : found) {
+            if (sg.sat() < 0.2 && sg.area() > median * 2.5) {
+                continue;
+            }
+            out.add(sg);
+        }
+        return out;
+    }
+
+    /**
+     * 좌석 블록 크기(넓이가 중앙값의 0.4~2.5배)인 도형들이 모인 영역을 지도로 보고, 그 영역(둘레 12% 여유) 밖에 있는 도형(지도 위 안내 글자·버튼)과
+     * 영역의 60% 이상을 덮는 도형(지도를 둘러싼 흰 패널)을 뺀다.
+     */
+    static List<Segment> dropOutsideCluster(List<Segment> found) {
+        if (found.size() < 8) {
+            return found;
+        }
+        int[] areas = found.stream().mapToInt(Segment::area).sorted().toArray();
+        double median = areas[areas.length / 2];
+        int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, maxX = 0, maxY = 0, n = 0;
+        for (Segment sg : found) {
+            if (sg.area() >= median * 0.4 && sg.area() <= median * 2.5) {
+                n++;
+                for (int[] p : sg.pixels()) {
+                    minX = Math.min(minX, p[0]);
+                    maxX = Math.max(maxX, p[0]);
+                    minY = Math.min(minY, p[1]);
+                    maxY = Math.max(maxY, p[1]);
+                }
+            }
+        }
+        if (n < 6) {
+            return found;
+        }
+        double mx = (maxX - minX) * 0.12, my = (maxY - minY) * 0.12;
+        double bw = maxX - minX, bh = maxY - minY;
+        List<Segment> out = new ArrayList<>();
+        for (Segment sg : found) {
+            boolean inside = sg.cx() >= minX - mx && sg.cx() <= maxX + mx && sg.cy() >= minY - my && sg.cy() <= maxY + my;
+            int sx0 = Integer.MAX_VALUE, sx1 = 0, sy0 = Integer.MAX_VALUE, sy1 = 0;
+            for (int[] p : sg.pixels()) {
+                sx0 = Math.min(sx0, p[0]);
+                sx1 = Math.max(sx1, p[0]);
+                sy0 = Math.min(sy0, p[1]);
+                sy1 = Math.max(sy1, p[1]);
+            }
+            boolean panel = (sx1 - sx0) >= bw * 0.6 && (sy1 - sy0) >= bh * 0.6;
+            if (inside && !panel) {
+                out.add(sg);
+            }
+        }
+        return out;
+    }
+
+    /** 점검용(테스트에서만 읽는다): 마지막 분할의 요소 번호 지도와 합친 뒤 도형 번호 지도. */
+    static volatile int[] lastRawOwner;
+    static volatile int[] lastGroupMap;
+
     /** 같은 색 묶음의 연결 요소 하나(합치기 전). sat 은 평균 채도(0~1): 회색·검은색·흰색은 낮다. */
     private record Raw(int[] pixels, double sat) {}
 
@@ -341,6 +482,8 @@ public class ShapeSegmenter {
      */
     private static List<Segment> buildSegments(int[] owner, List<Raw> raws, boolean[] fg, int w, int h) {
         int n = raws.size();
+        // 배경 그라데이션이 만든 거대한 덩어리는 합치기에서 뺀다(블록과 색이 비슷하면 블록까지 한 덩어리가 돼 통째로 버려진다)
+        int maxMergeRaw = (int) ((long) w * h * MERGE_MAX_RAW_RATIO);
         int[] parent = new int[n + 1];
         for (int i = 0; i <= n; i++) {
             parent[i] = i;
@@ -378,7 +521,8 @@ public class ShapeSegmenter {
         for (java.util.Map.Entry<Long, Integer> e : contact.entrySet()) {
             int a = (int) (e.getKey() / 1_000_000L), b = (int) (e.getKey() % 1_000_000L);
             int smaller = Math.min(raws.get(a - 1).pixels().length, raws.get(b - 1).pixels().length);
-            if (smaller >= MERGE_MIN_AREA && e.getValue() >= MERGE_CONTACT && e.getValue() >= MERGE_RATIO * smaller
+            int larger = Math.max(raws.get(a - 1).pixels().length, raws.get(b - 1).pixels().length);
+            if (larger <= maxMergeRaw && smaller >= MERGE_MIN_AREA && e.getValue() >= MERGE_CONTACT && e.getValue() >= MERGE_RATIO * smaller
                     && raws.get(a - 1).sat() >= MERGE_SAT && raws.get(b - 1).sat() >= MERGE_SAT
                     && compactUnion(raws.get(a - 1), raws.get(b - 1), w)) {
                 parent[find(parent, a)] = find(parent, b);
@@ -391,11 +535,15 @@ public class ShapeSegmenter {
         }
         List<Segment> out = new ArrayList<>();
         int gid = 0;
+        lastRawOwner = owner;
+        lastGroupMap = grp;
         for (List<Integer> ms : members.values()) {
             gid++;
             long sumX = 0, sumY = 0;
+            double satSum = 0;
             int area = 0, minX = w, maxX = 0, minY = h, maxY = 0, first = Integer.MAX_VALUE;
             for (int rid : ms) {
+                satSum += raws.get(rid - 1).sat() * raws.get(rid - 1).pixels().length;
                 for (int p : raws.get(rid - 1).pixels()) {
                     if (grp[p] != 0) {
                         continue;
@@ -413,10 +561,14 @@ public class ShapeSegmenter {
                 }
             }
             int bw = maxX - minX + 1, bh = maxY - minY + 1;
-            if (area < MIN_AREA || bw > w * 0.8 || area > (long) w * h * 0.35 || bw < MIN_SIDE || bh < MIN_SIDE) {
+            if (area < MIN_AREA || bw > w * 0.8 || area > (long) w * h * MAX_AREA_RATIO || bw < MIN_SIDE || bh < MIN_SIDE) {
                 continue;
             }
             List<int[]> contour = trace(grp, gid, w, h, first);
+            // 가장자리의 1픽셀 돌기에서 추적이 일찍 끝나 외곽선이 너무 작게 나오면 가장자리 픽셀들의 볼록 껍질로 대신한다
+            if (contour.size() < 12 || Math.abs(shoelace(contour)) < 0.6 * area) {
+                contour = boundaryHull(grp, gid, w, h, minX, maxX, minY, maxY);
+            }
             if (contour.size() < 3) {
                 continue;
             }
@@ -426,7 +578,7 @@ public class ShapeSegmenter {
             }
             List<int[]> poly = simplify(shape);
             if (poly.size() >= 3) {
-                out.add(new Segment(0, poly, area, (int) (sumX / area), (int) (sumY / area)));
+                out.add(new Segment(0, poly, area, (int) (sumX / area), (int) (sumY / area), satSum / Math.max(1, ms.stream().mapToInt(r -> raws.get(r - 1).pixels().length).sum())));
             }
         }
         return out;
@@ -447,13 +599,10 @@ public class ShapeSegmenter {
         if (ca <= 0 || ha <= 0 || pixelArea < ha * 0.25) {
             return null;
         }
-        if (ha <= ca * 1.35) {
+        if (pixelArea >= ha * 0.5) { // 좌석 블록은 볼록하다: 껍질의 절반 이상을 채우면 껍질(들쭉날쭉한 외곽선·글자 자국을 무시)
             return hull;
         }
-        if (pixelArea >= ha * 0.45 && pixelArea < ca * 0.75) {
-            return hull;
-        }
-        if (pixelArea < ca * 0.55) { // 오목하면서 속도 성긴 도형(점선·글자 조각이 이어 붙은 것)은 도형이 아니다
+        if (pixelArea < ca * 0.75) { // 오목하면서 속도 성긴 도형(점선·글자 조각이 이어 붙은 것)은 도형이 아니다
             return null;
         }
         return smooth(contour);
@@ -487,6 +636,11 @@ public class ShapeSegmenter {
             out.add(new int[]{(int) Math.round(p[0]), (int) Math.round(p[1])});
         }
         return out;
+    }
+
+    /** 꼭짓점 목록이 이루는 다각형의 부호 있는 넓이(다른 클래스에서 쓴다). */
+    static double shoelaceArea(List<int[]> pts) {
+        return shoelace(pts);
     }
 
     private static double shoelace(List<int[]> pts) {
@@ -525,6 +679,24 @@ public class ShapeSegmenter {
 
     private static long cross(int[] o, int[] a, int[] b) {
         return (long) (a[0] - o[0]) * (b[1] - o[1]) - (long) (a[1] - o[1]) * (b[0] - o[0]);
+    }
+
+    /** 도형(grp==id)의 가장자리 픽셀(4방향 이웃 중 도형이 아닌 것이 있는 픽셀)들의 볼록 껍질. */
+    private static List<int[]> boundaryHull(int[] grp, int id, int w, int h, int minX, int maxX, int minY, int maxY) {
+        List<int[]> pts = new ArrayList<>();
+        for (int y = minY; y <= maxY; y++) {
+            for (int x = minX; x <= maxX; x++) {
+                if (grp[y * w + x] != id) {
+                    continue;
+                }
+                boolean edge = x == 0 || y == 0 || x == w - 1 || y == h - 1
+                        || grp[y * w + x - 1] != id || grp[y * w + x + 1] != id || grp[(y - 1) * w + x] != id || grp[(y + 1) * w + x] != id;
+                if (edge) {
+                    pts.add(new int[]{x, y});
+                }
+            }
+        }
+        return convexHull(pts);
     }
 
     private static final int[] DX = {-1, -1, 0, 1, 1, 1, 0, -1};
@@ -675,7 +847,7 @@ public class ShapeSegmenter {
                 minY = Math.min(minY, p[1]);
                 maxY = Math.max(maxY, p[1]);
             }
-            int pad = 6;
+            int pad = Math.max(12, Math.min(maxX - minX, maxY - minY) / 3); // 가장자리에 걸친 번호 원(예: i-dle)이 잘리지 않게 넉넉히 둔다
             int sx = Math.max(0, minX - pad), sy = Math.max(0, minY - pad);
             int sw = Math.min(src.getWidth() - sx, maxX - minX + 1 + 2 * pad), sh = Math.min(src.getHeight() - sy, maxY - minY + 1 + 2 * pad);
             double scale = Math.min((TILE - 6.0) / sw, (TILE - 6.0) / sh);

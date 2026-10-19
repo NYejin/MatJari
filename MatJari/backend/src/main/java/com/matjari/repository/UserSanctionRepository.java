@@ -37,6 +37,8 @@ public interface UserSanctionRepository extends JpaRepository<UserSanction, Long
     @Query("select s from UserSanction s where s.id = :id")
     Optional<UserSanction> findByIdForUpdate(@Param("id") Long id);
 
+    List<UserSanction> findByUserIdOrderByIdDesc(Long userId);
+
     @Query("select s from UserSanction s where s.userId in :userIds and " + ACTIVE)
     List<UserSanction> findActiveByUserIds(@Param("userIds") Collection<Long> userIds, @Param("now") LocalDateTime now);
 

@@ -39,6 +39,7 @@ public class Performance {
 
     public static final int TITLE_MAX_LENGTH = 200;
     public static final int VENUE_NAME_MAX_LENGTH = 100;
+    public static final int HIDDEN_REASON_MAX_LENGTH = 200;
     public static final int SOURCE_URL_MAX_LENGTH = 2048;
     public static final int SOURCE_KEY_MAX_LENGTH = 500;
 
@@ -54,8 +55,18 @@ public class Performance {
     private String venueName;
 
     /** 좌석표 가로/세로 비율(V21, 구역 모양을 그릴 때 쓴다). 없으면 null, 있으면 0 초과. 등록 때만 정해진다. */
-    @Column(name = "seatmap_aspect", precision = 6, scale = 3, updatable = false)
+    @Column(name = "seatmap_aspect", precision = 6, scale = 3)
     private BigDecimal seatmapAspect;
+
+    /** 내리기(숨김) 정보(V22). hiddenAt 이 NULL 이 아니면 숨김. 셋은 함께 NULL 이거나 함께 값이 있다(CHECK). */
+    @Column(name = "hidden_at")
+    private LocalDateTime hiddenAt;
+
+    @Column(name = "hidden_by_id")
+    private Long hiddenById;
+
+    @Column(name = "hidden_reason", length = HIDDEN_REASON_MAX_LENGTH)
+    private String hiddenReason;
 
     /** 사용자가 입력한 티켓팅 사이트 링크 원문 (공연 중복 판정의 기준). */
     @Column(name = "source_url", nullable = false, length = SOURCE_URL_MAX_LENGTH)
@@ -127,6 +138,44 @@ public class Performance {
         String venue = newVenueName == null ? this.venueName : cleanVenueName(newVenueName);
         this.title = title;
         this.venueName = venue;
+    }
+
+    public boolean isHidden() {
+        return hiddenAt != null;
+    }
+
+    /** 관리자 내리기. 이미 숨김이면 아무것도 하지 않고 false. 공연 행을 FOR UPDATE 로 잠근 트랜잭션 안에서 호출한다. */
+    public boolean hide(Long adminId, String reason, LocalDateTime now) {
+        if (isHidden()) {
+            return false;
+        }
+        String r = cleanDisplayText(reason);
+        if (adminId == null || r == null || r.isEmpty() || r.length() > HIDDEN_REASON_MAX_LENGTH) {
+            throw new IllegalArgumentException("숨김 사유는 1~" + HIDDEN_REASON_MAX_LENGTH + "자여야 합니다.");
+        }
+        this.hiddenAt = now;
+        this.hiddenById = adminId;
+        this.hiddenReason = r;
+        return true;
+    }
+
+    /** 다시 올리기. 숨김이 아니면 false. */
+    public boolean unhide() {
+        if (!isHidden()) {
+            return false;
+        }
+        this.hiddenAt = null;
+        this.hiddenById = null;
+        this.hiddenReason = null;
+        return true;
+    }
+
+    /** 관리자 구역 교체와 함께 좌석표 비율을 바꾼다(서비스가 PerformanceZoneSanitizer.sanitizeAspect 로 정리한 값, null 가능). */
+    public void changeSeatmapAspect(BigDecimal aspect) {
+        if (aspect != null && aspect.signum() <= 0) {
+            throw new IllegalArgumentException("seatmapAspect는 0보다 커야 합니다.");
+        }
+        this.seatmapAspect = aspect;
     }
 
     /** 등록자 여부. LAZY 프록시의 id만 읽으므로 추가 쿼리가 나가지 않는다. */

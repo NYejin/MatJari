@@ -22,6 +22,26 @@ public interface PerformanceRepository extends JpaRepository<Performance, Long> 
     @Query("select p from Performance p where p.id = :id")
     Optional<Performance> findByIdForUpdate(@Param("id") Long id);
 
+    /**
+     * 관리자 목록: 숨긴 공연 포함, 제목 부분 일치, 최신 등록순. mode = ALL / VISIBLE / HIDDEN.
+     */
+    @Query(value = """
+            select p from Performance p
+            join fetch p.registrant
+            where p.title like :titlePattern escape '!'
+              and (:mode = 'ALL' or (:mode = 'VISIBLE' and p.hiddenAt is null)
+                   or (:mode = 'HIDDEN' and p.hiddenAt is not null))
+            order by p.createdAt desc, p.id desc
+            """,
+            countQuery = """
+            select count(p) from Performance p
+            where p.title like :titlePattern escape '!'
+              and (:mode = 'ALL' or (:mode = 'VISIBLE' and p.hiddenAt is null)
+                   or (:mode = 'HIDDEN' and p.hiddenAt is not null))
+            """)
+    Page<Performance> findForAdmin(@Param("titlePattern") String titlePattern, @Param("mode") String mode,
+                                   Pageable pageable);
+
     /** 상세 조회용 — 등록자 fetch join (N+1 방지). */
     @Query("""
             select p from Performance p
@@ -38,7 +58,7 @@ public interface PerformanceRepository extends JpaRepository<Performance, Long> 
      */
     @Query(value = """
             select p from Performance p
-            where p.title like :titlePattern escape '!'
+            where p.title like :titlePattern escape '!' and p.hiddenAt is null
             order by
               case when (select min(s1.startsAt) from PerformanceSession s1
                          where s1.performance = p and s1.startsAt >= :now) is null then 1 else 0 end,
@@ -49,7 +69,7 @@ public interface PerformanceRepository extends JpaRepository<Performance, Long> 
             """,
             countQuery = """
             select count(p) from Performance p
-            where p.title like :titlePattern escape '!'
+            where p.title like :titlePattern escape '!' and p.hiddenAt is null
             """)
     Page<Performance> search(@Param("titlePattern") String titlePattern,
                              @Param("now") LocalDateTime now,

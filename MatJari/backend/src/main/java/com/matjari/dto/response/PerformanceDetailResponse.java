@@ -21,7 +21,9 @@ public record PerformanceDetailResponse(
         boolean canEdit,
         List<SessionResponse> sessions,
         @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = DateTimeFormats.SECOND)
-        LocalDateTime createdAt
+        LocalDateTime createdAt,
+        /** 관리자가 내린 공연이면 true(새 티켓 등록·교환 요청·제안이 막힌다). */
+        boolean hidden
 ) {
     public record Registrant(Long id, String nickname) {}
 

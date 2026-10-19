@@ -46,10 +46,13 @@ public interface DetailExtractor {
     /** 이름 하나에 해당하는 도형 조각 번호들(ShapeSegmenter 가 매긴 번호). */
     record RawLabel(String name, List<Integer> segmentIds) {}
 
+    /** label 결과: 구역별 번호와, 좌석이 아니라고 AI가 가려낸 도형 번호(무대·돌출 무대·콘솔·범례·글자 조각 등). */
+    record LabelResult(List<RawLabel> zones, List<Integer> nonSeatSegments) {}
+
     /**
      * 원본 좌석표와 도형 후보에 번호를 그린 이미지를 함께 보내 구역 이름마다 해당하는 번호를 받는다. 기본 구현은 null(지원 안 함).
      */
-    default List<RawLabel> label(byte[] originalJpeg, byte[] numberedJpeg, List<String> names, int segmentCount)
+    default LabelResult label(byte[] originalJpeg, byte[] numberedJpeg, byte[] tilesJpeg, List<String> names, int segmentCount)
             throws ExtractionFailedException {
         return null;
     }

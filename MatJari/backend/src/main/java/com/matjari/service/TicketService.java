@@ -121,6 +121,7 @@ public class TicketService {
                 if (!sessionTimePolicy.now().isBefore(session.registrationDeadline())) {
                     throw new FieldValidationException("sessionId", SESSION_CLOSED_MESSAGE);
                 }
+                SessionChangePlanner.ensureNotHidden(session.getPerformance());
 
                 ticketRepository.findActiveBySeat(session.getId(), zoneKey, rowKey, colKey).ifPresent(existing -> {
                     throw duplicateSeat(existing.isOwnedBy(userId));

@@ -53,4 +53,8 @@ public class AiProperties {
     private int cacheMaxEntries = 200;
     private int firstMaxTokens = 4000;
     private int secondMaxTokens = 12000;
+    /** 비어 있지 않으면 구역 모양 만들기 과정(좌석표 이미지·번호 이미지·AI 번호 응답)을 이 폴더에 저장한다(정확도 점검용, 운영에서는 비운다). */
+    private String debugDir = "";
+    /** 도형 번호와 구역 이름을 짝짓는 호출에 쓸 모델(비우면 model). 그림 속 작은 글자를 읽는 판단이라 더 큰 모델을 쓸 수 있다. */
+    private String labelModel = "";
 }

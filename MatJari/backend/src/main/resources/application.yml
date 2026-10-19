@@ -124,5 +124,7 @@ matjari:
     daily-per-user: ${MATJARI_AI_DAILY_PER_USER:5}
     daily-global: ${MATJARI_AI_DAILY_GLOBAL:40}
     max-concurrent: ${MATJARI_AI_MAX_CONCURRENT:2}
+    debug-dir: ${MATJARI_AI_DEBUG_DIR:}
+    label-model: ${MATJARI_AI_LABEL_MODEL:}
     cache-ttl-hours: ${MATJARI_AI_CACHE_TTL_HOURS:24}
     cache-max-entries: ${MATJARI_AI_CACHE_MAX_ENTRIES:200}

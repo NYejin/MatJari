@@ -210,6 +210,7 @@ public class ExchangeMatchService {
                     throw new BusinessRuleException(NOT_ACTIVE_CODE, NOT_ACTIVE_MESSAGE);
                 }
                 Ticket withSession = ticketRepository.findWithSessionById(myTicketId).orElse(myTicket);
+                SessionChangePlanner.ensureNotHidden(withSession.getPerformanceSession().getPerformance());
                 LocalDateTime now = timePolicy.now();
                 if (!now.isBefore(withSession.getPerformanceSession().registrationDeadline())) {
                     throw new BusinessRuleException(SESSION_CLOSED_CODE, SESSION_CLOSED_MESSAGE);

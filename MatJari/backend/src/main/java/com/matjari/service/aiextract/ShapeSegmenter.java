@@ -33,13 +33,26 @@ public class ShapeSegmenter {
     static final int MAX_SEGMENTS = 150;
     private static final int BG_DISTANCE = 38;
     private static final int MIN_KEY_PIXELS = 150;
-    private static final int MIN_AREA = 250;
+    private static final int MIN_AREA = 450;
     private static final int MAX_VERTICES = 40;
+    /** 가로·세로 중 짧은 변이 이보다 작으면(글자 조각·가는 선) 구역 도형 후보에서 뺀다. */
+    private static final int MIN_SIDE = 22;
+    /** 이 크기(픽셀) 이하의 닫힌 구멍은 글자 자리로 보고 메운다. */
+    private static final int MAX_HOLE = 500;
+    /** 색 묶음의 연결 요소가 이보다 작으면 잡티로 보고 버린다(합치기 전 기준이라 작다). */
+    private static final int MIN_COMPONENT = 120;
+    /** 서로 다른 색 요소를 한 도형으로 합치는 조건: 맞닿은 점 수 / 두 요소의 최소 평균 채도. */
+    private static final int MERGE_CONTACT = 10;
+    private static final double MERGE_SAT = 0.30;
+    /** 맞닿은 점 수가 작은 쪽 요소 크기의 이 비율 이상이어야 합친다(한 블록 안의 두 색은 길게 맞닿고, 간격이 좁은 이웃 블록은 짧게 닿는다). */
+    private static final double MERGE_RATIO = 0.2;
+    /** 합칠 때 두 요소 모두 이 크기(픽셀) 이상이어야 한다: 작은 경계 조각이 서로 다른 블록을 잇는 다리가 되는 것을 막는다. */
+    private static final int MERGE_MIN_AREA = 250;
 
     /** pixels: 외곽 꼭짓점 [x,y] 목록(원본 픽셀 좌표). */
     public record Segment(int id, List<int[]> pixels, int area, int cx, int cy) {}
 
-    public record Result(int width, int height, List<Segment> segments, byte[] annotatedJpeg) {}
+    public record Result(int width, int height, List<Segment> segments, byte[] annotatedJpeg, byte[] tilesJpeg) {}
 
     public Result segment(byte[] jpeg) {
         BufferedImage img;
@@ -71,7 +84,8 @@ public class ShapeSegmenter {
                 counts.merge(key[i], 1, Integer::sum);
             }
         }
-        List<Segment> found = new ArrayList<>();
+        int[] owner = new int[w * h];
+        List<Raw> raws = new ArrayList<>();
         for (java.util.Map.Entry<Integer, Integer> e : counts.entrySet()) {
             if (e.getValue() < MIN_KEY_PIXELS) {
                 continue;
@@ -80,9 +94,10 @@ public class ShapeSegmenter {
             for (int i = 0; i < m.length; i++) {
                 m[i] = fg[i] && key[i] == e.getKey();
             }
-            m = close(m, w, h);
-            collect(m, w, h, found);
+            m = fillSmallHoles(close(m, w, h), w, h);
+            collectRaw(m, w, h, rgb, owner, raws);
         }
+        List<Segment> found = buildSegments(owner, raws, fg, w, h);
         // 큰 것부터 남기고, 더 큰 도형 안에 중심이 든 작은 도형(글자 조각 등)은 버린다
         found.sort(Comparator.comparingInt(Segment::area).reversed());
         List<Segment> kept = new ArrayList<>();
@@ -107,7 +122,7 @@ public class ShapeSegmenter {
             Segment s = kept.get(i);
             numbered.add(new Segment(i + 1, s.pixels(), s.area(), s.cx(), s.cy()));
         }
-        return new Result(w, h, List.copyOf(numbered), annotate(img, numbered));
+        return new Result(w, h, List.copyOf(numbered), annotate(img, numbered), tileSheet(img, numbered));
     }
 
     private static int[] borderMedian(int[] rgb, int w, int h) {
@@ -133,9 +148,49 @@ public class ShapeSegmenter {
         return out;
     }
 
-    /** 5x5 닫기(팽창 뒤 침식). */
+    /** 3x3 닫기(팽창 뒤 침식). 5x5 로 하면 블록 사이 1~2px 틈(촘촘히 쌓인 같은 색 블록)까지 메워 한 덩어리가 된다. */
     static boolean[] close(boolean[] m, int w, int h) {
         return erode(dilate(m, w, h), w, h);
+    }
+
+    /** 바깥(이미지 가장자리)과 이어지지 않은 작은 구멍(블록 안의 숫자·글자 자리)을 메운다. 구멍이 가장자리를 파고들어 외곽선이 우글거리는 것을 막는다. */
+    static boolean[] fillSmallHoles(boolean[] m, int w, int h) {
+        boolean[] out = m.clone();
+        boolean[] seen = new boolean[m.length];
+        int[] queue = new int[m.length];
+        for (int start = 0; start < m.length; start++) {
+            if (m[start] || seen[start]) {
+                continue;
+            }
+            int head = 0, tail = 0;
+            queue[tail++] = start;
+            seen[start] = true;
+            boolean border = false;
+            while (head < tail) {
+                int p = queue[head++];
+                int x = p % w, y = p / w;
+                if (x == 0 || y == 0 || x == w - 1 || y == h - 1) {
+                    border = true;
+                }
+                int[] nb = {p - 1, p + 1, p - w, p + w};
+                for (int q : nb) {
+                    if (q < 0 || q >= m.length || m[q] || seen[q]) {
+                        continue;
+                    }
+                    if ((q == p - 1 && x == 0) || (q == p + 1 && x == w - 1)) {
+                        continue;
+                    }
+                    seen[q] = true;
+                    queue[tail++] = q;
+                }
+            }
+            if (!border && tail <= MAX_HOLE) {
+                for (int i = 0; i < tail; i++) {
+                    out[queue[i]] = true;
+                }
+            }
+        }
+        return out;
     }
 
     private static boolean[] dilate(boolean[] m, int w, int h) {
@@ -144,7 +199,7 @@ public class ShapeSegmenter {
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
                 boolean v = false;
-                for (int dx = -2; dx <= 2 && !v; dx++) {
+                for (int dx = -1; dx <= 1 && !v; dx++) {
                     int nx = x + dx;
                     v = nx >= 0 && nx < w && m[y * w + nx];
                 }
@@ -154,7 +209,7 @@ public class ShapeSegmenter {
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
                 boolean v = false;
-                for (int dy = -2; dy <= 2 && !v; dy++) {
+                for (int dy = -1; dy <= 1 && !v; dy++) {
                     int ny = y + dy;
                     v = ny >= 0 && ny < h && tmp[ny * w + x];
                 }
@@ -170,7 +225,7 @@ public class ShapeSegmenter {
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
                 boolean v = true;
-                for (int dx = -2; dx <= 2 && v; dx++) {
+                for (int dx = -1; dx <= 1 && v; dx++) {
                     int nx = x + dx;
                     v = nx >= 0 && nx < w && m[y * w + nx];
                 }
@@ -180,7 +235,7 @@ public class ShapeSegmenter {
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
                 boolean v = true;
-                for (int dy = -2; dy <= 2 && v; dy++) {
+                for (int dy = -1; dy <= 1 && v; dy++) {
                     int ny = y + dy;
                     v = ny >= 0 && ny < h && tmp[ny * w + x];
                 }
@@ -190,49 +245,178 @@ public class ShapeSegmenter {
         return out;
     }
 
-    /** 연결 요소(8방향)마다 면적·크기 조건을 보고 외곽선을 따라가 Segment 로 모은다. */
-    private static void collect(boolean[] m, int w, int h, List<Segment> out) {
-        int[] label = new int[m.length];
-        int next = 0;
+    /** 같은 색 묶음의 연결 요소 하나(합치기 전). sat 은 평균 채도(0~1): 회색·검은색·흰색은 낮다. */
+    private record Raw(int[] pixels, double sat) {}
+
+    /** 색 묶음 하나의 연결 요소(8방향)들을 모은다. 너무 작은 것(잡티)은 버린다. owner 에는 요소 번호(1부터)를 적는다. */
+    private static void collectRaw(boolean[] m, int w, int h, int[] rgb, int[] owner, List<Raw> raws) {
+        boolean[] seen = new boolean[m.length];
         int[] queue = new int[m.length];
         for (int start = 0; start < m.length; start++) {
-            if (!m[start] || label[start] != 0) {
+            if (!m[start] || seen[start]) {
                 continue;
             }
-            next++;
             int head = 0, tail = 0;
             queue[tail++] = start;
-            label[start] = next;
-            long sumX = 0, sumY = 0;
-            int minX = w, maxX = 0, minY = h, maxY = 0;
+            seen[start] = true;
             while (head < tail) {
                 int p = queue[head++];
                 int px = p % w, py = p / w;
-                sumX += px;
-                sumY += py;
-                minX = Math.min(minX, px);
-                maxX = Math.max(maxX, px);
-                minY = Math.min(minY, py);
-                maxY = Math.max(maxY, py);
                 for (int dy = -1; dy <= 1; dy++) {
                     for (int dx = -1; dx <= 1; dx++) {
                         int nx = px + dx, ny = py + dy;
                         if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
                             int q = ny * w + nx;
-                            if (m[q] && label[q] == 0) {
-                                label[q] = next;
+                            if (m[q] && !seen[q]) {
+                                seen[q] = true;
                                 queue[tail++] = q;
                             }
                         }
                     }
                 }
             }
-            int area = tail;
-            int bw = maxX - minX + 1, bh = maxY - minY + 1;
-            if (area < MIN_AREA || bw > w * 0.8 || area > (long) w * h * 0.35 || bw < 6 || bh < 6) {
+            if (tail < MIN_COMPONENT) {
                 continue;
             }
-            List<int[]> contour = trace(label, next, w, h, start);
+            int[] px = Arrays.copyOf(queue, tail);
+            double sat = 0;
+            for (int p : px) {
+                int r = (rgb[p] >> 16) & 255, g = (rgb[p] >> 8) & 255, b = rgb[p] & 255;
+                int mx = Math.max(r, Math.max(g, b)), mn = Math.min(r, Math.min(g, b));
+                sat += mx == 0 ? 0 : (double) (mx - mn) / mx;
+            }
+            raws.add(new Raw(px, sat / tail));
+            int id = raws.size();
+            for (int p : px) {
+                if (owner[p] == 0) {
+                    owner[p] = id;
+                }
+            }
+        }
+    }
+
+    /**
+     * 두 요소를 합친 모양이 한 좌석 블록답게 거의 볼록(두 넓이의 합이 합친 볼록 껍질의 50% 이상)하고, 둘 다 가는 선·점선(짧은 변 7px 미만, 예: 휠체어석
+     * 표시)이 아닐 때만 true. 점선이 여러 블록을 이어 붙여 한 덩어리가 되는 것을 막는다.
+     */
+    private static boolean compactUnion(Raw a, Raw b, int w) {
+        if (thin(a, w) || thin(b, w)) {
+            return false;
+        }
+        List<int[]> pts = new ArrayList<>(a.pixels().length + b.pixels().length);
+        for (int p : a.pixels()) {
+            pts.add(new int[]{p % w, p / w});
+        }
+        for (int p : b.pixels()) {
+            pts.add(new int[]{p % w, p / w});
+        }
+        List<int[]> hull = convexHull(pts);
+        double ha = Math.abs(shoelace(hull));
+        return ha > 0 && (a.pixels().length + b.pixels().length) >= ha * 0.5;
+    }
+
+    private static boolean thin(Raw r, int w) {
+        int minX = Integer.MAX_VALUE, maxX = 0, minY = Integer.MAX_VALUE, maxY = 0;
+        for (int p : r.pixels()) {
+            int x = p % w, y = p / w;
+            minX = Math.min(minX, x);
+            maxX = Math.max(maxX, x);
+            minY = Math.min(minY, y);
+            maxY = Math.max(maxY, y);
+        }
+        return Math.min(maxX - minX + 1, maxY - minY + 1) < 7;
+    }
+
+    private static int find(int[] parent, int x) {
+        while (parent[x] != x) {
+            parent[x] = parent[parent[x]];
+            x = parent[x];
+        }
+        return x;
+    }
+
+    /**
+     * 같은 좌석 블록이 색으로 갈라진 것(예: 진한 빨강 VIP 부분 + 주황 일반석 부분)을 하나로 합친다: 둘 다 채도가 높고(회색·검은 무대·흰 글자 제외)
+     * 경계가 맞닿은 길이가 충분하면 같은 도형으로 본다. 합친 뒤에 크기 조건을 보고 외곽선을 따라가 Segment 로 만든다.
+     */
+    private static List<Segment> buildSegments(int[] owner, List<Raw> raws, boolean[] fg, int w, int h) {
+        int n = raws.size();
+        int[] parent = new int[n + 1];
+        for (int i = 0; i <= n; i++) {
+            parent[i] = i;
+        }
+        java.util.Map<Long, Integer> contact = new java.util.HashMap<>();
+                // 블록 안 두 색 사이에는 배경과 섞인 얇은 경계가 있어 3px 거리까지 맞닿은 것으로 본다(옆 블록과는 간격이 더 넓다)
+        int[][] offs = {{1, 0}, {0, 1}, {2, 0}, {0, 2}, {1, 1}, {-1, 1}, {3, 0}, {0, 3}, {2, 2}, {-2, 2}};
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int a = owner[y * w + x];
+                if (a == 0) {
+                    continue;
+                }
+                for (int[] o : offs) {
+                    int nx = x + o[0], ny = y + o[1];
+                    if (nx < 0 || nx >= w || ny < 0 || ny >= h) {
+                        continue;
+                    }
+                    int b = owner[ny * w + nx];
+                    if (b == 0 || b == a) {
+                        continue;
+                    }
+                    // 두 점 사이에 배경이 끼어 있으면(간격이 있는 이웃 블록) 맞닿은 것이 아니다. 사이가 모두 도형 색(경계 번짐 포함)일 때만 센다
+                    int steps = Math.max(Math.abs(o[0]), Math.abs(o[1]));
+                    boolean solid = true;
+                    for (int k = 1; k < steps && solid; k++) {
+                        solid = fg[(y + o[1] * k / steps) * w + (x + o[0] * k / steps)];
+                    }
+                    if (solid) {
+                        contact.merge((long) Math.min(a, b) * 1_000_000L + Math.max(a, b), 1, Integer::sum);
+                    }
+                }
+            }
+        }
+        for (java.util.Map.Entry<Long, Integer> e : contact.entrySet()) {
+            int a = (int) (e.getKey() / 1_000_000L), b = (int) (e.getKey() % 1_000_000L);
+            int smaller = Math.min(raws.get(a - 1).pixels().length, raws.get(b - 1).pixels().length);
+            if (smaller >= MERGE_MIN_AREA && e.getValue() >= MERGE_CONTACT && e.getValue() >= MERGE_RATIO * smaller
+                    && raws.get(a - 1).sat() >= MERGE_SAT && raws.get(b - 1).sat() >= MERGE_SAT
+                    && compactUnion(raws.get(a - 1), raws.get(b - 1), w)) {
+                parent[find(parent, a)] = find(parent, b);
+            }
+        }
+        int[] grp = new int[w * h];
+        java.util.Map<Integer, List<Integer>> members = new java.util.LinkedHashMap<>();
+        for (int i = 1; i <= n; i++) {
+            members.computeIfAbsent(find(parent, i), k -> new ArrayList<>()).add(i);
+        }
+        List<Segment> out = new ArrayList<>();
+        int gid = 0;
+        for (List<Integer> ms : members.values()) {
+            gid++;
+            long sumX = 0, sumY = 0;
+            int area = 0, minX = w, maxX = 0, minY = h, maxY = 0, first = Integer.MAX_VALUE;
+            for (int rid : ms) {
+                for (int p : raws.get(rid - 1).pixels()) {
+                    if (grp[p] != 0) {
+                        continue;
+                    }
+                    grp[p] = gid;
+                    int px = p % w, py = p / w;
+                    area++;
+                    sumX += px;
+                    sumY += py;
+                    minX = Math.min(minX, px);
+                    maxX = Math.max(maxX, px);
+                    minY = Math.min(minY, py);
+                    maxY = Math.max(maxY, py);
+                    first = Math.min(first, p);
+                }
+            }
+            int bw = maxX - minX + 1, bh = maxY - minY + 1;
+            if (area < MIN_AREA || bw > w * 0.8 || area > (long) w * h * 0.35 || bw < MIN_SIDE || bh < MIN_SIDE) {
+                continue;
+            }
+            List<int[]> contour = trace(grp, gid, w, h, first);
             if (contour.size() < 3) {
                 continue;
             }
@@ -241,17 +425,17 @@ public class ShapeSegmenter {
                 continue;
             }
             List<int[]> poly = simplify(shape);
-            if (poly.size() < 3) {
-                continue;
+            if (poly.size() >= 3) {
+                out.add(new Segment(0, poly, area, (int) (sumX / area), (int) (sumY / area)));
             }
-            out.add(new Segment(0, poly, area, (int) (sumX / area), (int) (sumY / area)));
         }
+        return out;
     }
 
     /**
      * 외곽선 모양을 고른다(pixelArea 는 도형 안의 실제 픽셀 수). 색 경계의 잡티로 들쭉날쭉한 외곽선을 다듬는다:
      * 볼록 껍질 넓이가 외곽선 넓이의 1.35배 이하(거의 볼록한 블록)이면 껍질, 껍질에 비해 속이 많이 비었어도(구멍·글자) 픽셀이 껍질의 45% 이상을
-     * 채우고 외곽선 안이 75% 미만만 찼으면 껍질(블록은 볼록하다고 보고), 그보다 오목하지만 단단한 도형(무대 같은 것)은 원래 외곽선을 그대로 둔다.
+     * 채우고 외곽선 안이 75% 미만만 찼으면 껍질(블록은 볼록하다고 보고), 그보다 오목하지만 단단한 도형(무대 같은 것)은 매끄럽게 다듬은 외곽선을 쓴다.
      * 껍질의 25%도 못 채우는 가늘고 찢어진 조각은 도형이 아니라고 보고 null 이다.
      */
     static List<int[]> chooseShape(List<int[]> contour, int pixelArea) {
@@ -269,7 +453,40 @@ public class ShapeSegmenter {
         if (pixelArea >= ha * 0.45 && pixelArea < ca * 0.75) {
             return hull;
         }
-        return contour;
+        if (pixelArea < ca * 0.55) { // 오목하면서 속도 성긴 도형(점선·글자 조각이 이어 붙은 것)은 도형이 아니다
+            return null;
+        }
+        return smooth(contour);
+    }
+
+    /**
+     * 볼록하지 않아 껍질을 못 쓰는 외곽선(무대 같은 것)의 들쭉날쭉함을 줄인다: 일정 간격으로 다시 뽑은 점들에
+     * Chaikin 모서리 깎기를 두 번 적용한다(닫힌 곡선, 원래 모양에서 크게 벗어나지 않는다).
+     */
+    static List<int[]> smooth(List<int[]> closed) {
+        int n = closed.size();
+        if (n < 12) {
+            return closed;
+        }
+        int step = Math.max(1, n / 60);
+        List<double[]> pts = new ArrayList<>();
+        for (int i = 0; i < n; i += step) {
+            pts.add(new double[]{closed.get(i)[0], closed.get(i)[1]});
+        }
+        for (int it = 0; it < 2; it++) {
+            List<double[]> next = new ArrayList<>();
+            for (int i = 0; i < pts.size(); i++) {
+                double[] p = pts.get(i), q = pts.get((i + 1) % pts.size());
+                next.add(new double[]{0.75 * p[0] + 0.25 * q[0], 0.75 * p[1] + 0.25 * q[1]});
+                next.add(new double[]{0.25 * p[0] + 0.75 * q[0], 0.25 * p[1] + 0.75 * q[1]});
+            }
+            pts = next;
+        }
+        List<int[]> out = new ArrayList<>();
+        for (double[] p : pts) {
+            out.add(new int[]{(int) Math.round(p[0]), (int) Math.round(p[1])});
+        }
+        return out;
     }
 
     private static double shoelace(List<int[]> pts) {
@@ -343,7 +560,7 @@ public class ShapeSegmenter {
 
     /** 꼭짓점이 40개 이하가 될 때까지 허용 오차를 키우며 RDP 로 줄인다. */
     static List<int[]> simplify(List<int[]> closed) {
-        double eps = 1.5;
+        double eps = 2.5;
         List<int[]> out = rdpClosed(closed, eps);
         while (out.size() > MAX_VERTICES && eps < 200) {
             eps *= 1.4;
@@ -434,6 +651,64 @@ public class ShapeSegmenter {
             "01110100011000101111000010001001100"  // 9
     };
 
+    private static final int TILE = 150;
+    private static final int TILE_COLS = 8;
+
+    /**
+     * 도형마다 주변까지 잘라 키운 타일을 격자로 모은 이미지(왼쪽 위에 도형 번호). 지도에서 10px 남짓한 구역 이름 글자를
+     * 모델이 읽기 쉽게 확대해 보여 주는 용도다(조각내서 보는 방식).
+     */
+    private static byte[] tileSheet(BufferedImage src, List<Segment> segments) {
+        int n = segments.size();
+        int rows = Math.max(1, (n + TILE_COLS - 1) / TILE_COLS);
+        BufferedImage out = new BufferedImage(TILE_COLS * TILE, rows * TILE, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = out.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+        g.setColor(new Color(40, 40, 40));
+        g.fillRect(0, 0, out.getWidth(), out.getHeight());
+        for (int i = 0; i < n; i++) {
+            Segment s = segments.get(i);
+            int minX = Integer.MAX_VALUE, maxX = 0, minY = Integer.MAX_VALUE, maxY = 0;
+            for (int[] p : s.pixels()) {
+                minX = Math.min(minX, p[0]);
+                maxX = Math.max(maxX, p[0]);
+                minY = Math.min(minY, p[1]);
+                maxY = Math.max(maxY, p[1]);
+            }
+            int pad = 6;
+            int sx = Math.max(0, minX - pad), sy = Math.max(0, minY - pad);
+            int sw = Math.min(src.getWidth() - sx, maxX - minX + 1 + 2 * pad), sh = Math.min(src.getHeight() - sy, maxY - minY + 1 + 2 * pad);
+            double scale = Math.min((TILE - 6.0) / sw, (TILE - 6.0) / sh);
+            int dw = Math.max(1, (int) (sw * scale)), dh = Math.max(1, (int) (sh * scale));
+            int tx = (i % TILE_COLS) * TILE + (TILE - dw) / 2, ty = (i / TILE_COLS) * TILE + (TILE - dh) / 2;
+            g.drawImage(src.getSubimage(sx, sy, sw, sh), tx, ty, dw, dh, null);
+            g.setColor(new Color(90, 90, 90));
+            g.drawRect((i % TILE_COLS) * TILE, (i / TILE_COLS) * TILE, TILE - 1, TILE - 1);
+            drawLabel(g, String.valueOf(s.id()), (i % TILE_COLS) * TILE + 16, (i / TILE_COLS) * TILE + 12, out.getWidth(), out.getHeight());
+        }
+        g.dispose();
+        return jpeg(out);
+    }
+
+    private static byte[] jpeg(BufferedImage out) {
+        try {
+            ImageWriter writer = ImageIO.getImageWritersByFormatName("jpeg").next();
+            ImageWriteParam param = writer.getDefaultWriteParam();
+            param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+            param.setCompressionQuality(0.9f);
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            try (MemoryCacheImageOutputStream ios = new MemoryCacheImageOutputStream(bos)) {
+                writer.setOutput(ios);
+                writer.write(null, new IIOImage(out, null, null), param);
+            } finally {
+                writer.dispose();
+            }
+            return bos.toByteArray();
+        } catch (IOException e) {
+            throw new IllegalStateException("encode failed");
+        }
+    }
+
     private static byte[] annotate(BufferedImage src, List<Segment> segments) {
         BufferedImage out = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_RGB);
         Graphics2D g = out.createGraphics();
@@ -445,7 +720,8 @@ public class ShapeSegmenter {
             g.drawPolygon(toPolygon(s.pixels()));
         }
         for (Segment s : segments) {
-            drawLabel(g, String.valueOf(s.id()), s.cx(), s.cy(), src.getWidth(), src.getHeight());
+            int[] at = labelSpot(s);
+            drawLabel(g, String.valueOf(s.id()), at[0], at[1], src.getWidth(), src.getHeight());
         }
         g.dispose();
         try {
@@ -464,6 +740,21 @@ public class ShapeSegmenter {
         } catch (IOException e) {
             throw new IllegalStateException("annotate encode failed");
         }
+    }
+
+    /** 번호 상자 위치: 이름 글자가 놓이는 도형 가운데를 피해 도형 위쪽 가장자리 안쪽(가운데 x, 맨 위에서 11px 아래)에 두고, 도형 밖이면 무게중심으로 되돌린다. */
+    private static int[] labelSpot(Segment s) {
+        int minY = Integer.MAX_VALUE;
+        for (int[] p : s.pixels()) {
+            minY = Math.min(minY, p[1]);
+        }
+        int y = minY + 11;
+        Polygon poly = toPolygon(s.pixels());
+        int x = s.cx();
+        if (poly.contains(x, y)) {
+            return new int[]{x, y};
+        }
+        return new int[]{s.cx(), s.cy()};
     }
 
     private static void drawLabel(Graphics2D g, String text, int cx, int cy, int w, int h) {

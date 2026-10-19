@@ -34,12 +34,15 @@ export default function ZoneEditor({ rows, aspect, onChange, disabled = false, s
   const [addError, setAddError] = useState<string>();
   const [active, setActive] = useState<number | null>(null);
   const [status, setStatus] = useState("");
+  const [listOpen, setListOpen] = useState(false);
 
   const errors = validateZoneRows(rows);
+  // 구역이 많으면 목록이 길어 스크롤이 불편하다: 기본은 접어 두고, 이름 오류가 있거나 서버 오류가 있으면 자동으로 펼친다
+  const open = listOpen || Object.keys(errors).length > 0 || !!serverError;
   const shaped = rows.filter((r) => polygonPoints(r.shapePolygons).length > 0);
   const height = previewHeight(aspect);
   const activeRow = shaped.find((r) => r.id === active);
-  const activeBox = activeRow ? polygonsBox(activeRow.shapePolygons) : null;
+  const activeBox = activeRow ? polygonsBox(activeRow.shapePolygons, height / 1000) : null;
 
   const add = (e: FormEvent) => {
     e.preventDefault();
@@ -77,7 +80,7 @@ export default function ZoneEditor({ rows, aspect, onChange, disabled = false, s
           <ZoomableSeatmap width={1000} height={height} label={previewLabel} focusBox={activeBox} focusKey={active}>
             {shaped.map((r) => {
               const on = r.id === active;
-              return polygonPoints(r.shapePolygons).map((pts, i) => (
+              return polygonPoints(r.shapePolygons, height / 1000).map((pts, i) => (
                 <polygon
                   key={`${r.id}-${i}`}
                   points={pts}
@@ -90,7 +93,7 @@ export default function ZoneEditor({ rows, aspect, onChange, disabled = false, s
               ));
             })}
             {shaped.map((r) => {
-              const a = labelAnchor(r.shapePolygons);
+              const a = labelAnchor(r.shapePolygons, height / 1000);
               if (!a) return null;
               const on = r.id === active;
               return (
@@ -117,6 +120,17 @@ export default function ZoneEditor({ rows, aspect, onChange, disabled = false, s
         </div>
       )}
 
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-[10px] border border-gray-200 px-3 py-2">
+        <span className={ui.body}>
+          구역 {rows.length}개{shaped.length > 0 ? ` (지도에 모양이 있는 구역 ${shaped.length}개)` : ""}
+        </span>
+        <button type="button" className={button.outline} onClick={() => setListOpen((o) => !o)} aria-expanded={open} aria-controls="perf-zone-list">
+          {open ? "구역 목록 접기" : "구역 목록 펼쳐서 고치기"}
+        </button>
+      </div>
+
+      {open && (
+        <div id="perf-zone-list" className="flex flex-col gap-3">
       {rows.length === 0 ? (
         <p className={ui.body}>아직 구역이 없어요. 구역은 선택 사항이에요. 아래에서 직접 추가할 수 있어요.</p>
       ) : (
@@ -213,6 +227,8 @@ export default function ZoneEditor({ rows, aspect, onChange, disabled = false, s
           </p>
         )}
       </form>
+        </div>
+      )}
       {serverError && <p className={ui.fieldError}>{serverError}</p>}
       <p className="sr-only" role="status">
         {status}

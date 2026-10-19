@@ -142,6 +142,7 @@ public class ExchangeRequestService {
                     throw requestAlreadyExists();
                 }
                 Ticket ticket = ticketRepository.findWithSessionById(locked.getId()).orElse(locked);
+                SessionChangePlanner.ensureNotHidden(ticket.getPerformanceSession().getPerformance());
                 ensureTicketSessionOpen(ticket);
                 List<SessionPlan> sessions = resolveSessions(ticket, parsed.wantSessions());
                 ensureNotOwnSeat(ticket, parsed.expanded(), sessions);

@@ -56,15 +56,16 @@ export function pinchScale(scale: number, prevDist: number, dist: number): numbe
 }
 
 /** 다각형 조각들의 경계 상자. 유효한 점이 없으면 null */
-export function polygonsBox(polygons: number[][][] | null): Box | null {
+export function polygonsBox(polygons: number[][][] | null, sy = 1): Box | null {
   if (!polygons) return null;
   let b: Box | null = null;
   for (const piece of polygons) {
     for (const p of piece ?? []) {
       if (!Array.isArray(p) || !Number.isFinite(p[0]) || !Number.isFinite(p[1])) continue;
+      const y = p[1] * sy;
       b = b
-        ? { minX: Math.min(b.minX, p[0]), minY: Math.min(b.minY, p[1]), maxX: Math.max(b.maxX, p[0]), maxY: Math.max(b.maxY, p[1]) }
-        : { minX: p[0], minY: p[1], maxX: p[0], maxY: p[1] };
+        ? { minX: Math.min(b.minX, p[0]), minY: Math.min(b.minY, y), maxX: Math.max(b.maxX, p[0]), maxY: Math.max(b.maxY, y) }
+        : { minX: p[0], minY: y, maxX: p[0], maxY: y };
     }
   }
   return b;

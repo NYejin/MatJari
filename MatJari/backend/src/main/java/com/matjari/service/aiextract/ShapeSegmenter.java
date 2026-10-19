@@ -54,7 +54,7 @@ public class ShapeSegmenter {
     private static final double MERGE_MAX_RAW_RATIO = 0.04;
 
     /** pixels: 외곽 꼭짓점 [x,y] 목록(원본 픽셀 좌표). */
-    public record Segment(int id, List<int[]> pixels, int area, int cx, int cy, double sat) {}
+    public record Segment(int id, List<int[]> pixels, int area, int cx, int cy, double sat, double val) {}
 
     public record Result(int width, int height, List<Segment> segments, byte[] annotatedJpeg, byte[] tilesJpeg) {}
 
@@ -141,7 +141,7 @@ public class ShapeSegmenter {
         List<Segment> numbered = new ArrayList<>();
         for (int i = 0; i < kept.size(); i++) {
             Segment s = kept.get(i);
-            numbered.add(new Segment(i + 1, s.pixels(), s.area(), s.cx(), s.cy(), s.sat()));
+            numbered.add(new Segment(i + 1, s.pixels(), s.area(), s.cx(), s.cy(), s.sat(), s.val()));
         }
         return new Result(w, h, List.copyOf(numbered), annotate(img, numbered), tileSheet(img, numbered));
     }
@@ -318,7 +318,7 @@ public class ShapeSegmenter {
     }
 
     /**
-     * 채도가 낮고(회색·검은색) 도형 크기 중앙값의 2.5배를 넘는 큰 구조물(무대·돌출 무대·통로)은 좌석 블록 후보에서 뺀다.
+     * 채도가 낮은 밝기 90 이상의 회색이고 도형 크기 중앙값의 2.5배를 넘는 큰 구조물(무대·돌출 무대·통로)은 좌석 블록 후보에서 뺀다. 검은색 큰 도형은 남긴다.
      * 연한 회색 좌석 블록(예: 2F 구역)은 중앙값 크기라 남는다.
      */
     static List<Segment> dropStageLike(List<Segment> found) {
@@ -329,7 +329,7 @@ public class ShapeSegmenter {
         double median = areas[areas.length / 2];
         List<Segment> out = new ArrayList<>();
         for (Segment sg : found) {
-            if (sg.sat() < 0.2 && sg.area() > median * 2.5) {
+            if (sg.sat() < 0.2 && sg.val() >= 90 && sg.area() > median * 2.5) { // 검은색 큰 블록(i-dle F3·F4·F5)은 남기고 타일 글자(STAGE 여부)로 가른다
                 continue;
             }
             out.add(sg);
@@ -387,7 +387,7 @@ public class ShapeSegmenter {
     static volatile int[] lastGroupMap;
 
     /** 같은 색 묶음의 연결 요소 하나(합치기 전). sat 은 평균 채도(0~1): 회색·검은색·흰색은 낮다. */
-    private record Raw(int[] pixels, double sat) {}
+    private record Raw(int[] pixels, double sat, double val) {}
 
     /** 색 묶음 하나의 연결 요소(8방향)들을 모은다. 너무 작은 것(잡티)은 버린다. owner 에는 요소 번호(1부터)를 적는다. */
     private static void collectRaw(boolean[] m, int w, int h, int[] rgb, int[] owner, List<Raw> raws) {
@@ -420,13 +420,14 @@ public class ShapeSegmenter {
                 continue;
             }
             int[] px = Arrays.copyOf(queue, tail);
-            double sat = 0;
+            double sat = 0, val = 0;
             for (int p : px) {
                 int r = (rgb[p] >> 16) & 255, g = (rgb[p] >> 8) & 255, b = rgb[p] & 255;
                 int mx = Math.max(r, Math.max(g, b)), mn = Math.min(r, Math.min(g, b));
                 sat += mx == 0 ? 0 : (double) (mx - mn) / mx;
+                val += mx;
             }
-            raws.add(new Raw(px, sat / tail));
+            raws.add(new Raw(px, sat / tail, val / tail));
             int id = raws.size();
             for (int p : px) {
                 if (owner[p] == 0) {
@@ -540,10 +541,11 @@ public class ShapeSegmenter {
         for (List<Integer> ms : members.values()) {
             gid++;
             long sumX = 0, sumY = 0;
-            double satSum = 0;
+            double satSum = 0, valSum = 0;
             int area = 0, minX = w, maxX = 0, minY = h, maxY = 0, first = Integer.MAX_VALUE;
             for (int rid : ms) {
                 satSum += raws.get(rid - 1).sat() * raws.get(rid - 1).pixels().length;
+                valSum += raws.get(rid - 1).val() * raws.get(rid - 1).pixels().length;
                 for (int p : raws.get(rid - 1).pixels()) {
                     if (grp[p] != 0) {
                         continue;
@@ -561,6 +563,9 @@ public class ShapeSegmenter {
                 }
             }
             int bw = maxX - minX + 1, bh = maxY - minY + 1;
+            if ((minX <= 1 || maxX >= w - 2) && bw < 40) { // 이미지 좌우 가장자리에 걸친 가는 조각(페이지 여백·그라데이션 잔재)은 도형이 아니다
+                continue;
+            }
             if (area < MIN_AREA || bw > w * 0.8 || area > (long) w * h * MAX_AREA_RATIO || bw < MIN_SIDE || bh < MIN_SIDE) {
                 continue;
             }
@@ -578,7 +583,8 @@ public class ShapeSegmenter {
             }
             List<int[]> poly = simplify(shape);
             if (poly.size() >= 3) {
-                out.add(new Segment(0, poly, area, (int) (sumX / area), (int) (sumY / area), satSum / Math.max(1, ms.stream().mapToInt(r -> raws.get(r - 1).pixels().length).sum())));
+                int rawTotal = Math.max(1, ms.stream().mapToInt(r -> raws.get(r - 1).pixels().length).sum());
+                out.add(new Segment(0, poly, area, (int) (sumX / area), (int) (sumY / area), satSum / rawTotal, valSum / rawTotal));
             }
         }
         return out;
@@ -822,6 +828,33 @@ public class ShapeSegmenter {
             "01110100011000101110100011000101110", // 8
             "01110100011000101111000010001001100"  // 9
     };
+
+    /** 한 도형을 크게(변의 최대 size px) 잘라 JPEG 로 돌려준다. 이름이 의심스러운 도형만 다시 읽을 때 쓴다. */
+    public static byte[] bigTile(byte[] jpeg, Segment s, int size) {
+        try {
+            BufferedImage src = ImageIO.read(new ByteArrayInputStream(jpeg));
+            int minX = Integer.MAX_VALUE, maxX = 0, minY = Integer.MAX_VALUE, maxY = 0;
+            for (int[] p : s.pixels()) {
+                minX = Math.min(minX, p[0]);
+                maxX = Math.max(maxX, p[0]);
+                minY = Math.min(minY, p[1]);
+                maxY = Math.max(maxY, p[1]);
+            }
+            int pad = Math.max(12, Math.min(maxX - minX, maxY - minY) / 3);
+            int sx = Math.max(0, minX - pad), sy = Math.max(0, minY - pad);
+            int sw = Math.min(src.getWidth() - sx, maxX - minX + 1 + 2 * pad), sh = Math.min(src.getHeight() - sy, maxY - minY + 1 + 2 * pad);
+            double scale = Math.min((double) size / sw, (double) size / sh);
+            int dw = Math.max(1, (int) (sw * scale)), dh = Math.max(1, (int) (sh * scale));
+            BufferedImage out = new BufferedImage(dw, dh, BufferedImage.TYPE_INT_RGB);
+            Graphics2D g = out.createGraphics();
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+            g.drawImage(src.getSubimage(sx, sy, sw, sh), 0, 0, dw, dh, null);
+            g.dispose();
+            return jpeg(out);
+        } catch (IOException e) {
+            throw new IllegalStateException("tile failed");
+        }
+    }
 
     private static final int TILE = 150;
     private static final int TILE_COLS = 8;

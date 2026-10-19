@@ -14,10 +14,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ShapeSegmenterTest {
 
     private static byte[] image() throws Exception {
-        BufferedImage img = new BufferedImage(400, 300, BufferedImage.TYPE_INT_RGB);
+        BufferedImage img = new BufferedImage(700, 600, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = img.createGraphics();
         g.setColor(new Color(240, 240, 240));
-        g.fillRect(0, 0, 400, 300);
+        g.fillRect(0, 0, 700, 600);
         g.setColor(new Color(110, 40, 140)); // 보라 사각형
         g.fillRect(50, 60, 100, 80);
         g.setColor(new Color(60, 130, 200)); // 파랑 삼각형
@@ -64,10 +64,10 @@ class ShapeSegmenterTest {
     }
 
     private static byte[] blocks(int gap) throws Exception {
-        BufferedImage img = new BufferedImage(300, 200, BufferedImage.TYPE_INT_RGB);
+        BufferedImage img = new BufferedImage(600, 500, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = img.createGraphics();
         g.setColor(new Color(60, 30, 35)); // 어두운 배경
-        g.fillRect(0, 0, 300, 200);
+        g.fillRect(0, 0, 600, 500);
         g.setColor(new Color(150, 0, 10)); // 진한 빨강(VIP) 위쪽 부분
         g.fillRect(40, 40, 80, 30);
         g.setColor(new Color(240, 100, 0)); // 주황(일반석) 아래쪽 부분: 바로 붙어 있다

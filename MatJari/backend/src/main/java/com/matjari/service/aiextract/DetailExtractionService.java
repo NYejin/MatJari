@@ -333,6 +333,7 @@ public class DetailExtractionService {
             writeDebug(target, seg, result);
             // nonSeatSegments 는 점검용 기록이다(AI가 구역에 연결한 번호가 우선하며, 무대 같은 큰 구조물은 아래 넓이 검사가 거른다)
             List<DetailExtractor.RawLabel> labels = canonicalLabels(attachOrphans(result, seg), names);
+            labels = verifySuspects(labels, seg, target, names);
             List<DetailExtractor.RawZone> zones = dropOutliers(shapesFromLabels(labels, seg));
             log.info("AI 번호 방식: 도형 후보 {}개, 연결된 구역 {}개 / 이름 {}개", seg.segments().size(), zones.size(), names.size());
             if (validShapeRatio(extendNames(names, zones), zones) < 0.3) {
@@ -447,6 +448,76 @@ public class DetailExtractionService {
             maxY = Math.max(maxY, p[1]);
         }
         return new int[]{minX, minY, maxX, maxY};
+    }
+
+    /**
+     * 모든 도형을 하나씩 크게(320px) 확대한 타일로 다시 읽어 이름을 정한다(8개씩 묶어 병렬로 부른다). 작은 격자 타일에서는 흰 작은 글씨(연한 파랑
+     * 블록의 번호 등)를 잘못 읽는 일이 있어서다. 다시 읽은 이름이 구역 코드답거나 1차 이름 목록에 있으면 그 이름을 쓰고, 비었거나 이상하면 처음 읽은 이름을 유지한다.
+     */
+    private List<DetailExtractor.RawLabel> verifySuspects(List<DetailExtractor.RawLabel> labels, ShapeSegmenter.Result seg,
+                                                          ImageSlicer.SliceImage target, List<String> names) {
+        Map<Integer, ShapeSegmenter.Segment> byId = new LinkedHashMap<>();
+        for (ShapeSegmenter.Segment sg : seg.segments()) {
+            byId.put(sg.id(), sg);
+        }
+        Map<Integer, String> owner = new LinkedHashMap<>();
+        for (DetailExtractor.RawLabel l : labels) {
+            for (Integer id : l.segmentIds()) {
+                owner.put(id, l.name());
+            }
+        }
+        List<Integer> ids = new ArrayList<>(byId.keySet());
+        if (ids.size() > 80) {
+            ids = ids.subList(0, 80);
+        }
+        List<java.util.concurrent.CompletableFuture<Map<Integer, String>>> calls = new ArrayList<>();
+        for (int from = 0; from < ids.size(); from += 8) {
+            List<Integer> batch = new ArrayList<>(ids.subList(from, Math.min(ids.size(), from + 8)));
+            calls.add(java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                try {
+                    List<byte[]> tiles = new ArrayList<>();
+                    for (Integer id : batch) {
+                        tiles.add(ShapeSegmenter.bigTile(target.jpeg(), byId.get(id), 320));
+                    }
+                    return extractor.readTiles(batch, tiles);
+                } catch (RuntimeException e) {
+                    log.info("AI 타일 다시 읽기 한 묶음 실패: {}", e.getClass().getSimpleName());
+                    return Map.<Integer, String>of();
+                }
+            }));
+        }
+        java.util.Set<String> known = new java.util.HashSet<>();
+        for (String n : names) {
+            String k = keyOf(n);
+            if (k != null) {
+                known.add(k);
+            }
+        }
+        int changed = 0;
+        for (java.util.concurrent.CompletableFuture<Map<Integer, String>> c : calls) {
+            Map<Integer, String> reread = c.join();
+            for (Map.Entry<Integer, String> e : reread.entrySet()) {
+                String t = e.getValue() == null ? "" : e.getValue().trim();
+                if (t.isEmpty() || isStageName(t)) {
+                    continue; // 비었거나 무대 표기면 처음 읽은 이름(또는 좌석 아님)을 유지
+                }
+                String k = keyOf(t);
+                if (k != null && !k.isEmpty() && (known.contains(k) || looksLikeZoneCode(t)) && !t.equals(owner.get(e.getKey()))) {
+                    owner.put(e.getKey(), t);
+                    changed++;
+                }
+            }
+        }
+        log.info("AI 타일 다시 읽기로 바꾼 도형 {}개 / {}개", changed, ids.size());
+        Map<String, List<Integer>> byName = new LinkedHashMap<>();
+        for (Map.Entry<Integer, String> e : owner.entrySet()) {
+            byName.computeIfAbsent(e.getValue(), k -> new ArrayList<>()).add(e.getKey());
+        }
+        List<DetailExtractor.RawLabel> raw = new ArrayList<>();
+        for (Map.Entry<String, List<Integer>> e : byName.entrySet()) {
+            raw.add(new DetailExtractor.RawLabel(e.getKey(), e.getValue()));
+        }
+        return canonicalLabels(raw, names);
     }
 
     /** 같은 질문을 병렬로 이 횟수만큼 보내 도형마다 다수결로 구역을 정한다(AI 답이 실행마다 조금씩 흔들리는 것을 줄인다). */
@@ -740,10 +811,10 @@ public class DetailExtractionService {
         }
     }
 
-    /** 무대·플로어(FLOOR)·설비(콘솔·F.O.H·PA·카메라·휠체어) 표기는 관객 좌석 구역이 아니다(사용자 결정 2026-10-19): STAGE·무대·스테이지를 포함하거나 FLOOR·플로어로 시작하는 이름과 설비 이름. */
+    /** 무대·설비(콘솔·F.O.H·PA·카메라·휠체어)와 'FLOOR'라고만 적힌 안내 글자는 구역이 아니다(사용자 결정 2026-10-19). FLOOR 안의 좌석 블록(THE·RED·LINE·F3 등)은 객석 구역이라 남긴다. */
     static boolean isStageName(String name) {
         String n = name.toUpperCase(java.util.Locale.ROOT).replaceAll("[\\s\\p{Z}_\\-]+", "");
-        return n.contains("STAGE") || n.contains("무대") || n.contains("스테이지") || n.startsWith("FLOOR") || n.startsWith("플로어")
+        return n.contains("STAGE") || n.contains("무대") || n.contains("스테이지") || n.equals("FLOOR") || n.equals("플로어") || n.equals("플로어석")
                 || n.contains("CONSOLE") || n.contains("콘솔") || n.contains("F.O.H") || n.equals("FOH") || n.equals("PA") || n.contains("CAMERA") || n.contains("카메라")
                 || n.contains("MIXER") || n.contains("휠체어");
     }

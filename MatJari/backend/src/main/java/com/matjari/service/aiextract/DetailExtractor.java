@@ -57,6 +57,11 @@ public interface DetailExtractor {
         return null;
     }
 
+    /** 도형 하나씩 크게 확대한 타일을 보내 타일 안에 쓰인 구역 이름을 다시 읽는다(ids 와 jpegs 는 같은 순서). 기본 구현은 빈 결과(지원 안 함). */
+    default java.util.Map<Integer, String> readTiles(List<Integer> ids, List<byte[]> jpegs) throws ExtractionFailedException {
+        return java.util.Map.of();
+    }
+
     /** 합친 이미지를 띠로 나눠 보내 좌석 배치도가 있는 띠 범위를 찾는다. 찾지 못하면 null(호출자는 합친 이미지를 그대로 쓴다). 기본 구현은 null. */
     default StripRange locate(List<Part> strips) throws ExtractionFailedException {
         return null;

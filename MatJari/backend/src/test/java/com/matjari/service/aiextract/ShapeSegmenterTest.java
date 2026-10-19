@@ -121,7 +121,7 @@ class ShapeSegmenterTest {
 
     @Test
     void stageAndFloorNamesAreNotZones() {
-        assertThat(DetailExtractionService.cleanNames(List.of("FLOOR", "Floor A", "MAIN STAGE", "무대", "플로어석", "스테이지", "A구역", "B1", "43")))
-                .containsExactly("A구역", "B1", "43");
+        assertThat(DetailExtractionService.cleanNames(List.of("FLOOR", "Floor A", "MAIN STAGE", "무대", "플로어석", "스테이지", "CONSOLE", "A구역", "B1", "43", "THE")))
+                .containsExactly("Floor A", "A구역", "B1", "43", "THE");
     }
 }

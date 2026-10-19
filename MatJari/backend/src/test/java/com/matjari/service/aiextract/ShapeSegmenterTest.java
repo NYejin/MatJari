@@ -118,4 +118,10 @@ class ShapeSegmenterTest {
         assertThat(r.nonSeatSegments()).containsExactly(4);
         assertThat(DetailExtractionService.combineVotes(List.of())).isNull();
     }
+
+    @Test
+    void stageAndFloorNamesAreNotZones() {
+        assertThat(DetailExtractionService.cleanNames(List.of("FLOOR", "Floor A", "MAIN STAGE", "무대", "플로어석", "스테이지", "A구역", "B1", "43")))
+                .containsExactly("A구역", "B1", "43");
+    }
 }

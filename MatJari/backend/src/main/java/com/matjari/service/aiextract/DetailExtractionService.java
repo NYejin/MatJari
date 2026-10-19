@@ -614,13 +614,19 @@ public class DetailExtractionService {
         }
     }
 
+    /** 무대·플로어(FLOOR) 표기는 관객 좌석 구역이 아니라 무대로 본다(사용자 결정 2026-10-19): STAGE·무대·스테이지를 포함하거나 FLOOR·플로어로 시작하는 이름. */
+    static boolean isStageName(String name) {
+        String n = name.toUpperCase(java.util.Locale.ROOT).replaceAll("[\\s\\p{Z}_\\-]+", "");
+        return n.contains("STAGE") || n.contains("무대") || n.contains("스테이지") || n.startsWith("FLOOR") || n.startsWith("플로어");
+    }
+
     /** 공백 정리·30자 이하·zoneKey 중복 제거(첫 표기 유지)·최대 100개. */
     static List<String> cleanNames(List<String> raw) {
         Map<String, String> out = new LinkedHashMap<>();
         for (String r : raw == null ? List.<String>of() : raw) {
             String name = cleanName(r);
             String key = name == null ? null : keyOf(name);
-            if (key != null && !key.isEmpty() && out.size() < MAX_ZONES) {
+            if (key != null && !key.isEmpty() && !isStageName(name) && out.size() < MAX_ZONES) {
                 out.putIfAbsent(key, name);
             }
         }

@@ -42,4 +42,34 @@ class ZoneConsistencyTest {
             assertThat(ZoneConsistency.dist(chips.get(i).rgb(), colors[i].getRGB())).isLessThan(ZoneConsistency.SAME_COLOR);
         }
     }
+
+    @Test
+    void seriesKeySplitsHundredsAndPrefixes() {
+        assertThat(ZoneConsistency.seriesKey("311")).isEqualTo(ZoneConsistency.seriesKey("322"));
+        assertThat(ZoneConsistency.seriesKey("311")).isNotEqualTo(ZoneConsistency.seriesKey("411"));
+        assertThat(ZoneConsistency.seriesKey("T01")).isEqualTo(ZoneConsistency.seriesKey("T17"));
+        assertThat(ZoneConsistency.seriesKey("STANDING R")).isNull();
+    }
+
+    @Test
+    void eraseTextPaintsWhiteDigitsWithBlockColor() {
+        int w = 60, h = 40, blue = 0xFF5B9FFF, white = 0xFFFFFFFF, black = 0xFF050505;
+        int[] px = new int[w * h];
+        java.util.Arrays.fill(px, black);
+        for (int y = 5; y < 35; y++) {
+            for (int x = 5; x < 55; x++) {
+                px[y * w + x] = blue;
+            }
+        }
+        for (int y = 12; y < 28; y++) { // 폭 2px 세로 획 두 개(숫자 '11')
+            px[y * w + 25] = white;
+            px[y * w + 26] = white;
+            px[y * w + 33] = white;
+            px[y * w + 34] = white;
+        }
+        int[] out = ShapeSegmenter.eraseText(px, new int[]{5, 5, 5}, w, h);
+        assertThat(out[20 * w + 25]).isEqualTo(blue);
+        assertThat(out[20 * w + 34]).isEqualTo(blue);
+        assertThat(out[2 * w + 2]).isEqualTo(black);
+    }
 }

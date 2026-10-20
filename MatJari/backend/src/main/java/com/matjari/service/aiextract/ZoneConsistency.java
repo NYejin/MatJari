@@ -66,6 +66,8 @@ final class ZoneConsistency {
                 addMissingLegendColors(zones, byId, color, chips, img, extractor);
             }
             addMirrorZones(zones, byId, img, jpeg, names, extractor);
+            addSequenceGaps(zones, byId, jpeg, extractor);
+            reassignStrips(zones, byId);
             if (chips.size() >= 2) {
                 refillDented(zones, byId, color, chips, img);
             }
@@ -425,9 +427,156 @@ final class ZoneConsistency {
             if (name == null || name.length() > 30 || DetailExtractionService.isStageName(name)) {
                 continue;
             }
+            if (gradeName(name)) {
+                // '시야제한석'·'VIP석' 같은 등급 이름은 구역 이름이 아니다: 그 색 도형은 맞닿은(3px 안) 구역의 조각으로 붙인다(화정체육관 J의 분홍 삼각형)
+                for (Integer id : found.get(c)) {
+                    String near = nearestZone(byId.get(id), zones, byId, 3);
+                    if (near != null) {
+                        log.info("등급 색 도형 {}을 맞닿은 구역 {}에 붙임", id, near);
+                        zones.get(near).add(id);
+                    }
+                }
+                continue;
+            }
             log.info("범례 이름으로 구역 추가: {} 도형 {}", name, found.get(c));
             zones.computeIfAbsent(name, k -> new ArrayList<>()).addAll(found.get(c));
         }
+    }
+
+    /** 좌석 등급 이름('~석', '~좌석', 범례 표기): 구역 이름으로 쓰지 않는다. */
+    static boolean gradeName(String name) {
+        return DetailExtractionService.isLegendName(name);
+    }
+
+    /** s 와 상자 간격이 gap 이하인 구역 조각 중 가장 가까운 것의 구역(없으면 null). */
+    private static String nearestZone(ShapeSegmenter.Segment s, Map<String, List<Integer>> zones, Map<Integer, ShapeSegmenter.Segment> byId, int gap) {
+        if (s == null) {
+            return null;
+        }
+        int[] a = box(s);
+        String best = null;
+        int bestGap = Integer.MAX_VALUE;
+        for (Map.Entry<String, List<Integer>> z : zones.entrySet()) {
+            for (Integer id : z.getValue()) {
+                ShapeSegmenter.Segment q = byId.get(id);
+                if (q == null || q.id() == s.id()) {
+                    continue;
+                }
+                int[] b = box(q);
+                int g = Math.max(Math.max(0, Math.max(b[0] - a[2], a[0] - b[2])), Math.max(0, Math.max(b[1] - a[3], a[1] - b[3])));
+                if (g <= gap && g < bestGap) {
+                    bestGap = g;
+                    best = z.getKey();
+                }
+            }
+        }
+        return best;
+    }
+
+    /**
+     * 범례 점검 뒤 띠 주인 다시 정하기: 구역의 대표가 아닌 가는 띠(상자 2.2배 이상) 조각들을 맞붙은(간격 4 이하) 것끼리 묶고, 묶음의 띠 중 하나가
+     * 구역 블록(맞닿은 덩어리 조각들의 상자)의 마주 보는 변을 가장 많이 덮는 구역을 고른다. 그 구역이 지금 구역보다 30%p 넘게 더 덮으면 묶음째 옮긴다
+     * (화정체육관 J 옆 휠체어석 막대와 파란 띠가 서로를 근거로 F1에 붙어 있던 것).
+     */
+    private static void reassignStrips(Map<String, List<Integer>> zones, Map<Integer, ShapeSegmenter.Segment> byId) {
+        Map<String, int[]> blocks = new LinkedHashMap<>();
+        for (Map.Entry<String, List<Integer>> z : zones.entrySet()) {
+            ShapeSegmenter.Segment main = z.getValue().stream().map(byId::get).filter(java.util.Objects::nonNull)
+                    .filter(q -> !thinStrip(q)).max(java.util.Comparator.comparingInt(ShapeSegmenter.Segment::area)).orElse(null);
+            if (main == null) {
+                continue;
+            }
+            int[] u = box(main).clone();
+            for (Integer id : z.getValue()) {
+                ShapeSegmenter.Segment q = byId.get(id);
+                if (q == null || thinStrip(q)) {
+                    continue;
+                }
+                int[] b = box(q);
+                if (Math.max(Math.max(0, Math.max(b[0] - u[2], u[0] - b[2])), Math.max(0, Math.max(b[1] - u[3], u[1] - b[3]))) <= 2) {
+                    u = new int[]{Math.min(u[0], b[0]), Math.min(u[1], b[1]), Math.max(u[2], b[2]), Math.max(u[3], b[3])};
+                }
+            }
+            blocks.put(z.getKey(), u);
+        }
+        Map<Integer, String> ownerOf = new LinkedHashMap<>();
+        for (Map.Entry<String, List<Integer>> z : zones.entrySet()) {
+            if (!blocks.containsKey(z.getKey())) {
+                continue; // 띠가 대표인 구역(VIP 띠, 사다리꼴 M·B)은 그 자체가 구역이라 건드리지 않는다
+            }
+            for (Integer id : z.getValue()) {
+                ShapeSegmenter.Segment q = byId.get(id);
+                if (q != null && thinStrip(q)) {
+                    ownerOf.put(id, z.getKey());
+                }
+            }
+        }
+        Set<Integer> done = new HashSet<>();
+        for (Integer start : ownerOf.keySet()) {
+            if (done.contains(start)) {
+                continue;
+            }
+            List<Integer> group = new ArrayList<>(List.of(start));
+            done.add(start);
+            for (int k = 0; k < group.size(); k++) {
+                int[] a = box(byId.get(group.get(k)));
+                for (Integer other : ownerOf.keySet()) {
+                    if (done.contains(other)) {
+                        continue;
+                    }
+                    int[] b = box(byId.get(other));
+                    int g = Math.max(Math.max(0, Math.max(b[0] - a[2], a[0] - b[2])), Math.max(0, Math.max(b[1] - a[3], a[1] - b[3])));
+                    if (g <= 4) {
+                        group.add(other);
+                        done.add(other);
+                    }
+                }
+            }
+            Map<String, Double> score = new LinkedHashMap<>();
+            for (Map.Entry<String, int[]> b : blocks.entrySet()) {
+                double best = 0;
+                for (Integer id : group) {
+                    best = Math.max(best, cover(byId.get(id), b.getValue()));
+                }
+                score.put(b.getKey(), best);
+            }
+            String current = ownerOf.get(start);
+            String best = score.entrySet().stream().max(Map.Entry.comparingByValue()).map(Map.Entry::getKey).orElse(current);
+            if (!best.equals(current) && score.get(best) > score.getOrDefault(current, 0.0) + 0.3) {
+                for (Integer id : group) {
+                    String from = ownerOf.get(id);
+                    if (!from.equals(best)) {
+                        log.info("띠 {}를 {}에서 {}로 옮김", id, from, best);
+                        zones.get(from).remove(id);
+                        zones.get(best).add(id);
+                    }
+                }
+            }
+        }
+    }
+
+    private static boolean thinStrip(ShapeSegmenter.Segment s) {
+        int[] b = box(s);
+        int w = b[2] - b[0] + 1, h = b[3] - b[1] + 1;
+        return Math.max(w, h) >= 2.2 * Math.min(w, h);
+    }
+
+    /** 세로 띠가 옆 블록의 마주 보는 변을 덮는 비율(간격이 띠 폭 또는 블록 짧은 변의 30%를 넘거나 위아래로 떨어져 있으면 0). 가로 띠는 위아래로 본다. */
+    private static double cover(ShapeSegmenter.Segment o, int[] b) {
+        if (b == null) {
+            return 0;
+        }
+        int[] a = box(o);
+        boolean vertical = a[3] - a[1] >= a[2] - a[0];
+        int gx = Math.max(0, Math.max(b[0] - a[2], a[0] - b[2])), gy = Math.max(0, Math.max(b[1] - a[3], a[1] - b[3]));
+        int g = vertical ? gx : gy, cross = vertical ? gy : gx;
+        int shortO = Math.min(a[2] - a[0], a[3] - a[1]) + 1, shortB = Math.min(b[2] - b[0], b[3] - b[1]) + 1;
+        if (cross > 0 || g > Math.max(shortO, 0.3 * shortB)) {
+            return 0;
+        }
+        int overlap = vertical ? Math.min(a[3], b[3]) - Math.max(a[1], b[1]) : Math.min(a[2], b[2]) - Math.max(a[0], b[0]);
+        int side = (vertical ? b[3] - b[1] : b[2] - b[0]) + 1;
+        return Math.max(0, Math.min(1.0, (double) overlap / side));
     }
 
     /**
@@ -524,6 +673,109 @@ final class ZoneConsistency {
                 zones.computeIfAbsent(t, x -> new ArrayList<>()).add(id);
             }
         }
+    }
+
+    /** 구역 번호 계열 키: 앞 글자 + 숫자 자리수(앞 글자 없는 세 자리 이상은 백의 자리까지, 301~322 와 401~424 를 나눈다). 번호가 아니면 null. */
+    static String seriesKey(String name) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("([A-Z]*)(\\d+)").matcher(name == null ? "" : name.toUpperCase(java.util.Locale.ROOT));
+        if (!m.matches()) {
+            return null;
+        }
+        String digits = m.group(2);
+        return m.group(1) + ":" + digits.length() + (m.group(1).isEmpty() && digits.length() >= 3 ? ":" + digits.charAt(0) : "");
+    }
+
+    /**
+     * 번호가 끊긴 곳 찾기: 같은 계열(T01~T17, 301~322 등)에서 앞뒤 번호(간격 4 이하)는 모양이 있는데 사이 번호가 없으면, 두 구역 사이에 놓인
+     * 이름 없는 도형(구역 조각 중앙값의 20% 이상, 두 구역 중심을 잇는 선에서 구역 크기 안)의 글자를 읽어(최대 24개) 빠진 번호이면 구역으로 더한다.
+     * 읽어도 없으면 원래 없는 번호로 본다(고척돔 T08~T10).
+     */
+    private static void addSequenceGaps(Map<String, List<Integer>> zones, Map<Integer, ShapeSegmenter.Segment> byId, byte[] jpeg, DetailExtractor extractor) {
+        Map<String, java.util.TreeMap<Integer, String>> series = new HashMap<>();
+        for (Map.Entry<String, List<Integer>> z : zones.entrySet()) {
+            String k = seriesKey(z.getKey());
+            if (k != null && z.getValue().stream().anyMatch(byId::containsKey)) {
+                series.computeIfAbsent(k, x -> new java.util.TreeMap<>()).put(Integer.parseInt(z.getKey().replaceAll("\\D", "")), z.getKey());
+            }
+        }
+        Set<Integer> taken = new HashSet<>();
+        zones.values().forEach(taken::addAll);
+        List<ShapeSegmenter.Segment> owned = owned(zones, byId);
+        int median = medianArea(owned);
+        Map<Integer, Set<String>> wanted = new LinkedHashMap<>(); // 도형 번호 -> 그 자리에 있을 법한 빠진 이름들
+        for (java.util.TreeMap<Integer, String> nums : series.values()) {
+            if (nums.size() < 3) {
+                continue;
+            }
+            Integer prev = null;
+            for (Integer n : nums.keySet()) {
+                if (prev != null && n - prev > 1 && n - prev <= 4) {
+                    double[] a = center(zones.get(nums.get(prev)), byId), b = center(zones.get(nums.get(n)), byId);
+                    double reach = Math.sqrt(median) * 1.2;
+                    String sample = nums.get(prev);
+                    String prefix = sample.replaceAll("\\d", "");
+                    int width = sample.length() - prefix.length();
+                    for (ShapeSegmenter.Segment s : byId.values()) {
+                        if (taken.contains(s.id()) || s.area() < median * 0.2 || distToSegment(s.cx(), s.cy(), a, b) > reach) {
+                            continue;
+                        }
+                        for (int m = prev + 1; m < n; m++) {
+                            wanted.computeIfAbsent(s.id(), x -> new HashSet<>()).add(prefix + String.format("%0" + width + "d", m));
+                        }
+                    }
+                }
+                prev = n;
+            }
+        }
+        if (wanted.isEmpty()) {
+            return;
+        }
+        List<Integer> cand = new ArrayList<>(wanted.keySet()).subList(0, Math.min(24, wanted.size()));
+        log.info("번호가 끊긴 곳 사이의 이름 없는 도형 {}개를 다시 읽음", cand.size());
+        for (int from = 0; from < cand.size(); from += 8) {
+            List<Integer> batch = new ArrayList<>(cand.subList(from, Math.min(cand.size(), from + 8)));
+            List<byte[]> tiles = new ArrayList<>();
+            batch.forEach(id -> tiles.add(ShapeSegmenter.bigTile(jpeg, byId.get(id), 320)));
+            Map<Integer, String> read;
+            try {
+                read = extractor.readTiles(batch, tiles);
+            } catch (RuntimeException e) {
+                continue;
+            }
+            for (Integer id : batch) {
+                String t = DetailExtractionService.cleanName(read.getOrDefault(id, ""));
+                String k = t == null ? null : DetailExtractionService.keyOf(t);
+                if (k == null) {
+                    continue;
+                }
+                for (String miss : wanted.get(id)) {
+                    if (loose(k).equals(loose(DetailExtractionService.keyOf(miss)))) {
+                        log.info("끊긴 번호 찾음: {} 도형 {}", miss, id);
+                        zones.computeIfAbsent(miss, x -> new ArrayList<>()).add(id);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    private static double[] center(List<Integer> ids, Map<Integer, ShapeSegmenter.Segment> byId) {
+        double sx = 0, sy = 0, n = 0;
+        for (Integer id : ids) {
+            ShapeSegmenter.Segment s = byId.get(id);
+            if (s != null) {
+                sx += (double) s.cx() * s.area();
+                sy += (double) s.cy() * s.area();
+                n += s.area();
+            }
+        }
+        return n == 0 ? new double[]{0, 0} : new double[]{sx / n, sy / n};
+    }
+
+    private static double distToSegment(double px, double py, double[] a, double[] b) {
+        double dx = b[0] - a[0], dy = b[1] - a[1], len2 = dx * dx + dy * dy;
+        double t = len2 == 0 ? 0 : Math.max(0, Math.min(1, ((px - a[0]) * dx + (py - a[1]) * dy) / len2));
+        return Math.hypot(px - (a[0] + t * dx), py - (a[1] + t * dy));
     }
 
     /**

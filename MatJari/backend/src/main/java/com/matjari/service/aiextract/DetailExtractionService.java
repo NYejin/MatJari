@@ -1008,7 +1008,9 @@ public class DetailExtractionService {
 
     /** 좌석 종류 범례 글자('2층 지정석'·'1층 스탠딩석' 등). 범례 칩 도형은 구역 모양이 아니므로 짝짓지 않는다(이름은 목록에 남을 수 있다). */
     static boolean isLegendName(String name) {
-        return name.replaceAll("\\s+", "").matches("(B?\\d+층|\\d+F)?(스탠딩석|지정석|일반석|입석|좌석)");
+        String n = name.replaceAll("\\s+", "").replaceAll("[)\\]}]+$", "");
+        // '~석'으로 끝나는 이름(VIP석·시야제한석·'♿(VIP석)' 등)은 좌석 등급 범례 표기다(등급 인식은 하지 않는다, 사용자 결정 2026-10-19)
+        return n.matches("(B?\\d+층|\\d+F)?(스탠딩석|지정석|일반석|입석|좌석)") || n.endsWith("석");
     }
 
     /** 타일에서 새로 읽은 이름이 구역 코드답다: 4자 이하이고 숫자나 라틴 글자를 포함(한글만 있는 안내 글자 '좌석'·'안내'·'최신순' 등은 아니다). */

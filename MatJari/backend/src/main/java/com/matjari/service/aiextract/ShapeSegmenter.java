@@ -110,6 +110,9 @@ public class ShapeSegmenter {
         for (int dist : ANY_DISTANCES) { // 빛 번짐이 있는 지도(NCT 고척돔)는 번진 테두리가 블록을 이어서 더 높은 문턱에서만 블록이 갈라진다
             found.addAll(blockExtras(found, solidInside(anyColorPass(raw, bg, w, h, dist), found)));
         }
+        // 블록을 거의 덮는 흰 번호 때문에 아예 못 찾은 블록(고척돔 311·312): 번호를 둘레 블록 색으로 지운 이미지로 한 번 더 나눠, 이미 찾은 도형과
+        // 겹치지 않는 블록 크기 도형만 보탠다(더하기만 하므로 이미 잘 찾은 지도는 그대로다). AI 에 보내는 이미지는 원본 그대로다
+        found.addAll(insideBlocks(found, blockExtras(found, pass(eraseText(rgb, bg, w, h), bg, w, h, BG_DISTANCE))));
         // 큰 것부터 남기고, 더 큰 도형 안에 중심이 든 작은 도형(글자 조각 등)은 버린다
         found.sort(Comparator.comparingInt(Segment::area).reversed());
         List<Segment> kept = new ArrayList<>();
@@ -137,6 +140,151 @@ public class ShapeSegmenter {
             numbered.add(new Segment(i + 1, s.pixels(), s.area(), s.cx(), s.cy(), s.sat(), s.val()));
         }
         return new Result(w, h, List.copyOf(numbered), annotate(img, numbered), tileSheet(img, numbered));
+    }
+
+    /**
+     * 글자 지우기: 채널마다 5x5 열림(최솟값 뒤 최댓값)을 하면 폭 4px 이하의 밝은 획(블록 위 흰·연한 숫자와 글자)이 둘레 블록 색으로 바뀐다.
+     * 배경색과 다르고(RGB 거리 60 초과) 원본보다 휘도가 40 넘게 떨어지는 픽셀이 8방향으로 이어진 덩어리 중 글자 크기(상자 긴 변 60 이하, 넓이 1,500 이하)만
+     * 둘레의 검지 않은(휘도 50 이상) 픽셀 최빈색으로 칠한다. 검은 글자 획 사이 흰 틈은 둘레 흰 블록 색으로 칠해져 그대로다.
+     * 블록 사이 긴 흰 구분선(긴 변 60 초과)과 흰 무대·콘솔 상자(폭이 넓어 열림에 남음)는 그대로다.
+     */
+    static int[] eraseText(int[] src, int[] bg, int w, int h) {
+        int[] opened = maxFilter(minFilter(src, w, h, 2), w, h, 2);
+        boolean[] drop = new boolean[src.length];
+        for (int i = 0; i < src.length; i++) {
+            // 배경색 픽셀(밝은 배경 지도에서 블록 사이 가는 틈)은 지우지 않는다: 지우면 이웃 블록이 붙는다
+            int dr = ((src[i] >> 16) & 255) - bg[0], dg = ((src[i] >> 8) & 255) - bg[1], db = (src[i] & 255) - bg[2];
+            drop[i] = luma(src[i]) - luma(opened[i]) > 40 && dr * dr + dg * dg + db * db > 3600;
+        }
+        int[] out = src.clone();
+        boolean[] seen = new boolean[src.length];
+        int[] queue = new int[src.length];
+        for (int start = 0; start < src.length; start++) {
+            if (!drop[start] || seen[start]) {
+                continue;
+            }
+            int head = 0, tail = 0, minX = w, maxX = 0, minY = h, maxY = 0;
+            queue[tail++] = start;
+            seen[start] = true;
+            while (head < tail) {
+                int p = queue[head++], px = p % w, py = p / w;
+                minX = Math.min(minX, px);
+                maxX = Math.max(maxX, px);
+                minY = Math.min(minY, py);
+                maxY = Math.max(maxY, py);
+                for (int dy = -1; dy <= 1; dy++) {
+                    for (int dx = -1; dx <= 1; dx++) {
+                        int nx = px + dx, ny = py + dy;
+                        if (nx >= 0 && nx < w && ny >= 0 && ny < h && drop[ny * w + nx] && !seen[ny * w + nx]) {
+                            seen[ny * w + nx] = true;
+                            queue[tail++] = ny * w + nx;
+                        }
+                    }
+                }
+            }
+            if (Math.max(maxX - minX + 1, maxY - minY + 1) > 60 || tail > 1500) {
+                continue;
+            }
+            // 채울 색: 글자 둘레 픽셀 중 검지 않은(휘도 50 이상) 것의 최빈색(칸 사이 어두운 선 색이 섞이지 않게). 열림 값은 어두운 선에 끌려 회색이 된다
+            java.util.Map<Integer, int[]> ring = new java.util.HashMap<>();
+            for (int k = 0; k < tail; k++) {
+                int p = queue[k], px = p % w, py = p / w;
+                for (int dy = -2; dy <= 2; dy++) {
+                    for (int dx = -2; dx <= 2; dx++) {
+                        int nx = px + dx, ny = py + dy;
+                        if (nx < 0 || nx >= w || ny < 0 || ny >= h || drop[ny * w + nx]) {
+                            continue;
+                        }
+                        int c = src[ny * w + nx];
+                        if (luma(c) < 50) { // 칸 사이 검은 선만 뺀다(진한 파랑 블록은 휘도가 80 안팎이다)
+                            continue;
+                        }
+                        int key = ((c >> 20) & 15) << 8 | ((c >> 12) & 15) << 4 | ((c >> 4) & 15);
+                        int[] a = ring.computeIfAbsent(key, x -> new int[4]);
+                        a[0] += (c >> 16) & 255;
+                        a[1] += (c >> 8) & 255;
+                        a[2] += c & 255;
+                        a[3]++;
+                    }
+                }
+            }
+            int[] best = null;
+            for (int[] a : ring.values()) {
+                if (best == null || a[3] > best[3]) {
+                    best = a;
+                }
+            }
+            if (best == null) {
+                continue;
+            }
+            int fill = 0xFF000000 | (best[0] / best[3]) << 16 | (best[1] / best[3]) << 8 | (best[2] / best[3]);
+            // 글자 가장자리의 번진 픽셀(채울 색보다 밝은 것)을 두 겹까지 더 칠한다. 남기면 연한 글자 자국이 블록을 가른다
+            int fillLuma = luma(fill), n = tail;
+            for (int ringStep = 0; ringStep < 2; ringStep++) {
+                int end = n;
+                for (int k = 0; k < end; k++) {
+                    int p = queue[k], px = p % w, py = p / w;
+                    int[][] nb = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+                    for (int[] d : nb) {
+                        int nx = px + d[0], ny = py + d[1];
+                        if (nx < 0 || nx >= w || ny < 0 || ny >= h || seen[ny * w + nx]) {
+                            continue;
+                        }
+                        int c = src[ny * w + nx];
+                        if (luma(c) > fillLuma + 12 && n < queue.length) {
+                            seen[ny * w + nx] = true;
+                            queue[n++] = ny * w + nx;
+                        }
+                    }
+                }
+            }
+            for (int k = 0; k < n; k++) {
+                out[queue[k]] = fill;
+            }
+        }
+        return out;
+    }
+
+    /** 휘도(0.30R+0.59G+0.11B). 파란 블록(최댓값 255) 위 연한 숫자도 밝기 차이가 드러난다. */
+    private static int luma(int c) {
+        return (int) (0.30 * ((c >> 16) & 255) + 0.59 * ((c >> 8) & 255) + 0.11 * (c & 255));
+    }
+
+    /** 채널마다 (2r+1)x(2r+1) 최솟값 필터(가로·세로로 나눠 계산). */
+    private static int[] minFilter(int[] src, int w, int h, int r) {
+        return rankFilter(src, w, h, r, true);
+    }
+
+    private static int[] maxFilter(int[] src, int w, int h, int r) {
+        return rankFilter(src, w, h, r, false);
+    }
+
+    private static int[] rankFilter(int[] src, int w, int h, int r, boolean min) {
+        int[] tmp = new int[src.length], out = new int[src.length];
+        for (int pass = 0; pass < 2; pass++) {
+            int[] in = pass == 0 ? src : tmp, dst = pass == 0 ? tmp : out;
+            for (int y = 0; y < h; y++) {
+                for (int x = 0; x < w; x++) {
+                    int cr = min ? 255 : 0, cg = cr, cb = cr;
+                    for (int k = -r; k <= r; k++) {
+                        int nx = pass == 0 ? Math.max(0, Math.min(w - 1, x + k)) : x, ny = pass == 0 ? y : Math.max(0, Math.min(h - 1, y + k));
+                        int c = in[ny * w + nx];
+                        int rr = (c >> 16) & 255, gg = (c >> 8) & 255, bb = c & 255;
+                        if (min) {
+                            cr = Math.min(cr, rr);
+                            cg = Math.min(cg, gg);
+                            cb = Math.min(cb, bb);
+                        } else {
+                            cr = Math.max(cr, rr);
+                            cg = Math.max(cg, gg);
+                            cb = Math.max(cb, bb);
+                        }
+                    }
+                    dst[y * w + x] = 0xFF000000 | cr << 16 | cg << 8 | cb;
+                }
+            }
+        }
+        return out;
     }
 
     /** 밝거나 중간 밝기의 회색(채도 GRAY_SAT 미만). 아주 어두운(검은) 블록은 회색으로 보지 않는다. */
@@ -201,6 +349,31 @@ public class ShapeSegmenter {
      * 색 무관 덩어리 중 이미 찾은 도형과 실제로 겹치지 않는 것(겹친 넓이가 작은 쪽의 20% 이하)만 보탠다. 부채꼴로 비스듬히 놓인 돔 블록은 경계 상자끼리
      * 크게 겹치므로 faintExtras 의 상자 비교 대신 다각형 넓이로 비교한다. 크기는 기준 중앙값의 0.1~2.5배.
      */
+    /** cand 중 중심이 base 의 블록 크기(중앙값 0.4~2.5배) 도형들이 모인 상자 안에 있는 것(지도 아래 범례 줄·안내문은 뺀다). */
+    static List<Segment> insideBlocks(List<Segment> base, List<Segment> cand) {
+        if (base.size() < 6 || cand.isEmpty()) {
+            return cand;
+        }
+        int[] areas = typicalAreas(base);
+        double median = areas[areas.length / 2];
+        int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, maxX = 0, maxY = 0;
+        for (Segment sg : base) {
+            if (sg.area() >= median * 0.4 && sg.area() <= median * 2.5) {
+                minX = Math.min(minX, sg.cx());
+                maxX = Math.max(maxX, sg.cx());
+                minY = Math.min(minY, sg.cy());
+                maxY = Math.max(maxY, sg.cy());
+            }
+        }
+        List<Segment> out = new ArrayList<>();
+        for (Segment c : cand) {
+            if (c.cx() >= minX && c.cx() <= maxX && c.cy() >= minY && c.cy() <= maxY) {
+                out.add(c);
+            }
+        }
+        return out;
+    }
+
     static List<Segment> blockExtras(List<Segment> base, List<Segment> cand) {
         if (base.size() < 6) {
             return List.of();
@@ -1199,7 +1372,7 @@ public class ShapeSegmenter {
             g.drawPolygon(toPolygon(s.pixels()));
         }
         for (Segment s : segments) {
-            int[] at = labelSpot(s);
+            int[] at = labelSpot(s, src, String.valueOf(s.id()).length());
             drawLabel(g, String.valueOf(s.id()), at[0], at[1], src.getWidth(), src.getHeight());
         }
         g.dispose();
@@ -1222,18 +1395,44 @@ public class ShapeSegmenter {
     }
 
     /** 번호 상자 위치: 이름 글자가 놓이는 도형 가운데를 피해 도형 위쪽 가장자리 안쪽(가운데 x, 맨 위에서 11px 아래)에 두고, 도형 밖이면 무게중심으로 되돌린다. */
-    private static int[] labelSpot(Segment s) {
-        int minY = Integer.MAX_VALUE;
+    /**
+     * 번호표 자리: 도형 안의 몇 후보(위쪽 가운데·중심·좌우 1/4·아래쪽 가운데) 중 번호표 상자 안에 밝은 글자 픽셀(휘도 180 이상·채도 0.35 미만)이 가장 적은 곳.
+     * 얇은 블록(고척돔 300번대)에서 번호표가 지도에 인쇄된 구역 번호를 덮어 AI가 못 읽는 것을 막는다. 같으면 앞 후보(위쪽 가운데)를 쓴다.
+     */
+    private static int[] labelSpot(Segment s, BufferedImage src, int digits) {
+        int minY = Integer.MAX_VALUE, maxY = 0, minX = Integer.MAX_VALUE, maxX = 0;
         for (int[] p : s.pixels()) {
             minY = Math.min(minY, p[1]);
+            maxY = Math.max(maxY, p[1]);
+            minX = Math.min(minX, p[0]);
+            maxX = Math.max(maxX, p[0]);
         }
-        int y = minY + 11;
         Polygon poly = toPolygon(s.pixels());
-        int x = s.cx();
-        if (poly.contains(x, y)) {
-            return new int[]{x, y};
+        int midY = (minY + maxY) / 2;
+        int[][] cands = {{s.cx(), minY + 11}, {s.cx(), s.cy()}, {(minX * 3 + maxX) / 4, midY}, {(minX + maxX * 3) / 4, midY}, {s.cx(), maxY - 11}};
+        int halfW = (digits * 12) / 2 + 2, halfH = 9;
+        int[] best = null;
+        int bestText = Integer.MAX_VALUE;
+        for (int[] c : cands) {
+            if (!poly.contains(c[0], c[1])) {
+                continue;
+            }
+            int text = 0;
+            for (int y = Math.max(0, c[1] - halfH); y < Math.min(src.getHeight(), c[1] + halfH); y++) {
+                for (int x = Math.max(0, c[0] - halfW); x < Math.min(src.getWidth(), c[0] + halfW); x++) {
+                    int px = src.getRGB(x, y), r = (px >> 16) & 255, gg = (px >> 8) & 255, b = px & 255;
+                    int mx = Math.max(r, Math.max(gg, b)), mn = Math.min(r, Math.min(gg, b));
+                    if (0.30 * r + 0.59 * gg + 0.11 * b >= 180 && mx > 0 && (double) (mx - mn) / mx < 0.35) {
+                        text++;
+                    }
+                }
+            }
+            if (text < bestText) {
+                bestText = text;
+                best = c;
+            }
         }
-        return new int[]{s.cx(), s.cy()};
+        return best != null ? best : new int[]{s.cx(), s.cy()};
     }
 
     private static void drawLabel(Graphics2D g, String text, int cx, int cy, int w, int h) {

@@ -991,6 +991,10 @@ public class DetailExtractionService {
             if (c == null || k == null || k.isEmpty() || c.length() > 12 || isStageName(c) || isLegendName(c) || (!known.containsKey(k) && !looksLikeZoneCode(c))) {
                 continue;
             }
+            // 목록에 없는 이름이 목록 이름의 앞부분일 뿐이면(D01·D02가 있는데 'D') 글자가 잘려 읽힌 것이라 버린다
+            if (!known.containsKey(k) && known.keySet().stream().anyMatch(n -> n.length() > k.length() && n.startsWith(k))) {
+                continue;
+            }
             String display = known.getOrDefault(k, c);
             DetailExtractor.RawLabel prev = out.get(k);
             List<Integer> ids = new ArrayList<>(prev == null ? List.<Integer>of() : prev.segmentIds());
@@ -1218,7 +1222,8 @@ public class DetailExtractionService {
                     continue;
                 }
                 // 경계 상자의 35%도 못 채우는 가는 선 모양 조각(고척돔 무대 둘레의 빛 번짐 선이 옆 블록 이름으로 읽힘)은 블록이 있는 구역에 더하지 않는다
-                if (main != null && s != main && (ShapeSegmenter.loose(s) || s.area() < 0.35 * boxArea(s))) {
+                // 띠가 아닌데 대표 조각보다 훨씬 어두운(밝기 60% 미만) 조각도 같은 이유로 뺀다(빛 번짐 선은 블록보다 어둡다)
+                if (main != null && s != main && (ShapeSegmenter.loose(s) || s.area() < 0.35 * boxArea(s) || (!strip(s) && s.val() < 0.6 * main.val()))) {
                     continue;
                 }
                 List<List<Integer>> poly = new ArrayList<>();

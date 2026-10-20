@@ -44,6 +44,12 @@ class ZoneModelEvalTest {
         AiProperties props = new AiProperties();
         props.setModel(model);
         DetailExtractor extractor = model.startsWith("gemini") ? new GeminiDetailExtractor(model) : new AnthropicDetailExtractor(props);
+        String cacheDir = System.getenv("EVAL_CACHE"); // 주면 AI 응답을 저장·재사용한다(EVAL_CACHE_ONLY=1 이면 저장본이 없을 때 API 를 부르지 않는다)
+        CachingDetailExtractor cache = cacheDir == null || cacheDir.isBlank() ? null
+                : new CachingDetailExtractor(extractor, Path.of(cacheDir, model), "1".equals(System.getenv("EVAL_CACHE_ONLY")));
+        if (cache != null) {
+            extractor = cache;
+        }
         ImageSlicer slicer = new ImageSlicer(props);
         DetailExtractionService service = new DetailExtractionService(null, null, null, null, slicer, new ShapeSegmenter(), extractor,
                 null, props, Clock.systemUTC());
@@ -63,6 +69,11 @@ class ZoneModelEvalTest {
                 continue;
             }
             appender.list.clear();
+            int missesBefore = 0;
+            if (cache != null) {
+                cache.resetCounters();
+                missesBefore = cache.misses.get();
+            }
             long started = System.nanoTime();
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("model", model);
@@ -117,10 +128,14 @@ class ZoneModelEvalTest {
             out.put("outputTokens", outTok);
             String tag = System.getenv().getOrDefault("EVAL_TAG", ""); // 같은 모델을 여러 번 돌릴 때 결과 파일을 나눈다(예: r1, r2)
             out.put("rep", tag);
+            if (cache != null) {
+                out.put("cacheMisses", cache.misses.get() - missesBefore);
+            }
             Path target = "locate".equals(mode) ? p.resolve("locate.json") : p.resolve("pred").resolve(model + (tag.isEmpty() ? "" : "@" + tag) + ".json");
             Files.createDirectories(target.getParent());
             JSON.writerWithDefaultPrettyPrinter().writeValue(target.toFile(), out);
             System.out.println("EVAL " + mode + " " + model + " " + p.getFileName() + " ms=" + out.get("ms") + " calls=" + calls
+                    + (cache != null ? " cacheMisses=" + out.get("cacheMisses") : "")
                     + (out.containsKey("error") ? " error=" + out.get("error") : ""));
         }
     }

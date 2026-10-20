@@ -92,10 +92,26 @@ class ShapeSegmenterTest {
 
     @Test
     void joinPartsMakesOneBlockOnlyWhenPartsFormOneCompactShape() {
+        // 색 경계의 얇은 틈(1)만 있는 두 색 조각은 한 블록으로 합친다
         List<List<List<Integer>>> adjacent = List.of(
                 List.of(List.of(100, 100), List.of(300, 100), List.of(300, 160), List.of(100, 160)),
-                List.of(List.of(100, 170), List.of(300, 170), List.of(300, 300), List.of(100, 300)));
+                List.of(List.of(100, 161), List.of(300, 161), List.of(300, 300), List.of(100, 300)));
         assertThat(DetailExtractionService.joinParts(adjacent)).hasSize(1);
+        // 틈을 두고 나란히 선 앞줄 띠(간격 10)는 블록과 별도 조각으로 둔다(사용자 검수)
+        List<List<List<Integer>>> frontStrip = List.of(
+                List.of(List.of(100, 100), List.of(300, 100), List.of(300, 160), List.of(100, 160)),
+                List.of(List.of(100, 170), List.of(300, 170), List.of(300, 300), List.of(100, 300)));
+        assertThat(DetailExtractionService.joinParts(frontStrip)).hasSize(2);
+        // 홈이 있는 블록(두 색 조각이 ㄷ자를 이룸)은 볼록 껍질이 아니라 홈을 남긴 외곽선으로 합친다
+        List<List<List<Integer>>> notched = List.of(
+                List.of(List.of(100, 100), List.of(300, 100), List.of(300, 150), List.of(100, 150)),
+                List.of(List.of(100, 151), List.of(200, 151), List.of(200, 250), List.of(300, 250), List.of(300, 300), List.of(100, 300)));
+        List<List<List<Integer>>> joined = DetailExtractionService.joinParts(notched);
+        assertThat(joined).hasSize(1);
+        java.awt.Polygon outline = new java.awt.Polygon();
+        joined.get(0).forEach(p -> outline.addPoint(p.get(0), p.get(1)));
+        assertThat(outline.contains(250, 200)).isFalse(); // 홈 안쪽
+        assertThat(outline.contains(150, 200)).isTrue();
         List<List<List<Integer>>> apart = List.of(
                 List.of(List.of(0, 0), List.of(100, 0), List.of(100, 100), List.of(0, 100)),
                 List.of(List.of(800, 800), List.of(900, 800), List.of(900, 900), List.of(800, 900)));

@@ -791,6 +791,8 @@ public class ShapeSegmenter {
             int larger = Math.max(raws.get(a - 1).pixels().length, raws.get(b - 1).pixels().length);
             if (larger <= maxMergeRaw && smaller >= MERGE_MIN_AREA && e.getValue() >= MERGE_CONTACT && e.getValue() >= MERGE_RATIO * smaller
                     && raws.get(a - 1).sat() >= MERGE_SAT && raws.get(b - 1).sat() >= MERGE_SAT
+                    // 밝기가 크게 다른 두 색(밝은 블록과 그 둘레의 진한 테두리·틈)은 한 블록이 아니다. 테두리를 통해 이웃 블록끼리 이어지는 것을 막는다
+                    && Math.min(raws.get(a - 1).val(), raws.get(b - 1).val()) >= 0.55 * Math.max(raws.get(a - 1).val(), raws.get(b - 1).val())
                     && compactUnion(raws.get(a - 1), raws.get(b - 1), w)) {
                 parent[find(parent, a)] = find(parent, b);
             }

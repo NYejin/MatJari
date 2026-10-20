@@ -1290,6 +1290,17 @@ public class DetailExtractionService {
 
     /** 맞닿은 조각 묶음을 한 블록으로 합친다(한 블록답지 않으면 그대로 돌려준다). */
     private static List<List<List<Integer>>> joinTouching(List<List<List<Integer>>> polys) {
+        // 가는 띠(상자 2.2배 이상)가 다른 조각과 맞닿지 않고 틈(흰 선)을 두고 있으면 앞쪽 띠라 합치지 않는다(화정체육관 E 옆 연두 띠, 블록과 2px 틈)
+        List<List<List<Integer>>> strips = new ArrayList<>(), rest = new ArrayList<>();
+        for (List<List<Integer>> p : polys) {
+            boolean apart = polys.stream().allMatch(q -> q == p || boxGap(p, q) >= 2);
+            (apart && thinBox(p) ? strips : rest).add(p);
+        }
+        if (!strips.isEmpty()) {
+            List<List<List<Integer>>> out = new ArrayList<>(rest.size() < 2 ? rest : joinTouching(rest));
+            out.addAll(strips);
+            return out;
+        }
         List<int[]> pts = new ArrayList<>();
         double sum = 0;
         for (List<List<Integer>> p : polys) {
@@ -1423,6 +1434,12 @@ public class DetailExtractionService {
     private static int boxGap(List<List<Integer>> a, List<List<Integer>> b) {
         int[] p = boxOf(a), q = boxOf(b);
         return Math.max(Math.max(0, Math.max(q[0] - p[2], p[0] - q[2])), Math.max(0, Math.max(q[1] - p[3], p[1] - q[3])));
+    }
+
+    private static boolean thinBox(List<List<Integer>> poly) {
+        int[] b = boxOf(poly);
+        int w = b[2] - b[0] + 1, h = b[3] - b[1] + 1;
+        return Math.max(w, h) >= 2.2 * Math.min(w, h);
     }
 
     private static int[] boxOf(List<List<Integer>> poly) {

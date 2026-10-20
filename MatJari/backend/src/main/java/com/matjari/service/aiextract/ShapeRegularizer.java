@@ -30,16 +30,18 @@ final class ShapeRegularizer {
     static List<DetailExtractor.RawZone> regularize(List<DetailExtractor.RawZone> zones) {
         List<DetailExtractor.RawZone> out = new ArrayList<>();
         List<int[][]> all = new ArrayList<>();
+        List<Integer> zoneOf = new ArrayList<>();
         for (DetailExtractor.RawZone z : zones) {
             List<List<List<Integer>>> polys = new ArrayList<>();
             for (List<List<Integer>> p : z.polygons() == null ? List.<List<List<Integer>>>of() : z.polygons()) {
                 int[][] r = shape(toArray(p));
                 all.add(r);
+                zoneOf.add(out.size());
                 polys.add(null); // 대칭 단계 뒤에 채운다
             }
             out.add(new DetailExtractor.RawZone(z.name(), polys));
         }
-        symmetrize(all);
+        symmetrize(all, zoneOf);
         int k = 0;
         List<DetailExtractor.RawZone> done = new ArrayList<>();
         for (DetailExtractor.RawZone z : out) {
@@ -171,6 +173,15 @@ final class ShapeRegularizer {
      * 축 위에 걸친 사각형은 자기 자신과 대칭으로 맞춘다.
      */
     static void symmetrize(List<int[][]> polys) {
+        List<Integer> own = new ArrayList<>();
+        for (int i = 0; i < polys.size(); i++) {
+            own.add(i);
+        }
+        symmetrize(polys, own);
+    }
+
+    /** zoneOf: 조각마다 속한 구역 번호(같은 구역의 다른 조각은 침범 검사에서 뺀다). */
+    static void symmetrize(List<int[][]> polys, List<Integer> zoneOf) {
         if (polys.size() < 4) {
             return;
         }
@@ -231,7 +242,12 @@ final class ShapeRegularizer {
             // 더 반듯한 쪽(볼록 껍질을 더 꽉 채우고, 같으면 꼭짓점이 적은 쪽)을 기준으로 다른 쪽을 거울상으로 바꾼다
             if (b.length != a.length || iou(a, mirror(b, axis)) < 0.8) {
                 int[][] base = tidier(a, b) ? a : b;
-                polys.set(base == a ? j : i, mirror(base, axis));
+                int target = base == a ? j : i;
+                int[][] m = mirror(base, axis);
+                // 거울상이 그쪽의 다른 조각을 20% 넘게 덮으면(옆 블록까지 잡은 쪽을 옮겨 오면 이웃 구역을 침범한다, 고척돔 419→406) 바꾸지 않는다
+                if (!overlapsOthers(m, polys, target, zoneOf)) {
+                    polys.set(target, m);
+                }
                 done[i] = true;
                 done[j] = true;
                 continue;
@@ -242,6 +258,26 @@ final class ShapeRegularizer {
             done[i] = true;
             done[j] = true;
         }
+    }
+
+    /** p 가 skip 번 조각의 구역이 아닌 다른 구역 조각과, 둘 중 작은 쪽 넓이의 20% 넘게 겹친다. */
+    static boolean overlapsOthers(int[][] p, List<int[][]> polys, int skip, List<Integer> zoneOf) {
+        Area ap = new Area(poly(p));
+        double pa = Math.abs(area(p));
+        int[] pb = boxOf(p);
+        for (int k = 0; k < polys.size(); k++) {
+            int[][] q = polys.get(k);
+            int[] qb = boxOf(q);
+            if (zoneOf.get(k).equals(zoneOf.get(skip)) || qb[0] > pb[2] || qb[2] < pb[0] || qb[1] > pb[3] || qb[3] < pb[1]) {
+                continue;
+            }
+            Area inter = new Area(poly(q));
+            inter.intersect(ap);
+            if (!inter.isEmpty() && areaOf(inter) > 0.2 * Math.min(pa, Math.abs(area(q)))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** a 가 b 보다 반듯하다: 볼록 껍질을 채운 비율이 5%p 넘게 높거나, 비슷하면 꼭짓점이 적다(같으면 a). */

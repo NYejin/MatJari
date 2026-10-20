@@ -96,4 +96,21 @@ class ShapeRegularizerTest {
             assertThat(v[0]).isBetween(799, 901);
         }
     }
+
+    @Test
+    void mirrorThatWouldCoverAnotherZoneIsNotApplied() {
+        // 왼쪽 조각이 옆 블록까지 잡아 두 블록 폭이다: 그 거울상을 오른쪽 짝에 덮으면 오른쪽 옆 구역(700~795)을 침범하므로 바꾸지 않는다(고척돔 419→406)
+        List<int[][]> polys = new ArrayList<>(List.of(
+                new int[][]{{100, 100}, {300, 100}, {300, 200}, {100, 200}},
+                new int[][]{{800, 100}, {900, 100}, {900, 200}, {800, 200}},
+                new int[][]{{700, 100}, {795, 100}, {795, 200}, {700, 200}},
+                new int[][]{{100, 300}, {200, 300}, {200, 400}, {100, 400}},
+                new int[][]{{800, 300}, {900, 300}, {900, 400}, {800, 400}},
+                new int[][]{{100, 500}, {200, 500}, {200, 600}, {100, 600}},
+                new int[][]{{800, 500}, {900, 500}, {900, 600}, {800, 600}}));
+        ShapeRegularizer.symmetrize(polys);
+        for (int[] v : polys.get(1)) {
+            assertThat(v[0]).isBetween(799, 901);
+        }
+    }
 }

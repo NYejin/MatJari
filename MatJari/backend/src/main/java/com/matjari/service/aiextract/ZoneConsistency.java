@@ -61,15 +61,17 @@ final class ZoneConsistency {
             }
             List<Chip> chips = legendChips(img, owned);
             log.info("범례 칩 {}개", chips.size());
+            int bg = dominant(img.getRGB(0, 0, img.getWidth(), img.getHeight(), null, 0, img.getWidth()));
             if (chips.size() >= 2) {
-                dropOffLegend(zones, byId, color, chips, reread, img);
+                dropOffLegend(zones, byId, color, chips, bg, reread, img);
                 addMissingLegendColors(zones, byId, color, chips, img, extractor);
             }
             addMirrorZones(zones, byId, img, jpeg, names, extractor);
             addSequenceGaps(zones, byId, jpeg, extractor);
+            fixSeriesOutliers(zones, byId);
             reassignStrips(zones, byId);
             if (chips.size() >= 2) {
-                refillDented(zones, byId, color, chips, img);
+                refillDented(zones, byId, color, chips, bg, img);
             }
             List<DetailExtractor.RawLabel> out = new ArrayList<>();
             zones.forEach((k, v) -> {
@@ -100,9 +102,29 @@ final class ZoneConsistency {
         return a.length == 0 ? 0 : a[a.length / 2];
     }
 
+    /**
+     * 범례 칩 색에 얼마나 가까워야 같은 색으로 볼지: cap 과, 그 칩에서 배경까지 거리의 절반 중 작은 값. 배경에 가까운 연한 범례(화정체육관 연두 칩, 배경 연회색과 55)에서
+     * 범례에 없는 짙은 회색 단(연두 칩과 거리 36)이 연두로 통과하지 않게 한다. 어두운 배경(고척돔)은 cap 그대로다. 칩끼리의 거리는 보지 않는다(비슷한 파랑 칩 두 개가
+     * 있는 고척돔에서 허용 폭이 줄어 글자에 파인 블록을 못 채웠다).
+     */
+    static double tolerance(Chip chip, List<Chip> chips, int bg, double cap) {
+        return Math.min(cap, dist(chip.rgb(), bg) / 2);
+    }
+
+    /** rgb 가 범례 칩 중 하나의 색이다(칩별 허용 폭은 {@link #tolerance}). */
+    static boolean inLegend(int rgb, List<Chip> chips, int bg) {
+        return chips.stream().anyMatch(c -> dist(c.rgb(), rgb) < tolerance(c, chips, bg, SAME_COLOR));
+    }
+
+    /** 구역 색 zc 로 픽셀을 모을 때의 허용 거리: zc 에 가장 가까운 칩의 허용 폭(상한 60). */
+    private static double pixelTolerance(int zc, List<Chip> chips, int bg) {
+        Chip near = chips.stream().min(java.util.Comparator.comparingDouble(c -> dist(c.rgb(), zc))).orElse(null);
+        return near == null ? 60 : tolerance(near, chips, bg, 60);
+    }
+
     /** 범례에 없는 색의 구역은 타일 재판독에서 그 구역 이름이 한 번도 읽히지 않았으면 뺀다(글자가 실제로 쓰여 있는 회색 블록은 남는다). */
     private static void dropOffLegend(Map<String, List<Integer>> zones, Map<Integer, ShapeSegmenter.Segment> byId, Map<Integer, Integer> color,
-                                      List<Chip> chips, Map<Integer, String> reread, BufferedImage img) {
+                                      List<Chip> chips, int bg, Map<Integer, String> reread, BufferedImage img) {
         for (Map.Entry<String, List<Integer>> z : zones.entrySet()) {
             boolean inLegend = false, confirmed = false;
             String key = DetailExtractionService.keyOf(z.getKey());
@@ -110,7 +132,7 @@ final class ZoneConsistency {
                 if (!byId.containsKey(id)) {
                     continue;
                 }
-                inLegend |= chips.stream().anyMatch(c -> dist(c.rgb(), color.get(id)) < SAME_COLOR);
+                inLegend |= inLegend(color.get(id), chips, bg);
                 String t = reread.get(id);
                 confirmed |= t != null && key != null && key.equals(DetailExtractionService.keyOf(t));
             }
@@ -121,7 +143,7 @@ final class ZoneConsistency {
                 // 범례 색 조각이 있는 구역에 섞인 범례 밖 색 조각(고척돔 회색 통로·단이 T15·T04에 붙음)은 뺀다
                 List<Integer> removed = new ArrayList<>();
                 z.getValue().removeIf(id -> {
-                    boolean off = byId.containsKey(id) && chips.stream().noneMatch(c -> dist(c.rgb(), color.get(id)) < SAME_COLOR);
+                    boolean off = byId.containsKey(id) && !inLegend(color.get(id), chips, bg);
                     if (off) {
                         removed.add(id);
                     }
@@ -132,7 +154,7 @@ final class ZoneConsistency {
                         .max(java.util.Comparator.comparingInt(ShapeSegmenter.Segment::area)).orElse(null);
                 if (!removed.isEmpty() && main != null) {
                     int nextId = byId.keySet().stream().mapToInt(Integer::intValue).max().orElse(0) + 1;
-                    ShapeSegmenter.Segment grown = regrow(img, removed, byId, main, color.get(main.id()), nextId);
+                    ShapeSegmenter.Segment grown = regrow(img, removed, byId, main, color.get(main.id()), pixelTolerance(color.get(main.id()), chips, bg), nextId);
                     if (grown != null) {
                         byId.put(grown.id(), grown);
                         color.put(grown.id(), color.get(main.id()));
@@ -149,7 +171,7 @@ final class ZoneConsistency {
      * 같은 색으로 이어진 픽셀을 채워(다른 구역 조각 안과 칸 사이 어두운 선에서 멈춤) 실제 블록 외곽선으로 바꾼다. 원래 넓이의 2.5배를 넘게 번지면 그대로 둔다.
      */
     private static void refillDented(Map<String, List<Integer>> zones, Map<Integer, ShapeSegmenter.Segment> byId, Map<Integer, Integer> color,
-                                     List<Chip> chips, BufferedImage img) {
+                                     List<Chip> chips, int bg, BufferedImage img) {
         Map<Integer, Polygon> polys = new HashMap<>();
         zones.values().forEach(ids -> ids.forEach(id -> {
             if (byId.containsKey(id)) {
@@ -161,7 +183,7 @@ final class ZoneConsistency {
             for (int i = 0; i < ids.size(); i++) {
                 int id = ids.get(i);
                 ShapeSegmenter.Segment s = byId.get(id);
-                if (s == null || chips.stream().noneMatch(c -> dist(c.rgb(), color.get(id)) < SAME_COLOR)) {
+                if (s == null || !inLegend(color.get(id), chips, bg)) {
                     continue;
                 }
                 double outline = Math.abs(ShapeSegmenter.shoelaceArea(s.pixels())), hull = Math.abs(ShapeSegmenter.shoelaceArea(ShapeSegmenter.convexHull(s.pixels())));
@@ -169,6 +191,7 @@ final class ZoneConsistency {
                     continue;
                 }
                 int zc = color.get(id);
+                double tol = pixelTolerance(zc, chips, bg);
                 Polygon own = polys.get(id);
                 java.awt.Rectangle ob = own.getBounds();
                 int pad = Math.max(ob.width, ob.height);
@@ -180,7 +203,7 @@ final class ZoneConsistency {
                 for (int y = 0; y < bh; y++) {
                     for (int x = 0; x < bw; x++) {
                         int gx = bounds.x + x, gy = bounds.y + y;
-                        if (own.contains(gx, gy) && dist(img.getRGB(gx, gy), zc) < 60) {
+                        if (own.contains(gx, gy) && dist(img.getRGB(gx, gy), zc) < tol) {
                             keep[y * bw + x] = true;
                             q.add(y * bw + x);
                         }
@@ -197,7 +220,7 @@ final class ZoneConsistency {
                             continue;
                         }
                         int gx = bounds.x + nx, gy = bounds.y + ny;
-                        if (dist(img.getRGB(gx, gy), zc) >= 60 || polys.entrySet().stream().anyMatch(e -> e.getKey() != id && e.getValue().contains(gx, gy))) {
+                        if (dist(img.getRGB(gx, gy), zc) >= tol || polys.entrySet().stream().anyMatch(e -> e.getKey() != id && e.getValue().contains(gx, gy))) {
                             continue;
                         }
                         keep[ny * bw + nx] = true;
@@ -207,6 +230,14 @@ final class ZoneConsistency {
                 }
                 if (count > limit) {
                     continue; // 이웃 블록으로 번졌다
+                }
+                if (tol < 60) {
+                    // 배경에 가까운 연한 구역 색(화정체육관 연두)은 이웃 회색 블록과 배경 사이 경계의 중간색과 비슷해, 그 1px 줄을 타고 번진다(I 위쪽).
+                    // 원래 조각 밖으로 번진 부분에서만 폭 2px 이하 선을 지운다(어두운 배경의 고척돔은 글자 사이 가는 띠를 지키려고 하지 않는다)
+                    boolean[] opened = open1(keep, bw, bh);
+                    for (int k = 0; k < keep.length; k++) {
+                        keep[k] = keep[k] && (opened[k] || own.contains(bounds.x + k % bw, bounds.y + k / bw));
+                    }
                 }
                 ShapeSegmenter.Segment filled = outlineSegment(keep, bounds, zc, id);
                 if (filled != null && Math.abs(ShapeSegmenter.shoelaceArea(filled.pixels())) > outline * 1.25) { // 원래 오목한 블록(원형 무대를 따라 파인 F1)은 다시 채워도 거의 그대로라 바꾸지 않는다
@@ -276,11 +307,11 @@ final class ZoneConsistency {
     }
 
     /**
-     * 뺀 조각들 안에서 구역 색(RGB 거리 60 이내) 픽셀을 모아, 대표 조각과 4px 안으로 맞닿고 대표 조각 넓이의 15% 이상인 덩어리를 하나의 조각으로 만든다.
+     * 뺀 조각들 안에서 구역 색(RGB 거리 tol 이내) 픽셀을 모아, 대표 조각과 8px 안으로 맞닿고 대표 조각 넓이의 15% 이상인 덩어리를 하나의 조각으로 만든다.
      * 외곽선은 픽셀 줄들의 합집합(흰 글자 구멍은 테두리 덧칠로 메움)에서 가장 넓은 고리다. 없으면 null.
      */
     private static ShapeSegmenter.Segment regrow(BufferedImage img, List<Integer> removed, Map<Integer, ShapeSegmenter.Segment> byId,
-                                                 ShapeSegmenter.Segment main, int zoneColor, int id) {
+                                                 ShapeSegmenter.Segment main, int zoneColor, double tol, int id) {
         List<Polygon> region = new ArrayList<>();
         java.awt.Rectangle bounds = null;
         for (Integer r : removed) {
@@ -301,9 +332,10 @@ final class ZoneConsistency {
                 for (Polygon p : region) {
                     inside |= p.contains(px, py);
                 }
-                m[y * bw + x] = inside && dist(img.getRGB(px, py), zoneColor) < 60;
+                m[y * bw + x] = inside && dist(img.getRGB(px, py), zoneColor) < tol;
             }
         }
+        m = open1(m, bw, bh); // 회색 블록과 배경 사이 경계 픽셀(중간 색이 연두와 비슷)이 이루는 1~2px 선은 뺀다(화정체육관 I 오른쪽 가장자리)
         int[] mb = box(main);
         boolean[] keep = new boolean[m.length];
         boolean[] seen = new boolean[m.length];
@@ -322,7 +354,7 @@ final class ZoneConsistency {
                 int k = q.poll();
                 comp.add(k);
                 int x = k % bw, y = k / bw, gx = bounds.x + x, gy = bounds.y + y;
-                near |= gx >= mb[0] - 4 && gx <= mb[2] + 4 && gy >= mb[1] - 4 && gy <= mb[3] + 4;
+                near |= gx >= mb[0] - 8 && gx <= mb[2] + 8 && gy >= mb[1] - 8 && gy <= mb[3] + 8; // 흰 선 너머 앞쪽 띠(화정체육관 E 옆 연두 띠, 6px 간격)도 붙인다
                 for (int[] d : nb) {
                     int nx = x + d[0], ny = y + d[1];
                     if (nx >= 0 && nx < bw && ny >= 0 && ny < bh && m[ny * bw + nx] && !seen[ny * bw + nx]) {
@@ -387,6 +419,38 @@ final class ZoneConsistency {
         int r = (zoneColor >> 16) & 255, g = (zoneColor >> 8) & 255, b = zoneColor & 255;
         int mx = Math.max(r, Math.max(g, b)), mn = Math.min(r, Math.min(g, b));
         return new ShapeSegmenter.Segment(id, outline, total, (int) (sx / total), (int) (sy / total), mx == 0 ? 0 : (double) (mx - mn) / mx, mx);
+    }
+
+    /** 3x3 열림(깎은 뒤 다시 키움): 폭 2px 이하의 선을 지우고 블록 모양은 그대로 둔다. */
+    static boolean[] open1(boolean[] m, int w, int h) {
+        boolean[] e = new boolean[m.length], o = new boolean[m.length];
+        for (int y = 1; y < h - 1; y++) {
+            for (int x = 1; x < w - 1; x++) {
+                boolean all = true;
+                for (int dy = -1; dy <= 1 && all; dy++) {
+                    for (int dx = -1; dx <= 1 && all; dx++) {
+                        all = m[(y + dy) * w + x + dx];
+                    }
+                }
+                e[y * w + x] = all;
+            }
+        }
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                if (!e[y * w + x]) {
+                    continue;
+                }
+                for (int dy = -1; dy <= 1; dy++) {
+                    for (int dx = -1; dx <= 1; dx++) {
+                        int nx = x + dx, ny = y + dy;
+                        if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+                            o[ny * w + nx] = m[ny * w + nx];
+                        }
+                    }
+                }
+            }
+        }
+        return o;
     }
 
     /** 범례 색 중 구역에 하나도 없는 색이 있으면, 그 색의 이름 없는 도형(구역 조각 중앙값의 15% 이상)을 그 범례 이름의 구역으로 더한다. */
@@ -471,6 +535,55 @@ final class ZoneConsistency {
             }
         }
         return best;
+    }
+
+    /**
+     * 번호 계열 크기 점검(사용자 지시 2026-10-21): 같은 계열(401~424 등, 4개 이상) 구역 넓이 중앙값의 1.6배를 넘는 구역이 조각 둘 이상이고 바로 옆 번호 구역이
+     * 중앙값의 절반에 못 미치면, 옆 블록을 가져간 것으로 본다(고척돔 420 블록이 타일에서 419로 읽혀 419는 두 블록, 420은 가는 조각만 남음). 큰 구역 조각 중 옆 번호
+     * 조각에 가장 가까운 블록 크기 조각을 옆 번호로 옮기고, 옆 번호에 있던 가는 조각(중앙값 30% 미만)은 버린다.
+     */
+    private static void fixSeriesOutliers(Map<String, List<Integer>> zones, Map<Integer, ShapeSegmenter.Segment> byId) {
+        Map<String, Map<Integer, String>> series = new HashMap<>();
+        for (Map.Entry<String, List<Integer>> z : zones.entrySet()) {
+            String k = seriesKey(z.getKey());
+            if (k != null && z.getValue().stream().anyMatch(byId::containsKey)) {
+                series.computeIfAbsent(k, x -> new HashMap<>()).put(Integer.parseInt(z.getKey().replaceAll("\\D", "")), z.getKey());
+            }
+        }
+        for (Map<Integer, String> nums : series.values()) {
+            if (nums.size() < 4) {
+                continue;
+            }
+            int[] sorted = nums.values().stream().mapToInt(n -> totalArea(zones.get(n), byId)).sorted().toArray();
+            int median = sorted[sorted.length / 2];
+            for (Map.Entry<Integer, String> e : nums.entrySet()) {
+                List<Integer> pieces = zones.get(e.getValue()).stream().filter(byId::containsKey).toList();
+                if (pieces.size() < 2 || totalArea(pieces, byId) <= median * 1.6) {
+                    continue;
+                }
+                for (int d : new int[]{-1, 1}) {
+                    String small = nums.get(e.getKey() + d);
+                    if (small == null || totalArea(zones.get(small), byId) >= median * 0.5) {
+                        continue;
+                    }
+                    double[] c = center(zones.get(small), byId);
+                    Integer move = pieces.stream()
+                            .min(java.util.Comparator.comparingDouble(id -> Math.hypot(byId.get(id).cx() - c[0], byId.get(id).cy() - c[1]))).orElseThrow();
+                    if (byId.get(move).area() < median * 0.5) {
+                        continue;
+                    }
+                    zones.get(small).removeIf(id -> byId.containsKey(id) && byId.get(id).area() < median * 0.3);
+                    zones.get(e.getValue()).remove(move);
+                    zones.get(small).add(move);
+                    log.info("번호 계열에서 유독 넓은 {}의 조각 {}를 옆 번호 {}로 옮김", e.getValue(), move, small);
+                    break;
+                }
+            }
+        }
+    }
+
+    private static int totalArea(List<Integer> ids, Map<Integer, ShapeSegmenter.Segment> byId) {
+        return ids.stream().filter(byId::containsKey).mapToInt(id -> byId.get(id).area()).sum();
     }
 
     /**
@@ -783,6 +896,12 @@ final class ZoneConsistency {
      * 같은 높이(±6px)에 2개 이상 늘어선 것. 글자 획은 가늘거나 상자를 덜 채워 빠진다.
      */
     static List<Chip> legendChips(BufferedImage img, List<ShapeSegmenter.Segment> owned) {
+        List<Chip> chips = legendChips(img, owned, 60);
+        // 연한 범례(화정체육관 흰색·연두·보라 칩은 배경 연회색과 RGB 거리 45~56)는 60으로는 배경에 묻힌다: 그때만 30으로 다시 찾는다
+        return chips.size() >= 2 ? chips : legendChips(img, owned, 30);
+    }
+
+    private static List<Chip> legendChips(BufferedImage img, List<ShapeSegmenter.Segment> owned, double minBg) {
         int w = img.getWidth(), h = img.getHeight();
         int top = Integer.MAX_VALUE, bottom = 0;
         for (ShapeSegmenter.Segment s : owned) {
@@ -795,8 +914,8 @@ final class ZoneConsistency {
         List<Chip> found = new ArrayList<>();
         List<int[]> blobs = new ArrayList<>();
         int band = (int) (h * 0.3);
-        scanBand(rgb, w, Math.min(h, bottom + 4), Math.min(h, bottom + band), bg, found, blobs);
-        scanBand(rgb, w, Math.max(0, top - band), Math.max(0, top - 4), bg, found, blobs);
+        scanBand(rgb, w, Math.min(h, bottom + 4), Math.min(h, bottom + band), bg, minBg, found, blobs);
+        scanBand(rgb, w, Math.max(0, top - band), Math.max(0, top - 4), bg, minBg, found, blobs);
         // 칩 바로 왼쪽(칩 높이 안)에 다른 덩어리가 있으면 글자 획이다(범례 칩은 앞 항목 글자와 넓게 떨어져 있다)
         List<Chip> all = new ArrayList<>();
         for (Chip c : found) {
@@ -840,7 +959,7 @@ final class ZoneConsistency {
         return out;
     }
 
-    private static void scanBand(int[] rgb, int w, int y0, int y1, int bg, List<Chip> out, List<int[]> blobs) {
+    private static void scanBand(int[] rgb, int w, int y0, int y1, int bg, double minBg, List<Chip> out, List<int[]> blobs) {
         if (y1 - y0 < 6) {
             return;
         }
@@ -849,7 +968,7 @@ final class ZoneConsistency {
         for (int y = y0; y < y1; y++) {
             for (int x = 0; x < w; x++) {
                 int k = (y - y0) * w + x;
-                if (seen[k] || dist(rgb[y * w + x], bg) <= 60) {
+                if (seen[k] || dist(rgb[y * w + x], bg) <= minBg) {
                     continue;
                 }
                 int base = rgb[y * w + x];
@@ -875,7 +994,7 @@ final class ZoneConsistency {
                             continue;
                         }
                         int nk = (ny - y0) * w + nx;
-                        if (!seen[nk] && dist(rgb[ny * w + nx], base) <= 60 && dist(rgb[ny * w + nx], bg) > 60) {
+                        if (!seen[nk] && dist(rgb[ny * w + nx], base) <= 60 && dist(rgb[ny * w + nx], bg) > minBg) {
                             seen[nk] = true;
                             q.add(new int[]{nx, ny});
                         }

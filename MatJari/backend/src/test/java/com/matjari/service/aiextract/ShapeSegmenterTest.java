@@ -102,6 +102,11 @@ class ShapeSegmenterTest {
                 List.of(List.of(100, 100), List.of(300, 100), List.of(300, 160), List.of(100, 160)),
                 List.of(List.of(100, 170), List.of(300, 170), List.of(300, 300), List.of(100, 300)));
         assertThat(DetailExtractionService.joinParts(frontStrip)).hasSize(2);
+        // 흰 선(간격 2)을 두고 블록 옆에 선 가는 띠도 따로 둔다(화정체육관 E 옆 연두 띠)
+        List<List<List<Integer>>> sideStrip = List.of(
+                List.of(List.of(100, 100), List.of(300, 100), List.of(300, 300), List.of(100, 300)),
+                List.of(List.of(302, 100), List.of(330, 100), List.of(330, 300), List.of(302, 300)));
+        assertThat(DetailExtractionService.joinParts(sideStrip)).hasSize(2);
         // 홈이 있는 블록(두 색 조각이 ㄷ자를 이룸)은 볼록 껍질이 아니라 홈을 남긴 외곽선으로 합친다
         List<List<List<Integer>>> notched = List.of(
                 List.of(List.of(100, 100), List.of(300, 100), List.of(300, 150), List.of(100, 150)),

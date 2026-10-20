@@ -379,7 +379,9 @@ public class DetailExtractionService {
             List<DetailExtractor.RawLabel> labels = canonicalLabels(attachOrphans(result, seg), names);
             Map<Integer, String> reread = new LinkedHashMap<>();
             labels = verifySuspects(labels, seg, target, names, reread);
-            labels = ZoneConsistency.check(labels, seg, target.jpeg(), names, reread, extractor); // 범례 색·좌우대칭으로 빠진 구역과 이상한 구역 점검
+            ZoneConsistency.Checked checked = ZoneConsistency.check(labels, seg, target.jpeg(), names, reread, extractor); // 범례 색·좌우대칭으로 빠진 구역과 이상한 구역 점검
+            labels = checked.labels();
+            seg = checked.seg();
             writeFinalDebug(seg, labels);
             List<DetailExtractor.RawZone> zones = dropOutliers(shapesFromLabels(labels, seg));
             log.info("AI 번호 방식: 도형 후보 {}개, 연결된 구역 {}개 / 이름 {}개", seg.segments().size(), zones.size(), names.size());

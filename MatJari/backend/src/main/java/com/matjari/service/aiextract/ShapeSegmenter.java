@@ -30,13 +30,21 @@ import java.util.List;
 @Component
 public class ShapeSegmenter {
 
-    static final int MAX_SEGMENTS = 150;
+    static final int MAX_SEGMENTS = 200; // 돔 경기장은 구역이 100개 가까이에 조각·잡티까지 있어 150개로는 모자라다
     private static final int BG_DISTANCE = 38;
+    private static final int FAINT_DISTANCE = 16;
+    /** 같은 블록 색으로 묶는 대표색과의 거리(RGB). JPEG 번짐·안티앨리어싱으로 흔들리는 폭보다 크고, 이웃한 다른 등급 색(빨강/주황 등) 차이보다 작다. */
+    private static final int PALETTE_DIST = 34;
+    /** 색 무관 덩어리 찾기에서 배경으로 보지 않는 최소 거리들(블록 사이 어두운 틈의 번진 색을 배경 쪽으로 보낸다). 차례로 돌며 겹치지 않는 블록만 보탠다. */
+    private static final int[] ANY_DISTANCES = {60, 100};
     private static final int MIN_KEY_PIXELS = 150;
     private static final int MIN_AREA = 300;
     private static final int MAX_VERTICES = 40;
     /** 가로·세로 중 짧은 변이 이보다 작으면(글자 조각·가는 선) 구역 도형 후보에서 뺀다. */
     private static final int MIN_SIDE = 16;
+    /** 작은 블록 예외(숫자가 큰 소형 블록·얇은 띠): 픽셀 수와 짧은 변의 하한. */
+    private static final int SMALL_AREA = 120;
+    private static final int SMALL_SIDE = 10;
     /** 이미지의 이 비율을 넘는 덩어리는 배경 그라데이션 등으로 보고 도형 후보에서 뺀다(무대도 이보다 작다). */
     private static final double MAX_AREA_RATIO = 0.10;
     /** 이 크기(픽셀) 이하의 닫힌 구멍은 글자 자리로 보고 메운다. */
@@ -59,6 +67,17 @@ public class ShapeSegmenter {
     public record Result(int width, int height, List<Segment> segments, byte[] annotatedJpeg, byte[] tilesJpeg) {}
 
     public Result segment(byte[] jpeg) {
+        return segment(jpeg, false);
+    }
+
+    /** 무채색으로 볼 채도 상한. */
+    private static final double GRAY_SAT = 0.15;
+
+    /**
+     * dropGray: 좌석 등급 범례에 회색이 없는 지도에서 회색(무채색) 픽셀을 배경으로 칠한 뒤 나눈다. 회색 부분은 좌석이 아니라 구조물·판매하지 않는
+     * 자리이므로, 회색과 분홍이 한 블록으로 합쳐지던 조각(화정체육관 I·F 블록과 옆 띠)이 분홍 부분만 남는다(사용자 지시 2026-10-20).
+     */
+    public Result segment(byte[] jpeg, boolean dropGray) {
         BufferedImage img;
         try {
             img = ImageIO.read(new ByteArrayInputStream(jpeg));
@@ -72,16 +91,69 @@ public class ShapeSegmenter {
         if (w < 50 || h < 50 || (long) w * h > 12_000_000L) {
             return null;
         }
-        int[] rgb = medianFilter(img.getRGB(0, 0, w, h, null, 0, w), w, h); // 빗금·디더링 질감을 지워 같은 블록이 한 색이 되게 한다
+        int[] raw = img.getRGB(0, 0, w, h, null, 0, w);
+        int[] rgb = medianFilter(raw, w, h); // 빗금·디더링 질감을 지워 같은 블록이 한 색이 되게 한다
         int[] bg = dominantColor(rgb);
+        if (dropGray) {
+            int bgRgb = 0xFF000000 | (bg[0] << 16) | (bg[1] << 8) | bg[2];
+            for (int i = 0; i < rgb.length; i++) {
+                if (grayish(rgb[i])) {
+                    rgb[i] = bgRgb;
+                }
+                if (grayish(raw[i])) {
+                    raw[i] = bgRgb;
+                }
+            }
+        }
+        List<Segment> found = pass(rgb, bg, w, h, BG_DISTANCE);
+        found.addAll(faintExtras(found, pass(rgb, bg, w, h, FAINT_DISTANCE), 0.5));
+        for (int dist : ANY_DISTANCES) { // 빛 번짐이 있는 지도(NCT 고척돔)는 번진 테두리가 블록을 이어서 더 높은 문턱에서만 블록이 갈라진다
+            found.addAll(blockExtras(found, solidInside(anyColorPass(raw, bg, w, h, dist), found)));
+        }
+        // 큰 것부터 남기고, 더 큰 도형 안에 중심이 든 작은 도형(글자 조각 등)은 버린다
+        found.sort(Comparator.comparingInt(Segment::area).reversed());
+        List<Segment> kept = new ArrayList<>();
+        List<Polygon> keptPolys = new ArrayList<>();
+        for (Segment s : found) {
+            boolean inside = false;
+            for (int k = 0; k < kept.size(); k++) {
+                // 블록 안의 글자 조각(블록이 2~10배 큼)만 버린다. 거대한 배경 덩어리는 그 안의 블록을 지우면 안 된다
+                // 외곽선이 헐렁한(휜 띠) 도형은 감싼 영역 안에 다른 블록이 있으므로 글자 조각 판정에 쓰지 않는다
+                if (kept.get(k).area() >= s.area() * 2 && kept.get(k).area() <= s.area() * 10 && !loose(kept.get(k)) && keptPolys.get(k).contains(s.cx(), s.cy())) {
+                    inside = true;
+                    break;
+                }
+            }
+            if (!inside && kept.size() < MAX_SEGMENTS) {
+                kept.add(s);
+                keptPolys.add(toPolygon(s.pixels()));
+            }
+        }
+        // 위→아래·왼→오른쪽 순으로 번호를 매긴다(번호가 읽기 순서와 비슷해 AI가 찾기 쉽다)
+        kept.sort(Comparator.comparingInt((Segment s) -> s.cy() / 40).thenComparingInt(Segment::cx));
+        List<Segment> numbered = new ArrayList<>();
+        for (int i = 0; i < kept.size(); i++) {
+            Segment s = kept.get(i);
+            numbered.add(new Segment(i + 1, s.pixels(), s.area(), s.cx(), s.cy(), s.sat(), s.val()));
+        }
+        return new Result(w, h, List.copyOf(numbered), annotate(img, numbered), tileSheet(img, numbered));
+    }
+
+    /** 밝거나 중간 밝기의 회색(채도 GRAY_SAT 미만). 아주 어두운(검은) 블록은 회색으로 보지 않는다. */
+    private static boolean grayish(int c) {
+        int r = (c >> 16) & 255, g = (c >> 8) & 255, b = c & 255;
+        int mx = Math.max(r, Math.max(g, b)), mn = Math.min(r, Math.min(g, b));
+        return mx >= 70 && (double) (mx - mn) / mx < GRAY_SAT;
+    }
+
+    private List<Segment> pass(int[] rgb, int[] bg, int w, int h, int dist) {
         boolean[] fg = new boolean[w * h];
-        int[] key = new int[w * h];
         for (int i = 0; i < rgb.length; i++) {
             int r = (rgb[i] >> 16) & 255, g = (rgb[i] >> 8) & 255, b = rgb[i] & 255;
             int dr = r - bg[0], dg = g - bg[1], db = b - bg[2];
-            fg[i] = dr * dr + dg * dg + db * db > BG_DISTANCE * BG_DISTANCE;
-            key[i] = (r / 24) * 10000 + (g / 24) * 100 + (b / 24);
+            fg[i] = dr * dr + dg * dg + db * db > dist * dist;
         }
+        int[] key = paletteKeys(rgb, fg);
         java.util.Map<Integer, Integer> counts = new java.util.HashMap<>();
         for (int i = 0; i < key.length; i++) {
             if (fg[i]) {
@@ -116,34 +188,203 @@ public class ShapeSegmenter {
             m = fillSmallHoles(m, w, h);
             collectRaw(m, w, h, rgb, owner, raws);
         }
-        List<Segment> found = buildSegments(owner, raws, fg, w, h);
-        found = dropOutsideCluster(dropStageLike(found));
-        // 큰 것부터 남기고, 더 큰 도형 안에 중심이 든 작은 도형(글자 조각 등)은 버린다
-        found.sort(Comparator.comparingInt(Segment::area).reversed());
-        List<Segment> kept = new ArrayList<>();
-        List<Polygon> keptPolys = new ArrayList<>();
-        for (Segment s : found) {
-            boolean inside = false;
-            for (int k = 0; k < kept.size(); k++) {
-                // 블록 안의 글자 조각(블록이 2~10배 큼)만 버린다. 거대한 배경 덩어리는 그 안의 블록을 지우면 안 된다
-                if (kept.get(k).area() >= s.area() * 2 && kept.get(k).area() <= s.area() * 10 && keptPolys.get(k).contains(s.cx(), s.cy())) {
-                    inside = true;
-                    break;
+        List<Segment> found = buildSegments(owner, raws, fg, w, h, dist == BG_DISTANCE);
+        return dropOutsideCluster(dropStageLike(found));
+    }
+
+    /**
+     * 색을 가리지 않고 배경이 아닌 픽셀이 이어진 덩어리를 도형 후보로 만든다. 돔 경기장 안쪽의 작은 블록은 큰 흰 숫자가 블록을 거의 덮어 블록 색 픽셀이
+     * 가장자리 몇 줄뿐이라 색별로는 잡히지 않지만, 블록 사이 틈은 배경색이라 '배경이 아닌 덩어리'로는 블록 하나가 그대로 나온다. 이미 찾은 도형과 겹치지
+     * 않는 것만 보탠다(faintExtras).
+     */
+    /**
+     * 색 무관 덩어리 중 이미 찾은 도형과 실제로 겹치지 않는 것(겹친 넓이가 작은 쪽의 20% 이하)만 보탠다. 부채꼴로 비스듬히 놓인 돔 블록은 경계 상자끼리
+     * 크게 겹치므로 faintExtras 의 상자 비교 대신 다각형 넓이로 비교한다. 크기는 기준 중앙값의 0.1~2.5배.
+     */
+    static List<Segment> blockExtras(List<Segment> base, List<Segment> cand) {
+        if (base.size() < 6) {
+            return List.of();
+        }
+        int[] areas = typicalAreas(base);
+        int median = areas[areas.length / 2];
+        List<java.awt.geom.Area> polys = new ArrayList<>();
+        for (Segment b : base) {
+            polys.add(new java.awt.geom.Area(toPolygon(b.pixels())));
+        }
+        List<Segment> extra = new ArrayList<>();
+        for (Segment c : cand) {
+            if (c.area() < median * 0.1 || c.area() > median * 2.5) {
+                continue;
+            }
+            java.awt.geom.Area ca = new java.awt.geom.Area(toPolygon(c.pixels()));
+            double cArea = Math.abs(shoelaceArea(c.pixels()));
+            boolean overlaps = false;
+            for (int i = 0; i < polys.size() && !overlaps; i++) {
+                java.awt.geom.Area ix = new java.awt.geom.Area(ca);
+                ix.intersect(polys.get(i));
+                double smaller = Math.min(cArea, Math.abs(shoelaceArea(base.get(i).pixels())));
+                overlaps = !ix.isEmpty() && areaOf(ix) > 0.2 * smaller;
+            }
+            if (!overlaps) {
+                extra.add(c);
+                polys.add(ca);
+                base = new ArrayList<>(base);
+                base.add(c);
+            }
+        }
+        return extra;
+    }
+
+    /** java.awt.geom.Area 의 넓이(다각형 경로를 따라 신발끈 공식). */
+    private static double areaOf(java.awt.geom.Area a) {
+        double sum = 0, x0 = 0, y0 = 0, px = 0, py = 0;
+        double[] c = new double[6];
+        for (java.awt.geom.PathIterator it = a.getPathIterator(null); !it.isDone(); it.next()) {
+            int t = it.currentSegment(c);
+            if (t == java.awt.geom.PathIterator.SEG_MOVETO) {
+                x0 = px = c[0];
+                y0 = py = c[1];
+            } else if (t == java.awt.geom.PathIterator.SEG_LINETO) {
+                sum += px * c[1] - c[0] * py;
+                px = c[0];
+                py = c[1];
+            } else if (t == java.awt.geom.PathIterator.SEG_CLOSE) {
+                sum += px * y0 - x0 * py;
+                px = x0;
+                py = y0;
+            }
+        }
+        return Math.abs(sum) / 2;
+    }
+
+    /**
+     * 색 무관 덩어리 중 블록다운 것만: 외곽선 넓이의 70% 이상이 채워져 있고(글자 단어 덩어리는 획 사이가 비어 있다) 중심이 이미 찾은 도형들의
+     * 경계 상자 안에 있다(지도 위아래 안내문 제외).
+     */
+    static List<Segment> solidInside(List<Segment> cand, List<Segment> base) {
+        if (base.isEmpty()) {
+            return List.of();
+        }
+        int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE;
+        for (Segment b : base) {
+            for (int[] p : b.pixels()) {
+                minX = Math.min(minX, p[0]);
+                maxX = Math.max(maxX, p[0]);
+                minY = Math.min(minY, p[1]);
+                maxY = Math.max(maxY, p[1]);
+            }
+        }
+        List<Segment> out = new ArrayList<>();
+        for (Segment c : cand) {
+            double outline = Math.abs(shoelaceArea(c.pixels()));
+            if (outline > 0 && c.area() >= 0.7 * outline && c.cx() >= minX && c.cx() <= maxX && c.cy() >= minY && c.cy() <= maxY) {
+                out.add(c);
+            }
+        }
+        return out;
+    }
+
+    private List<Segment> anyColorPass(int[] rgb, int[] bg, int w, int h, int dist) {
+        // 중간값 필터 전 원본에서, 배경과 확실히 다른 픽셀만(dist) 고른 뒤 1px 깎는다. 블록 사이 1~2px 틈이 번져 끊긴 점선이 되어도 이렇게 하면 끊어진다
+        boolean[] fg = new boolean[w * h];
+        for (int i = 0; i < rgb.length; i++) {
+            int dr = ((rgb[i] >> 16) & 255) - bg[0], dg = ((rgb[i] >> 8) & 255) - bg[1], db = (rgb[i] & 255) - bg[2];
+            fg[i] = dr * dr + dg * dg + db * db > dist * dist;
+        }
+        fg = erode(fg, w, h);
+        int[] owner = new int[w * h];
+        List<Raw> raws = new ArrayList<>();
+        collectRaw(fillSmallHoles(fg, w, h), w, h, rgb, owner, raws);
+        return dropOutsideCluster(dropStageLike(buildSegments(owner, raws, fg, w, h, true)));
+    }
+
+    /**
+     * 전경 픽셀의 색 묶음 번호. 색을 고정 칸(24단계)으로 자르면 한 블록의 색이 칸 경계에 걸칠 때 블록이 얼룩처럼 둘로 갈라진다(고척돔 보라 블록 등).
+     * 그래서 많이 쓰인 색부터 대표색을 정하고(8단계 칸의 평균색), 대표색과 PALETTE_DIST 안의 칸은 그 대표색에 묶는다. 키는 대표색 번호+1(배경은 0).
+     */
+    static int[] paletteKeys(int[] rgb, boolean[] fg) {
+        int[] count = new int[32768];
+        long[] sr = new long[32768], sg = new long[32768], sb = new long[32768];
+        int[] bin = new int[rgb.length];
+        for (int i = 0; i < rgb.length; i++) {
+            int r = (rgb[i] >> 16) & 255, g = (rgb[i] >> 8) & 255, b = rgb[i] & 255;
+            int k = (r >> 3) * 1024 + (g >> 3) * 32 + (b >> 3);
+            bin[i] = k;
+            if (fg[i]) {
+                count[k]++;
+                sr[k] += r;
+                sg[k] += g;
+                sb[k] += b;
+            }
+        }
+        Integer[] order = new Integer[32768];
+        for (int k = 0; k < order.length; k++) {
+            order[k] = k;
+        }
+        Arrays.sort(order, (a, b) -> Integer.compare(count[b], count[a]));
+        List<int[]> peaks = new ArrayList<>();
+        int[] peakOf = new int[32768];
+        Arrays.fill(peakOf, -1);
+        for (int k : order) {
+            if (count[k] == 0) {
+                break;
+            }
+            int r = (int) (sr[k] / count[k]), g = (int) (sg[k] / count[k]), b = (int) (sb[k] / count[k]);
+            int best = -1, bestD = PALETTE_DIST * PALETTE_DIST;
+            for (int p = 0; p < peaks.size(); p++) {
+                int[] c = peaks.get(p);
+                int d = (r - c[0]) * (r - c[0]) + (g - c[1]) * (g - c[1]) + (b - c[2]) * (b - c[2]);
+                if (d <= bestD) {
+                    bestD = d;
+                    best = p;
                 }
             }
-            if (!inside && kept.size() < MAX_SEGMENTS) {
-                kept.add(s);
-                keptPolys.add(toPolygon(s.pixels()));
+            if (best < 0) {
+                best = peaks.size();
+                peaks.add(new int[]{r, g, b});
+            }
+            peakOf[k] = best;
+        }
+        int[] key = new int[rgb.length];
+        for (int i = 0; i < rgb.length; i++) {
+            key[i] = fg[i] ? peakOf[bin[i]] + 1 : 0;
+        }
+        return key;
+    }
+
+    /**
+     * 배경과 대비가 아주 낮은 연한 블록(페이드된 2F 블록 등)은 기본 문턱에서 빠진다. 낮은 문턱으로 한 번 더 나눈 결과 중 이미 찾은 도형과 겹치지 않고
+     * 크기가 찾은 도형들과 비슷한 것(중앙값의 minRatio~2.5배)만 보탠다.
+     */
+    static List<Segment> faintExtras(List<Segment> base, List<Segment> faint, double minRatio) {
+        if (base.size() < 6) {
+            return List.of();
+        }
+        int[] areas = typicalAreas(base);
+        int median = areas[areas.length / 2];
+        List<Polygon> polys = new ArrayList<>();
+        for (Segment b : base) {
+            polys.add(toPolygon(b.pixels()));
+        }
+        List<Segment> extra = new ArrayList<>();
+        for (Segment f : faint) {
+            if (f.area() < median * minRatio || f.area() > median * 2.5) {
+                continue;
+            }
+            boolean overlaps = false;
+            Polygon fp = toPolygon(f.pixels());
+            for (int i = 0; i < polys.size() && !overlaps; i++) {
+                Polygon bp = polys.get(i);
+                java.awt.Rectangle ix = bp.getBounds().intersection(fp.getBounds());
+                double inter = ix.isEmpty() ? 0 : (double) ix.width * ix.height;
+                double smaller = Math.min(bp.getBounds().width * (double) bp.getBounds().height, fp.getBounds().width * (double) fp.getBounds().height);
+                overlaps = bp.contains(f.cx(), f.cy()) || fp.contains(base.get(i).cx(), base.get(i).cy()) || inter > 0.15 * smaller;
+            }
+            if (!overlaps) {
+                extra.add(f);
             }
         }
-        // 위→아래·왼→오른쪽 순으로 번호를 매긴다(번호가 읽기 순서와 비슷해 AI가 찾기 쉽다)
-        kept.sort(Comparator.comparingInt((Segment s) -> s.cy() / 40).thenComparingInt(Segment::cx));
-        List<Segment> numbered = new ArrayList<>();
-        for (int i = 0; i < kept.size(); i++) {
-            Segment s = kept.get(i);
-            numbered.add(new Segment(i + 1, s.pixels(), s.area(), s.cx(), s.cy(), s.sat(), s.val()));
-        }
-        return new Result(w, h, List.copyOf(numbered), annotate(img, numbered), tileSheet(img, numbered));
+        return extra;
     }
 
     /** 채널별 3x3 중간값 필터(질감 제거). 5x5 는 블록 사이 2px 틈을 지워 이웃 블록이 한 덩어리가 되므로 3x3 으로 한다. */
@@ -321,15 +562,40 @@ public class ShapeSegmenter {
      * 채도가 낮은 밝기 90 이상의 회색이고 도형 크기 중앙값의 2.5배를 넘는 큰 구조물(무대·돌출 무대·통로)은 좌석 블록 후보에서 뺀다. 검은색 큰 도형은 남긴다.
      * 연한 회색 좌석 블록(예: 2F 구역)은 중앙값 크기라 남는다.
      */
+    /** 크기 기준(중앙값)에 쓸 넓이들(오름차순). 작은 블록 예외로 들어온 조각은 빼서 기준이 작은 조각 쪽으로 끌려가지 않게 한다(없으면 전부). */
+    static int[] typicalAreas(List<Segment> found) {
+        int[] big = found.stream().filter(s -> s.area() >= MIN_AREA && minSide(s) >= MIN_SIDE).mapToInt(Segment::area).sorted().toArray();
+        return big.length > 0 ? big : found.stream().mapToInt(Segment::area).sorted().toArray();
+    }
+
+    private static int minSide(Segment s) {
+        int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE;
+        for (int[] p : s.pixels()) {
+            minX = Math.min(minX, p[0]);
+            maxX = Math.max(maxX, p[0]);
+            minY = Math.min(minY, p[1]);
+            maxY = Math.max(maxY, p[1]);
+        }
+        return Math.min(maxX - minX, maxY - minY) + 1;
+    }
+
+    /** 외곽선 넓이가 실제 픽셀 수의 1.5배를 넘는다(휘거나 오목한 띠를 볼록 껍질로 감싼 도형). 이런 도형 안에는 다른 블록이 들어 있을 수 있다. */
+    static boolean loose(Segment s) {
+        return Math.abs(shoelaceArea(s.pixels())) > s.area() * 1.5;
+    }
+
     static List<Segment> dropStageLike(List<Segment> found) {
         if (found.size() < 5) {
             return found;
         }
-        int[] areas = found.stream().mapToInt(Segment::area).sorted().toArray();
+        int[] areas = typicalAreas(found);
         double median = areas[areas.length / 2];
         List<Segment> out = new ArrayList<>();
         for (Segment sg : found) {
             if (sg.sat() < 0.2 && sg.val() >= 90 && sg.area() > median * 2.5) { // 검은색 큰 블록(i-dle F3·F4·F5)은 남기고 타일 글자(STAGE 여부)로 가른다
+                continue;
+            }
+            if (sg.sat() < 0.2 && sg.area() > median * 2.5 && loose(sg)) { // 휘어진 어두운 회색 통로·구조물(고척돔): 외곽선이 실제 픽셀보다 훨씬 넓다. 꽉 찬 검은 블록은 남는다
                 continue;
             }
             out.add(sg);
@@ -345,7 +611,7 @@ public class ShapeSegmenter {
         if (found.size() < 8) {
             return found;
         }
-        int[] areas = found.stream().mapToInt(Segment::area).sorted().toArray();
+        int[] areas = typicalAreas(found);
         double median = areas[areas.length / 2];
         int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, maxX = 0, maxY = 0, n = 0;
         for (Segment sg : found) {
@@ -481,7 +747,7 @@ public class ShapeSegmenter {
      * 같은 좌석 블록이 색으로 갈라진 것(예: 진한 빨강 VIP 부분 + 주황 일반석 부분)을 하나로 합친다: 둘 다 채도가 높고(회색·검은 무대·흰 글자 제외)
      * 경계가 맞닿은 길이가 충분하면 같은 도형으로 본다. 합친 뒤에 크기 조건을 보고 외곽선을 따라가 Segment 로 만든다.
      */
-    private static List<Segment> buildSegments(int[] owner, List<Raw> raws, boolean[] fg, int w, int h) {
+    private static List<Segment> buildSegments(int[] owner, List<Raw> raws, boolean[] fg, int w, int h, boolean allowSmall) {
         int n = raws.size();
         // 배경 그라데이션이 만든 거대한 덩어리는 합치기에서 뺀다(블록과 색이 비슷하면 블록까지 한 덩어리가 돼 통째로 버려진다)
         int maxMergeRaw = (int) ((long) w * h * MERGE_MAX_RAW_RATIO);
@@ -566,7 +832,9 @@ public class ShapeSegmenter {
             if ((minX <= 1 || maxX >= w - 2) && bw < 40) { // 이미지 좌우 가장자리에 걸친 가는 조각(페이지 여백·그라데이션 잔재)은 도형이 아니다
                 continue;
             }
-            if (area < MIN_AREA || bw > w * 0.8 || area > (long) w * h * MAX_AREA_RATIO || bw < MIN_SIDE || bh < MIN_SIDE) {
+            // 돔 경기장의 작은 블록은 큰 흰 숫자가 픽셀을 반 넘게 차지하고(픽셀 수 150~300) 안쪽 띠는 높이가 11px 정도라, 경계 상자가 충분하면 작은 블록도 남긴다(기본 문턱에서만. 연한 블록용 낮은 문턱에서는 잡티가 늘어난다)
+            boolean small = allowSmall && area >= SMALL_AREA && (long) bw * bh >= MIN_AREA && Math.min(bw, bh) >= SMALL_SIDE;
+            if ((area < MIN_AREA && !small) || bw > w * 0.8 || area > (long) w * h * MAX_AREA_RATIO || (Math.min(bw, bh) < MIN_SIDE && !small)) {
                 continue;
             }
             List<int[]> contour = trace(grp, gid, w, h, first);
@@ -605,7 +873,11 @@ public class ShapeSegmenter {
         if (ca <= 0 || ha <= 0 || pixelArea < ha * 0.25) {
             return null;
         }
-        if (pixelArea >= ha * 0.5) { // 좌석 블록은 볼록하다: 껍질의 절반 이상을 채우면 껍질(들쭉날쭉한 외곽선·글자 자국을 무시)
+        if (pixelArea >= ha * 0.5) { // 좌석 블록은 대개 볼록하다: 껍질의 절반 이상을 채우면 껍질(들쭉날쭉한 외곽선·글자 자국을 무시)
+            // 단 속이 꽉 찬(외곽선의 90% 이상) ㄱ자·ㄷ자 블록(화정체육관 N·A·S1·S2, 사용자 지시 2026-10-20)은 홈을 살려 외곽선을 쓴다(꼭짓점은 다듬기 단계에서 8개 이하로)
+            if (ca <= ha * 0.9 && pixelArea >= ca * 0.9) {
+                return contour;
+            }
             return hull;
         }
         if (pixelArea < ca * 0.75) { // 오목하면서 속도 성긴 도형(점선·글자 조각이 이어 붙은 것)은 도형이 아니다

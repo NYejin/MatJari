@@ -220,7 +220,7 @@ public class AnthropicDetailExtractor implements DetailExtractor {
         long started = System.nanoTime();
         try {
             String model = "label".equals(stage) && properties.getLabelModel() != null && !properties.getLabelModel().isBlank() ? properties.getLabelModel() : properties.getModel();
-            MessageCreateParams params = buildParams(model, system, blocks, schema, maxTokens, effort, effort != null, null); // temperature 는 Haiku 5.5 가 거절해(400) 지정하지 않는다
+            MessageCreateParams params = buildParams(model, system, blocks, schema, maxTokens, effort, effort != null && allowsThinkingOff(model), null); // temperature 는 Haiku 5.5 가 거절해(400) 지정하지 않는다
             Message message = client().messages().create(params);
             long ms = (System.nanoTime() - started) / 1_000_000;
             log.info("AI 호출 ({}): {}ms, inputTokens={}, outputTokens={}, blocks={}", stage, ms,
@@ -245,6 +245,11 @@ public class AnthropicDetailExtractor implements DetailExtractor {
             log.warn("AI 호출 실패 ({}): {}", stage, e.getClass().getSimpleName());
             throw new ExtractionFailedException("AI 호출에 실패했어요");
         }
+    }
+
+    /** 생각 끄기(thinking disabled)는 Haiku 계열과 Opus 5 만 받는다. Sonnet 5.5·Opus 5.5·Fable 5.1 은 400 으로 거절하므로 보내지 않고 effort 만 낮춘다. */
+    static boolean allowsThinkingOff(String model) {
+        return model.startsWith("claude-haiku-") || "claude-opus-5".equals(model);
     }
 
     static MessageCreateParams buildParams(String model, String system, List<ContentBlockParam> blocks,

@@ -79,4 +79,21 @@ class ShapeRegularizerTest {
             assertThat(mirrored).as("왼쪽 꼭짓점의 거울상이 오른쪽에 있다").isTrue();
         }
     }
+
+    @Test
+    void messySideOfPairIsReplacedByMirrorOfTidySide() {
+        // 오른쪽 위 블록에 빛 번짐 선이 붙어 모양이 크게 다르다: 평균하지 않고 반듯한 왼쪽의 거울상으로 바꾼다
+        List<int[][]> polys = new ArrayList<>(List.of(
+                new int[][]{{100, 100}, {200, 100}, {200, 200}, {100, 200}},
+                new int[][]{{800, 100}, {900, 100}, {900, 200}, {800, 200}, {800, 160}, {720, 150}, {800, 140}},
+                new int[][]{{100, 300}, {200, 300}, {200, 400}, {100, 400}},
+                new int[][]{{800, 300}, {900, 300}, {900, 400}, {800, 400}},
+                new int[][]{{100, 500}, {200, 500}, {200, 600}, {100, 600}},
+                new int[][]{{800, 500}, {900, 500}, {900, 600}, {800, 600}}));
+        ShapeRegularizer.symmetrize(polys);
+        assertThat(polys.get(1)).hasNumberOfRows(4);
+        for (int[] v : polys.get(1)) {
+            assertThat(v[0]).isBetween(799, 901);
+        }
+    }
 }

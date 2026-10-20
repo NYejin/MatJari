@@ -377,7 +377,9 @@ public class DetailExtractionService {
             }
             // nonSeatSegments 는 점검용 기록이다(AI가 구역에 연결한 번호가 우선하며, 무대 같은 큰 구조물은 아래 넓이 검사가 거른다)
             List<DetailExtractor.RawLabel> labels = canonicalLabels(attachOrphans(result, seg), names);
-            labels = verifySuspects(labels, seg, target, names);
+            Map<Integer, String> reread = new LinkedHashMap<>();
+            labels = verifySuspects(labels, seg, target, names, reread);
+            labels = ZoneConsistency.check(labels, seg, target.jpeg(), names, reread, extractor); // 범례 색·좌우대칭으로 빠진 구역과 이상한 구역 점검
             writeFinalDebug(seg, labels);
             List<DetailExtractor.RawZone> zones = dropOutliers(shapesFromLabels(labels, seg));
             log.info("AI 번호 방식: 도형 후보 {}개, 연결된 구역 {}개 / 이름 {}개", seg.segments().size(), zones.size(), names.size());
@@ -878,7 +880,7 @@ public class DetailExtractionService {
      * 블록의 번호 등)를 잘못 읽는 일이 있어서다. 다시 읽은 이름이 구역 코드답거나 1차 이름 목록에 있으면 그 이름을 쓰고, 비었거나 이상하면 처음 읽은 이름을 유지한다.
      */
     private List<DetailExtractor.RawLabel> verifySuspects(List<DetailExtractor.RawLabel> labels, ShapeSegmenter.Result seg,
-                                                          ImageSlicer.SliceImage target, List<String> names) {
+                                                          ImageSlicer.SliceImage target, List<String> names, Map<Integer, String> rereadOut) {
         Map<Integer, ShapeSegmenter.Segment> byId = new LinkedHashMap<>();
         for (ShapeSegmenter.Segment sg : seg.segments()) {
             byId.put(sg.id(), sg);
@@ -919,6 +921,7 @@ public class DetailExtractionService {
         int changed = 0;
         for (java.util.concurrent.CompletableFuture<Map<Integer, String>> c : calls) {
             Map<Integer, String> reread = c.join();
+            rereadOut.putAll(reread);
             for (Map.Entry<Integer, String> e : reread.entrySet()) {
                 String t = e.getValue() == null ? "" : e.getValue().trim();
                 if (t.isEmpty() || isStageName(t)) {
@@ -1469,7 +1472,7 @@ public class DetailExtractionService {
         return list.size() > MAX_SESSIONS ? new ArrayList<>(list.subList(0, MAX_SESSIONS)) : list;
     }
 
-    private static String cleanName(String raw) {
+    static String cleanName(String raw) {
         if (raw == null) {
             return null;
         }
@@ -1480,7 +1483,7 @@ public class DetailExtractionService {
         return s;
     }
 
-    private static String keyOf(String name) {
+    static String keyOf(String name) {
         try {
             return SeatKeyNormalizer.zoneKey(name);
         } catch (RuntimeException e) {

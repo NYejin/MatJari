@@ -71,6 +71,16 @@ class CachingDetailExtractor implements DetailExtractor {
     }
 
     @Override
+    public Map<Integer, String> readLegend(List<Integer> ids, List<byte[]> jpegs) {
+        Object[] key = new Object[jpegs.size() + 1];
+        key[0] = ids.toString();
+        for (int i = 0; i < jpegs.size(); i++) {
+            key[i + 1] = jpegs.get(i);
+        }
+        return cached("legend", key, JSON.getTypeFactory().constructMapType(Map.class, Integer.class, String.class), () -> delegate.readLegend(ids, jpegs));
+    }
+
+    @Override
     public StripRange locate(List<Part> strips) {
         return delegate.locate(strips);
     }

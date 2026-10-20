@@ -62,6 +62,11 @@ public interface DetailExtractor {
         return java.util.Map.of();
     }
 
+    /** 좌석 등급 범례 항목(색 칩과 옆 글자)을 잘라 낸 이미지마다 칩 옆에 쓰인 등급 이름을 읽는다(ids 와 jpegs 는 같은 순서). 기본 구현은 빈 결과. */
+    default java.util.Map<Integer, String> readLegend(List<Integer> ids, List<byte[]> jpegs) throws ExtractionFailedException {
+        return java.util.Map.of();
+    }
+
     /** 합친 이미지를 띠로 나눠 보내 좌석 배치도가 있는 띠 범위를 찾는다. 찾지 못하면 null(호출자는 합친 이미지를 그대로 쓴다). 기본 구현은 null. */
     default StripRange locate(List<Part> strips) throws ExtractionFailedException {
         return null;

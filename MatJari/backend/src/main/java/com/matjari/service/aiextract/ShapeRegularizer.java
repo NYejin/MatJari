@@ -185,23 +185,30 @@ final class ShapeRegularizer {
         int[] mate = null;
         for (int round = 0; round < 2; round++) {
             mate = pair(polys, axis);
-            double sum = 0;
-            int n = 0, paired = 0, offAxis = 0;
+            List<Double> mids = new ArrayList<>(), goodMids = new ArrayList<>();
+            int paired = 0, offAxis = 0;
             for (int i = 0; i < polys.size(); i++) {
                 double cx = centroid(polys.get(i))[0];
                 if (Math.abs(cx - axis) > 15) {
                     offAxis++;
                     if (mate[i] >= 0) {
                         paired++;
-                        sum += (cx + centroid(polys.get(mate[i]))[0]) / 2;
-                        n++;
+                        double mid = (cx + centroid(polys.get(mate[i]))[0]) / 2;
+                        mids.add(mid);
+                        if (iou(polys.get(i), mirror(polys.get(mate[i]), axis)) >= 0.8) {
+                            goodMids.add(mid);
+                        }
                     }
                 }
             }
-            if (offAxis == 0 || paired < 0.6 * offAxis) {
+            // 돔 경기장처럼 구역이 많으면 일부가 갈리거나 빠져 짝이 덜 맞는다. 절반 이상이 거울 위치에 짝이 있으면 대칭 배치로 본다
+            if (offAxis == 0 || paired < 0.5 * offAxis) {
                 return; // 대칭 배치가 아니다
             }
-            axis = sum / n;
+            // 축은 모양이 잘 맞는(거울상 IoU 0.8 이상) 짝 가운데들의 중앙값(빛 번짐이 섞여 중심이 밀린 짝에 끌려가지 않게). 그런 짝이 없으면 모든 짝
+            List<Double> use = goodMids.isEmpty() ? mids : goodMids;
+            java.util.Collections.sort(use);
+            axis = use.size() % 2 == 1 ? use.get(use.size() / 2) : (use.get(use.size() / 2 - 1) + use.get(use.size() / 2)) / 2;
         }
         boolean[] done = new boolean[polys.size()];
         for (int i = 0; i < polys.size(); i++) {
@@ -220,8 +227,10 @@ final class ShapeRegularizer {
             if (done[j]) {
                 continue;
             }
-            if (b.length != a.length) { // 꼭짓점 수가 다르면 사각형 쪽(또는 꼭짓점이 적은 쪽)을 기준으로 다른 쪽을 거울상으로 바꾼다
-                int[][] base = a.length < b.length ? a : b;
+            // 꼭짓점 수가 다르거나 모양이 크게 다르면(거울상과 IoU 0.8 미만, 한쪽에 빛 번짐 선이 섞이거나 귀퉁이가 깎임) 평균하지 않고
+            // 더 반듯한 쪽(볼록 껍질을 더 꽉 채우고, 같으면 꼭짓점이 적은 쪽)을 기준으로 다른 쪽을 거울상으로 바꾼다
+            if (b.length != a.length || iou(a, mirror(b, axis)) < 0.8) {
+                int[][] base = tidier(a, b) ? a : b;
                 polys.set(base == a ? j : i, mirror(base, axis));
                 done[i] = true;
                 done[j] = true;
@@ -235,24 +244,38 @@ final class ShapeRegularizer {
         }
     }
 
-    /** 조각마다 거울 위치(축 기준)에 있고 넓이가 비슷한(0.75~1.33배) 가장 가까운 조각의 번호(없으면 -1). 서로 짝일 때만 남긴다. */
+    /** a 가 b 보다 반듯하다: 볼록 껍질을 채운 비율이 5%p 넘게 높거나, 비슷하면 꼭짓점이 적다(같으면 a). */
+    private static boolean tidier(int[][] a, int[][] b) {
+        double fa = Math.abs(area(a)) / Math.max(1, Math.abs(area(hull(a)))), fb = Math.abs(area(b)) / Math.max(1, Math.abs(area(hull(b))));
+        if (Math.abs(fa - fb) > 0.05) {
+            return fa > fb;
+        }
+        return a.length <= b.length;
+    }
+
+    /**
+     * 조각마다 축 기준 거울상이 가장 많이 겹치는(IoU 0.35 이상) 조각의 번호(없으면 -1). 서로 짝일 때만 남긴다. 중심 거리 대신 겹침으로 짝을 찾아서,
+     * 한쪽에 빛 번짐 선이 섞여 중심이 밀린 조각(고척돔 F11)도 반대편 짝(F10)을 찾는다.
+     */
     private static int[] pair(List<int[][]> polys, double axis) {
         int n = polys.size();
+        int[][] boxes = new int[n][];
+        for (int i = 0; i < n; i++) {
+            boxes[i] = boxOf(polys.get(i));
+        }
         int[] best = new int[n];
         for (int i = 0; i < n; i++) {
             best[i] = -1;
-            double[] c = centroid(polys.get(i));
-            double ai = Math.abs(area(polys.get(i)));
-            double bestD = 25;
+            int[][] m = null;
+            double bestIou = 0.35;
             for (int j = 0; j < n; j++) {
-                if (j == i) {
-                    continue;
+                int mx0 = (int) Math.round(2 * axis - boxes[j][2]), mx1 = (int) Math.round(2 * axis - boxes[j][0]);
+                if (j == i || mx1 < boxes[i][0] || mx0 > boxes[i][2] || boxes[j][3] < boxes[i][1] || boxes[j][1] > boxes[i][3]) {
+                    continue; // 거울 상자가 겹치지 않으면 넘긴다
                 }
-                double[] d = centroid(polys.get(j));
-                double aj = Math.abs(area(polys.get(j)));
-                double dist = Math.hypot(2 * axis - c[0] - d[0], c[1] - d[1]);
-                if (dist < bestD && aj >= ai * 0.75 && aj <= ai * 1.33) {
-                    bestD = dist;
+                double v = iou(polys.get(i), mirror(polys.get(j), axis));
+                if (v > bestIou) {
+                    bestIou = v;
                     best[i] = j;
                 }
             }
@@ -263,6 +286,17 @@ final class ShapeRegularizer {
             }
         }
         return best;
+    }
+
+    private static int[] boxOf(int[][] p) {
+        int[] b = {Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MIN_VALUE, Integer.MIN_VALUE};
+        for (int[] v : p) {
+            b[0] = Math.min(b[0], v[0]);
+            b[1] = Math.min(b[1], v[1]);
+            b[2] = Math.max(b[2], v[0]);
+            b[3] = Math.max(b[3], v[1]);
+        }
+        return b;
     }
 
     private static int[][] mirror(int[][] p, double axis) {

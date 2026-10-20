@@ -378,6 +378,7 @@ public class DetailExtractionService {
             // nonSeatSegments 는 점검용 기록이다(AI가 구역에 연결한 번호가 우선하며, 무대 같은 큰 구조물은 아래 넓이 검사가 거른다)
             List<DetailExtractor.RawLabel> labels = canonicalLabels(attachOrphans(result, seg), names);
             labels = verifySuspects(labels, seg, target, names);
+            writeFinalDebug(seg, labels);
             List<DetailExtractor.RawZone> zones = dropOutliers(shapesFromLabels(labels, seg));
             log.info("AI 번호 방식: 도형 후보 {}개, 연결된 구역 {}개 / 이름 {}개", seg.segments().size(), zones.size(), names.size());
             if (validShapeRatio(extendNames(names, zones), zones) < 0.3) {
@@ -727,32 +728,60 @@ public class DetailExtractionService {
         boolean changed = true;
         while (changed) {
             changed = false;
+            Map<String, Integer> zoneArea = new LinkedHashMap<>(); // 붙을 띠가 이웃 띠보다 커도, 그 띠가 속한 구역 전체보다 작으면 된다(휠체어석 막대 옆의 더 넓은 띠)
+            taken.forEach((id, zone) -> {
+                if (byId.containsKey(id)) {
+                    zoneArea.merge(zone, byId.get(id).area(), Integer::sum);
+                }
+            });
+            // 비교 대상: 구역에 붙은 조각 하나하나와, 서로 맞닿은 조각을 묶은 구역 블록(분홍 삼각형+파란 조각으로 갈라진 화정체육관 J)
+            List<Neighbor> cands = new ArrayList<>();
+            taken.forEach((id, zone) -> {
+                ShapeSegmenter.Segment q = byId.get(id);
+                if (q != null) {
+                    cands.add(new Neighbor(zone, box(q), q.area(), q.sat()));
+                }
+            });
+            cands.addAll(zoneBlocks(byId, taken));
             for (ShapeSegmenter.Segment o : byId.values()) {
-                if (taken.containsKey(o.id()) || !strip(o, 2.2)) { // 비스듬히 잘린 띠(I·F 옆)는 상자 비율이 2.5보다 조금 작다
+                // 비스듬히 잘린 띠(I·F 옆)는 상자 비율이 2.5보다 조금 작다. 블록 바로 앞의 납작한 앞줄 조각(화정체육관 M·B 앞 사다리꼴)도 본다
+                boolean isStrip = strip(o, 2.2);
+                if (taken.containsKey(o.id()) || (!isStrip && !flatFront(o))) {
                     continue;
                 }
                 int[] a = box(o);
                 int along = Math.max(a[2] - a[0], a[3] - a[1]) + 1;
                 String bestZone = null;
                 int bestGap = Integer.MAX_VALUE;
-                for (Map.Entry<Integer, String> e : taken.entrySet()) {
-                    ShapeSegmenter.Segment q = byId.get(e.getKey());
-                    if (q == null || o.area() > q.area() * 1.2) {
+                double bestCover = -1;
+                for (Neighbor q : cands) {
+                    if (o.area() > zoneArea.getOrDefault(q.zone(), q.area()) * 1.2) {
                         continue;
                     }
-                    int[] b = box(q);
+                    int[] b = q.box();
                     int gx = Math.max(0, Math.max(b[0] - a[2], a[0] - b[2]));
                     int gy = Math.max(0, Math.max(b[1] - a[3], a[1] - b[3]));
-                    boolean vertical = a[3] - a[1] >= a[2] - a[0];
+                    boolean vertical = isStrip && a[3] - a[1] >= a[2] - a[0];
                     // 세로 띠는 옆(x 간격)에, 가로 띠는 위아래(y 간격)에 있어야 하고 긴 변 방향으로 겹쳐야 한다
                     int g = vertical ? gx : gy;
                     int overlap = vertical ? Math.min(a[3], b[3]) - Math.max(a[1], b[1]) : Math.min(a[2], b[2]) - Math.max(a[0], b[0]);
-                    if ((vertical ? gy : gx) > 0 || overlap < 0.8 * along) {
+                    if ((vertical ? gy : gx) > 0 || overlap < (isStrip ? 0.8 : 0.95) * along) {
                         continue;
                     }
-                    if (g <= Math.max(shortSide(o), 0.3 * shortSide(q)) && g < bestGap) {
+                    if (!isStrip && (o.area() > q.area() * 0.5 || Math.abs(o.sat() - q.sat()) > 0.25)) {
+                        continue; // 앞줄 조각은 블록보다 훨씬 작고 같은 색 계열이어야 한다
+                    }
+                    int qShort = Math.min(b[2] - b[0], b[3] - b[1]) + 1;
+                    if (g > Math.max(shortSide(o), 0.3 * qShort)) {
+                        continue;
+                    }
+                    // 띠가 마주 보는 변을 얼마나 덮는지로 고른다(J 옆 띠는 J의 변을 다 덮고 F1의 긴 변은 40%만 덮는다). 비슷하면 가까운 쪽
+                    int side = (vertical ? b[3] - b[1] : b[2] - b[0]) + 1;
+                    double cover = Math.min(1.0, (double) overlap / side);
+                    if (cover > bestCover + 0.15 || (cover > bestCover - 0.15 && g < bestGap)) {
+                        bestCover = Math.max(bestCover, cover);
                         bestGap = g;
-                        bestZone = e.getValue();
+                        bestZone = q.zone();
                     }
                 }
                 if (bestZone != null) {
@@ -762,6 +791,51 @@ public class DetailExtractionService {
                 }
             }
         }
+    }
+
+    /** 띠를 붙일 이웃 후보: 구역 이름, 경계 상자, 넓이, 채도. */
+    private record Neighbor(String zone, int[] box, int area, double sat) {}
+
+    /** 구역마다 가장 큰 조각과 상자가 맞닿은(간격 2 이하) 조각들을 묶은 블록. 조각이 하나뿐인 구역은 빼고(조각 후보와 같다) 채도는 가장 큰 조각의 것. */
+    private static List<Neighbor> zoneBlocks(Map<Integer, ShapeSegmenter.Segment> byId, Map<Integer, String> taken) {
+        Map<String, List<ShapeSegmenter.Segment>> byZone = new LinkedHashMap<>();
+        taken.forEach((id, zone) -> {
+            if (byId.containsKey(id)) {
+                byZone.computeIfAbsent(zone, k -> new ArrayList<>()).add(byId.get(id));
+            }
+        });
+        List<Neighbor> out = new ArrayList<>();
+        byZone.forEach((zone, segs) -> {
+            if (segs.size() < 2) {
+                return;
+            }
+            ShapeSegmenter.Segment main = segs.stream().max(java.util.Comparator.comparingInt(ShapeSegmenter.Segment::area)).orElseThrow();
+            int[] u = box(main).clone();
+            int area = 0, parts = 0;
+            for (ShapeSegmenter.Segment q : segs) {
+                int[] b = box(q), m = box(main);
+                if (Math.max(Math.max(0, Math.max(b[0] - m[2], m[0] - b[2])), Math.max(0, Math.max(b[1] - m[3], m[1] - b[3]))) <= 2) {
+                    u = new int[]{Math.min(u[0], b[0]), Math.min(u[1], b[1]), Math.max(u[2], b[2]), Math.max(u[3], b[3])};
+                    area += q.area();
+                    parts++;
+                }
+            }
+            if (parts >= 2) {
+                out.add(new Neighbor(zone, u, area, main.sat()));
+            }
+        });
+        return out;
+    }
+
+    private static int boxArea(ShapeSegmenter.Segment s) {
+        int[] b = box(s);
+        return (b[2] - b[0] + 1) * (b[3] - b[1] + 1);
+    }
+
+    /** 가로가 세로의 1.4배 이상인 납작한 조각(블록 앞줄). */
+    private static boolean flatFront(ShapeSegmenter.Segment s) {
+        int[] b = box(s);
+        return b[2] - b[0] + 1 >= 1.4 * (b[3] - b[1] + 1);
     }
 
     /** 경계 상자의 긴 변이 짧은 변의 2.5배 이상인 좁은 띠. */
@@ -851,7 +925,8 @@ public class DetailExtractionService {
                     continue; // 비었거나 무대 표기면 처음 읽은 이름(또는 좌석 아님)을 유지
                 }
                 String k = keyOf(t);
-                if (k != null && !k.isEmpty() && (known.contains(k) || looksLikeZoneCode(t)) && !t.equals(owner.get(e.getKey()))) {
+                if (k != null && !k.isEmpty() && (known.contains(k) || looksLikeZoneCode(t)) && !t.equals(owner.get(e.getKey()))
+                        && !farFromZone(byId.get(e.getKey()), k, owner, byId)) {
                     owner.put(e.getKey(), t);
                     changed++;
                 }
@@ -867,6 +942,28 @@ public class DetailExtractionService {
             raw.add(new DetailExtractor.RawLabel(e.getKey(), e.getValue()));
         }
         return canonicalLabels(raw, names);
+    }
+
+    /**
+     * 도형을 타일에서 읽은 이름 k 로 바꾸려 할 때, 그 구역의 기존 조각이 있는데 모두 8px 넘게 떨어져 있으면 true. 글자 없는 띠의 확대 타일
+     * 가장자리에 옆 구역 글자가 걸려 그 이름으로 읽힌 것이다(화정체육관 J 옆 띠가 F1로 읽힘). 이런 띠는 앞쪽 띠 규칙이 맞는 블록에 붙인다.
+     */
+    private static boolean farFromZone(ShapeSegmenter.Segment s, String k, Map<Integer, String> owner, Map<Integer, ShapeSegmenter.Segment> byId) {
+        if (s == null) {
+            return false;
+        }
+        boolean any = false;
+        for (Map.Entry<Integer, String> o : owner.entrySet()) {
+            ShapeSegmenter.Segment q = byId.get(o.getKey());
+            if (q == null || !k.equals(keyOf(o.getValue()))) {
+                continue;
+            }
+            any = true;
+            if (gap(s, q) <= 8) {
+                return false;
+            }
+        }
+        return any;
     }
 
     /** 같은 질문을 병렬로 이 횟수만큼 보내 도형마다 다수결로 구역을 정한다(AI 답이 실행마다 조금씩 흔들리는 것을 줄인다). */
@@ -1036,6 +1133,36 @@ public class DetailExtractionService {
         }
     }
 
+    /** 점검용: 후처리(회색 빼고 다시 나누기·이웃 붙이기·타일 다시 읽기)가 끝난 도형 윤곽과 구역별 번호를 final.json 에 남긴다. */
+    private void writeFinalDebug(ShapeSegmenter.Result seg, List<DetailExtractor.RawLabel> labels) {
+        String dir = properties.getDebugDir();
+        if (dir == null || dir.isBlank()) {
+            return;
+        }
+        try {
+            StringBuilder sb = new StringBuilder("{\"segments\":{");
+            boolean first = true;
+            for (ShapeSegmenter.Segment s : seg.segments()) {
+                sb.append(first ? "" : ",").append('"').append(s.id()).append("\":[");
+                for (int i = 0; i < s.pixels().size(); i++) {
+                    sb.append(i == 0 ? "" : ",").append('[').append(s.pixels().get(i)[0]).append(',').append(s.pixels().get(i)[1]).append(']');
+                }
+                sb.append(']');
+                first = false;
+            }
+            sb.append("},\"zones\":{");
+            first = true;
+            for (DetailExtractor.RawLabel l : labels) {
+                sb.append(first ? "" : ",").append('"').append(l.name().replace("\"", "")).append("\":").append(l.segmentIds());
+                first = false;
+            }
+            sb.append("}}");
+            java.nio.file.Files.writeString(java.nio.file.Path.of(dir).resolve("final.json"), sb.toString());
+        } catch (java.io.IOException | RuntimeException e) {
+            log.info("AI 디버그 저장 실패: {}", e.getClass().getSimpleName());
+        }
+    }
+
     private static double polygonArea(List<List<Integer>> p) {
         double a = 0;
         for (int i = 0; i < p.size(); i++) {
@@ -1087,6 +1214,10 @@ public class DetailExtractionService {
                 if (main == null && colorfulMap && s.sat() < 0.2 && s.area() > linkedMedian * 2) {
                     continue;
                 }
+                // 경계 상자의 35%도 못 채우는 가는 선 모양 조각(고척돔 무대 둘레의 빛 번짐 선이 옆 블록 이름으로 읽힘)은 블록이 있는 구역에 더하지 않는다
+                if (main != null && s != main && (ShapeSegmenter.loose(s) || s.area() < 0.35 * boxArea(s))) {
+                    continue;
+                }
                 List<List<Integer>> poly = new ArrayList<>();
                 for (int[] pt : s.pixels()) {
                     int x = (int) Math.max(0, Math.min(1000, Math.round(pt[0] * 1000.0 / Math.max(1, seg.width() - 1))));
@@ -1103,13 +1234,50 @@ public class DetailExtractionService {
     }
 
     /**
-     * 한 구역이 색으로 갈라진 조각들(예: VIP 부분 + 일반석 부분)이면 틈 없는 하나의 매끄러운 블록으로 합친다:
-     * 조각들의 볼록 껍질 넓이가 조각 넓이 합의 1.6배 이하(조각들이 서로 붙어 한 블록을 이룸, 숫자 원이 가운데를 가르는 경우 포함)일 때만, 아니면 그대로 둔다.
+     * 한 구역이 색으로 갈라진 조각들(예: VIP 부분 + 일반석 부분, 화정체육관 J의 분홍 삼각형 + 파란 부분)을 틈 없는 하나의 블록으로 합친다:
+     * 서로 맞닿은 조각 묶음마다, 볼록 껍질 넓이가 조각 넓이 합의 1.6배 이하(한 블록을 이룸)이면 조각들을 합친 외곽선(색 경계 틈은 메우고 블록의 홈은
+     * 남긴다)으로 바꾼다. 틈을 두고 떨어진 조각(블록 옆·앞 띠)은 따로 둔다(사용자 검수: 띠는 블록과 별도 조각).
      */
     static List<List<List<Integer>>> joinParts(List<List<List<Integer>>> polys) {
         if (polys.size() < 2) {
             return polys;
         }
+        int n = polys.size();
+        int[] group = new int[n];
+        java.util.Arrays.fill(group, -1);
+        int groups = 0;
+        for (int i = 0; i < n; i++) {
+            if (group[i] >= 0) {
+                continue;
+            }
+            group[i] = groups;
+            java.util.ArrayDeque<Integer> queue = new java.util.ArrayDeque<>(List.of(i));
+            while (!queue.isEmpty()) {
+                int a = queue.poll();
+                for (int b = 0; b < n; b++) {
+                    if (group[b] < 0 && boxGap(polys.get(a), polys.get(b)) <= 12) {
+                        group[b] = groups;
+                        queue.add(b);
+                    }
+                }
+            }
+            groups++;
+        }
+        List<List<List<Integer>>> out = new ArrayList<>();
+        for (int g = 0; g < groups; g++) {
+            List<List<List<Integer>>> part = new ArrayList<>();
+            for (int i = 0; i < n; i++) {
+                if (group[i] == g) {
+                    part.add(polys.get(i));
+                }
+            }
+            out.addAll(part.size() < 2 ? part : joinTouching(part));
+        }
+        return out;
+    }
+
+    /** 맞닿은 조각 묶음을 한 블록으로 합친다(한 블록답지 않으면 그대로 돌려준다). */
+    private static List<List<List<Integer>>> joinTouching(List<List<List<Integer>>> polys) {
         List<int[]> pts = new ArrayList<>();
         double sum = 0;
         for (List<List<Integer>> p : polys) {
@@ -1119,14 +1287,96 @@ public class DetailExtractionService {
             }
         }
         List<int[]> hull = ShapeSegmenter.convexHull(pts);
-        if (hull.size() < 3 || hull.size() > 40 || !touching(polys)) {
-            return polys; // 틈을 두고 떨어진 조각(블록 앞 띠)은 따로 둔다(사용자 검수: 띠는 블록과 별도 조각)
+        if (hull.size() < 3 || polygonArea(toList(hull)) > sum * 1.6) {
+            return polys;
         }
-        List<List<Integer>> joined = new ArrayList<>();
-        for (int[] p : hull) {
-            joined.add(List.of(p[0], p[1]));
+        List<List<Integer>> union = unionOutline(polys);
+        if (union != null) {
+            return List.of(union);
         }
-        return polygonArea(joined) <= sum * 1.6 ? List.of(joined) : polys;
+        // 합집합이 갈라지면(블록과 틈을 둔 앞줄 조각) 따로 두되, 상자가 서로 겹치는 조각들(숫자 원이 가른 블록)은 볼록 껍질로 합친다
+        for (int i = 0; i < polys.size(); i++) {
+            for (int j = i + 1; j < polys.size(); j++) {
+                if (boxGap(polys.get(i), polys.get(j)) > 3) {
+                    return polys;
+                }
+            }
+        }
+        return List.of(toList(hull));
+    }
+
+    /**
+     * 조각들의 합집합 외곽선. 색 경계의 얇은 틈은 조각마다 테두리를 1.5(0~1000 좌표)씩 덧칠해 메우고(흰 선으로 나뉜 앞줄 띠는 이어지지 않는다), 바깥 외곽선(가장 넓은 고리)만 꼭짓점 40개 이하로 줄여 쓴다.
+     * 합집합이 두 덩어리 이상으로 갈리면 null.
+     */
+    static List<List<Integer>> unionOutline(List<List<List<Integer>>> polys) {
+        java.awt.geom.Area area = new java.awt.geom.Area();
+        java.awt.BasicStroke edge = new java.awt.BasicStroke(3f, java.awt.BasicStroke.CAP_SQUARE, java.awt.BasicStroke.JOIN_MITER);
+        double total = 0;
+        for (List<List<Integer>> p : polys) {
+            java.awt.geom.Path2D.Double path = new java.awt.geom.Path2D.Double();
+            for (int i = 0; i < p.size(); i++) {
+                if (i == 0) {
+                    path.moveTo(p.get(i).get(0), p.get(i).get(1));
+                } else {
+                    path.lineTo(p.get(i).get(0), p.get(i).get(1));
+                }
+            }
+            path.closePath();
+            area.add(new java.awt.geom.Area(path));
+            area.add(new java.awt.geom.Area(edge.createStrokedShape(path)));
+            total += polygonArea(p);
+        }
+        List<List<int[]>> rings = new ArrayList<>();
+        List<int[]> cur = new ArrayList<>();
+        double[] c = new double[6];
+        for (java.awt.geom.PathIterator it = area.getPathIterator(null, 0.5); !it.isDone(); it.next()) {
+            int t = it.currentSegment(c);
+            if (t == java.awt.geom.PathIterator.SEG_MOVETO) {
+                cur = new ArrayList<>();
+                rings.add(cur);
+            }
+            if (t != java.awt.geom.PathIterator.SEG_CLOSE) {
+                cur.add(new int[]{(int) Math.round(c[0]), (int) Math.round(c[1])});
+            }
+        }
+        List<int[]> best = null;
+        double bestArea = 0;
+        for (List<int[]> r : rings) {
+            double a = Math.abs(ShapeSegmenter.shoelaceArea(r));
+            if (a > bestArea) {
+                bestArea = a;
+                best = r;
+            }
+        }
+        if (best == null || best.size() < 3 || bestArea < 0.85 * total) {
+            return null;
+        }
+        java.awt.Polygon outer = new java.awt.Polygon();
+        best.forEach(pt -> outer.addPoint(pt[0], pt[1]));
+        for (List<int[]> r : rings) { // 바깥 고리 밖에 다른 고리가 있으면 두 덩어리다(안쪽 고리는 블록의 구멍)
+            if (r != best && Math.abs(ShapeSegmenter.shoelaceArea(r)) > 0.02 * total && !outer.contains(r.get(0)[0], r.get(0)[1])) {
+                return null;
+            }
+        }
+        List<int[]> simple = ShapeSegmenter.simplify(best);
+        if (simple.size() < 3) {
+            return null;
+        }
+        List<List<Integer>> out = toList(simple);
+        for (List<Integer> pt : out) {
+            pt.set(0, Math.max(0, Math.min(1000, pt.get(0))));
+            pt.set(1, Math.max(0, Math.min(1000, pt.get(1))));
+        }
+        return out;
+    }
+
+    private static List<List<Integer>> toList(List<int[]> pts) {
+        List<List<Integer>> out = new ArrayList<>();
+        for (int[] p : pts) {
+            out.add(new ArrayList<>(List.of(p[0], p[1])));
+        }
+        return out;
     }
 
     /**
@@ -1172,41 +1422,6 @@ public class DetailExtractionService {
             y1 = Math.max(y1, pt.get(1));
         }
         return new int[]{x0, y0, x1, y1};
-    }
-
-    /** 모든 조각이 경계 상자 간격 12 이하(0~1000 좌표, 색 경계나 숫자 원이 가르는 정도)로 서로 이어져 있다. */
-    private static boolean touching(List<List<List<Integer>>> polys) {
-        int n = polys.size();
-        int[][] b = new int[n][];
-        for (int i = 0; i < n; i++) {
-            int x0 = 1000, y0 = 1000, x1 = 0, y1 = 0;
-            for (List<Integer> pt : polys.get(i)) {
-                x0 = Math.min(x0, pt.get(0));
-                y0 = Math.min(y0, pt.get(1));
-                x1 = Math.max(x1, pt.get(0));
-                y1 = Math.max(y1, pt.get(1));
-            }
-            b[i] = new int[]{x0, y0, x1, y1};
-        }
-        boolean[] reached = new boolean[n];
-        java.util.ArrayDeque<Integer> queue = new java.util.ArrayDeque<>(List.of(0));
-        reached[0] = true;
-        while (!queue.isEmpty()) {
-            int i = queue.poll();
-            for (int j = 0; j < n; j++) {
-                int g = Math.max(Math.max(0, Math.max(b[j][0] - b[i][2], b[i][0] - b[j][2])), Math.max(0, Math.max(b[j][1] - b[i][3], b[i][1] - b[j][3])));
-                if (!reached[j] && g <= 12) {
-                    reached[j] = true;
-                    queue.add(j);
-                }
-            }
-        }
-        for (boolean r : reached) {
-            if (!r) {
-                return false;
-            }
-        }
-        return true;
     }
 
     private Response build(List<SessionDto> rule, List<SessionDto> ai, List<ZoneDto> zones, Double aspect,

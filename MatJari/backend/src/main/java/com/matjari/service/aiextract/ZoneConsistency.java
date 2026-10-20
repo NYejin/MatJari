@@ -37,12 +37,16 @@ final class ZoneConsistency {
     /** 범례 칩 하나: 경계 상자와 평균 색. */
     record Chip(int x0, int y0, int x1, int y1, int rgb) {}
 
-    static List<DetailExtractor.RawLabel> check(List<DetailExtractor.RawLabel> labels, ShapeSegmenter.Result seg, byte[] jpeg,
-                                                List<String> names, Map<Integer, String> reread, DetailExtractor extractor) {
+    /** 점검 결과: 고친 구역 연결과, 되살린 조각을 더한 도형 목록. */
+    record Checked(List<DetailExtractor.RawLabel> labels, ShapeSegmenter.Result seg) {}
+
+    static Checked check(List<DetailExtractor.RawLabel> labels, ShapeSegmenter.Result seg, byte[] jpeg,
+                         List<String> names, Map<Integer, String> reread, DetailExtractor extractor) {
+        Checked unchanged = new Checked(labels, seg);
         try {
             BufferedImage img = ImageIO.read(new ByteArrayInputStream(jpeg));
             if (img == null) {
-                return labels;
+                return unchanged;
             }
             Map<Integer, ShapeSegmenter.Segment> byId = new LinkedHashMap<>();
             seg.segments().forEach(s -> byId.put(s.id(), s));
@@ -53,24 +57,29 @@ final class ZoneConsistency {
 
             List<ShapeSegmenter.Segment> owned = owned(zones, byId);
             if (owned.size() < 3) {
-                return labels;
+                return unchanged;
             }
             List<Chip> chips = legendChips(img, owned);
+            log.info("범례 칩 {}개", chips.size());
             if (chips.size() >= 2) {
-                dropOffLegend(zones, byId, color, chips, reread);
+                dropOffLegend(zones, byId, color, chips, reread, img);
                 addMissingLegendColors(zones, byId, color, chips, img, extractor);
             }
             addMirrorZones(zones, byId, img, jpeg, names, extractor);
+            if (chips.size() >= 2) {
+                refillDented(zones, byId, color, chips, img);
+            }
             List<DetailExtractor.RawLabel> out = new ArrayList<>();
             zones.forEach((k, v) -> {
                 if (!v.isEmpty()) {
                     out.add(new DetailExtractor.RawLabel(k, v));
                 }
             });
-            return out;
+            ShapeSegmenter.Result grown = new ShapeSegmenter.Result(seg.width(), seg.height(), List.copyOf(byId.values()), seg.annotatedJpeg(), seg.tilesJpeg());
+            return new Checked(out, grown);
         } catch (IOException | RuntimeException e) {
             log.info("구역 점검 실패, 원래 결과 사용: {}", e.getClass().getSimpleName());
-            return labels;
+            return unchanged;
         }
     }
 
@@ -91,7 +100,7 @@ final class ZoneConsistency {
 
     /** 범례에 없는 색의 구역은 타일 재판독에서 그 구역 이름이 한 번도 읽히지 않았으면 뺀다(글자가 실제로 쓰여 있는 회색 블록은 남는다). */
     private static void dropOffLegend(Map<String, List<Integer>> zones, Map<Integer, ShapeSegmenter.Segment> byId, Map<Integer, Integer> color,
-                                      List<Chip> chips, Map<Integer, String> reread) {
+                                      List<Chip> chips, Map<Integer, String> reread, BufferedImage img) {
         for (Map.Entry<String, List<Integer>> z : zones.entrySet()) {
             boolean inLegend = false, confirmed = false;
             String key = DetailExtractionService.keyOf(z.getKey());
@@ -106,8 +115,276 @@ final class ZoneConsistency {
             if (!inLegend && !confirmed) {
                 log.info("범례에 없는 색이고 글자도 다시 읽히지 않은 구역 제외: {}", z.getKey());
                 z.getValue().clear();
+            } else if (inLegend) {
+                // 범례 색 조각이 있는 구역에 섞인 범례 밖 색 조각(고척돔 회색 통로·단이 T15·T04에 붙음)은 뺀다
+                List<Integer> removed = new ArrayList<>();
+                z.getValue().removeIf(id -> {
+                    boolean off = byId.containsKey(id) && chips.stream().noneMatch(c -> dist(c.rgb(), color.get(id)) < SAME_COLOR);
+                    if (off) {
+                        removed.add(id);
+                    }
+                    return off;
+                });
+                // 뺀 덩어리 안에 그 구역 색 픽셀이 이어져 있으면(분할 때 블록 일부가 통로와 한 덩어리로 묶임) 그 픽셀만 모아 구역 조각으로 되살린다
+                ShapeSegmenter.Segment main = z.getValue().stream().map(byId::get).filter(java.util.Objects::nonNull)
+                        .max(java.util.Comparator.comparingInt(ShapeSegmenter.Segment::area)).orElse(null);
+                if (!removed.isEmpty() && main != null) {
+                    int nextId = byId.keySet().stream().mapToInt(Integer::intValue).max().orElse(0) + 1;
+                    ShapeSegmenter.Segment grown = regrow(img, removed, byId, main, color.get(main.id()), nextId);
+                    if (grown != null) {
+                        byId.put(grown.id(), grown);
+                        color.put(grown.id(), color.get(main.id()));
+                        z.getValue().add(grown.id());
+                        log.info("{}: 범례 밖 색 덩어리 안의 같은 색 부분을 되살림({}픽셀)", z.getKey(), grown.area());
+                    }
+                }
             }
         }
+    }
+
+    /**
+     * 큰 흰 글자가 블록을 갈라 외곽선이 글자 둘레로 크게 파인 조각(볼록 껍질이 외곽선 넓이의 1.3배 초과, 고척돔 T15)은, 조각 안의 구역 색 픽셀에서 시작해
+     * 같은 색으로 이어진 픽셀을 채워(다른 구역 조각 안과 칸 사이 어두운 선에서 멈춤) 실제 블록 외곽선으로 바꾼다. 원래 넓이의 2.5배를 넘게 번지면 그대로 둔다.
+     */
+    private static void refillDented(Map<String, List<Integer>> zones, Map<Integer, ShapeSegmenter.Segment> byId, Map<Integer, Integer> color,
+                                     List<Chip> chips, BufferedImage img) {
+        Map<Integer, Polygon> polys = new HashMap<>();
+        zones.values().forEach(ids -> ids.forEach(id -> {
+            if (byId.containsKey(id)) {
+                polys.put(id, poly(byId.get(id).pixels(), 0, false));
+            }
+        }));
+        int w = img.getWidth(), h = img.getHeight();
+        for (List<Integer> ids : zones.values()) {
+            for (int i = 0; i < ids.size(); i++) {
+                int id = ids.get(i);
+                ShapeSegmenter.Segment s = byId.get(id);
+                if (s == null || chips.stream().noneMatch(c -> dist(c.rgb(), color.get(id)) < SAME_COLOR)) {
+                    continue;
+                }
+                double outline = Math.abs(ShapeSegmenter.shoelaceArea(s.pixels())), hull = Math.abs(ShapeSegmenter.shoelaceArea(ShapeSegmenter.convexHull(s.pixels())));
+                if (outline <= 0 || hull <= outline * 1.3) {
+                    continue;
+                }
+                int zc = color.get(id);
+                Polygon own = polys.get(id);
+                java.awt.Rectangle ob = own.getBounds();
+                int pad = Math.max(ob.width, ob.height);
+                java.awt.Rectangle bounds = new java.awt.Rectangle(ob.x - pad, ob.y - pad, ob.width + 2 * pad, ob.height + 2 * pad)
+                        .intersection(new java.awt.Rectangle(0, 0, w, h));
+                int bw = bounds.width, bh = bounds.height;
+                boolean[] keep = new boolean[bw * bh];
+                ArrayDeque<Integer> q = new ArrayDeque<>();
+                for (int y = 0; y < bh; y++) {
+                    for (int x = 0; x < bw; x++) {
+                        int gx = bounds.x + x, gy = bounds.y + y;
+                        if (own.contains(gx, gy) && dist(img.getRGB(gx, gy), zc) < 60) {
+                            keep[y * bw + x] = true;
+                            q.add(y * bw + x);
+                        }
+                    }
+                }
+                int count = q.size(), limit = (int) (Math.max(s.area(), outline) * 2.5);
+                int[][] nb = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+                while (!q.isEmpty() && count <= limit) {
+                    int k = q.poll();
+                    int x = k % bw, y = k / bw;
+                    for (int[] d : nb) {
+                        int nx = x + d[0], ny = y + d[1];
+                        if (nx < 0 || nx >= bw || ny < 0 || ny >= bh || keep[ny * bw + nx]) {
+                            continue;
+                        }
+                        int gx = bounds.x + nx, gy = bounds.y + ny;
+                        if (dist(img.getRGB(gx, gy), zc) >= 60 || polys.entrySet().stream().anyMatch(e -> e.getKey() != id && e.getValue().contains(gx, gy))) {
+                            continue;
+                        }
+                        keep[ny * bw + nx] = true;
+                        q.add(ny * bw + nx);
+                        count++;
+                    }
+                }
+                if (count > limit) {
+                    continue; // 이웃 블록으로 번졌다
+                }
+                ShapeSegmenter.Segment filled = outlineSegment(keep, bounds, zc, id);
+                if (filled != null && Math.abs(ShapeSegmenter.shoelaceArea(filled.pixels())) > outline * 1.25) { // 원래 오목한 블록(원형 무대를 따라 파인 F1)은 다시 채워도 거의 그대로라 바꾸지 않는다
+                    log.info("글자로 파인 조각을 같은 색으로 다시 채움: 조각 {} 넓이 {} → {}", id, (int) outline, filled.area());
+                    byId.put(id, filled);
+                    polys.put(id, poly(filled.pixels(), 0, false));
+                }
+            }
+        }
+    }
+
+    /** 픽셀 마스크의 합집합 외곽선(흰 글자 구멍은 테두리 3px 덧칠로 메움)에서 가장 넓은 고리로 조각을 만든다. */
+    private static ShapeSegmenter.Segment outlineSegment(boolean[] keep, java.awt.Rectangle bounds, int zoneColor, int id) {
+        int bw = bounds.width, bh = bounds.height, total = 0;
+        java.awt.geom.Area area = new java.awt.geom.Area();
+        long sx = 0, sy = 0;
+        for (int y = 0; y < bh; y++) {
+            int x = 0;
+            while (x < bw) {
+                if (!keep[y * bw + x]) {
+                    x++;
+                    continue;
+                }
+                int x0 = x;
+                while (x < bw && keep[y * bw + x]) {
+                    sx += bounds.x + x;
+                    sy += bounds.y + y;
+                    total++;
+                    x++;
+                }
+                area.add(new java.awt.geom.Area(new java.awt.Rectangle(bounds.x + x0, bounds.y + y, x - x0, 1)));
+            }
+        }
+        if (total == 0) {
+            return null;
+        }
+        area.add(new java.awt.geom.Area(new java.awt.BasicStroke(3f).createStrokedShape(area)));
+        List<int[]> best = null;
+        double bestArea = 0;
+        List<List<int[]>> rings = new ArrayList<>();
+        List<int[]> cur = new ArrayList<>();
+        double[] c = new double[6];
+        for (java.awt.geom.PathIterator it = area.getPathIterator(null, 0.5); !it.isDone(); it.next()) {
+            int t = it.currentSegment(c);
+            if (t == java.awt.geom.PathIterator.SEG_MOVETO) {
+                cur = new ArrayList<>();
+                rings.add(cur);
+            }
+            if (t != java.awt.geom.PathIterator.SEG_CLOSE) {
+                cur.add(new int[]{(int) Math.round(c[0]), (int) Math.round(c[1])});
+            }
+        }
+        for (List<int[]> r : rings) {
+            double a = Math.abs(ShapeSegmenter.shoelaceArea(r));
+            if (a > bestArea) {
+                bestArea = a;
+                best = r;
+            }
+        }
+        if (best == null || best.size() < 3) {
+            return null;
+        }
+        List<int[]> outline = ShapeSegmenter.simplify(best);
+        int r = (zoneColor >> 16) & 255, g = (zoneColor >> 8) & 255, b = zoneColor & 255;
+        int mx = Math.max(r, Math.max(g, b)), mn = Math.min(r, Math.min(g, b));
+        return new ShapeSegmenter.Segment(id, outline, total, (int) (sx / total), (int) (sy / total), mx == 0 ? 0 : (double) (mx - mn) / mx, mx);
+    }
+
+    /**
+     * 뺀 조각들 안에서 구역 색(RGB 거리 60 이내) 픽셀을 모아, 대표 조각과 4px 안으로 맞닿고 대표 조각 넓이의 15% 이상인 덩어리를 하나의 조각으로 만든다.
+     * 외곽선은 픽셀 줄들의 합집합(흰 글자 구멍은 테두리 덧칠로 메움)에서 가장 넓은 고리다. 없으면 null.
+     */
+    private static ShapeSegmenter.Segment regrow(BufferedImage img, List<Integer> removed, Map<Integer, ShapeSegmenter.Segment> byId,
+                                                 ShapeSegmenter.Segment main, int zoneColor, int id) {
+        List<Polygon> region = new ArrayList<>();
+        java.awt.Rectangle bounds = null;
+        for (Integer r : removed) {
+            Polygon p = poly(byId.get(r).pixels(), 0, false);
+            region.add(p);
+            bounds = bounds == null ? p.getBounds() : bounds.union(p.getBounds());
+        }
+        bounds = bounds.intersection(new java.awt.Rectangle(0, 0, img.getWidth(), img.getHeight()));
+        int bw = bounds.width, bh = bounds.height;
+        if (bw <= 0 || bh <= 0) {
+            return null;
+        }
+        boolean[] m = new boolean[bw * bh];
+        for (int y = 0; y < bh; y++) {
+            for (int x = 0; x < bw; x++) {
+                int px = bounds.x + x, py = bounds.y + y;
+                boolean inside = false;
+                for (Polygon p : region) {
+                    inside |= p.contains(px, py);
+                }
+                m[y * bw + x] = inside && dist(img.getRGB(px, py), zoneColor) < 60;
+            }
+        }
+        int[] mb = box(main);
+        boolean[] keep = new boolean[m.length];
+        boolean[] seen = new boolean[m.length];
+        int total = 0;
+        ArrayDeque<Integer> q = new ArrayDeque<>();
+        int[][] nb = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+        for (int start = 0; start < m.length; start++) {
+            if (!m[start] || seen[start]) {
+                continue;
+            }
+            List<Integer> comp = new ArrayList<>();
+            boolean near = false;
+            seen[start] = true;
+            q.add(start);
+            while (!q.isEmpty()) {
+                int k = q.poll();
+                comp.add(k);
+                int x = k % bw, y = k / bw, gx = bounds.x + x, gy = bounds.y + y;
+                near |= gx >= mb[0] - 4 && gx <= mb[2] + 4 && gy >= mb[1] - 4 && gy <= mb[3] + 4;
+                for (int[] d : nb) {
+                    int nx = x + d[0], ny = y + d[1];
+                    if (nx >= 0 && nx < bw && ny >= 0 && ny < bh && m[ny * bw + nx] && !seen[ny * bw + nx]) {
+                        seen[ny * bw + nx] = true;
+                        q.add(ny * bw + nx);
+                    }
+                }
+            }
+            if (near && comp.size() >= main.area() * 0.15) {
+                comp.forEach(k -> keep[k] = true);
+                total += comp.size();
+            }
+        }
+        if (total == 0) {
+            return null;
+        }
+        java.awt.geom.Area area = new java.awt.geom.Area();
+        long sx = 0, sy = 0;
+        for (int y = 0; y < bh; y++) {
+            int x = 0;
+            while (x < bw) {
+                if (!keep[y * bw + x]) {
+                    x++;
+                    continue;
+                }
+                int x0 = x;
+                while (x < bw && keep[y * bw + x]) {
+                    sx += bounds.x + x;
+                    sy += bounds.y + y;
+                    x++;
+                }
+                area.add(new java.awt.geom.Area(new java.awt.Rectangle(bounds.x + x0, bounds.y + y, x - x0, 1)));
+            }
+        }
+        area.add(new java.awt.geom.Area(new java.awt.BasicStroke(3f).createStrokedShape(area)));
+        List<int[]> best = null;
+        double bestArea = 0;
+        List<List<int[]>> rings = new ArrayList<>();
+        List<int[]> cur = new ArrayList<>();
+        double[] c = new double[6];
+        for (java.awt.geom.PathIterator it = area.getPathIterator(null, 0.5); !it.isDone(); it.next()) {
+            int t = it.currentSegment(c);
+            if (t == java.awt.geom.PathIterator.SEG_MOVETO) {
+                cur = new ArrayList<>();
+                rings.add(cur);
+            }
+            if (t != java.awt.geom.PathIterator.SEG_CLOSE) {
+                cur.add(new int[]{(int) Math.round(c[0]), (int) Math.round(c[1])});
+            }
+        }
+        for (List<int[]> r : rings) {
+            double a = Math.abs(ShapeSegmenter.shoelaceArea(r));
+            if (a > bestArea) {
+                bestArea = a;
+                best = r;
+            }
+        }
+        if (best == null || best.size() < 3) {
+            return null;
+        }
+        List<int[]> outline = ShapeSegmenter.simplify(best);
+        int r = (zoneColor >> 16) & 255, g = (zoneColor >> 8) & 255, b = zoneColor & 255;
+        int mx = Math.max(r, Math.max(g, b)), mn = Math.min(r, Math.min(g, b));
+        return new ShapeSegmenter.Segment(id, outline, total, (int) (sx / total), (int) (sy / total), mx == 0 ? 0 : (double) (mx - mn) / mx, mx);
     }
 
     /** 범례 색 중 구역에 하나도 없는 색이 있으면, 그 색의 이름 없는 도형(구역 조각 중앙값의 15% 이상)을 그 범례 이름의 구역으로 더한다. */
@@ -272,7 +549,9 @@ final class ZoneConsistency {
         List<Chip> all = new ArrayList<>();
         for (Chip c : found) {
             int ch = c.y1() - c.y0() + 1;
-            boolean glyph = blobs.stream().anyMatch(b -> b[2] < c.x0() && b[2] >= c.x0() - ch && b[3] >= c.y0() && b[1] <= c.y1());
+            // 칩을 감싸는 빛 번짐 테두리 조각(가늘다)은 글자가 아니다: 폭 3px 이상·높이가 칩의 40% 이상인 덩어리만 글자로 본다
+            boolean glyph = blobs.stream().anyMatch(b -> b[2] < c.x0() && b[2] >= c.x0() - ch && b[3] >= c.y0() && b[1] <= c.y1()
+                    && b[2] - b[0] + 1 >= 3 && b[3] - b[1] + 1 >= 0.4 * ch);
             if (!glyph) {
                 all.add(c);
             }
@@ -293,7 +572,18 @@ final class ZoneConsistency {
         if (best.size() < 2) {
             return List.of();
         }
-        List<Chip> out = new ArrayList<>(best);
+        // 칩과 그 둘레 테두리가 따로 잡히면 상자가 겹친다: 겹치는 칩은 큰 쪽 하나만 남긴다
+        List<Chip> sorted = new ArrayList<>(best);
+        sorted.sort((a, b) -> Integer.compare((b.x1() - b.x0()) * (b.y1() - b.y0()), (a.x1() - a.x0()) * (a.y1() - a.y0())));
+        List<Chip> out = new ArrayList<>();
+        for (Chip c : sorted) {
+            if (out.stream().noneMatch(o -> c.x0() <= o.x1() + 2 && o.x0() <= c.x1() + 2 && c.y0() <= o.y1() + 2 && o.y0() <= c.y1() + 2)) {
+                out.add(c);
+            }
+        }
+        if (out.size() < 2) {
+            return List.of();
+        }
         out.sort((a, b) -> Integer.compare(a.x0(), b.x0()));
         return out;
     }

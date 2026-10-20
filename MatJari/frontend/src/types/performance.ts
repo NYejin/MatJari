@@ -104,7 +104,7 @@ export interface PerformanceCreateRequest {
   venueName: string;
   /** 회차 시작 시각 목록 (1개 이상) */
   sessions: string[];
-  /** 구역(선택, 최대 100개). 없어도 등록된다 */
+  /** 구역(선택, 개수 상한 없음·안전 한도 1,000개). 없어도 등록된다 */
   zones?: PerformanceZone[];
   /** 지도 가로/세로 비율(선택) */
   seatmapAspect?: number | null;

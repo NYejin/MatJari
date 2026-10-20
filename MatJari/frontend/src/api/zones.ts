@@ -3,7 +3,8 @@ import type { PerformanceZone } from "../types/performance";
 // 공연 구역(이름 + 모양) 정리와 AI가 읽은 회차 병합 — 화면과 분리한 순수 함수.
 
 export const ZONE_NAME_MAX = 30;
-export const ZONES_MAX = 100;
+/** 구역 개수 상한은 없다. 비정상 요청만 막는 서버 안전 한도와 같은 값 */
+export const ZONES_MAX = 1000;
 
 /** 구역 한 줄 (편집 중). id는 목록 키용 */
 export type ZoneRow = { id: number; name: string; shapePolygons: number[][][] | null };
@@ -44,7 +45,7 @@ export function toPayloadZones(rows: ZoneRow[]): PerformanceZone[] {
 
 /**
  * AI가 읽은 구역을 기존 줄에 합친다. 이미 있는 이름은 건드리지 않되 모양이 없던 줄에는 모양을 채운다.
- * 상한(100개)을 넘는 새 구역은 버리고 개수를 돌려준다.
+ * 안전 한도(1,000개)를 넘는 새 구역은 버리고 개수를 돌려준다.
  */
 export function mergeAiZones(current: ZoneRow[], incoming: PerformanceZone[]): { rows: ZoneRow[]; added: number; dropped: number } {
   const rows = current.map((r) => ({ ...r }));

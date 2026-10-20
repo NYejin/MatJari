@@ -47,7 +47,7 @@ export default function ZoneEditor({ rows, aspect, onChange, disabled = false, s
   const add = (e: FormEvent) => {
     e.preventDefault();
     if (rows.length >= ZONES_MAX) {
-      setAddError(`구역은 ${ZONES_MAX}개까지 추가할 수 있어요.`);
+      setAddError(`구역은 한 번에 ${ZONES_MAX.toLocaleString()}개까지 추가할 수 있어요.`);
       return;
     }
     const err = zoneNameError(draft, rows.map((r) => r.name));
@@ -223,7 +223,7 @@ export default function ZoneEditor({ rows, aspect, onChange, disabled = false, s
           </p>
         ) : (
           <p id="perf-zone-add-hint" className={ui.hint}>
-            이름은 {ZONE_NAME_MAX}자 이하, 같은 이름은 한 번만, 최대 {ZONES_MAX}개예요. ({rows.length}/{ZONES_MAX}개)
+            이름은 {ZONE_NAME_MAX}자 이하, 같은 이름은 한 번만 쓸 수 있어요. (현재 {rows.length}개)
           </p>
         )}
       </form>

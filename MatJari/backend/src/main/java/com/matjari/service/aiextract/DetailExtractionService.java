@@ -38,7 +38,7 @@ public class DetailExtractionService {
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("uuuu-MM-dd").withResolverStyle(ResolverStyle.STRICT);
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm");
     static final int MAX_SESSIONS = 100;
-    static final int MAX_ZONES = 100;
+    static final int MAX_ZONES = 1000; // 구역 개수 상한은 없다(사용자 결정 2026-10-20). 등록 요청의 안전 한도와 같은 값
     static final int MAX_ZONE_NAME = 30;
     static final int MAX_POLYGONS = 8;
 
@@ -1012,7 +1012,7 @@ public class DetailExtractionService {
         return (n.length() <= 5 && n.matches(".*[0-9A-Za-z].*")) || n.toUpperCase(java.util.Locale.ROOT).matches("(STANDING|스탠딩).{0,4}");
     }
 
-    /** names 에 없는 구역 이름(zoneKey 기준)을 shapes 에서 찾아 뒤에 붙인다(무대·플로어 표기와 100개 초과분 제외). */
+    /** names 에 없는 구역 이름(zoneKey 기준)을 shapes 에서 찾아 뒤에 붙인다(무대·플로어 표기와 안전 한도 초과분 제외). */
     static List<String> extendNames(List<String> names, List<DetailExtractor.RawZone> shapes) {
         List<String> out = new ArrayList<>(names);
         java.util.Set<String> keys = new java.util.HashSet<>();
@@ -1500,7 +1500,7 @@ public class DetailExtractionService {
                 || n.matches("B?\\d+F|\\d+층"); // 층 표시(2F·3F·B1F·2층) 원 표지
     }
 
-    /** 공백 정리·30자 이하·zoneKey 중복 제거(첫 표기 유지)·최대 100개. */
+    /** 공백 정리·30자 이하·zoneKey 중복 제거(첫 표기 유지)·안전 한도(1,000개)까지. */
     static List<String> cleanNames(List<String> raw) {
         Map<String, String> out = new LinkedHashMap<>();
         for (String r : raw == null ? List.<String>of() : raw) {

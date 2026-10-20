@@ -33,7 +33,7 @@ public record PerformanceCreateRequest(
         List<@NotNull(message = "회차 일시를 입력해주세요.") LocalDateTime> sessions,
 
         /** 선택. 이름 + 선택적 모양. 정리 규칙은 PerformanceZoneSanitizer. */
-        @Size(max = 100, message = "구역은 한 번에 100개까지 등록할 수 있습니다.")
+        @Size(max = 1000, message = "구역은 한 번에 1,000개까지 등록할 수 있습니다.") // 구역 개수 상한은 없고 비정상 요청만 막는 안전 한도
         List<ZoneInput> zones,
 
         /** 선택. 좌석표 가로/세로 비율. 범위(0 초과 999.999 이하) 밖이면 서버가 버린다. */

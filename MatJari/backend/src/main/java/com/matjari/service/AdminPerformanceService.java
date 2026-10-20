@@ -51,7 +51,7 @@ public class AdminPerformanceService {
     static final int MAX_PAGE_SIZE = 50;
     static final int QUERY_MAX_LENGTH = 100;
     static final int REASON_MAX_LENGTH = Performance.HIDDEN_REASON_MAX_LENGTH;
-    static final int MAX_ZONES = 100;
+    static final int MAX_ZONES = 1000; // 구역 개수 상한은 없고 비정상 요청만 막는 안전 한도
 
     public record ListItem(Long id, String title, String venueName, String sourceUrl, String registrantNickname,
                            long sessionCount, long zoneCount, boolean hidden,
@@ -267,7 +267,7 @@ public class AdminPerformanceService {
     public Detail replaceZones(Long adminId, Long id, ZonesRequest request) {
         String reason = requiredReason(request.reason());
         if (request.zones() != null && request.zones().size() > MAX_ZONES) {
-            throw new FieldValidationException("zones", "구역은 최대 " + MAX_ZONES + "개까지 입력할 수 있어요.");
+            throw new FieldValidationException("zones", "구역은 한 번에 1,000개까지 입력할 수 있어요.");
         }
         List<PerformanceZoneSanitizer.Zone> inputs = PerformanceZoneSanitizer.sanitize(request.zones());
         BigDecimal aspect = PerformanceZoneSanitizer.sanitizeAspect(request.seatmapAspect());

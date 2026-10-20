@@ -182,7 +182,7 @@ class PerformanceControllerSliceTest {
                 && r.seatmapAspect().compareTo(new java.math.BigDecimal("1.25")) == 0));
 
         StringBuilder many = new StringBuilder("[");
-        for (int i = 0; i < 101; i++) {
+        for (int i = 0; i < 1001; i++) {
             many.append(i == 0 ? "" : ",").append("{\"name\":\"z").append(i).append("\"}");
         }
         many.append("]");
@@ -190,7 +190,7 @@ class PerformanceControllerSliceTest {
                         "{\"sourceUrl\":\"https://a.com\",\"title\":\"t\",\"venueName\":\"V\","
                                 + "\"sessions\":[\"2026-11-01T19:00\"],\"zones\":" + many + "}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.zones").value("구역은 한 번에 100개까지 등록할 수 있습니다."));
+                .andExpect(jsonPath("$.zones").value("구역은 한 번에 1,000개까지 등록할 수 있습니다."));
     }
 
     @Test

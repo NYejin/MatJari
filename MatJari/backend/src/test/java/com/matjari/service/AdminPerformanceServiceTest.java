@@ -205,7 +205,7 @@ class AdminPerformanceServiceTest {
     }
 
     @Test
-    void 빈_구역_배열은_모두_지운다_이름_31자와_101개는_400() {
+    void 빈_구역_배열은_모두_지운다_이름_31자와_안전_한도_1001개는_400() {
         PerformanceZone old = PerformanceZone.create(performance, "옛구역", "옛구역", 0, null);
         when(zoneRepository.findByPerformanceIdOrderBySortOrderAscIdAsc(100L)).thenReturn(List.of(old));
         service.replaceZones(9L, 100L, new AdminPerformanceService.ZonesRequest(List.of(), null, "삭제"));
@@ -214,7 +214,7 @@ class AdminPerformanceServiceTest {
 
         assertThatThrownBy(() -> service.replaceZones(9L, 100L, new AdminPerformanceService.ZonesRequest(
                 List.of(new ZoneInput("가".repeat(31), null)), null, "x"))).isInstanceOf(FieldValidationException.class);
-        List<ZoneInput> many = java.util.stream.IntStream.range(0, 101).mapToObj(i -> new ZoneInput("Z" + i, null)).toList();
+        List<ZoneInput> many = java.util.stream.IntStream.range(0, 1001).mapToObj(i -> new ZoneInput("Z" + i, null)).toList();
         assertThatThrownBy(() -> service.replaceZones(9L, 100L,
                 new AdminPerformanceService.ZonesRequest(many, null, "x"))).isInstanceOf(FieldValidationException.class);
     }

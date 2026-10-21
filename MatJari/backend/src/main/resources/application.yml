@@ -126,5 +126,5 @@ matjari:
     max-concurrent: ${MATJARI_AI_MAX_CONCURRENT:2}
     debug-dir: ${MATJARI_AI_DEBUG_DIR:}
     label-model: ${MATJARI_AI_LABEL_MODEL:}
-    cache-ttl-hours: ${MATJARI_AI_CACHE_TTL_HOURS:24}
+    cache-ttl-hours: ${MATJARI_AI_CACHE_TTL_HOURS:168}
     cache-max-entries: ${MATJARI_AI_CACHE_MAX_ENTRIES:200}

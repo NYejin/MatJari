@@ -193,7 +193,8 @@ description: 맞자리의 현재 유효한 서비스 개요·확정 교환 규�
 - **V20**: `performance_edit_proposal.session_changes`(JSON NULL, 공연 수정 제안의 회차 변경 목록 ADD/CHANGE/REMOVE). 테이블 수는 그대로다.
 - **V19**: `email_verification`(가입 전 이메일 인증번호: PK email, code_hash HMAC-SHA256, attempts, sent_at, expires_at). users와 FK 없음, 가입 성공 시 행 삭제(1회용). 재실행 가능한 프로시저 패턴, 파괴적 단계 없음.
 - **V21**: `performance_zone` 신설(공연별 구역 목록, 같은 이름은 한 구역, 모양은 JSON 다각형 조각 배열) 과 `performance.seatmap_aspect`(좌석표 비율) 추가. 재실행 가능한 프로시저 패턴, 파괴적 단계 없음. 테이블 수 21 -> 22. 되돌리기는 롤포워드.
-- **다음**: V22부터. 현재 계획된 스키마 변경은 없다(7일 경과 알림은 보류).
+- **V23**: `ai_extract_cache`(PK `source_key`, `result` JSON, `created_at`, `expires_at_ms`): AI 읽기 결과 링크별 168시간 보관(FK 없음).
+- **다음**: V24부터. 현재 계획된 스키마 변경은 없다(7일 경과 알림은 보류).
 
 ## 6. API 요약
 
@@ -207,7 +208,7 @@ description: 맞자리의 현재 유효한 서비스 개요·확정 교환 규�
 | 소셜 로그인 | `GET /api/auth/social/providers`(활성 제공자, 인증 불필요), `GET /api/auth/social/{google\|kakao\|naver}/authorize`(302, state 쿠키 `ss_oauth`), `GET .../{provider}/callback`(항상 302: 성공 `/auth/callback#code=`, 실패 `/login?socialError=`), `POST /api/auth/social/exchange {code}`(→ TokenResponse, 일회용 60초, 정지 재검사). IP당 분당 30회(429 `SOCIAL_RATE_LIMITED`) |
 | 공연 | `GET /api/performances`(제목 검색·페이지, asOf로 기준 시각 고정)·`/{id}`·`/lookup`(링크 중복 확인), `POST /api/performances`(필수 `ticket{sessionStartsAt, zone, row, col}`: 등록자 티켓을 같은 트랜잭션에서 만든다, 선택 필드 `zones[{name, shapePolygons}]`(최대 100개, 같은 이름은 한 구역)·`seatmapAspect`, V21) |
 | 공연 구역 | `GET /api/performances/{id}/zones` → `{seatmapAspect, zones[{name, shapePolygons}]}`(sortOrder 순, 구역 없으면 `zones=[]`, 없는 공연 404, 로그인 필요) |
-| AI 회차·구역 읽기 | `POST /api/performances/ai-extract {sourceUrl}` → `{sessions, sessionsSource, zones, seatmapAspect, aiEnabled, aiError, cached, truncatedSlices}`. 로그인 필요. 제한: 사용자당 하루(KST) 2회·전체 하루 40회(초과 429 `AI_RATE_LIMITED`+Retry-After), 동시 2개. 지원 사이트는 YES24·티켓링크·멜론티켓(그 외 400 `UNSUPPORTED_SITE`), 페이지 읽기 실패 503 `PAGE_FETCH_FAILED`, AI·규칙 결과 모두 없으면 503 `AI_UNAVAILABLE`. 성공 결과는 24시간 메모리 캐시 |
+| AI 회차·구역 읽기 | `POST /api/performances/ai-extract {sourceUrl}` → `{sessions, sessionsSource, zones, seatmapAspect, aiEnabled, aiError, cached, truncatedSlices}`. 로그인 필요. 제한: 사용자당 하루(KST) 2회·전체 하루 40회(초과 429 `AI_RATE_LIMITED`+Retry-After), 동시 2개. 지원 사이트는 YES24·티켓링크·멜론티켓(그 외 400 `UNSUPPORTED_SITE`), 페이지 읽기 실패 503 `PAGE_FETCH_FAILED`, AI·규칙 결과 모두 없으면 503 `AI_UNAVAILABLE`. 성공 결과는 168시간 보관(메모리+DB `ai_extract_cache`, V23) |
 | 공연 포스터 | `GET /api/performances/{id}/poster` → `{posterUrl}`(로그인 필요, 없으면 null, 공연 없으면 404). 링크 미리보기 응답에도 `posterUrl` 추가. 실패·제한·스위치 꺼짐은 오류 없이 null |
 | 회차 날짜 후보 | `GET /api/performances/preview` 응답의 `sessionCandidates`(`[{date, time:null}]`, 항상 배열, 공연 기간이 100일 이하일 때 첫날부터 마지막 날까지 모든 날짜. `time`은 지금 항상 null이며 AI 상세정보 출처가 채울 자리) |
 | 티켓 | `POST /api/tickets {sessionId, zone, row, col}`, `GET /api/tickets/me`, `DELETE /api/tickets/{id}` |

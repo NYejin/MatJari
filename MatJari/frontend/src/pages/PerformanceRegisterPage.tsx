@@ -4,6 +4,7 @@ import axios from "axios";
 import type { AiSessionsSource, PerformancePreview } from "../types/performance";
 import { getConflictPerformanceId, performancesApi } from "../api/performances";
 import { getErrorCode, getErrorNumber, parseApiError } from "../api/errors";
+import { ROW_COL_MAX, ZONE_MAX } from "../api/seat";
 import {
   hasAnyShape,
   mergeAiSessions,
@@ -21,6 +22,7 @@ import {
   validateSessionTimeStep,
 } from "../api/dateTime";
 import TextField from "../components/TextField";
+import ZonePickField from "../components/ZonePickField";
 import SessionDateTimePicker from "../components/SessionDateTimePicker";
 import TimeSelect from "../components/TimeSelect";
 import PosterImage from "../components/PosterImage";
@@ -29,11 +31,29 @@ import ZoneMap, { hasShapedZone } from "../components/ZoneMap";
 import { button, linkButton, liveRegionClass, ui } from "../components/ui";
 
 // FR-02 공연 등록 (보호 라우트 /performances/new) — 단계형:
-// ① 티켓팅 링크(이미 등록됐는지 확인) ② 공연 정보(제목·공연장 이름·회차) ③ 확인 후 등록.
+// ① 티켓팅 링크(이미 등록됐는지 확인) ② 공연 정보(제목·공연장 이름·회차) ③ 내 티켓(회차·구역·열·번) ④ 확인 후 등록.
+// 공연은 티켓을 가진 사람이 티켓 등록과 함께만 등록한다(티켓 등록 화면에서 찾는 공연이 없을 때 들어온다, 2026-10-21).
+// 서버는 공연과 티켓을 한 번에 저장하고(티켓이 실패하면 공연도 저장되지 않는다) 공연에는 그 티켓을 연결·표시하지 않는다.
 // 공연장은 별도 엔티티 없이 텍스트 한 칸(venueName). 링크 확인 뒤 읽은 제목·공연장을 ②단계에 미리 채운다(회차는 읽을 수 없어 직접 입력).
 
-const STEPS = ["티켓팅 링크", "공연 정보", "확인"] as const;
-type Step = 0 | 1 | 2;
+const STEPS = ["티켓팅 링크", "공연 정보", "내 티켓", "확인"] as const;
+type Step = 0 | 1 | 2 | 3;
+type TicketField = "session" | "zone" | "row" | "col";
+const TICKET_FIELDS = ["session", "zone", "row", "col"] as const;
+const TICKET_FOCUS_ID: Record<TicketField, string> = {
+  session: "perf-ticket-session-group",
+  zone: "perf-ticket-zone",
+  row: "perf-ticket-row",
+  col: "perf-ticket-col",
+};
+/** 서버 필드명(ticket.*) → 내 티켓 칸 */
+const TICKET_SERVER_FIELD: Record<string, TicketField> = {
+  ticket: "session",
+  "ticket.sessionStartsAt": "session",
+  "ticket.zone": "zone",
+  "ticket.row": "row",
+  "ticket.col": "col",
+};
 
 const TITLE_MAX = 200;
 const VENUE_MAX = 100;
@@ -220,7 +240,13 @@ export default function PerformanceRegisterPage() {
   zoneRowsRef.current = zoneRows;
   const aspectRef = useRef<number | null>(null);
   aspectRef.current = seatmapAspect;
-  // ③ 등록
+  // ③ 내 티켓: 회차는 ②에서 입력한 회차 값 중 하나
+  const [ticketSession, setTicketSession] = useState<string | null>(null);
+  const [ticketZone, setTicketZone] = useState("");
+  const [ticketRow, setTicketRow] = useState("");
+  const [ticketCol, setTicketCol] = useState("");
+  const [ticketErrors, setTicketErrors] = useState<Partial<Record<TicketField, string>>>({});
+  // ④ 등록
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<{ message: string; step?: Step; focusId?: string } | null>(null);
   const [conflictId, setConflictId] = useState<number | null>(null);
@@ -545,7 +571,34 @@ export default function PerformanceRegisterPage() {
     else if (sErr) focusById("perf-sessions");
     else if (badZone) focusById(zoneNameInputId(badZone.id));
     if (tErr || vErr || sErr || zErr) return;
+    // 회차를 바꿔 고른 회차가 사라졌으면 다시 고르게 한다
+    if (ticketSession !== null && !sessions.some((r) => r.value === ticketSession)) setTicketSession(null);
     goTo(2);
+  };
+
+  const clearTicket = (field: TicketField) =>
+    setTicketErrors((prev) => (prev[field] ? { ...prev, [field]: undefined } : prev));
+
+  /** 내 티켓 칸 검사 (서버도 티켓 등록과 같은 규칙으로 다시 검사한다) */
+  const confirmTicket = () => {
+    const z = ticketZone.trim();
+    const r = ticketRow.trim();
+    const c = ticketCol.trim();
+    const next: Partial<Record<TicketField, string>> = {};
+    if (ticketSession === null || !sessions.some((x) => x.value === ticketSession)) next.session = "내 티켓의 회차를 골라주세요.";
+    if (!z) next.zone = "구역을 입력해주세요.";
+    else if (z.length > ZONE_MAX) next.zone = `구역은 ${ZONE_MAX}자 이하로 입력해주세요.`;
+    if (!r) next.row = "열을 입력해주세요.";
+    else if (r.length > ROW_COL_MAX) next.row = `열은 ${ROW_COL_MAX}자 이하로 입력해주세요.`;
+    if (!c) next.col = "번을 입력해주세요.";
+    else if (c.length > ROW_COL_MAX) next.col = `번은 ${ROW_COL_MAX}자 이하로 입력해주세요.`;
+    setTicketErrors(next);
+    const first = TICKET_FIELDS.find((k) => next[k]);
+    if (first) {
+      focusById(TICKET_FOCUS_ID[first]);
+      return;
+    }
+    goTo(3);
   };
 
   const submit = async () => {
@@ -563,8 +616,12 @@ export default function PerformanceRegisterPage() {
         ...(zoneRows.length > 0
           ? { zones: toPayloadZones(zoneRows), seatmapAspect: hasAnyShape(zoneRows) ? seatmapAspect : null }
           : {}),
+        ticket: { sessionStartsAt: ticketSession ?? "", zone: ticketZone.trim(), row: ticketRow.trim(), col: ticketCol.trim() },
       });
-      navigate(`/performances/${created.id}`, { replace: true });
+      navigate("/tickets", {
+        replace: true,
+        state: { notice: `'${created.title}' 공연과 내 티켓을 등록했어요. 교환 조건을 설정하면 바꿀 상대를 찾을 수 있어요.` },
+      });
     } catch (err) {
       const existing = getConflictPerformanceId(err);
       const parsed = parseApiError(err, "공연을 등록하지 못했습니다.");
@@ -581,7 +638,19 @@ export default function PerformanceRegisterPage() {
       if (sessionsKey) setSessionError(fe[sessionsKey]);
       const zonesKey = Object.keys(fe).find((k) => k === "zones" || k.startsWith("zones") || k === "seatmapAspect");
       if (zonesKey) setZoneError(fe[zonesKey]);
+      const ticketMap: Partial<Record<TicketField, string>> = {};
+      for (const [k, v] of Object.entries(fe)) {
+        const f = TICKET_SERVER_FIELD[k];
+        if (f && !ticketMap[f]) ticketMap[f] = v;
+      }
+      const firstTicket = TICKET_FIELDS.find((k) => ticketMap[k]);
+      if (firstTicket) setTicketErrors(ticketMap);
       const first = FIELD_ORDER.find((k) => (k === "sessions" ? !!sessionsKey : !!fe[k]));
+      if (!first && !zonesKey && firstTicket) {
+        setSubmitError({ message: parsed.message, step: 2, focusId: TICKET_FOCUS_ID[firstTicket] });
+        setSubmitting(false);
+        return;
+      }
       if (!first && zonesKey) {
         setSubmitError({ message: parsed.message, step: 1, focusId: ZONE_FOCUS_ID });
         setSubmitting(false);
@@ -619,7 +688,7 @@ export default function PerformanceRegisterPage() {
         {/* 안내 문구는 항상 있는 라이브 영역, 이동 버튼은 별도로 조건부 렌더링 */}
         <p className={liveRegionClass(existingId !== null ? "exists" : "", ui.notice)} role="status">
           {existingId !== null
-            ? "이미 등록된 공연이에요. 새로 등록하지 않고 기존 공연에서 티켓을 등록하고 교환할 수 있어요."
+            ? "이미 등록된 공연이에요. 새로 등록하지 않고 그 공연에 내 티켓을 등록하면 돼요."
             : ""}
         </p>
         <p className={ui.status} role="status">
@@ -627,8 +696,8 @@ export default function PerformanceRegisterPage() {
         </p>
         {existingId !== null && (
           <div>
-            <Link to={`/performances/${existingId}`} className={linkButton.solid}>
-              등록된 공연 보기
+            <Link to={`/tickets/new?performanceId=${existingId}`} className={linkButton.solid}>
+              이 공연에 티켓 등록하기
             </Link>
           </div>
         )}
@@ -834,6 +903,116 @@ export default function PerformanceRegisterPage() {
         </div>
       </div>
     );
+  } else if (step === 2) {
+    const namedZones = toPayloadZones(zoneRows.filter((r) => r.name.trim() !== ""));
+    const ticketZoneData = namedZones.length > 0 ? { zones: namedZones, aspect: seatmapAspect } : null;
+    body = (
+      <div className={cls.stepBody}>
+        <p className={ui.notice}>
+          공연은 그 공연의 티켓을 가진 분이 내 티켓과 함께 등록해요. 내 티켓은 공연 정보에 표시되지 않고, 다른 티켓처럼 내 티켓 목록에만 보여요.
+        </p>
+        <fieldset
+          id={TICKET_FOCUS_ID.session}
+          tabIndex={-1}
+          className="flex flex-col gap-2 outline-none"
+          aria-labelledby="perf-ticket-session-title"
+          aria-describedby={ticketErrors.session ? "perf-ticket-session-error" : undefined}
+        >
+          <h3 id="perf-ticket-session-title" className={ui.sectionTitle}>
+            내 티켓의 회차
+          </h3>
+          <ul className={cls.sessionList}>
+            {sessions.map((r) => {
+              const id = `perf-ticket-session-${r.id}`;
+              return (
+                <li key={r.id}>
+                  <label htmlFor={id} className="flex min-h-11 cursor-pointer items-center gap-3 py-2">
+                    <input
+                      id={id}
+                      type="radio"
+                      name="perf-ticket-session"
+                      className="size-5 shrink-0 accent-primary-600"
+                      checked={ticketSession === r.value}
+                      onChange={() => {
+                        setTicketSession(r.value);
+                        clearTicket("session");
+                      }}
+                      aria-invalid={!!ticketErrors.session}
+                    />
+                    <span className="text-[0.9375rem]/[normal] text-gray-900">{formatKstDateTime(r.value)}</span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+          {ticketErrors.session && (
+            <p id="perf-ticket-session-error" className={ui.fieldError}>
+              {ticketErrors.session}
+            </p>
+          )}
+        </fieldset>
+
+        <section className="flex flex-col gap-4" aria-labelledby="perf-ticket-seat-title">
+          <h3 id="perf-ticket-seat-title" className={ui.sectionTitle}>
+            내 좌석
+          </h3>
+          <p className={ui.hint}>티켓에 적힌 그대로 입력해주세요. 열·번 끝의 ‘열’, ‘번’은 빼도 돼요.</p>
+          <ZonePickField
+            id={TICKET_FOCUS_ID.zone}
+            label="구역"
+            value={ticketZone}
+            zoneData={ticketZoneData}
+            onValueChange={(v) => {
+              setTicketZone(v);
+              clearTicket("zone");
+            }}
+            error={ticketErrors.zone}
+            hint="예: 1층, A구역, 스탠딩"
+            maxLength={ZONE_MAX}
+            autoComplete="off"
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <TextField
+              id={TICKET_FOCUS_ID.row}
+              label="열"
+              value={ticketRow}
+              onChange={(e) => {
+                setTicketRow(e.target.value);
+                clearTicket("row");
+              }}
+              error={ticketErrors.row}
+              hint="숫자 또는 문자 (예: 3, A)"
+              maxLength={ROW_COL_MAX}
+              autoComplete="off"
+              autoCapitalize="characters"
+            />
+            <TextField
+              id={TICKET_FOCUS_ID.col}
+              label="번"
+              value={ticketCol}
+              onChange={(e) => {
+                setTicketCol(e.target.value);
+                clearTicket("col");
+              }}
+              error={ticketErrors.col}
+              hint="숫자 또는 문자 (예: 12)"
+              maxLength={ROW_COL_MAX}
+              autoComplete="off"
+              autoCapitalize="characters"
+            />
+          </div>
+        </section>
+
+        <div className={cls.actions}>
+          <button type="button" className={button.outline} onClick={() => goTo(1)}>
+            이전
+          </button>
+          <button type="button" className={button.solid} onClick={confirmTicket}>
+            다음
+          </button>
+        </div>
+      </div>
+    );
   } else {
     body = (
       <div className={cls.stepBody}>
@@ -866,7 +1045,12 @@ export default function PerformanceRegisterPage() {
               "없음"
             )}
           </dd>
+          <dt className={cls.summaryTerm}>내 티켓</dt>
+          <dd className={cls.summaryDesc}>
+            {ticketSession ? formatKstDateTime(ticketSession) : ""} · {ticketZone.trim()} {ticketRow.trim()}열 {ticketCol.trim()}번
+          </dd>
         </dl>
+        <p className={ui.hint}>공연과 내 티켓이 함께 등록돼요. 내 티켓은 공연 정보에 표시되지 않아요.</p>
         {hasShapedZone(toPayloadZones(zoneRows)) && (
           <div className="flex flex-col gap-1.5">
             <span className={ui.label}>구역 지도</span>
@@ -879,8 +1063,8 @@ export default function PerformanceRegisterPage() {
           <div className={`${ui.errorBox} flex flex-col items-start gap-2`} role="alert">
             <span>{submitError.message}</span>
             {conflictId !== null && (
-              <Link to={`/performances/${conflictId}`} className={linkButton.outline}>
-                등록된 공연 보기
+              <Link to={`/tickets/new?performanceId=${conflictId}`} className={linkButton.outline}>
+                이 공연에 티켓 등록하기
               </Link>
             )}
             {submitError.step !== undefined && (
@@ -892,11 +1076,11 @@ export default function PerformanceRegisterPage() {
         )}
 
         <div className={cls.actions}>
-          <button type="button" className={button.outline} onClick={() => goTo(1)} disabled={submitting}>
+          <button type="button" className={button.outline} onClick={() => goTo(2)} disabled={submitting}>
             이전
           </button>
           <button type="button" className={button.solid} onClick={submit} disabled={submitting} aria-busy={submitting}>
-            {submitting ? "등록 중..." : "공연 등록"}
+            {submitting ? "등록 중..." : "공연과 티켓 등록"}
           </button>
         </div>
       </div>
@@ -906,7 +1090,7 @@ export default function PerformanceRegisterPage() {
   return (
     <div className={ui.page}>
       <div className={ui.container}>
-        <h1 className={ui.pageTitle}>공연 등록</h1>
+        <h1 className={ui.pageTitle}>새 공연과 내 티켓 등록</h1>
 
         <ol className={cls.steps} aria-label="등록 단계">
           {STEPS.map((name, index) => (

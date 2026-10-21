@@ -46,7 +46,7 @@ public class AiProperties {
     private String model = "claude-haiku-5-5";
     private int requestTimeoutSeconds = 60;
     /** 사용자당 하루(KST) AI 호출 상한. 서버 재시작 때 초기화된다(메모리 기반). */
-    private int dailyPerUser = 5;
+    private int dailyPerUser = 2;
     private int dailyGlobal = 40;
     private int maxConcurrent = 2;
     private int cacheTtlHours = 24;

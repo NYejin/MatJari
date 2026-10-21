@@ -107,10 +107,12 @@ function PerformancePicker({ onPick }: { onPick: (id: number) => void }) {
       {state.status === "success" && state.items.length === 0 && (
         <div className="flex flex-col items-start gap-3">
           <p className={ui.body}>
-            {debounced ? "검색 결과가 없어요. 다른 제목으로 찾아보거나 공연을 먼저 등록해 주세요." : "아직 등록된 공연이 없어요."}
+            {debounced
+              ? "검색 결과가 없어요. 다른 제목으로 찾아보거나, 공연을 새로 등록하면서 내 티켓을 함께 등록해 주세요."
+              : "아직 등록된 공연이 없어요. 공연을 새로 등록하면서 내 티켓을 함께 등록해 주세요."}
           </p>
           <Link to="/performances/new" className={linkButton.outline}>
-            공연 등록하기
+            새 공연과 내 티켓 등록하기
           </Link>
         </div>
       )}
@@ -148,6 +150,12 @@ function PerformancePicker({ onPick }: { onPick: (id: number) => void }) {
               {loadingMore ? "불러오는 중..." : "더 보기"}
             </button>
           )}
+          <p className={ui.hint}>
+            찾는 공연이 없나요?{" "}
+            <Link to="/performances/new" className={ui.link}>
+              새 공연과 내 티켓 등록하기
+            </Link>
+          </p>
         </>
       )}
     </section>

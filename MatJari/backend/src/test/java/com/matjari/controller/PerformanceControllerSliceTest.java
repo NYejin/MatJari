@@ -172,7 +172,7 @@ class PerformanceControllerSliceTest {
         when(performanceService.create(eq(1L), any(PerformanceCreateRequest.class))).thenReturn(detail(true));
         mockMvc.perform(auth(post("/api/performances")).contentType(MediaType.APPLICATION_JSON).content("""
                         {"sourceUrl":"https://tickets.interpark.com/goods/1","title":"t","venueName":"V",
-                         "sessions":["2026-11-01T19:00"],"seatmapAspect":1.25,
+                         "sessions":["2026-11-01T19:00"],"seatmapAspect":1.25,"ticket":{"sessionStartsAt":"2026-11-01T19:00","zone":"A","row":"1","col":"2"},
                          "zones":[{"name":"A","shapePolygons":[[[0,0],[1,0],[1,1]]]},{"name":"B"},
                                   {"name":"C","shapePolygons":"bad"}]}
                         """))
@@ -210,7 +210,7 @@ class PerformanceControllerSliceTest {
 
         mockMvc.perform(auth(post("/api/performances")).contentType(MediaType.APPLICATION_JSON).content("""
                         {"sourceUrl":"https://tickets.interpark.com/goods/1","title":"두아 리파 내한",
-                         "venueName":"KSPO DOME","sessions":["2026-11-01T19:00","2026-11-02T18:00"]}
+                         "venueName":"KSPO DOME","sessions":["2026-11-01T19:00","2026-11-02T18:00"],"ticket":{"sessionStartsAt":"2026-11-01T19:00","zone":"A","row":"1","col":"2"}}
                         """))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(100));
@@ -225,7 +225,7 @@ class PerformanceControllerSliceTest {
 
         mockMvc.perform(auth(post("/api/performances")).contentType(MediaType.APPLICATION_JSON).content("""
                         {"sourceUrl":"https://tickets.interpark.com/goods/1","title":"t","venueName":"KSPO DOME",
-                         "sessions":["2026-11-01T19:00"]}
+                         "sessions":["2026-11-01T19:00"],"ticket":{"sessionStartsAt":"2026-11-01T19:00","zone":"A","row":"1","col":"2"}}
                         """))
                 .andExpect(status().isConflict())
                 .andExpect(content().json("{\"message\":\"이미 등록된 공연입니다.\",\"performanceId\":77}", true));
@@ -239,8 +239,18 @@ class PerformanceControllerSliceTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(content().json("""
                         {"sourceUrl":"티켓팅 링크를 입력해주세요.","title":"공연 제목을 입력해주세요.",
-                         "venueName":"공연장 이름을 입력해주세요.","sessions":"회차를 1개 이상 입력해주세요."}
+                         "venueName":"공연장 이름을 입력해주세요.","sessions":"회차를 1개 이상 입력해주세요.",
+                         "ticket":"내 티켓 정보를 입력해주세요."}
                         """, true));
+        // 티켓 칸 검사: 중첩 필드는 ticket.* 키 (공연만 따로 등록하는 길은 없다)
+        mockMvc.perform(auth(post("/api/performances")).contentType(MediaType.APPLICATION_JSON).content("""
+                        {"sourceUrl":"https://a.com","title":"t","venueName":"V","sessions":["2026-11-01T19:00"],
+                         "ticket":{"zone":" ","row":"1","col":""}}
+                        """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$['ticket.sessionStartsAt']").value("회차를 선택해주세요."))
+                .andExpect(jsonPath("$['ticket.zone']").value("구역을 입력해주세요."))
+                .andExpect(jsonPath("$['ticket.col']").value("번을 입력해주세요."));
         mockMvc.perform(auth(post("/api/performances")).contentType(MediaType.APPLICATION_JSON).content("""
                         {"sourceUrl":"https://a.com","title":"t","venueName":"KSPO DOME","sessions":["2026-11-01 19:00"]}
                         """))
@@ -268,7 +278,7 @@ class PerformanceControllerSliceTest {
                 .thenThrow(new DataIntegrityViolationException("fk"));
         mockMvc.perform(auth(post("/api/performances")).contentType(MediaType.APPLICATION_JSON).content("""
                         {"sourceUrl":"https://tickets.interpark.com/goods/1","title":"두아 리파 내한",
-                         "venueName":"KSPO DOME","sessions":["2026-11-01T19:00"]}
+                         "venueName":"KSPO DOME","sessions":["2026-11-01T19:00"],"ticket":{"sessionStartsAt":"2026-11-01T19:00","zone":"A","row":"1","col":"2"}}
                         """))
                 .andExpect(status().isConflict())
                 .andExpect(content().json("{\"message\":\"요청이 다른 변경과 충돌했습니다. 다시 시도해주세요.\"}", true));

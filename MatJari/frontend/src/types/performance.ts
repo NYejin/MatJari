@@ -108,4 +108,14 @@ export interface PerformanceCreateRequest {
   zones?: PerformanceZone[];
   /** 지도 가로/세로 비율(선택) */
   seatmapAspect?: number | null;
+  /** 등록자의 티켓(필수). 공연은 티켓 등록과 함께만 등록되고, 공연에는 이 티켓이 연결·표시되지 않는다 */
+  ticket: PerformanceTicketInput;
+}
+
+/** 공연 등록과 함께 만드는 내 티켓. sessionStartsAt 은 sessions 중 하나 */
+export interface PerformanceTicketInput {
+  sessionStartsAt: string;
+  zone: string;
+  row: string;
+  col: string;
 }

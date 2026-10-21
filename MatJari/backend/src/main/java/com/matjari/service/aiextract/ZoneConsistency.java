@@ -73,6 +73,7 @@ final class ZoneConsistency {
             if (chips.size() >= 2) {
                 refillDented(zones, byId, color, chips, bg, img);
             }
+            joinTextSplits(zones, byId, color, img, bg);
             List<DetailExtractor.RawLabel> out = new ArrayList<>();
             zones.forEach((k, v) -> {
                 if (!v.isEmpty()) {
@@ -249,8 +250,207 @@ final class ZoneConsistency {
         }
     }
 
+    /** 글자로 끊겼다고 볼 수 있는 같은 구역 두 조각 사이의 최대 틈(px). */
+    static final int TEXT_GAP = 16;
+
+    /**
+     * 구역 이름 글자가 가는 블록을 가로질러 한 구역이 두 조각으로 끊긴 것(고척돔 T01·309, 213836 T4·113)을 다시 잇는다(사용자 지시 2026-10-21).
+     * 지도 전체 블록 안에서 블록 색이 아닌 가장 흔한 색을 구역 이름 글자색으로 보고, 같은 구역·같은 색의 두 조각 사이(볼록 껍질 안)가
+     * 구역 색이나 글자색으로만 차 있으면 그 픽셀을 구역 색으로 채워 한 조각으로 합친다. 다른 구역이 끼어 있거나 통로·배경이 20% 넘게 섞이면
+     * 두지 않는다. 블록 긴 변 옆에 나란히 선 가는 띠(화정체육관 앞쪽 띠, 흰 선으로 나뉨)는 글자 끊김이 아니라 별도 조각이라 잇지 않는다.
+     */
+    private static void joinTextSplits(Map<String, List<Integer>> zones, Map<Integer, ShapeSegmenter.Segment> byId, Map<Integer, Integer> color,
+                                       BufferedImage img, int bg) {
+        Integer text = labelTextColor(zones, byId, color, img, bg);
+        if (text == null) {
+            return;
+        }
+        Map<Integer, Polygon> polys = new HashMap<>();
+        zones.values().forEach(ids -> ids.forEach(id -> {
+            if (byId.containsKey(id)) {
+                polys.put(id, poly(byId.get(id).pixels(), 0, false));
+            }
+        }));
+        int w = img.getWidth(), h = img.getHeight();
+        for (Map.Entry<String, List<Integer>> e : zones.entrySet()) {
+            List<Integer> ids = e.getValue();
+            boolean merged = true;
+            while (merged && ids.size() >= 2) {
+                merged = false;
+                pairs:
+                for (int i = 0; i < ids.size(); i++) {
+                    for (int j = i + 1; j < ids.size(); j++) {
+                        ShapeSegmenter.Segment a = byId.get(ids.get(i)), b = byId.get(ids.get(j));
+                        if (a == null || b == null || !color.containsKey(a.id()) || !color.containsKey(b.id())) {
+                            continue;
+                        }
+                        int zc = color.get(a.id());
+                        int[] ba = box(a), bb = box(b);
+                        if (dist(zc, color.get(b.id())) >= 40 || boxGap(ba, bb) > TEXT_GAP || sideStrip(ba, bb) || sideStrip(bb, ba)) {
+                            continue;
+                        }
+                        List<int[]> pts = new ArrayList<>(a.pixels());
+                        pts.addAll(b.pixels());
+                        Polygon hull = poly(ShapeSegmenter.convexHull(pts), 0, false);
+                        java.awt.Rectangle bounds = hull.getBounds().intersection(new java.awt.Rectangle(0, 0, w, h));
+                        int bw = bounds.width, bh = bounds.height;
+                        if (bw <= 0 || bh <= 0) {
+                            continue;
+                        }
+                        Polygon pa = polys.get(a.id()), pb = polys.get(b.id());
+                        List<Polygon> others = new ArrayList<>();
+                        polys.forEach((id, p) -> {
+                            if (id != a.id() && id != b.id() && p.getBounds().intersects(bounds)) {
+                                others.add(p);
+                            }
+                        });
+                        boolean[] keep = new boolean[bw * bh];
+                        int gap = 0, filled = 0, other = 0, glyphs = 0;
+                        for (int y = 0; y < bh; y++) {
+                            for (int x = 0; x < bw; x++) {
+                                int gx = bounds.x + x, gy = bounds.y + y;
+                                if (pa.contains(gx, gy) || pb.contains(gx, gy)) {
+                                    keep[y * bw + x] = true;
+                                    continue;
+                                }
+                                if (!hull.contains(gx, gy)) {
+                                    continue;
+                                }
+                                gap++;
+                                if (others.stream().anyMatch(p -> p.contains(gx, gy))) {
+                                    other = Integer.MAX_VALUE / 2; // 다른 구역이 끼어 있다
+                                    continue;
+                                }
+                                int px = img.getRGB(gx, gy);
+                                boolean glyph = dist(px, text) < 60;
+                                // 글자 테두리는 글자색과 구역 색이 섞인 중간색이고, 글자 그림자·JPEG 번짐은 구역 색과 배경이 섞인 어두운 구역 색이다
+                                if (glyph || dist(px, zc) < SAME_COLOR || blendDist(px, zc, text) < 30) {
+                                    keep[y * bw + x] = true;
+                                    filled++;
+                                    glyphs += glyph ? 1 : 0;
+                                } else if (blendDist(px, zc, bg) < 30 && dist(px, bg) >= 60) {
+                                    keep[y * bw + x] = true;
+                                } else if (hull.contains(gx - 2, gy) && hull.contains(gx + 2, gy) && hull.contains(gx, gy - 2) && hull.contains(gx, gy + 2)) {
+                                    other++; // 껍질 가장자리 2px(블록 테두리)는 세지 않는다
+                                }
+                            }
+                        }
+                        // 틈에 글자 픽셀이 있고, 절반 가까이가 구역·글자색이며, 배경(통로)이나 다른 색은 20% 이하일 때만 글자 끊김이다
+                        if (glyphs < 5 || filled < 0.4 * gap || other > 0.2 * gap) {
+                            continue;
+                        }
+                        ShapeSegmenter.Segment joined = outlineSegment(keep, bounds, zc, a.id(), false); // 글자 픽셀은 이미 채웠다
+                        if (joined == null) {
+                            continue;
+                        }
+                        log.info("글자로 끊긴 구역 잇기: {} 조각 {}+{} (틈 {}px 중 글자·구역 색 {}px)", e.getKey(), a.id(), b.id(), gap, filled);
+                        byId.put(a.id(), joined);
+                        polys.put(a.id(), poly(joined.pixels(), 0, false));
+                        polys.remove(b.id());
+                        ids.remove(j);
+                        merged = true;
+                        break pairs;
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * 구역 이름 글자색: 구역에 연결된 색 있는 블록 안에서 블록 색(RGB 거리 90 이상)과 배경(60 이상) 모두와 먼 픽셀 중 가장 흔한 색(16단계로 묶음).
+     * 그런 픽셀이 적거나(블록 넓이 합의 0.5% 미만) 한 색으로 모이지 않으면(40% 미만) null.
+     */
+    static Integer labelTextColor(Map<String, List<Integer>> zones, Map<Integer, ShapeSegmenter.Segment> byId, Map<Integer, Integer> color,
+                                  BufferedImage img, int bg) {
+        Map<Integer, int[]> buckets = new HashMap<>();
+        long total = 0, area = 0;
+        for (List<Integer> ids : zones.values()) {
+            for (Integer id : ids) {
+                ShapeSegmenter.Segment s = byId.get(id);
+                if (s == null || s.sat() < 0.2 || !color.containsKey(id)) {
+                    continue;
+                }
+                int zc = color.get(id);
+                Polygon p = poly(s.pixels(), 0, false);
+                java.awt.Rectangle r = p.getBounds().intersection(new java.awt.Rectangle(0, 0, img.getWidth(), img.getHeight()));
+                for (int y = r.y; y < r.y + r.height; y++) {
+                    for (int x = r.x; x < r.x + r.width; x++) {
+                        if (!p.contains(x, y)) {
+                            continue;
+                        }
+                        area++;
+                        int px = img.getRGB(x, y);
+                        if (dist(px, zc) < 90 || dist(px, bg) < 60) {
+                            continue;
+                        }
+                        int key = ((px >> 20) & 15) << 8 | ((px >> 12) & 15) << 4 | ((px >> 4) & 15);
+                        int[] acc = buckets.computeIfAbsent(key, k -> new int[4]);
+                        acc[0]++;
+                        acc[1] += (px >> 16) & 255;
+                        acc[2] += (px >> 8) & 255;
+                        acc[3] += px & 255;
+                        total++;
+                    }
+                }
+            }
+        }
+        if (area == 0 || total < 0.005 * area) {
+            return null;
+        }
+        int[] best = buckets.values().stream().max(java.util.Comparator.comparingInt(v -> v[0])).orElse(null);
+        // 글자 테두리의 섞인 색이 이웃 단계로 흩어지므로, 가장 흔한 색에서 RGB 거리 60 안의 픽셀을 모두 센다
+        int c = 0xFF000000 | (best[1] / best[0]) << 16 | (best[2] / best[0]) << 8 | (best[3] / best[0]);
+        long near = 0;
+        for (Map.Entry<Integer, int[]> b : buckets.entrySet()) {
+            int[] v = b.getValue();
+            int mean = 0xFF000000 | (v[1] / v[0]) << 16 | (v[2] / v[0]) << 8 | (v[3] / v[0]);
+            if (dist(mean, c) < 60) {
+                near += v[0];
+            }
+        }
+        return near >= 0.4 * total ? c : null;
+    }
+
+    /** RGB 공간에서 색 px와 선분 [a, b](두 색의 섞인 색들) 사이 거리. */
+    static double blendDist(int px, int a, int b) {
+        double[] p = {(px >> 16) & 255, (px >> 8) & 255, px & 255}, u = {(a >> 16) & 255, (a >> 8) & 255, a & 255}, v = {(b >> 16) & 255, (b >> 8) & 255, b & 255};
+        double l2 = 0, t = 0;
+        for (int i = 0; i < 3; i++) {
+            l2 += (v[i] - u[i]) * (v[i] - u[i]);
+            t += (p[i] - u[i]) * (v[i] - u[i]);
+        }
+        t = l2 == 0 ? 0 : Math.max(0, Math.min(1, t / l2));
+        double d = 0;
+        for (int i = 0; i < 3; i++) {
+            double c = u[i] + t * (v[i] - u[i]) - p[i];
+            d += c * c;
+        }
+        return Math.sqrt(d);
+    }
+
+    private static int boxGap(int[] a, int[] b) {
+        return Math.max(Math.max(a[0] - b[2], b[0] - a[2]), Math.max(a[1] - b[3], b[1] - a[3]));
+    }
+
+    /** s가 가는 띠(상자 긴 변이 짧은 변의 2.2배 이상)이고 o가 그 긴 변 쪽에 나란히 있다(긴 축 방향으로 띠 길이의 절반 이상 겹침). */
+    static boolean sideStrip(int[] s, int[] o) {
+        int sw = s[2] - s[0], sh = s[3] - s[1];
+        if (sw >= 2.2 * sh) {
+            return Math.min(s[2], o[2]) - Math.max(s[0], o[0]) >= 0.5 * sw;
+        }
+        if (sh >= 2.2 * sw) {
+            return Math.min(s[3], o[3]) - Math.max(s[1], o[1]) >= 0.5 * sh;
+        }
+        return false;
+    }
+
     /** 픽셀 마스크의 합집합 외곽선(흰 글자 구멍은 테두리 3px 덧칠로 메움)에서 가장 넓은 고리로 조각을 만든다. */
     private static ShapeSegmenter.Segment outlineSegment(boolean[] keep, java.awt.Rectangle bounds, int zoneColor, int id) {
+        return outlineSegment(keep, bounds, zoneColor, id, true);
+    }
+
+    /** pad=false 면 테두리 덧칠 없이(구멍을 이미 채운 마스크) 외곽선을 만든다. */
+    private static ShapeSegmenter.Segment outlineSegment(boolean[] keep, java.awt.Rectangle bounds, int zoneColor, int id, boolean pad) {
         int bw = bounds.width, bh = bounds.height, total = 0;
         java.awt.geom.Area area = new java.awt.geom.Area();
         long sx = 0, sy = 0;
@@ -274,7 +474,9 @@ final class ZoneConsistency {
         if (total == 0) {
             return null;
         }
-        area.add(new java.awt.geom.Area(new java.awt.BasicStroke(3f).createStrokedShape(area)));
+        if (pad) {
+            area.add(new java.awt.geom.Area(new java.awt.BasicStroke(3f).createStrokedShape(area)));
+        }
         List<int[]> best = null;
         double bestArea = 0;
         List<List<int[]>> rings = new ArrayList<>();

@@ -42,6 +42,7 @@ final class ShapeRegularizer {
             out.add(new DetailExtractor.RawZone(z.name(), polys));
         }
         symmetrize(all, zoneOf);
+        alignNeighbors(all, zoneOf);
         int k = 0;
         List<DetailExtractor.RawZone> done = new ArrayList<>();
         for (DetailExtractor.RawZone z : out) {
@@ -52,6 +53,94 @@ final class ShapeRegularizer {
             done.add(new DetailExtractor.RawZone(z.name(), polys));
         }
         return done;
+    }
+
+    /** 이웃 구역과 마주 본다고 볼 꼭짓점 거리 한도(통로 하나 폭). 콘솔·무대처럼 큰 물체를 사이에 둔 구역은 이보다 멀어 맞추지 않는다. */
+    static final int CORNER_GAP = 12;
+    /** 같은 줄로 보고 맞출 어긋남 한도. 이보다 크면 원래 계단처럼 꺾인 배치로 본다. */
+    static final int ROW_OFFSET = 8;
+
+    /**
+     * 나란히 붙은 이웃 구역의 변이 한 줄로 이어지게 맞춘다(사용자 지시 2026-10-21: 인접 구역은 변끼리 연속성이 있어야 한다).
+     * 다른 구역 조각의 꼭짓점끼리 통로 폭({@link #CORNER_GAP}) 안에서 마주 보고, 각자 상대에게서 멀어지는 변(줄을 이루는 윗변·밑변)이
+     * 거의 평행(15° 이내)하면, 두 꼭짓점을 그 줄에 수직인 방향으로만 반씩 옮겨 같은 선 위에 놓는다(통로 폭은 그대로).
+     * 어긋남이 {@link #ROW_OFFSET}보다 크면 원래 꺾인 배치라 두고, 가운데 콘솔처럼 멀리 떨어진 구역은 거리 한도에서 빠진다.
+     */
+    static void alignNeighbors(List<int[][]> polys, List<Integer> zoneOf) {
+        int n = polys.size();
+        java.util.Map<Long, double[]> shift = new java.util.HashMap<>(); // (조각, 꼭짓점) -> {dx 합, dy 합, 횟수}
+        for (int i = 0; i < n; i++) {
+            int[][] p = polys.get(i);
+            for (int j = i + 1; j < n; j++) {
+                int[][] q = polys.get(j);
+                if (p.length < 3 || q.length < 3 || zoneOf.get(i).equals(zoneOf.get(j)) || boxDist(p, q) > CORNER_GAP) {
+                    continue;
+                }
+                for (int k = 0; k < p.length; k++) {
+                    for (int m = 0; m < q.length; m++) {
+                        int[] a = p[k], b = q[m];
+                        if (Math.hypot(a[0] - b[0], a[1] - b[1]) > CORNER_GAP) {
+                            continue;
+                        }
+                        double[] dp = rowEdge(p, k, q), dq = rowEdge(q, m, p);
+                        if (dp == null || dq == null || dp[0] * dq[0] + dp[1] * dq[1] > 0) {
+                            continue; // 두 줄 변이 서로 반대쪽(각자 상대에게서 멀어지는 쪽)으로 뻗어야 한 줄이다
+                        }
+                        if (Math.abs(lineDiff(Math.atan2(dp[1], dp[0]), Math.atan2(dq[1], dq[0]))) > Math.toRadians(15)) {
+                            continue;
+                        }
+                        double ux = dp[0] - dq[0], uy = dp[1] - dq[1], ul = Math.hypot(ux, uy);
+                        double nx = -uy / ul, ny = ux / ul;
+                        double e = (b[0] - a[0]) * nx + (b[1] - a[1]) * ny;
+                        if (Math.abs(e) < 1 || Math.abs(e) > ROW_OFFSET) {
+                            continue;
+                        }
+                        add(shift, i, k, nx * e / 2, ny * e / 2);
+                        add(shift, j, m, -nx * e / 2, -ny * e / 2);
+                    }
+                }
+            }
+        }
+        shift.forEach((key, v) -> {
+            int[] pt = polys.get((int) (key >> 16))[(int) (key & 0xFFFF)];
+            pt[0] = (int) Math.max(0, Math.min(1000, Math.round(pt[0] + v[0] / v[2])));
+            pt[1] = (int) Math.max(0, Math.min(1000, Math.round(pt[1] + v[1] / v[2])));
+        });
+    }
+
+    /** 꼭짓점 k에서 나가는 두 변 중 상대 조각 o에게서 멀어지는 변(줄을 이루는 변)의 단위 방향. 두 변 모두 상대 가까이 있으면 null. */
+    private static double[] rowEdge(int[][] p, int k, int[][] o) {
+        int[] a = p[k], prev = p[(k - 1 + p.length) % p.length], next = p[(k + 1) % p.length];
+        double dPrev = distToPoly(prev, o), dNext = distToPoly(next, o);
+        int[] end = dPrev > dNext ? prev : next;
+        if (Math.max(dPrev, dNext) <= 2 * CORNER_GAP) {
+            return null;
+        }
+        double dx = end[0] - a[0], dy = end[1] - a[1], l = Math.hypot(dx, dy);
+        return l == 0 ? null : new double[]{dx / l, dy / l};
+    }
+
+    private static double distToPoly(int[] v, int[][] o) {
+        double best = Double.MAX_VALUE;
+        for (int i = 0; i < o.length; i++) {
+            int[] s = o[i], t = o[(i + 1) % o.length];
+            double dx = t[0] - s[0], dy = t[1] - s[1], l2 = dx * dx + dy * dy;
+            double u = l2 == 0 ? 0 : Math.max(0, Math.min(1, ((v[0] - s[0]) * dx + (v[1] - s[1]) * dy) / l2));
+            best = Math.min(best, Math.hypot(v[0] - s[0] - u * dx, v[1] - s[1] - u * dy));
+        }
+        return best;
+    }
+
+    private static int boxDist(int[][] p, int[][] q) {
+        int[] a = boxOf(p), b = boxOf(q);
+        return Math.max(Math.max(a[0] - b[2], b[0] - a[2]), Math.max(a[1] - b[3], b[1] - a[3]));
+    }
+
+    private static void add(java.util.Map<Long, double[]> shift, int poly, int vertex, double dx, double dy) {
+        double[] v = shift.computeIfAbsent(((long) poly << 16) | vertex, x -> new double[3]);
+        v[0] += dx;
+        v[1] += dy;
+        v[2]++;
     }
 
     /** 사각형에 가까우면 사각형으로(직각·평행 맞추기, 변 펴기), 아니면 꼭짓점 8개 이하로. */

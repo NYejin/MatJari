@@ -1,4 +1,4 @@
-// 맞자리 ERD -- 현재 스키마: V1~V21 (users, performance, performance_session, ticket + 교환 희망 4개 + 매칭·잠금 2개 + 교환 이력 1개 + 알림 1개 + 채팅 2개 + 관리자 2개(V12) + 차단·신고·정지 3개(V13) + 소셜 계정 1개(V14) + 이메일 인증번호 1개(V19) + 공연 구역 1개(V21) = 22개 테이블; V6·V7은 컬럼 변경만, V9는 ticket.status EXCHANGED 추가와 exchange_history 신설, V10은 notification 신설, V11은 chat_message·chat_read_state 신설, V12는 performance_edit_proposal·seat_claim 신설, V13은 user_block·abuse_report·user_sanction 신설, V14는 social_account 신설, V15는 exchange_match 예약 제안 2컬럼과 notification type 6종 확장(테이블 수 그대로), V16은 users.password_login_enabled 컬럼과 social_account (user_id, provider) 유니크 추가(테이블 수 그대로), V17은 users.withdrawn_at 컬럼 추가(회원탈퇴, 테이블 수 그대로), V18은 users.trust_score 컬럼 제거(폐기된 신뢰도 점수, 테이블 수 그대로), V21은 performance_zone 신설(테이블 +1)과 performance.seatmap_aspect 컬럼 추가)
+// 맞자리 ERD -- 현재 스키마: V1~V24 (V22 관리자 조치 기록 1개·V23 AI 결과 보관 1개·V24 AI 사용 기록 1개 추가 = 25개 테이블; 아래 괄호는 V21 기준 설명) (users, performance, performance_session, ticket + 교환 희망 4개 + 매칭·잠금 2개 + 교환 이력 1개 + 알림 1개 + 채팅 2개 + 관리자 2개(V12) + 차단·신고·정지 3개(V13) + 소셜 계정 1개(V14) + 이메일 인증번호 1개(V19) + 공연 구역 1개(V21) = 22개 테이블; V6·V7은 컬럼 변경만, V9는 ticket.status EXCHANGED 추가와 exchange_history 신설, V10은 notification 신설, V11은 chat_message·chat_read_state 신설, V12는 performance_edit_proposal·seat_claim 신설, V13은 user_block·abuse_report·user_sanction 신설, V14는 social_account 신설, V15는 exchange_match 예약 제안 2컬럼과 notification type 6종 확장(테이블 수 그대로), V16은 users.password_login_enabled 컬럼과 social_account (user_id, provider) 유니크 추가(테이블 수 그대로), V17은 users.withdrawn_at 컬럼 추가(회원탈퇴, 테이블 수 그대로), V18은 users.trust_score 컬럼 제거(폐기된 신뢰도 점수, 테이블 수 그대로), V21은 performance_zone 신설(테이블 +1)과 performance.seatmap_aspect 컬럼 추가)
 // 2026-10-13: V19(V19__email_verification.sql) 구현(feature/email-verification) = email_verification(가입 전 이메일 인증번호: PK email, code_hash HMAC-SHA256 CHAR(64), attempts, sent_at, expires_at, idx_email_verification_expires). users와 FK 없음(가입 전 이메일), 가입 성공 시 행 삭제. 재실행 가능한 프로시저, 파괴적 단계 없음. 이 변경으로 ERD.png는 재생성하지 않았다(dot 미설치).
 // 2026-10-18: V21(V21__performance_zone.sql) 구현(feature/ai-extract-backend) = performance_zone(공연별 구역 목록, performance_id FK, name_key는 ticket.zone_key와 같은 VARCHAR(50) utf8mb4_bin, shape_polygons JSON NULL 구조 CHECK) 신설과 performance.seatmap_aspect DECIMAL(6,3) NULL 추가. 티켓·교환 조건은 구역을 텍스트(zone_*)로만 가지므로 performance_zone과 FK가 없다. 이 변경으로 ERD.png는 재생성하지 않았다(dot 미설치, DOT 문법만 점검).
 // 생성: dot -Tpng erd.dot -o ERD.png   (한글 라벨: 나눔고딕 등 한글 폰트 필요)
@@ -394,6 +394,31 @@ digraph MatJariERD {
   abuse_report -> user_sanction [style=dotted, color=gray, constraint=false, label="sanction_id (FK 아님)"];
   // ---------- 소셜 로그인 계정 관계 (V14) ----------
   users -> social_account [label="1:N 소셜 계정"];
+
+  // ---------- 관리자 조치 기록 (V22, 2026-10-19) / AI 결과 보관 (V23) / AI 사용 기록 (V24, 2026-10-21) ----------
+  admin_action_log [label=<
+    <TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">
+      <TR><TD COLSPAN="2" BGCOLOR="#FCE4D6"><B>admin_action_log</B> (V22, 관리자 직접 조치 기록, 추가만)</TD></TR>
+      <TR><TD>PK</TD><TD ALIGN="LEFT">id</TD></TR>
+      <TR><TD>FK</TD><TD ALIGN="LEFT">admin_id → users (NN)</TD></TR>
+      <TR><TD> </TD><TD ALIGN="LEFT">action / target_type / target_id (FK 아님) / reason / detail JSON / created_at</TD></TR>
+    </TABLE>>];
+  ai_extract_cache [label=<
+    <TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">
+      <TR><TD COLSPAN="2" BGCOLOR="#E2EFDA"><B>ai_extract_cache</B> (V23, 링크별 AI 결과 168시간 보관, FK 없음)</TD></TR>
+      <TR><TD>PK</TD><TD ALIGN="LEFT">source_key VARCHAR(500) bin (performance.source_key 형식)</TD></TR>
+      <TR><TD> </TD><TD ALIGN="LEFT">result JSON NN / created_at / expires_at_ms BIGINT NN (idx)</TD></TR>
+    </TABLE>>];
+  ai_extract_usage [label=<
+    <TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">
+      <TR><TD COLSPAN="2" BGCOLOR="#E2EFDA"><B>ai_extract_usage</B> (V24, AI 불러오기 사용자당 월 3회 기록)</TD></TR>
+      <TR><TD>PK</TD><TD ALIGN="LEFT">id</TD></TR>
+      <TR><TD>FK</TD><TD ALIGN="LEFT">user_id → users (NN, idx 단일 컬럼)</TD></TR>
+      <TR><TD> </TD><TD ALIGN="LEFT">source_key / used_at NN / refunded_at NULL (AI 실패 시 반환)</TD></TR>
+      <TR><TD COLSPAN="2" ALIGN="LEFT">idx_ai_extract_usage_user_month (user_id, used_at)</TD></TR>
+    </TABLE>>];
+  users -> admin_action_log [label="1:N 처리 관리자"];
+  users -> ai_extract_usage [label="1:N"];
 
   // ---------- 공연 구역 관계 (V21) ----------
   performance -> performance_zone [label="1:N"];

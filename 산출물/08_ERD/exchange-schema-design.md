@@ -1271,3 +1271,9 @@ CHECK 3개 (V8 `ck_exchange_match_reserved`와 같은 안전망 성격, NULL 통
 - 이번 달 사용 수 = `used_at >= 이번 달 1일 AND refunded_at IS NULL`. 예약은 users 행 FOR UPDATE(첫 쿼리) → COUNT → INSERT를 짧은 트랜잭션에서 하고 AI 호출 전에 커밋한다. 반환은 PK로 한 행만 갱신한다. 티켓·요청·매칭 잠금 사슬과 겹치지 않는다. 테이블 수 24 -> 25.
 - 재실행 가능한 프로시저 패턴, 파괴적 단계 없음. ERD.png는 재생성하지 않았다(graphviz 미설치, `erd.dot`에 V22~V24 노드만 추가).
 - 다음 마이그레이션은 V25다.
+
+## 23. V25: 관리자 공연 삭제 조치 기록 (2026-10-21, `V25__admin_performance_delete.sql`, `feature/admin-performance-delete`)
+
+- `admin_action_log`의 `ck_admin_action_log_action`에 `PERFORMANCE_DELETE`를 더한다(제약 교체만, 테이블·데이터 변경 없음, 테이블 수 25 그대로).
+- 숨긴 공연 완전 삭제는 서비스가 공연 행 FOR UPDATE 뒤 티켓·교환 희망 회차·좌석 인증 요청·교환 이력이 없음을 확인하고 수정 제안 → 구역 → 회차 → 공연 순으로 지운다. 조치 기록의 대상은 FK가 아니라 삭제 뒤에도 남는다.
+- 다음 마이그레이션은 V26이다.

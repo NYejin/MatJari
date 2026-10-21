@@ -88,12 +88,14 @@ public class AdminPerformanceService {
     private final AdminActionLogger actionLogger;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     public AdminPerformanceService(PerformanceRepository performanceRepository,
                                    PerformanceSessionRepository sessionRepository,
                                    PerformanceZoneRepository zoneRepository, UserRepository userRepository,
                                    SessionChangePlanner planner, AdminActionLogger actionLogger,
-                                   ObjectMapper objectMapper, Clock clock) {
+                                   ObjectMapper objectMapper, Clock clock, org.springframework.jdbc.core.JdbcTemplate jdbc) {
+        this.jdbc = jdbc;
         this.performanceRepository = performanceRepository;
         this.sessionRepository = sessionRepository;
         this.zoneRepository = zoneRepository;
@@ -176,6 +178,51 @@ public class AdminPerformanceService {
         before.put("hiddenReason", previousReason);
         actionLogger.log(adminId, AdminActionLog.Action.PERFORMANCE_UNHIDE, AdminActionLog.TargetType.PERFORMANCE, id,
                 cleaned, json(Map.of("title", performance.getTitle(), "before", before, "after", Map.of("hidden", false))));
+    }
+
+    /**
+     * 숨긴 공연 완전 삭제(사용자 결정 2026-10-21). 숨김 상태가 아니면 409 PERFORMANCE_NOT_HIDDEN, 티켓(상태 무관)·교환 희망 회차·
+     * 좌석 인증 요청·교환 이력이 하나라도 있으면 409 PERFORMANCE_IN_USE(종류별 개수). 공연 행을 잠근 뒤 검사하고
+     * 공연 수정 제안 → 구역 → 회차 → 공연 순으로 지운다. 조치 기록(대상은 FK 아님)은 맨 끝에 남긴다.
+     */
+    @Transactional
+    public void delete(Long adminId, Long id, String reason) {
+        String cleaned = requiredReason(reason);
+        Performance performance = lock(id);
+        if (!performance.isHidden()) {
+            throw new BusinessRuleException("PERFORMANCE_NOT_HIDDEN", "숨긴 공연만 삭제할 수 있어요. 먼저 공연을 내려 주세요.");
+        }
+        Map<String, Object> inUse = jdbc.queryForMap("""
+                SELECT (SELECT COUNT(*) FROM ticket t JOIN performance_session s ON s.id = t.performance_session_id
+                        WHERE s.performance_id = ?) tickets,
+                       (SELECT COUNT(*) FROM exchange_want_session w JOIN performance_session s ON s.id = w.performance_session_id
+                        WHERE s.performance_id = ?) wantSessions,
+                       (SELECT COUNT(*) FROM seat_claim c JOIN performance_session s ON s.id = c.performance_session_id
+                        WHERE s.performance_id = ?) seatClaims,
+                       (SELECT COUNT(*) FROM exchange_history h WHERE h.performance_id = ?) histories
+                """, id, id, id, id);
+        long total = inUse.values().stream().mapToLong(v -> ((Number) v).longValue()).sum();
+        if (total > 0) {
+            Map<String, Object> details = new LinkedHashMap<>();
+            inUse.forEach((k, v) -> details.put(k, ((Number) v).longValue()));
+            throw new com.matjari.exception.ConflictException(
+                    "이 공연에 연결된 기록이 있어 삭제할 수 없어요(티켓 " + details.get("tickets") + "·교환 희망 회차 "
+                            + details.get("wantSessions") + "·좌석 인증 " + details.get("seatClaims") + "·교환 이력 "
+                            + details.get("histories") + "). 숨김 상태로 두세요.",
+                    Map.of("code", "PERFORMANCE_IN_USE", "inUse", details));
+        }
+        int proposals = jdbc.update("DELETE FROM performance_edit_proposal WHERE performance_id = ?", id);
+        int zones = jdbc.update("DELETE FROM performance_zone WHERE performance_id = ?", id);
+        int sessions = jdbc.update("DELETE FROM performance_session WHERE performance_id = ?", id);
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("title", performance.getTitle());
+        detail.put("venueName", performance.getVenueName());
+        detail.put("sourceUrl", performance.getSourceUrl());
+        detail.put("hiddenReason", performance.getHiddenReason());
+        detail.put("deleted", Map.of("sessions", sessions, "zones", zones, "editProposals", proposals));
+        jdbc.update("DELETE FROM performance WHERE id = ?", id); // 엔티티는 바꾸지 않았으므로 영속성 컨텍스트가 다시 쓰지 않는다
+        actionLogger.log(adminId, AdminActionLog.Action.PERFORMANCE_DELETE, AdminActionLog.TargetType.PERFORMANCE, id,
+                cleaned, json(detail));
     }
 
     @Transactional

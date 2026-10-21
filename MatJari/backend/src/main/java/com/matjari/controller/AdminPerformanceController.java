@@ -50,6 +50,14 @@ public class AdminPerformanceController {
         return ResponseEntity.noContent().build();
     }
 
+    /** 숨긴 공연 완전 삭제(사유 필수). 숨김 아님 409 PERFORMANCE_NOT_HIDDEN, 연결 기록 있음 409 PERFORMANCE_IN_USE. */
+    @PostMapping("/{id}/delete")
+    public ResponseEntity<Void> delete(@PathVariable Long id, @RequestBody(required = false) ReasonRequest request,
+                                       @AuthenticationPrincipal AuthUserPrincipal principal) {
+        service.delete(principal.userId(), id, request == null ? null : request.reason());
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping("/{id}/unhide")
     public ResponseEntity<Void> unhide(@PathVariable Long id, @RequestBody(required = false) ReasonRequest request,
                                        @AuthenticationPrincipal AuthUserPrincipal principal) {

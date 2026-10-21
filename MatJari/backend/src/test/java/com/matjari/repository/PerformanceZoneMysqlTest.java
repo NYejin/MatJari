@@ -77,6 +77,8 @@ class PerformanceZoneMysqlTest {
     void setUp() {
         assertThat(jdbc.queryForObject("SELECT DATABASE()", String.class)).endsWith("_zoneschema_it");
         jdbc.update("DELETE FROM ai_extract_usage");
+        jdbc.update("DELETE FROM admin_action_log");
+        jdbc.update("DELETE FROM ticket");
         jdbc.update("DELETE FROM performance_zone");
         jdbc.update("DELETE FROM performance_session");
         jdbc.update("DELETE FROM performance");
@@ -230,5 +232,35 @@ class PerformanceZoneMysqlTest {
         assertThat(venueZoneHints.namesFor("KSPO DOME")).isEmpty();
         jdbc.update("UPDATE performance SET hidden_at = NOW(6), hidden_by_id = 1, hidden_reason = 'x' WHERE source_key = 'melon:901'");
         assertThat(venueZoneHints.namesFor("고척스카이돔")).isEmpty();
+    }
+
+    @Autowired
+    private com.matjari.service.AdminPerformanceService adminPerformanceService;
+
+    /** V25: 숨긴 공연은 연결 기록이 없을 때만 회차·구역과 함께 지워지고 조치 기록(PERFORMANCE_DELETE)이 남는다. */
+    @Test
+    void hiddenPerformanceDeleteOnlyWhenUnused() {
+        PerformanceDetailResponse free = register("https://ticket.melon.com/performance/index.htm?prodId=801",
+                List.of(new ZoneInput("A", triangle(0))), null);
+        Long id = free.id();
+        assertThatThrownBy(() -> adminPerformanceService.delete(1L, id, "중복 등록"))
+                .isInstanceOf(com.matjari.exception.BusinessRuleException.class); // 숨김 전에는 삭제 불가
+        adminPerformanceService.hide(1L, id, "중복 등록");
+        adminPerformanceService.delete(1L, id, "중복 등록");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM performance WHERE id = ?", Integer.class, id)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM performance_session WHERE performance_id = ?", Integer.class, id)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM performance_zone WHERE performance_id = ?", Integer.class, id)).isZero();
+        assertThat(jdbc.queryForObject("SELECT action FROM admin_action_log WHERE target_id = ? ORDER BY id DESC LIMIT 1",
+                String.class, id)).isEqualTo("PERFORMANCE_DELETE");
+
+        // 티켓이 걸린 공연은 숨겨도 지우지 못한다
+        PerformanceDetailResponse used = service.create(1L, new PerformanceCreateRequest(
+                "https://ticket.melon.com/performance/index.htm?prodId=802", "제목", "공연장", List.of(SHOW), null, null,
+                new PerformanceCreateRequest.TicketInput(SHOW, "A", "1", "1")));
+        adminPerformanceService.hide(1L, used.id(), "점검");
+        assertThatThrownBy(() -> adminPerformanceService.delete(1L, used.id(), "점검"))
+                .isInstanceOfSatisfying(com.matjari.exception.ConflictException.class,
+                        e -> assertThat(e.getDetails()).containsEntry("code", "PERFORMANCE_IN_USE"));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM performance WHERE id = ?", Integer.class, used.id())).isEqualTo(1);
     }
 }

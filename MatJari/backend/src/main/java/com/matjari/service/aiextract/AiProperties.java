@@ -49,7 +49,7 @@ public class AiProperties {
     private int dailyPerUser = 2;
     private int dailyGlobal = 40;
     private int maxConcurrent = 2;
-    private int cacheTtlHours = 24;
+    private int cacheTtlHours = 168;
     private int cacheMaxEntries = 200;
     private int firstMaxTokens = 4000;
     private int secondMaxTokens = 12000;

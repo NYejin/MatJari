@@ -162,4 +162,29 @@ class PerformanceZoneMysqlTest {
     private void assertRejected(String constraint, Runnable statement) {
         assertThatThrownBy(statement::run).isInstanceOf(DataAccessException.class).hasMessageContaining(constraint);
     }
+
+    @Autowired
+    private com.matjari.service.aiextract.AiResultStore aiResultStore;
+
+    /** V23 ai_extract_cache: 저장·덮어쓰기·만료(조회 제외, 다음 저장 때 정리)와 JSON 왕복. */
+    @Test
+    void aiResultStoreRoundTripAndExpiry() {
+        jdbc.update("DELETE FROM ai_extract_cache");
+        var r1 = new com.matjari.service.aiextract.DetailExtractionService.Response(
+                List.of(new com.matjari.service.aiextract.DetailExtractionService.SessionDto("2099-01-01", "19:00")), "AI",
+                List.of(new com.matjari.service.aiextract.DetailExtractionService.ZoneDto("A구역", triangle(0))),
+                1.5, true, false, false, true);
+        aiResultStore.save("melon:1", r1, 60_000);
+        assertThat(aiResultStore.find("melon:1")).contains(r1);
+
+        var r2 = new com.matjari.service.aiextract.DetailExtractionService.Response(List.of(), "NONE",
+                List.of(new com.matjari.service.aiextract.DetailExtractionService.ZoneDto("B", null)), null, true, false, false, false);
+        aiResultStore.save("melon:1", r2, 60_000); // 같은 링크는 덮어쓴다
+        assertThat(aiResultStore.find("melon:1")).contains(r2);
+
+        aiResultStore.save("melon:2", r1, -1); // 이미 만료
+        assertThat(aiResultStore.find("melon:2")).isEmpty();
+        aiResultStore.save("melon:3", r1, 60_000); // 저장할 때 만료 행 정리
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ai_extract_cache WHERE source_key = 'melon:2'", Integer.class)).isZero();
+    }
 }

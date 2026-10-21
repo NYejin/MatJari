@@ -24,6 +24,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /** 오케스트레이션·캐시·제한·후처리·병합. AI 호출은 가짜 DetailExtractor, 네트워크 호출 없음. */
@@ -145,6 +147,34 @@ class DetailExtractionServiceTest {
         assertThat(a.cached()).isFalse();
         assertThat(b.cached()).isTrue();
         assertThat(fake.firstCalls).isEqualTo(1);
+    }
+
+    @Test
+    void storedResultSurvivesRestartWithoutAiCallAndUsefulResultIsStored() throws Exception {
+        // 배포·재시작 뒤(새 서비스 = 빈 메모리 캐시)에도 DB 보관 결과를 AI 없이 돌려준다
+        AiResultStore store = mock(AiResultStore.class);
+        Clock clock = Clock.fixed(Instant.parse("2026-10-18T03:00:00Z"), ZoneId.of("Asia/Seoul"));
+        DetailExtractionService.Response saved = new DetailExtractionService.Response(
+                List.of(new DetailExtractionService.SessionDto("2026-11-01", "19:00")), "AI",
+                List.of(new DetailExtractionService.ZoneDto("A구역", null)), null, true, false, false, false);
+        when(store.find("melon:111")).thenReturn(java.util.Optional.of(saved));
+        when(store.find("melon:222")).thenReturn(java.util.Optional.empty());
+        DetailExtractionService restarted = new DetailExtractionService(new SourceKeyResolver(), preview, parser, fetcher,
+                new ImageSlicer(props), new ShapeSegmenter(), fake, new AiUsageLimiter(clock, props), props, clock, store);
+
+        DetailExtractionService.Response hit = restarted.extract(1L, MELON);
+        assertThat(hit.cached()).isTrue();
+        assertThat(hit.zones()).extracting("name").containsExactly("A구역");
+        assertThat(fake.firstCalls).isZero();
+        verify(preview, never()).fetchPage(anyString(), anyString());
+
+        DetailExtractionService.Response fresh = restarted.extract(1L, MELON2);
+        assertThat(fresh.cached()).isFalse();
+        verify(store).save("melon:222", fresh, 168L * 3_600_000L);
+
+        // 저장된 JSON 이 다시 같은 응답으로 읽힌다(레코드 직렬화)
+        com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+        assertThat(om.readValue(om.writeValueAsString(fresh), DetailExtractionService.Response.class)).isEqualTo(fresh);
     }
 
     @Test

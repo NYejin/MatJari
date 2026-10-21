@@ -96,10 +96,22 @@ public class DetailExtractionService {
     private final AiProperties properties;
     private final Clock clock;
     private final Map<String, CacheEntry> cache;
+    /** 링크별 결과 DB 보관(V23). null 이면 메모리 캐시만 쓴다(단위 시험·평가 도구). */
+    private final AiResultStore store;
 
     public DetailExtractionService(SourceKeyResolver sourceKeyResolver, PerformancePreviewService previewService,
                                    SessionTextParser textParser, DetailImageFetcher imageFetcher, ImageSlicer slicer,
                                    ShapeSegmenter segmenter, DetailExtractor extractor, AiUsageLimiter limiter, AiProperties properties, Clock clock) {
+        this(sourceKeyResolver, previewService, textParser, imageFetcher, slicer, segmenter, extractor, limiter, properties,
+                clock, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public DetailExtractionService(SourceKeyResolver sourceKeyResolver, PerformancePreviewService previewService,
+                                   SessionTextParser textParser, DetailImageFetcher imageFetcher, ImageSlicer slicer,
+                                   ShapeSegmenter segmenter, DetailExtractor extractor, AiUsageLimiter limiter, AiProperties properties,
+                                   Clock clock, AiResultStore store) {
+        this.store = store;
         this.sourceKeyResolver = sourceKeyResolver;
         this.previewService = previewService;
         this.textParser = textParser;
@@ -1767,27 +1779,43 @@ public class DetailExtractionService {
 
     // ---- 캐시 ----
 
+    /** 메모리 캐시 → DB 보관 순으로 찾는다. DB 에서 찾으면 남은 기간 동안 메모리에도 둔다. */
     private Response cacheGet(String key) {
         synchronized (cache) {
             CacheEntry e = cache.get(key);
-            if (e == null) {
-                return null;
+            if (e != null && e.expiresAtMillis() > clock.millis()) {
+                return e.response();
             }
-            if (e.expiresAtMillis() <= clock.millis()) {
+            if (e != null) {
                 cache.remove(key);
-                return null;
             }
-            return e.response();
         }
+        if (store == null) {
+            return null;
+        }
+        Response stored = store.find(key).orElse(null);
+        if (stored != null) {
+            synchronized (cache) {
+                cache.put(key, new CacheEntry(stored, clock.millis() + ttlMillis()));
+            }
+        }
+        return stored;
     }
 
-    /** 성공 결과 중 읽은 것이 있을 때만 캐시한다(빈 결과를 24시간 붙들지 않는다). */
+    /** 성공 결과 중 읽은 것이 있을 때만 보관한다(빈 결과를 붙들지 않는다). 메모리와 DB(V23) 둘 다. */
     private void cacheIfUseful(String key, Response r) {
         if (r.sessions().isEmpty() && r.zones().isEmpty()) {
             return;
         }
         synchronized (cache) {
-            cache.put(key, new CacheEntry(r, clock.millis() + properties.getCacheTtlHours() * 3_600_000L));
+            cache.put(key, new CacheEntry(r, clock.millis() + ttlMillis()));
         }
+        if (store != null) {
+            store.save(key, r, ttlMillis());
+        }
+    }
+
+    private long ttlMillis() {
+        return properties.getCacheTtlHours() * 3_600_000L;
     }
 }

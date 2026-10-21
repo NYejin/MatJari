@@ -404,6 +404,7 @@ keyset 조각의 내부: 저장소에 `size+1`건을 요청해 다음 조각 유
   - 주의: `./gradlew bootRun`은 `backend/.env`를 읽어 `SPRING_DATASOURCE_URL`을 덮어쓴다. 임시 DB로 검증하려면 `bootRun`이 아니라 `bootJar` 후 `java -jar`로 환경변수를 지정해 실행한다.
 - **V4 적용 안내 (교환 희망 테이블)**: `exchange_request`(티켓당 1개 `uk_exchange_request_ticket`, 추가금 유형·금액 CHECK), `exchange_want_range`(입력한 범위, 수정 화면 복원용), `exchange_want_seat`(펼친 희망 좌석, PK = request_id + 구역·열·번 키), `exchange_want_session`(희망 회차 + 우선순위, PK = request_id + 회차)를 만든다. 자식 3개는 요청 삭제 시 `ON DELETE CASCADE`다. 기존 데이터를 건드리지 않아 가드가 없다. 차단·매칭·예약 잠금·채팅·이력 테이블은 V5 이후다. `exchange_want_range`의 `row_from/row_to/col_from/col_to`에는 정규화 키를 저장한다.
 - **V5 적용 안내 (매칭·예약 잠금)**: `exchange_match`(후보를 골라 시작한 매칭. a = 제안자, b = 고른 상대. 요청·티켓·사용자 a/b, 상태 4종 CHATTING/RESERVED/COMPLETED/CANCELED, `a/b_reserved_at`·`a/b_completed_at`, `canceled_by_id`(NULL = 시스템 취소)·`canceled_at`, 생성 컬럼 `request_low_id`/`request_high_id`/`open_flag`와 `uk_exchange_match_open_pair`로 같은 쌍의 열린 매칭 1개)와 `exchange_ticket_lock`(PK ticket_id, 티켓당 예약 1개, `match_id` FK ON DELETE CASCADE)을 만든다. 기존 데이터를 건드리지 않아 가드가 없다. 차단(`user_block`)·채팅(`chat_message`)·이력(`exchange_history`)은 후속 V 파일이다. FK 인덱스는 단일 컬럼이어야 한다(위 '동시성'의 교착 사례).
+- **V23 적용 안내 (AI 읽기 결과 보관, `V23__ai_extract_cache.sql`, 2026-10-21)**: 새 테이블 `ai_extract_cache`(PK `source_key`, `result` JSON, `created_at`, `expires_at_ms`) 하나만 만든다. FK·기존 데이터 변경 없음, 재실행 가능. 지워도 기능에는 영향이 없다(AI를 다시 부를 뿐).
 - **V21 적용 안내 (공연 구역 목록·좌석표 비율, `V21__performance_zone.sql`, 2026-10-18)**: 새 테이블 `performance_zone`(`performance_id` FK, `name` VARCHAR(30), `name_key` VARCHAR(50) utf8mb4_bin, `sort_order` SMALLINT, `shape_polygons` JSON NULL, `created_at`, UNIQUE(name_key, performance_id), FK 전용 단일 컬럼 KEY(performance_id))와 `performance.seatmap_aspect` DECIMAL(6,3) NULL(0 초과 CHECK)을 추가한다. 기존 데이터는 바뀌지 않는다. JSON CHECK는 조각 1~8개·꼭짓점 3~40개 같은 구조만 검사하고 좌표 범위·쌍 형식은 서비스가 검사한다. 재실행 가능한 프로시저 패턴, 파괴적 단계 없음. 다음 마이그레이션은 V22.
 - MySQL 최소 버전 8.0.16 — 그 미만은 CHECK 제약을 문법만 받고 강제하지 않는다 (현재 docker 이미지는 mysql:8.0).
 
@@ -774,7 +775,7 @@ keyset 조각의 내부: 저장소에 `size+1`건을 요청해 다음 조각 유
 - 상세 이미지는 `matjari.ai.image-hosts`에 **정확히 일치하는 https 호스트**만 받는다(기본 `cdnticket.melon.co.kr`). AI 호출은 멜론 상세 이미지가 있을 때만 한다. 이미지가 없으면 본문 규칙 결과만 돌려주고 AI를 부르지 않는다.
 - 이미지는 조각으로 나눠(폭 1000px 이하로 줄인 뒤 `slice-height`·`slice-overlap`) 1차 AI(회차·구역 이름·좌석표 위치), 필요할 때 2차 AI(구역 윤곽)로 보낸다. 같은 이름의 구역은 한 구역으로 합친다(`DetailExtractionService.mergeZones`).
 - **호출 제한**(메모리 기반, 재시작하면 초기화, 단일 인스턴스 기준): 사용자당 하루(KST) 2회, 전체 하루 40회, 동시 2개(대기 없이 거절, 초과는 429). 캐시 적중과 AI를 부르지 않은 요청은 횟수에 세지 않는다.
-- **캐시**: 성공 결과만 24시간(최대 200개) 보관한다.
+- **캐시**: 성공 결과만 168시간 보관한다(메모리 최대 200개 + DB `ai_extract_cache`(V23)라 배포·재시작 뒤에도 남는다). 보관 결과를 돌려줄 때는 AI를 부르지 않고 횟수에도 세지 않는다.
 - AI가 꺼져 있거나 키가 없으면 규칙 결과만 돌려주고 `aiEnabled=false`다. AI 호출이 실패하면 규칙 결과와 `aiError=true`를 돌려준다.
 - 로그에는 개수·소요 시간만 남기고 이미지·본문·키는 남기지 않는다. 원본 이미지는 DB에 저장하지 않는다.
 

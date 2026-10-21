@@ -107,25 +107,41 @@ function Panel({ title, right, children, className = "" }: { title: string; righ
   );
 }
 
-function Kpi({ label, value, sub, to, warn }: { label: string; value: unknown; sub?: string; to?: string; warn?: boolean }) {
-  // 두 줄: 이름·값 한 줄, 보조 수치 한 줄(잘리면 마우스를 올려 전체를 본다)
-  const body = (
-    <>
-      <span className="flex min-w-0 items-baseline justify-between gap-1">
-        <span className="truncate text-[11px]/4 text-gray-500">{label}</span>
-        <span className={`shrink-0 text-sm/4 font-bold tabular-nums ${warn ? "text-red-600" : "text-gray-900"}`}>{fmt(value)}</span>
-      </span>
-      {sub && <span className="truncate text-[10px]/3.5 text-gray-400">{sub}</span>}
-    </>
-  );
-  const cls = "flex min-w-0 flex-col rounded border border-gray-200 bg-white px-1.5 py-0.5 no-underline";
-  const tip = sub ? `${label}: ${fmt(value)} (${sub})` : undefined;
-  return to ? (
-    <Link to={to} title={tip} className={`${cls} hover:border-primary-400`}>
-      {body}
-    </Link>
-  ) : (
-    <div title={tip} className={cls}>{body}</div>
+type KpiItem = { label: string; value: unknown; sub?: string; to?: string; warn?: boolean };
+
+// 분류별 묶음 표: 상자 하나에 '이름 · 값 · 보조' 행을 나열한다(보조가 잘리면 마우스를 올려 본다)
+function KpiGroup({ title, items, to }: { title: string; items: KpiItem[]; to?: string }) {
+  return (
+    <section className="flex min-w-0 flex-col rounded-md border border-gray-200 bg-white" aria-label={title}>
+      <h2 className="flex items-center justify-between border-b border-gray-100 bg-gray-50 px-2 py-0.5 text-[11px] font-semibold text-gray-600">
+        {title}
+        {to && (
+          <Link to={to} className="font-normal text-primary-600 no-underline hover:underline">
+            보기
+          </Link>
+        )}
+      </h2>
+      <dl className="grid grid-cols-[auto_auto_minmax(0,1fr)] items-baseline gap-x-2 px-2 py-1">
+        {items.map((it) => {
+          const label = it.to ? (
+            <Link to={it.to} className="text-gray-600 no-underline hover:text-primary-600 hover:underline">
+              {it.label}
+            </Link>
+          ) : (
+            it.label
+          );
+          return (
+            <div key={it.label} className="contents">
+              <dt className="truncate text-xs/5 text-gray-600">{label}</dt>
+              <dd className={`text-right text-sm/5 font-bold tabular-nums ${it.warn ? "text-red-600" : "text-gray-900"}`}>{typeof it.value === "string" ? it.value : fmt(it.value)}</dd>
+              <dd className="truncate text-[11px]/5 text-gray-400" title={it.sub}>
+                {it.sub}
+              </dd>
+            </div>
+          );
+        })}
+      </dl>
+    </section>
   );
 }
 
@@ -183,34 +199,65 @@ function Dashboard({ d }: { d: AdminDashboard }) {
       </section>
 
       {/* 핵심 수치 */}
-      <section aria-label="핵심 수치" className="grid grid-cols-3 gap-1 sm:grid-cols-5 xl:grid-cols-10">
-        <Kpi label="신고 대기" value={queues.openReports} sub={queues.oldestOpenReportAt ? `가장 오래 ${ago(queues.oldestOpenReportAt, d.generatedAt)}` : "없음"} to="/admin/reports" warn={n(queues.openReports) > 0} />
-        <Kpi label="좌석 인증 대기" value={queues.pendingClaims} sub={queues.oldestPendingClaimAt ? `가장 오래 ${ago(queues.oldestPendingClaimAt, d.generatedAt)}` : "없음"} to="/admin/seat-claims" warn={n(queues.pendingClaims) > 0} />
-        <Kpi label="수정 제안 대기" value={queues.pendingProposals} sub={queues.oldestPendingProposalAt ? `가장 오래 ${ago(queues.oldestPendingProposalAt, d.generatedAt)}` : "없음"} to="/admin/performance-edit-proposals" warn={n(queues.pendingProposals) > 0} />
-        <Kpi label="회원(활성)" value={users.active} sub={`전체 ${fmt(users.total)} · 관리자 ${fmt(users.admins)}`} to="/admin/users" />
-        <Kpi label="오늘 가입" value={users.newToday} sub={`7일 ${fmt(users.new7d)}`} />
-        <Kpi label="이용 정지 중" value={users.suspended} sub={`탈퇴 ${fmt(users.withdrawn)}`} to="/admin/sanctions" />
-        <Kpi label="공연" value={performances.total} sub={`다가옴 ${fmt(performances.upcoming)} · 숨김 ${fmt(performances.hidden)}`} to="/admin/performances" />
-        <Kpi label="구역 지도 있는 공연" value={performances.withZones} sub={`7일 신규 공연 ${fmt(performances.new7d)}`} />
-        <Kpi label="활성 티켓" value={tickets.active} sub={`오늘 ${fmt(tickets.newToday)} · 7일 ${fmt(tickets.new7d)}`} />
-        <Kpi label="열린 교환 요청" value={requests.open} sub={`닫힘 ${fmt(requests.closed)} · 삭제 ${fmt(requests.deleted)}`} />
-        <Kpi label="채팅 중 / 예약 중" value={n(matches.chatting) + n(matches.reserved)} sub={`채팅 ${fmt(matches.chatting)} · 예약 ${fmt(matches.reserved)}`} />
-        <Kpi label="교환 완료 누적" value={matches.completed} sub={`7일 ${fmt(matches.completed7d)} · 교환된 티켓 ${fmt(tickets.exchanged)}`} />
-        <Kpi label="오늘 매칭 생성" value={matches.createdToday} sub={`7일 ${fmt(matches.created7d)} · 7일 취소 ${fmt(matches.canceled7d)}`} />
-        <Kpi label="오늘 채팅 메시지" value={chat.today} sub={`7일 ${fmt(chat.last7d)} · 대화방 ${fmt(chat.activeMatches7d)}`} />
-        <Kpi label="AI 이번 달" value={ai.usedMonth} sub={`반환 ${fmt(ai.refundedMonth)} · 사용자 ${fmt(ai.usersMonth)}`} />
-        <Kpi label="AI 오늘(전체)" value={ai.globalToday} sub={`상한 ${fmt(ai.dailyGlobalLimit)} · 보관 ${fmt(ai.cacheEntries)}`} warn={n(ai.globalToday) >= n(ai.dailyGlobalLimit) * 0.8} />
-        <Kpi label="AI 이번 달 예상 비용($)" value={Math.round(n(ai.costMonthUsd) * 100) / 100} sub={`오늘 ${usd(ai.costTodayUsd)} · 1회 평균 ${usd(ai.avgCostPerLoadUsd)}`} />
-        <Kpi label="7일 신고" value={queues.reports7d} sub={`차단 7일 ${fmt(queues.blocks7d)} · 누적 ${fmt(queues.blocksTotal)}`} />
-        <Kpi label="7일 관리자 조치" value={queues.actions7d} to="/admin/logs" />
-      </section>
+      <div aria-label="핵심 수치" className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+        <KpiGroup
+          title="처리 대기"
+          items={[
+            { label: "신고", value: queues.openReports, sub: queues.oldestOpenReportAt ? `가장 오래 ${ago(queues.oldestOpenReportAt, d.generatedAt)}` : "없음", to: "/admin/reports", warn: n(queues.openReports) > 0 },
+            { label: "좌석 인증", value: queues.pendingClaims, sub: queues.oldestPendingClaimAt ? `가장 오래 ${ago(queues.oldestPendingClaimAt, d.generatedAt)}` : "없음", to: "/admin/seat-claims", warn: n(queues.pendingClaims) > 0 },
+            { label: "수정 제안", value: queues.pendingProposals, sub: queues.oldestPendingProposalAt ? `가장 오래 ${ago(queues.oldestPendingProposalAt, d.generatedAt)}` : "없음", to: "/admin/performance-edit-proposals", warn: n(queues.pendingProposals) > 0 },
+          ]}
+        />
+        <KpiGroup
+          title="회원"
+          to="/admin/users"
+          items={[
+            { label: "활성", value: users.active, sub: `전체 ${fmt(users.total)} · 관리자 ${fmt(users.admins)}` },
+            { label: "오늘 가입", value: users.newToday, sub: `7일 ${fmt(users.new7d)}` },
+            { label: "이용 정지", value: users.suspended, sub: `탈퇴 ${fmt(users.withdrawn)}`, to: "/admin/sanctions" },
+          ]}
+        />
+        <KpiGroup
+          title="공연·티켓"
+          to="/admin/performances"
+          items={[
+            { label: "공연", value: performances.total, sub: `다가옴 ${fmt(performances.upcoming)} · 숨김 ${fmt(performances.hidden)}` },
+            { label: "구역 지도", value: performances.withZones, sub: `7일 신규 공연 ${fmt(performances.new7d)}` },
+            { label: "활성 티켓", value: tickets.active, sub: `오늘 ${fmt(tickets.newToday)} · 7일 ${fmt(tickets.new7d)}` },
+          ]}
+        />
+        <KpiGroup
+          title="교환"
+          items={[
+            { label: "열린 요청", value: requests.open, sub: `닫힘 ${fmt(requests.closed)} · 삭제 ${fmt(requests.deleted)}` },
+            { label: "채팅·예약 중", value: n(matches.chatting) + n(matches.reserved), sub: `채팅 ${fmt(matches.chatting)} · 예약 ${fmt(matches.reserved)}` },
+            { label: "오늘 매칭", value: matches.createdToday, sub: `7일 ${fmt(matches.created7d)} · 7일 취소 ${fmt(matches.canceled7d)}` },
+            { label: "교환 완료", value: matches.completed, sub: `7일 ${fmt(matches.completed7d)} · 교환된 티켓 ${fmt(tickets.exchanged)}` },
+          ]}
+        />
+        <KpiGroup
+          title="AI 불러오기"
+          items={[
+            { label: "이번 달", value: ai.usedMonth, sub: `반환 ${fmt(ai.refundedMonth)} · 사용자 ${fmt(ai.usersMonth)}` },
+            { label: "오늘 전체", value: ai.globalToday, sub: `상한 ${fmt(ai.dailyGlobalLimit)} · 보관 ${fmt(ai.cacheEntries)}`, warn: n(ai.globalToday) >= n(ai.dailyGlobalLimit) * 0.8 },
+            { label: "이번 달 비용", value: usd(ai.costMonthUsd), sub: `오늘 ${usd(ai.costTodayUsd)} · 1회 ${usd(ai.avgCostPerLoadUsd)}` },
+          ]}
+        />
+        <KpiGroup
+          title="채팅·운영"
+          items={[
+            { label: "오늘 메시지", value: chat.today, sub: `7일 ${fmt(chat.last7d)} · 대화방 ${fmt(chat.activeMatches7d)}` },
+            { label: "7일 신고", value: queues.reports7d, sub: `차단 7일 ${fmt(queues.blocks7d)} · 누적 ${fmt(queues.blocksTotal)}` },
+            { label: "7일 조치", value: queues.actions7d, to: "/admin/logs" },
+          ]}
+        />
+      </div>
 
       {/* 추이 그래프 */}
       <div className="grid grid-cols-1 gap-2 lg:grid-cols-3">
         <Panel title="최근 14일 활동" right={<span className={ui.muted}>합계 가입 {sum("signups")} · 티켓 {sum("tickets")} · 매칭 {sum("matches")} · 완료 {sum("completed")}</span>} className="lg:col-span-2">
           <LineChart
             title="최근 14일 가입·티켓·매칭·교환 완료"
-            width={1000}
             height={170}
             labels={labels}
             series={[

@@ -121,7 +121,8 @@ matjari:
     enabled: ${MATJARI_AI_ENABLED:true}
     model: ${MATJARI_AI_MODEL:claude-haiku-5-5}
     request-timeout-seconds: ${MATJARI_AI_REQUEST_TIMEOUT_SECONDS:60}
-    daily-per-user: ${MATJARI_AI_DAILY_PER_USER:2}
+    monthly-per-user: ${MATJARI_AI_MONTHLY_PER_USER:3}
+    venue-hint-min-zones: ${MATJARI_AI_VENUE_HINT_MIN_ZONES:50}
     daily-global: ${MATJARI_AI_DAILY_GLOBAL:40}
     max-concurrent: ${MATJARI_AI_MAX_CONCURRENT:2}
     debug-dir: ${MATJARI_AI_DEBUG_DIR:}

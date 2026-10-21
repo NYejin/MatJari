@@ -1,76 +1,133 @@
 package com.matjari.service.aiextract;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZonedDateTime;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * AI 호출 제한: 사용자별 하루(KST) 상한, 전체 하루 상한, 동시 실행 수(대기 없이 초과 시 거절).
- * 메모리 기반 단일 인스턴스 구조라 서버 재시작 때 횟수가 초기화된다. 캐시 적중·AI 호출이 없는 경우는 호출하지 않는다.
- * 호출을 허락받으면(거절되지 않으면) 그 시점에 횟수 1을 센다(호출이 실패해도 돌려주지 않는다).
+ * AI 호출 제한(2026-10-21): 사용자당 한 달(KST 달력 월) 횟수(matjari.ai.monthly-per-user, DB 기록), 전체 하루 상한(메모리),
+ * 동시 실행 수(대기 없이 초과 시 거절). 보관 결과 반환처럼 AI 를 부르지 않는 경우는 호출하지 않는다.
+ * 허락받은 시점에 횟수 1을 세고, AI 가 읽지 못하면 호출한 쪽이 Permit.refund() 로 돌려준다(월 횟수·전체 횟수 모두).
  */
 @Component
 public class AiUsageLimiter {
 
+    static final String MONTHLY_LIMIT_CODE = "AI_MONTHLY_LIMIT_REACHED";
+
     /** 허락 한 건. close()로 동시 실행 자리를 반납한다. */
     public interface Permit extends AutoCloseable {
+        /** AI 가 읽지 못한 호출의 횟수를 돌려준다(멱등). */
+        void refund();
+
         @Override
         void close();
     }
 
+    /** 이번 달 사용 현황. resetsAt 은 다음 달 1일 0시(KST). */
+    public record Quota(int limit, int used, int remaining, LocalDateTime resetsAt) {}
+
     private final Clock clock;
     private final AiProperties properties;
+    private final AiMonthlyQuota monthly;
     private final Semaphore concurrency;
-    private final Map<Long, int[]> perUser = new HashMap<>();
     private LocalDate day;
     private int global;
 
+    /** 단위 시험·평가 도구용: 월 횟수를 메모리에 둔다. */
     public AiUsageLimiter(Clock clock, AiProperties properties) {
+        this(clock, properties, new AiMonthlyQuota.InMemory());
+    }
+
+    @Autowired
+    public AiUsageLimiter(Clock clock, AiProperties properties, AiMonthlyQuota monthly) {
         this.clock = clock;
         this.properties = properties;
+        this.monthly = monthly;
         this.concurrency = new Semaphore(Math.max(1, properties.getMaxConcurrent()));
     }
 
-    /** 허락하면 Permit, 아니면 429 AI_RATE_LIMITED 예외. */
-    public Permit acquire(Long userId) {
+    public Quota quota(Long userId) {
+        LocalDateTime monthStart = monthStart();
+        int limit = properties.getMonthlyPerUser();
+        int used = monthly.used(userId, monthStart);
+        return new Quota(limit, used, Math.max(0, limit - used), monthStart.plusMonths(1));
+    }
+
+    /** 허락하면 Permit, 아니면 429(전체·동시 AI_RATE_LIMITED, 월 횟수 AI_MONTHLY_LIMIT_REACHED). */
+    public Permit acquire(Long userId, String sourceKey) {
         if (!concurrency.tryAcquire()) {
             throw DetailExtractionService.rateLimited(10);
         }
         boolean ok = false;
+        long usageId;
         try {
+            ZonedDateTime now = ZonedDateTime.now(clock);
             synchronized (this) {
-                ZonedDateTime now = ZonedDateTime.now(clock);
                 LocalDate today = now.toLocalDate();
                 if (!today.equals(day)) {
                     day = today;
                     global = 0;
-                    perUser.clear();
                 }
-                long untilMidnight = Math.max(1, Duration.between(now, today.plusDays(1).atStartOfDay(now.getZone())).toSeconds());
-                int[] used = perUser.computeIfAbsent(userId, k -> new int[1]);
-                if (used[0] >= properties.getDailyPerUser() || global >= properties.getDailyGlobal()) {
+                if (global >= properties.getDailyGlobal()) {
+                    long untilMidnight = Math.max(1, Duration.between(now, today.plusDays(1).atStartOfDay(now.getZone())).toSeconds());
                     throw DetailExtractionService.rateLimited(untilMidnight);
                 }
-                used[0]++;
                 global++;
             }
+            LocalDateTime monthStart = monthStart();
+            usageId = monthly.reserve(userId, sourceKey, properties.getMonthlyPerUser(), monthStart, now.toLocalDateTime());
+            if (usageId < 0) {
+                releaseGlobal();
+                long untilNextMonth = Math.max(1, Duration.between(now.toLocalDateTime(), monthStart.plusMonths(1)).toSeconds());
+                throw new DetailExtractionService.AiExtractException(429, MONTHLY_LIMIT_CODE,
+                        "이번 달 공연정보 불러오기 횟수(" + properties.getMonthlyPerUser() + "회)를 모두 사용했어요. 직접 입력해 주세요.",
+                        untilNextMonth);
+            }
             ok = true;
+        } catch (RuntimeException e) {
+            if (!(e instanceof DetailExtractionService.AiExtractException)) {
+                releaseGlobal(); // 기록 실패(DB 오류 등)는 전체 횟수만 되돌리고 그대로 던진다
+            }
+            throw e;
         } finally {
             if (!ok) {
                 concurrency.release();
             }
         }
-        java.util.concurrent.atomic.AtomicBoolean closed = new java.util.concurrent.atomic.AtomicBoolean();
-        return () -> {
-            if (closed.compareAndSet(false, true)) {
-                concurrency.release();
+        AtomicBoolean closed = new AtomicBoolean();
+        AtomicBoolean refunded = new AtomicBoolean();
+        return new Permit() {
+            @Override
+            public void refund() {
+                if (refunded.compareAndSet(false, true)) {
+                    monthly.refund(usageId, LocalDateTime.now(clock));
+                    releaseGlobal();
+                }
+            }
+
+            @Override
+            public void close() {
+                if (closed.compareAndSet(false, true)) {
+                    concurrency.release();
+                }
             }
         };
+    }
+
+    private synchronized void releaseGlobal() {
+        if (global > 0) {
+            global--;
+        }
+    }
+
+    private LocalDateTime monthStart() {
+        return LocalDate.now(clock).withDayOfMonth(1).atStartOfDay();
     }
 }

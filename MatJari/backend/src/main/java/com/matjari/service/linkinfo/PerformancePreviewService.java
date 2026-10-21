@@ -166,7 +166,12 @@ public class PerformancePreviewService {
     }
 
     /** AI 추출용: 고정 템플릿으로 받은 페이지와 파싱된 공연 기간. 캐시하지 않는다. */
-    public record FetchedPage(Document document, LocalDate periodStart, LocalDate periodEnd) {}
+    /** venue: 페이지에서 읽은 공연장 이름(없으면 null). AI 읽기가 같은 공연장의 등록된 구역을 참고할 때 쓴다. */
+    public record FetchedPage(Document document, LocalDate periodStart, LocalDate periodEnd, String venue) {
+        public FetchedPage(Document document, LocalDate periodStart, LocalDate periodEnd) {
+            this(document, periodStart, periodEnd, null);
+        }
+    }
 
     /**
      * 이미 SourceKeyResolver 로 검증한 사이트(yes24|ticketlink|melon)와 숫자 id 의 페이지를 고정 템플릿 URL로 받는다.
@@ -190,7 +195,7 @@ public class PerformancePreviewService {
             } catch (RuntimeException e) {
                 info = new LinkInfoParsers.ParsedInfo(null, null, null, null);
             }
-            return new FetchedPage(doc, info.periodStart(), info.periodEnd());
+            return new FetchedPage(doc, info.periodStart(), info.periodEnd(), info.venue());
         } finally {
             concurrency.release();
         }

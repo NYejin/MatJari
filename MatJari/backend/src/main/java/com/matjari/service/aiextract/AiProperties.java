@@ -49,6 +49,15 @@ public class AiProperties {
     private int monthlyPerUser = 3;
     /** 같은 공연장의 등록된 구역 이름을 AI 1차 읽기에 참고로 주는 기준(그 공연의 구역 수가 이 이상일 때만, 돔 경기장 등). */
     private int venueHintMinZones = 50;
+    /** 예상 비용 단가($/100만 토큰, Haiku 5.5 기준). 입력이 longPromptTokens 를 넘는 호출은 long 단가. */
+    private double priceInputPerMtok = 0.10;
+    private double priceOutputPerMtok = 0.50;
+    private double priceLongInputPerMtok = 0.50;
+    private double priceLongOutputPerMtok = 2.50;
+    private long longPromptTokens = 100_000;
+    /** 남은 크레딧 추정: 기준 시각(KST, yyyy-MM-ddTHH:mm)의 Console 잔액($). 충전하면 둘 다 새로 적는다. 0 이면 표시하지 않는다. */
+    private double creditBaselineUsd = 32.65;
+    private String creditBaselineAt = "2026-10-22T00:00";
     private int dailyGlobal = 40;
     private int maxConcurrent = 2;
     private int cacheTtlHours = 168;

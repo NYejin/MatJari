@@ -12,6 +12,8 @@ export interface DashboardDaily {
   messages: number;
   reports: number;
   aiCalls: number;
+  /** 그날 AI 예상 비용($, 서버 기록 기준) */
+  aiCostUsd: number;
 }
 
 export interface DashboardAlert {
@@ -30,11 +32,14 @@ export interface AdminDashboard {
     matches: Record<string, number>;
     chat: Record<string, number>;
     queues: Record<string, number | string | null>;
-    ai: Record<string, number>;
+    /** 숫자 외에 creditBaselineAt(문자열)이 있다. creditRemainingUsd·creditRemainingRatio 는 기준 잔액이 있을 때만 */
+    ai: Record<string, number | string>;
   };
   daily: DashboardDaily[];
   openReportReasons: Record<string, number>;
   matchStatus: Record<string, number>;
+  /** 이번 달 단계별 예상 비용($) */
+  aiCostByStage: Record<string, number>;
   topPerformances: Row[];
   upcomingSessions: Row[];
   openReports: Row[];

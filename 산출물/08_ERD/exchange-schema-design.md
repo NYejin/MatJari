@@ -1277,3 +1277,9 @@ CHECK 3개 (V8 `ck_exchange_match_reserved`와 같은 안전망 성격, NULL 통
 - `admin_action_log`의 `ck_admin_action_log_action`에 `PERFORMANCE_DELETE`를 더한다(제약 교체만, 테이블·데이터 변경 없음, 테이블 수 25 그대로).
 - 숨긴 공연 완전 삭제는 서비스가 공연 행 FOR UPDATE 뒤 티켓·교환 희망 회차·좌석 인증 요청·교환 이력이 없음을 확인하고 수정 제안 → 구역 → 회차 → 공연 순으로 지운다. 조치 기록의 대상은 FK가 아니라 삭제 뒤에도 남는다.
 - 다음 마이그레이션은 V26이다.
+
+## 24. V26: AI 호출 비용 기록 (2026-10-22, `V26__ai_call_log.sql`, `feature/ai-cost-tracking`)
+
+- 테이블 `ai_call_log`: `id` PK, `called_at` DATETIME(6) NN(`idx_ai_call_log_called`), `stage` VARCHAR(20) bin, `model` VARCHAR(60) bin, `input_tokens`·`output_tokens` INT, `cost_micro_usd` BIGINT(설정 단가로 계산한 예상 비용). FK 없음, 추가만, AI 호출 뒤 단독 INSERT라 잠금 사슬 밖이다. 테이블 수 25 -> 26.
+- 관리자 대시보드가 이번 달 비용·단계별 비용·남은 크레딧 추정(설정의 기준 잔액 − 기준 시각 이후 비용)을 계산한다. 이 서버의 호출만 세는 추정치다.
+- 다음 마이그레이션은 V27이다.

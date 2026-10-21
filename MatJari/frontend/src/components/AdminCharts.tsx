@@ -149,6 +149,25 @@ export function StackBar({ parts }: { parts: { label: string; value: number; col
   );
 }
 
+/** 남은 비율 게이지(많이 남을수록 초록, 20% 아래 주황, 10% 아래 빨강). */
+export function RemainGauge({ ratio, label, value }: { ratio: number; label: string; value: string }) {
+  const r = Math.max(0, Math.min(1, ratio));
+  const color = r < 0.1 ? "#dc2626" : r < 0.2 ? "#d97706" : "#059669";
+  return (
+    <div className="flex flex-col gap-0.5">
+      <div className="flex items-baseline justify-between text-[11px]/[normal] text-gray-600">
+        <span>{label}</span>
+        <span>
+          <b className="text-sm tabular-nums text-gray-900">{value}</b> <b className="tabular-nums" style={{ color }}>{Math.round(r * 100)}%</b>
+        </span>
+      </div>
+      <div className="h-3 rounded-sm bg-gray-100" role="img" aria-label={`${label} ${Math.round(r * 100)}%`}>
+        <div className="h-full rounded-sm" style={{ width: `${r * 100}%`, background: color }} />
+      </div>
+    </div>
+  );
+}
+
 /** 게이지(사용량/상한). */
 export function Meter({ value, max, label }: { value: number; max: number; label: string }) {
   const ratio = max > 0 ? Math.min(1, value / max) : 0;

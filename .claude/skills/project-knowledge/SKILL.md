@@ -197,7 +197,8 @@ description: 맞자리의 현재 유효한 서비스 개요·확정 교환 규�
 - **V23**: `ai_extract_cache`(PK `source_key`, `result` JSON, `created_at`, `expires_at_ms`): AI 읽기 결과 링크별 168시간 보관(FK 없음).
 - **V24**: `ai_extract_usage`(id, `user_id` FK, `source_key`, `used_at`, `refunded_at`): AI 불러오기 사용자당 월 3회 기록, 실패 시 refunded_at.
 - **V25**: `admin_action_log.action` CHECK에 `PERFORMANCE_DELETE` 추가(숨긴 공연 완전 삭제, 연결 기록 없을 때만).
-- **다음**: V26부터. 현재 계획된 스키마 변경은 없다(7일 경과 알림은 보류).
+- **V26**: `ai_call_log`(called_at, stage, model, input/output_tokens, cost_micro_usd): AI 호출별 예상 비용, 대시보드 남은 크레딧 추정.
+- **다음**: V27부터. 현재 계획된 스키마 변경은 없다(7일 경과 알림은 보류).
 
 ## 6. API 요약
 

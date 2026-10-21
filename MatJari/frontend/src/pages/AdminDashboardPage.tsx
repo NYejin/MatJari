@@ -179,7 +179,7 @@ function Dashboard({ d }: { d: AdminDashboard }) {
       </section>
 
       {/* 핵심 수치 */}
-      <section aria-label="핵심 수치" className="grid grid-cols-3 gap-1 sm:grid-cols-6 xl:grid-cols-9">
+      <section aria-label="핵심 수치" className="grid grid-cols-3 gap-1 sm:grid-cols-5 xl:grid-cols-10">
         <Kpi label="신고 대기" value={queues.openReports} sub={queues.oldestOpenReportAt ? `가장 오래 ${ago(queues.oldestOpenReportAt, d.generatedAt)}` : "없음"} to="/admin/reports" warn={n(queues.openReports) > 0} />
         <Kpi label="좌석 인증 대기" value={queues.pendingClaims} sub={queues.oldestPendingClaimAt ? `가장 오래 ${ago(queues.oldestPendingClaimAt, d.generatedAt)}` : "없음"} to="/admin/seat-claims" warn={n(queues.pendingClaims) > 0} />
         <Kpi label="수정 제안 대기" value={queues.pendingProposals} sub={queues.oldestPendingProposalAt ? `가장 오래 ${ago(queues.oldestPendingProposalAt, d.generatedAt)}` : "없음"} to="/admin/performance-edit-proposals" warn={n(queues.pendingProposals) > 0} />

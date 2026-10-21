@@ -58,7 +58,8 @@ class AdminPerformanceServiceTest {
         logger = mock(AdminActionLogger.class);
         SessionChangePlanner planner = new SessionChangePlanner(PerformanceFixtures.timePolicy(), sessionRepository);
         service = new AdminPerformanceService(performanceRepository, sessionRepository, zoneRepository,
-                userRepository, planner, logger, new ObjectMapper(), PerformanceFixtures.CLOCK);
+                userRepository, planner, logger, new ObjectMapper(), PerformanceFixtures.CLOCK,
+                mock(org.springframework.jdbc.core.JdbcTemplate.class));
 
         User registrant = PerformanceFixtures.user(1L, "등록자");
         performance = PerformanceFixtures.performance(100L, "KSPO", registrant);

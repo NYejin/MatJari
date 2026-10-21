@@ -125,6 +125,7 @@ export const ACTION_LABEL: Record<string, string> = {
   PERFORMANCE_EDIT: "공연 정보 수정",
   PERFORMANCE_SESSIONS: "공연 회차 수정",
   PERFORMANCE_ZONES: "공연 구역 수정",
+  PERFORMANCE_DELETE: "공연 삭제",
   USER_SUSPEND: "이용 정지",
   USER_UNSUSPEND: "정지 해제",
   USER_ROLE_CHANGE: "역할 변경",

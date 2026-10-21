@@ -67,6 +67,11 @@ export const adminPerformancesApi = {
     await apiClient.post(`/admin/performances/${id}/hide`, { reason });
   },
 
+  /** POST /api/admin/performances/{id}/delete — 숨긴 공연 완전 삭제(연결 기록이 있으면 409 PERFORMANCE_IN_USE, 숨김 아님 422) */
+  async remove(id: number, reason: string): Promise<void> {
+    await apiClient.post(`/admin/performances/${id}/delete`, { reason });
+  },
+
   async unhide(id: number, reason?: string): Promise<void> {
     await apiClient.post(`/admin/performances/${id}/unhide`, { reason: reason || undefined });
   },

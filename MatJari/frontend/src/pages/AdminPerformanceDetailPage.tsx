@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { formatKstDateTime } from "../api/dateTime";
 import { getErrorCode, parseApiError } from "../api/errors";
 import { getErrorStatus } from "../api/performances";
@@ -108,6 +108,7 @@ export default function AdminPerformanceDetailPage() {
           <div className="flex min-w-0 flex-col gap-2">
             <InfoCard detail={d} onUpdated={updated} />
             <HideCard detail={d} onUpdated={updated} />
+            {d.hidden && <DeleteCard detail={d} />}
           </div>
           <SessionsCard detail={d} onUpdated={updated} />
           <ZonesCard detail={d} onUpdated={updated} />
@@ -276,6 +277,63 @@ function InfoCard({ detail, onUpdated }: CardProps) {
 }
 
 // ---- ② 숨김 ----
+
+/** 숨긴 공연 완전 삭제: 티켓·교환 희망 회차·좌석 인증·교환 이력이 하나도 없을 때만 서버가 허락한다. 확인 문구 입력 필요 */
+function DeleteCard({ detail }: { detail: CardProps["detail"] }) {
+  const navigate = useNavigate();
+  const [reason, setReason] = useState("");
+  const [confirmText, setConfirmText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const [error, setError] = useState<string | null>(null);
+  const ready = reason.trim().length > 0 && confirmText.trim() === "삭제";
+
+  const remove = async () => {
+    if (busyRef.current || !ready) return;
+    busyRef.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      await adminPerformancesApi.remove(detail.id, reason.trim());
+      navigate("/admin/performances", { replace: true });
+    } catch (err) {
+      setError(errorText(err, "삭제하지 못했습니다."));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SectionCard titleId="admin-perf-delete" title="공연 삭제">
+      <p className={ui.warning}>
+        완전히 지우고 되돌릴 수 없어요. 회차·구역·공연 수정 제안이 함께 지워지고, 티켓·교환 희망 조건·좌석 인증·교환 이력이 하나라도 있으면 삭제되지 않아요(그때는 숨김 상태로 두세요).
+      </p>
+      <ReasonField id="admin-perf-delete-reason" value={reason} onChange={setReason} disabled={busy} />
+      <div className="flex flex-col gap-0.5">
+        <label htmlFor="admin-perf-delete-confirm" className={ui.label}>
+          확인 문구: "삭제"를 입력하세요
+        </label>
+        <input
+          id="admin-perf-delete-confirm"
+          className={input.normal}
+          value={confirmText}
+          disabled={busy}
+          autoComplete="off"
+          onChange={(e) => setConfirmText(e.target.value)}
+        />
+      </div>
+      {error && (
+        <p className={ui.errorBox} role="alert">
+          {error}
+        </p>
+      )}
+      <button type="button" className={`${button.danger} self-start`} disabled={busy || !ready} aria-busy={busy} onClick={() => void remove()}>
+        {busy ? "삭제 중..." : "공연 완전 삭제"}
+      </button>
+    </SectionCard>
+  );
+}
 
 function HideCard({ detail, onUpdated }: CardProps) {
   const [reason, setReason] = useState("");

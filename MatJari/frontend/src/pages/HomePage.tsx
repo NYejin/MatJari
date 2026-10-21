@@ -165,8 +165,9 @@ function PerformanceList({ notice }: { notice: string | null }) {
       <div className={ui.container}>
         <div className={cls.header}>
           <h1 className={ui.pageTitle}>공연 목록</h1>
-          <Link to="/performances/new" className={linkButton.solid}>
-            공연 등록
+          {/* 공연은 티켓 등록 안에서만 등록한다(찾는 공연이 없을 때) */}
+          <Link to="/tickets/new" className={linkButton.solid}>
+            티켓 등록
           </Link>
         </div>
 
@@ -207,10 +208,12 @@ function PerformanceList({ notice }: { notice: string | null }) {
         {state.status === "success" && state.items.length === 0 && (
           <div className={`${ui.card} flex flex-col items-start gap-3`}>
             <p className={ui.body}>
-              {debouncedQuery ? "검색 결과가 없어요. 다른 제목으로 찾아보거나 새로 등록해 주세요." : "아직 등록된 공연이 없어요."}
+              {debouncedQuery
+                ? "검색 결과가 없어요. 이 공연의 티켓이 있다면 티켓을 등록하면서 공연도 함께 등록할 수 있어요."
+                : "아직 등록된 공연이 없어요. 티켓이 있다면 티켓을 등록하면서 공연도 함께 등록할 수 있어요."}
             </p>
             <Link to="/performances/new" className={linkButton.outline}>
-              공연 등록하기
+              새 공연과 내 티켓 등록하기
             </Link>
           </div>
         )}

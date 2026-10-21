@@ -773,7 +773,7 @@ keyset 조각의 내부: 저장소에 `size+1`건을 요청해 다음 조각 유
 - **사용자 URL을 요청하지 않는다.** `SourceKeyResolver`로 사이트와 숫자 ID만 뽑고 `PerformancePreviewService.fetchPage`가 고정 템플릿 URL로 받는다(링크 자동 입력과 같은 SSRF 방어).
 - 상세 이미지는 `matjari.ai.image-hosts`에 **정확히 일치하는 https 호스트**만 받는다(기본 `cdnticket.melon.co.kr`). AI 호출은 멜론 상세 이미지가 있을 때만 한다. 이미지가 없으면 본문 규칙 결과만 돌려주고 AI를 부르지 않는다.
 - 이미지는 조각으로 나눠(폭 1000px 이하로 줄인 뒤 `slice-height`·`slice-overlap`) 1차 AI(회차·구역 이름·좌석표 위치), 필요할 때 2차 AI(구역 윤곽)로 보낸다. 같은 이름의 구역은 한 구역으로 합친다(`DetailExtractionService.mergeZones`).
-- **호출 제한**(메모리 기반, 재시작하면 초기화, 단일 인스턴스 기준): 사용자당 하루(KST) 5회, 전체 하루 40회, 동시 2개(대기 없이 거절, 초과는 429). 캐시 적중과 AI를 부르지 않은 요청은 횟수에 세지 않는다.
+- **호출 제한**(메모리 기반, 재시작하면 초기화, 단일 인스턴스 기준): 사용자당 하루(KST) 2회, 전체 하루 40회, 동시 2개(대기 없이 거절, 초과는 429). 캐시 적중과 AI를 부르지 않은 요청은 횟수에 세지 않는다.
 - **캐시**: 성공 결과만 24시간(최대 200개) 보관한다.
 - AI가 꺼져 있거나 키가 없으면 규칙 결과만 돌려주고 `aiEnabled=false`다. AI 호출이 실패하면 규칙 결과와 `aiError=true`를 돌려준다.
 - 로그에는 개수·소요 시간만 남기고 이미지·본문·키는 남기지 않는다. 원본 이미지는 DB에 저장하지 않는다.
@@ -785,7 +785,7 @@ keyset 조각의 내부: 저장소에 `size+1`건을 요청해 다음 조각 유
 | `enabled` | `MATJARI_AI_ENABLED` | `true` | `false`면 AI를 부르지 않는다 |
 | `model` | `MATJARI_AI_MODEL` | `claude-haiku-5-5` | 모델 이름(날짜 접미사 없음) |
 | `request-timeout-seconds` | `MATJARI_AI_REQUEST_TIMEOUT_SECONDS` | `60` | AI 호출 제한 시간(재시도 1회) |
-| `daily-per-user` | `MATJARI_AI_DAILY_PER_USER` | `5` | 사용자당 하루(KST) 호출 상한 |
+| `daily-per-user` | `MATJARI_AI_DAILY_PER_USER` | `2` | 사용자당 하루(KST) 호출 상한 |
 | `daily-global` | `MATJARI_AI_DAILY_GLOBAL` | `40` | 전체 하루 호출 상한 |
 | `max-concurrent` | `MATJARI_AI_MAX_CONCURRENT` | `2` | 동시 호출 수 |
 | `cache-ttl-hours` | `MATJARI_AI_CACHE_TTL_HOURS` | `24` | 성공 결과 캐시 유지 시간 |

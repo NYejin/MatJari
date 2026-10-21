@@ -60,6 +60,7 @@ public class PerformanceService {
     private final SourceKeyResolver sourceKeyResolver;
     private final SessionTimePolicy sessionTimePolicy;
     private final TransactionTemplate transactionTemplate;
+    private final TicketService ticketService;
 
     public PerformanceService(PerformanceRepository performanceRepository,
                               PerformanceSessionRepository sessionRepository,
@@ -67,7 +68,9 @@ public class PerformanceService {
                               UserRepository userRepository,
                               SourceKeyResolver sourceKeyResolver,
                               SessionTimePolicy sessionTimePolicy,
-                              PlatformTransactionManager transactionManager) {
+                              PlatformTransactionManager transactionManager,
+                              TicketService ticketService) {
+        this.ticketService = ticketService;
         this.performanceRepository = performanceRepository;
         this.sessionRepository = sessionRepository;
         this.zoneRepository = zoneRepository;
@@ -156,7 +159,10 @@ public class PerformanceService {
     }
 
     /**
-     * 공연 + 회차 등록. 같은 링크(sourceKey)의 공연이 있으면 409 {"message","performanceId"}.
+     * 공연 + 회차 + 등록자 티켓 등록. 같은 링크(sourceKey)의 공연이 있으면 409 {"message","performanceId"}.
+     * 공연은 티켓 등록과 함께만 만든다(API는 ticket 필수): 티켓이 실패하면(활성 티켓 상한 등) 공연도 롤백된다.
+     * 티켓은 일반 티켓과 같고 공연에는 그 티켓을 가리키는 값을 두지 않는다. ticket 이 null 인 호출은 서비스 단위 시험뿐이다.
+     * 티켓 필드 오류의 키는 ticket.zone·ticket.row·ticket.col·ticket.sessionStartsAt.
      * 동시 등록 레이스: insert에서 uk_performance_source_key 위반 → 트랜잭션 롤백 후 새 트랜잭션에서
      * 기존 공연 id를 조회해 같은 409로 응답한다 (메서드 전체를 @Transactional로 묶지 않는 이유).
      */
@@ -174,14 +180,24 @@ public class PerformanceService {
         List<LocalDateTime> startsAts = sessionTimePolicy.normalizeAll(request.sessions(), "sessions");
         List<PerformanceZoneSanitizer.Zone> zoneInputs = PerformanceZoneSanitizer.sanitize(request.zones());
         BigDecimal seatmapAspect = PerformanceZoneSanitizer.sanitizeAspect(request.seatmapAspect());
+        PerformanceCreateRequest.TicketInput ticketInput = request.ticket();
+        TicketService.SeatInput seat = ticketInput == null ? null : normalizeTicketSeat(ticketInput);
+        LocalDateTime ticketStartsAt = ticketInput == null ? null : PerformanceSession.truncate(ticketInput.sessionStartsAt());
+        if (ticketInput != null && !startsAts.contains(ticketStartsAt)) {
+            throw new FieldValidationException("ticket.sessionStartsAt", "내 티켓의 회차를 등록할 회차 중에서 골라주세요.");
+        }
 
         try {
             return transactionTemplate.execute(status -> {
+                // 티켓 등록과 같은 규칙: users 행 FOR UPDATE 가 트랜잭션의 첫 쿼리(활성 티켓 상한 직렬화, 탈퇴 겹침 차단)
+                User registrant = seat != null ? ticketService.lockActiveUser(userId) : null;
                 // 사전 확인과 insert 사이에 등록된 경우 (unique 제약이 최종 방어)
                 performanceRepository.findIdBySourceKey(sourceKey).ifPresent(id -> {
                     throw duplicatePerformance(id);
                 });
-                User registrant = requireUser(userId);
+                if (registrant == null) {
+                    registrant = requireUser(userId);
+                }
 
                 Performance performance = performanceRepository.saveAndFlush(
                         Performance.create(venueName, title, sourceUrl, sourceKey, registrant, seatmapAspect));
@@ -200,6 +216,13 @@ public class PerformanceService {
                     zoneRepository.saveAll(zones);
                     zoneRepository.flush();
                 }
+                if (seat != null) {
+                    PerformanceSession ticketSession = sessions.stream()
+                            .filter(x -> x.getStartsAt().equals(ticketStartsAt))
+                            .findFirst()
+                            .orElseThrow();
+                    ticketService.insertLocked(registrant, ticketSession, seat);
+                }
                 return toDetail(performance, sessions, zones, userId);
             });
         } catch (DataIntegrityViolationException e) {
@@ -211,6 +234,17 @@ public class PerformanceService {
             Long winnerId = transactionTemplate.execute(
                     status -> performanceRepository.findIdBySourceKey(sourceKey).orElse(null));
             throw duplicatePerformance(winnerId);
+        }
+    }
+
+    /** 티켓 좌석 정규화. 오류 키에 ticket. 을 붙여 공연 필드와 구분한다. */
+    private TicketService.SeatInput normalizeTicketSeat(PerformanceCreateRequest.TicketInput input) {
+        try {
+            return ticketService.normalizeSeat(input.zone(), input.row(), input.col());
+        } catch (FieldValidationException e) {
+            Map<String, String> prefixed = new java.util.LinkedHashMap<>();
+            e.getErrors().forEach((k, v) -> prefixed.put("ticket." + k, v));
+            throw FieldValidationException.ofAll(prefixed);
         }
     }
 

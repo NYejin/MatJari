@@ -1,5 +1,6 @@
 package com.matjari.dto.request;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -10,7 +11,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 공연 등록 (FR-02).
+ * 공연 등록 (FR-02). 공연은 티켓을 가진 사람이 티켓 등록과 함께만 등록한다(ticket 필수, 2026-10-21):
+ * 공연·회차·구역과 등록자의 티켓을 한 트랜잭션에서 저장하고, 공연에는 그 티켓을 가리키는 값을 두지 않는다.
  * sessions: 회차 시작 일시 목록 — KST 현지 시각, 오프셋 없는 ISO 형식("2026-11-01T19:00").
  * 분 단위로 절삭되며, 요청 안의 같은 시각은 하나로 합친다. 지난 일시는 거부한다.
  * title의 정확한 상한(200자)과 venueName의 상한(100자)은 공백 정리 후 기준으로 서비스에서 검사한다.
@@ -37,12 +39,43 @@ public record PerformanceCreateRequest(
         List<ZoneInput> zones,
 
         /** 선택. 좌석표 가로/세로 비율. 범위(0 초과 999.999 이하) 밖이면 서버가 버린다. */
-        BigDecimal seatmapAspect
+        BigDecimal seatmapAspect,
+
+        /** 등록자의 티켓(필수). 회차는 sessions 중 하나의 시각으로 고른다. */
+        @NotNull(message = "내 티켓 정보를 입력해주세요.")
+        @Valid
+        TicketInput ticket
 ) {
-    /** 구역·좌석표 필드가 없던 기존 호출용. */
+    /** 구역·좌석표·티켓 필드가 없던 기존 호출용 (서비스 단위 시험). */
     public PerformanceCreateRequest(String sourceUrl, String title, String venueName, List<LocalDateTime> sessions) {
-        this(sourceUrl, title, venueName, sessions, null, null);
+        this(sourceUrl, title, venueName, sessions, null, null, null);
     }
+
+    public PerformanceCreateRequest(String sourceUrl, String title, String venueName, List<LocalDateTime> sessions,
+                                    List<ZoneInput> zones, BigDecimal seatmapAspect) {
+        this(sourceUrl, title, venueName, sessions, zones, seatmapAspect, null);
+    }
+
+    /**
+     * 등록자의 좌석. 길이 상한과 정규화는 티켓 등록(TicketCreateRequest)과 같다.
+     * sessionStartsAt: 위 sessions 중 하나(분 단위로 절삭해 비교).
+     */
+    public record TicketInput(
+            @NotNull(message = "회차를 선택해주세요.")
+            LocalDateTime sessionStartsAt,
+
+            @NotBlank(message = "구역을 입력해주세요.")
+            @Size(max = 200, message = "구역은 50자 이하로 입력해주세요.")
+            String zone,
+
+            @NotBlank(message = "열을 입력해주세요.")
+            @Size(max = 100, message = "열은 20자 이하로 입력해주세요.")
+            String row,
+
+            @NotBlank(message = "번을 입력해주세요.")
+            @Size(max = 100, message = "번은 20자 이하로 입력해주세요.")
+            String col
+    ) {}
 
     /**
      * shapePolygons 는 JSON 배열([[[x,y],...],...], 좌표 0~1000)을 그대로 받는다. 잘못된 모양은 400 이 아니라

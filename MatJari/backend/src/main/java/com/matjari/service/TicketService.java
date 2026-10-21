@@ -89,60 +89,78 @@ public class TicketService {
         this.maxColNumber = maxColNumber;
     }
 
+    /** 정규화된 좌석 키: 표시용 라벨과 비교용 키. */
+    public record SeatInput(String zoneLabel, String zoneKey, String rowLabel, String rowKey,
+                            String colLabel, String colKey) {}
+
     public TicketResponse create(Long userId, TicketCreateRequest request) {
-        // 구역·열·번 오류는 첫 오류에서 멈추지 않고 모아서 한 번에 돌려준다 (L5).
-        Map<String, String> errors = new LinkedHashMap<>();
-        String[] zone = normalize(errors, SeatKeyNormalizer.ZONE,
-                () -> new String[]{SeatKeyNormalizer.zoneLabel(request.zone()), SeatKeyNormalizer.zoneKey(request.zone())});
-        String[] row = normalize(errors, SeatKeyNormalizer.ROW,
-                () -> new String[]{SeatKeyNormalizer.rowLabel(request.row()), SeatKeyNormalizer.rowKey(request.row(), maxRowNumber)});
-        String[] col = normalize(errors, SeatKeyNormalizer.COL,
-                () -> new String[]{SeatKeyNormalizer.colLabel(request.col()), SeatKeyNormalizer.colKey(request.col(), maxColNumber)});
-        if (!errors.isEmpty()) {
-            throw FieldValidationException.ofAll(errors);
-        }
-        String zoneLabel = zone[0];
-        String zoneKey = zone[1];
-        String rowLabel = row[0];
-        String rowKey = row[1];
-        String colLabel = col[0];
-        String colKey = col[1];
+        SeatInput seat = normalizeSeat(request.zone(), request.row(), request.col());
 
         try {
             return transactionTemplate.execute(status -> {
                 // 주의: 사용자 행 잠금(FOR UPDATE)이 이 트랜잭션의 첫 쿼리여야 한다. MySQL REPEATABLE READ는
                 // 첫 일관 읽기에서 스냅샷이 고정되므로, 잠금 전에 다른 조회가 있으면 대기 후에도 옛 스냅샷으로
                 // 중복·상한 검사를 하게 된다(잠금 읽기 자체는 최신 데이터를 읽지만 이후 일반 SELECT는 스냅샷).
-                User user = userRepository.findByIdForUpdate(userId)
-                        .filter(u -> !u.isWithdrawn()) // 탈퇴와 겹친 요청: 탈퇴한 회원의 티켓은 만들지 않는다
-                        .orElseThrow(() -> new InsufficientAuthenticationException("인증된 사용자를 찾을 수 없습니다."));
+                User user = lockActiveUser(userId);
                 PerformanceSession session = sessionRepository.findWithPerformanceById(request.sessionId())
                         .orElseThrow(() -> new FieldValidationException("sessionId", SESSION_NOT_FOUND_MESSAGE));
                 if (!sessionTimePolicy.now().isBefore(session.registrationDeadline())) {
                     throw new FieldValidationException("sessionId", SESSION_CLOSED_MESSAGE);
                 }
                 SessionChangePlanner.ensureNotHidden(session.getPerformance());
-
-                ticketRepository.findActiveBySeat(session.getId(), zoneKey, rowKey, colKey).ifPresent(existing -> {
-                    throw duplicateSeat(existing.isOwnedBy(userId));
-                });
-                if (ticketRepository.countByUser_IdAndStatus(userId, TicketStatus.ACTIVE) >= maxActivePerUser) {
-                    throw new BusinessRuleException(LIMIT_REACHED_CODE,
-                            "등록할 수 있는 티켓은 최대 " + maxActivePerUser + "개입니다. 사용하지 않는 티켓을 내린 뒤 다시 시도해주세요.");
-                }
-
-                Ticket ticket = ticketRepository.saveAndFlush(Ticket.create(user, session,
-                        zoneLabel, zoneKey, rowLabel, rowKey, colLabel, colKey));
-                return TicketResponse.from(ticket);
+                return insertLocked(user, session, seat);
             });
         } catch (DataIntegrityViolationException e) {
             if (!DataIntegrityViolations.isViolationOf(e, Ticket.UNIQUE_ACTIVE_SEAT)) {
                 throw e;
             }
             log.info("Ticket create race on seat (session={}, zone={}, row={}, col={})",
-                    request.sessionId(), zoneKey, rowKey, colKey);
+                    request.sessionId(), seat.zoneKey(), seat.rowKey(), seat.colKey());
             throw duplicateSeat(false);
         }
+    }
+
+    /** 구역·열·번 정규화. 오류는 첫 오류에서 멈추지 않고 모아서 한 번에 돌려준다 (L5). 키는 zone·row·col. */
+    public SeatInput normalizeSeat(String zoneText, String rowText, String colText) {
+        Map<String, String> errors = new LinkedHashMap<>();
+        String[] zone = normalize(errors, SeatKeyNormalizer.ZONE,
+                () -> new String[]{SeatKeyNormalizer.zoneLabel(zoneText), SeatKeyNormalizer.zoneKey(zoneText)});
+        String[] row = normalize(errors, SeatKeyNormalizer.ROW,
+                () -> new String[]{SeatKeyNormalizer.rowLabel(rowText), SeatKeyNormalizer.rowKey(rowText, maxRowNumber)});
+        String[] col = normalize(errors, SeatKeyNormalizer.COL,
+                () -> new String[]{SeatKeyNormalizer.colLabel(colText), SeatKeyNormalizer.colKey(colText, maxColNumber)});
+        if (!errors.isEmpty()) {
+            throw FieldValidationException.ofAll(errors);
+        }
+        return new SeatInput(zone[0], zone[1], row[0], row[1], col[0], col[1]);
+    }
+
+    /** users 행 FOR UPDATE(트랜잭션의 첫 쿼리여야 한다). 탈퇴와 겹친 요청이면 401. */
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public User lockActiveUser(Long userId) {
+        return userRepository.findByIdForUpdate(userId)
+                .filter(u -> !u.isWithdrawn()) // 탈퇴와 겹친 요청: 탈퇴한 회원의 티켓은 만들지 않는다
+                .orElseThrow(() -> new InsufficientAuthenticationException("인증된 사용자를 찾을 수 없습니다."));
+    }
+
+    /**
+     * 좌석 중복·활성 티켓 상한을 검사하고 티켓을 만든다. 호출자가 같은 트랜잭션에서 lockActiveUser 로 사용자 행을
+     * 먼저 잠갔어야 하고, 회차 마감·숨김 검사도 호출자 몫이다. 공연 등록(새 회차)도 이 경로로 티켓을 만든다.
+     */
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public TicketResponse insertLocked(User user, PerformanceSession session, SeatInput seat) {
+        Long userId = user.getId();
+        ticketRepository.findActiveBySeat(session.getId(), seat.zoneKey(), seat.rowKey(), seat.colKey())
+                .ifPresent(existing -> {
+                    throw duplicateSeat(existing.isOwnedBy(userId));
+                });
+        if (ticketRepository.countByUser_IdAndStatus(userId, TicketStatus.ACTIVE) >= maxActivePerUser) {
+            throw new BusinessRuleException(LIMIT_REACHED_CODE,
+                    "등록할 수 있는 티켓은 최대 " + maxActivePerUser + "개입니다. 사용하지 않는 티켓을 내린 뒤 다시 시도해주세요.");
+        }
+        Ticket ticket = ticketRepository.saveAndFlush(Ticket.create(user, session,
+                seat.zoneLabel(), seat.zoneKey(), seat.rowLabel(), seat.rowKey(), seat.colLabel(), seat.colKey()));
+        return TicketResponse.from(ticket);
     }
 
     private static String[] normalize(Map<String, String> errors, String field, Supplier<String[]> action) {

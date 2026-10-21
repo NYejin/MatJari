@@ -57,6 +57,7 @@ class PerformanceServiceTest {
     private PerformanceZoneRepository zoneRepository;
     private UserRepository userRepository;
     private PerformanceService service;
+    private TicketService ticketService;
 
     private final User registrant = user(1L, "등록자");
     private final String kspo = "KSPO DOME";
@@ -67,9 +68,10 @@ class PerformanceServiceTest {
         sessionRepository = mock(PerformanceSessionRepository.class);
         zoneRepository = mock(PerformanceZoneRepository.class);
         userRepository = mock(UserRepository.class);
+        ticketService = mock(TicketService.class);
         service = new PerformanceService(performanceRepository, sessionRepository, zoneRepository, userRepository,
                 new SourceKeyResolver(), PerformanceFixtures.timePolicy(),
-                PerformanceFixtures.noopTransactionManager());
+                PerformanceFixtures.noopTransactionManager(), ticketService);
 
         when(userRepository.findById(1L)).thenReturn(Optional.of(registrant));
     }
@@ -110,6 +112,46 @@ class PerformanceServiceTest {
         assertThat(detail.sessions()).extracting("startsAt").containsExactly(d1, d1.plusDays(1));
         // 검증 전 사전 확인 + insert 트랜잭션 안 재확인
         verify(performanceRepository, org.mockito.Mockito.times(2)).findIdBySourceKey(KEY);
+    }
+
+    @Test
+    void createWithTicketLocksUserFirstAndInsertsTicketOnChosenSession() {
+        stubInserts();
+        LocalDateTime d1 = NOW.plusDays(10).withHour(19).withMinute(0);
+        TicketService.SeatInput seat = new TicketService.SeatInput("A구역", "A구역", "3", "3", "12", "12");
+        when(ticketService.normalizeSeat("A구역", "3열", "12번")).thenReturn(seat);
+        when(ticketService.lockActiveUser(1L)).thenReturn(registrant);
+
+        service.create(1L, new PerformanceCreateRequest(URL, "제목", kspo, List.of(d1, d1.plusDays(1)), null, null,
+                new PerformanceCreateRequest.TicketInput(d1.plusDays(1).withSecond(20), "A구역", "3열", "12번")));
+
+        var order = inOrder(ticketService, performanceRepository);
+        order.verify(ticketService).lockActiveUser(1L);   // 티켓 등록과 같이 users 잠금이 먼저
+        order.verify(performanceRepository).saveAndFlush(any(Performance.class));
+        order.verify(ticketService).insertLocked(org.mockito.ArgumentMatchers.eq(registrant),
+                org.mockito.ArgumentMatchers.argThat(s -> s.getStartsAt().equals(d1.plusDays(1))),
+                org.mockito.ArgumentMatchers.eq(seat));
+        verify(userRepository, never()).findById(any());
+    }
+
+    @Test
+    void createWithTicketOnUnknownSessionOrBadSeatIs400BeforeInsert() {
+        LocalDateTime d1 = NOW.plusDays(10).withHour(19).withMinute(0);
+        when(ticketService.normalizeSeat(any(), any(), any())).thenReturn(
+                new TicketService.SeatInput("A", "A", "1", "1", "1", "1"));
+        assertThatThrownBy(() -> service.create(1L, new PerformanceCreateRequest(URL, "제목", kspo, List.of(d1), null, null,
+                new PerformanceCreateRequest.TicketInput(d1.plusHours(1), "A", "1", "1"))))
+                .isInstanceOfSatisfying(FieldValidationException.class,
+                        e -> assertThat(e.getField()).isEqualTo("ticket.sessionStartsAt"));
+
+        when(ticketService.normalizeSeat(any(), any(), any())).thenThrow(FieldValidationException.ofAll(
+                new java.util.LinkedHashMap<>(java.util.Map.of("row", "열을 확인해주세요."))));
+        assertThatThrownBy(() -> service.create(1L, new PerformanceCreateRequest(URL, "제목", kspo, List.of(d1), null, null,
+                new PerformanceCreateRequest.TicketInput(d1, "A", "-3", "1"))))
+                .isInstanceOfSatisfying(FieldValidationException.class,
+                        e -> assertThat(e.getErrors()).containsOnlyKeys("ticket.row"));
+        verify(performanceRepository, never()).saveAndFlush(any());
+        verify(ticketService, never()).insertLocked(any(), any(), any());
     }
 
     @Test

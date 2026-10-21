@@ -147,6 +147,8 @@ export default function MyPage() {
 
         <SocialLinkCard />
 
+        {/* 관리자 계정은 거래 활동 메뉴를 두지 않는다(2026-10-21) */}
+        {profile?.role !== "ADMIN" && (
         <section className={cls.card} aria-labelledby="mypage-coming-soon">
           <h2 id="mypage-coming-soon" className={cls.sectionTitle}>
             내 활동
@@ -162,6 +164,7 @@ export default function MyPage() {
             ))}
           </ul>
         </section>
+        )}
 
         <div className={cls.accountActions}>
           <button type="button" className={outlineButton} onClick={logoutAndGoHome}>

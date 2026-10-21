@@ -94,6 +94,8 @@ const MENU: readonly { to: string; label: string }[] = [
 
 // ADMIN일 때만 덧붙이는 메뉴 (UI 분기용 — 서버가 최종 판정)
 const ADMIN_MENU_ITEM = { to: "/admin", label: "관리자" } as const;
+// 관리자 계정은 거래 메뉴(내 티켓·내 매칭·알림 벨) 없이 공연 목록과 관리자만 둔다(사용자 지시 2026-10-21, 주소로 직접 가는 것은 막지 않음)
+const ADMIN_MENU: readonly { to: string; label: string }[] = [{ to: "/", label: "공연 목록" }, ADMIN_MENU_ITEM];
 
 const navClass =({ isActive }: { isActive: boolean }) =>
   `${cls.navLink} ${isActive ? cls.navLinkActive : cls.navLinkIdle}`;
@@ -230,7 +232,7 @@ export default function Header() {
         </Link>
 
         {/* 알림 벨(모바일): 햄버거 버튼 왼쪽, 패널 밖이라 메뉴를 열지 않아도 보인다. 데스크톱은 아래 nav 안 '내 매칭' 오른쪽 */}
-        {user && !isInitializing && !isDesktop && <NotificationBell userId={user.id} onOpen={closeMenu} />}
+        {user && !isInitializing && !isDesktop && !isAdmin && <NotificationBell userId={user.id} onOpen={closeMenu} />}
 
         <button
           ref={toggleRef}
@@ -246,13 +248,13 @@ export default function Header() {
 
         <div id={menuId} className={`${cls.panel} ${menuOpen ? cls.panelOpen : cls.panelClosed}`}>
           <nav className={cls.nav} aria-label="주요 메뉴">
-            {(user ? (isAdmin ? [...MENU, ADMIN_MENU_ITEM] : MENU) : []).map((item) => (
+            {(user ? (isAdmin ? ADMIN_MENU : MENU) : []).map((item) => (
               <Fragment key={item.to}>
                 <NavLink to={item.to} className={navClass} onClick={closeMenu}>
                   {item.label}
                 </NavLink>
                 {/* 알림 벨(데스크톱): '내 매칭' 바로 오른쪽 */}
-                {isDesktop && item.to === "/exchange/matches" && user && !isInitializing && (
+                {isDesktop && !isAdmin && item.to === "/exchange/matches" && user && !isInitializing && (
                   <NotificationBell userId={user.id} onOpen={closeMenu} />
                 )}
               </Fragment>

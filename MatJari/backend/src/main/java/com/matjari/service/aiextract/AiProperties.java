@@ -45,8 +45,10 @@ public class AiProperties {
     /** 모델 이름. 날짜 접미사를 붙이지 않는다. */
     private String model = "claude-haiku-5-5";
     private int requestTimeoutSeconds = 60;
-    /** 사용자당 하루(KST) AI 호출 상한. 서버 재시작 때 초기화된다(메모리 기반). */
-    private int dailyPerUser = 2;
+    /** 사용자당 한 달(KST 달력 월) AI 호출 상한. DB(ai_extract_usage, V24)에 기록해 재시작해도 유지된다. */
+    private int monthlyPerUser = 3;
+    /** 같은 공연장의 등록된 구역 이름을 AI 1차 읽기에 참고로 주는 기준(그 공연의 구역 수가 이 이상일 때만, 돔 경기장 등). */
+    private int venueHintMinZones = 50;
     private int dailyGlobal = 40;
     private int maxConcurrent = 2;
     private int cacheTtlHours = 168;

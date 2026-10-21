@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
-import type { AiSessionsSource, PerformancePreview } from "../types/performance";
+import type { AiQuota, AiSessionsSource, PerformancePreview } from "../types/performance";
 import { getConflictPerformanceId, performancesApi } from "../api/performances";
 import { getErrorCode, getErrorNumber, parseApiError } from "../api/errors";
 import { ROW_COL_MAX, ZONE_MAX } from "../api/seat";
@@ -101,6 +101,7 @@ function waitText(seconds: number | null): string {
 function aiErrorText(err: unknown): string {
   const code = getErrorCode(err);
   if (code === "UNSUPPORTED_SITE") return "이 사이트는 AI 읽기를 지원하지 않아요. 직접 입력해 주세요.";
+  if (code === "AI_MONTHLY_LIMIT_REACHED") return "이번 달 공연정보 불러오기 횟수를 모두 사용했어요. 직접 입력해 주세요.";
   if (code === "AI_RATE_LIMITED" || (axios.isAxiosError(err) && err.response?.status === 429)) {
     return `AI 읽기를 너무 자주 사용했어요. ${waitText(getErrorNumber(err, "retryAfterSeconds"))} 뒤에 다시 시도하거나 직접 입력해 주세요.`;
   }
@@ -224,7 +225,10 @@ export default function PerformanceRegisterPage() {
   const [zoneRows, setZoneRows] = useState<ZoneRow[]>([]);
   const [seatmapAspect, setSeatmapAspect] = useState<number | null>(null);
   const [zoneError, setZoneError] = useState<string>();
-  // AI 읽기: 링크 확인 직후 자동으로 한 번 읽는다 (실패해도 등록은 막히지 않는다)
+  /** 회차·구역 입력 방식: 고르기 전(choose) → [불러오기](ai) 또는 [직접 입력](manual). 남은 횟수가 0이면 바로 manual */
+  const [infoMode, setInfoMode] = useState<"choose" | "ai" | "manual">("choose");
+  const [quota, setQuota] = useState<AiQuota | null>(null);
+  // AI 읽기: [불러오기]를 눌렀을 때만 부른다 (실패해도 등록은 막히지 않는다)
   const [aiLoading, setAiLoading] = useState(false);
   /** 상태 줄 문구. tone=error이고 retry이면 '다시 읽기' 버튼을 보인다 */
   const [aiNote, setAiNote] = useState<{ text: string; tone: "info" | "error"; retry: boolean } | null>(null);
@@ -340,7 +344,6 @@ export default function PerformanceRegisterPage() {
     if (url === checkedUrl.current) {
       if (url !== previewedUrl.current) await readPreview(url);
       goTo(1);
-      if (url !== aiUrl.current) void runAi(url);
       return;
     }
     setChecking(true);
@@ -354,7 +357,6 @@ export default function PerformanceRegisterPage() {
       // 중복이 없을 때만 링크에서 공연 정보를 읽는다 (실패해도 2단계로 간다)
       if (url !== previewedUrl.current) await readPreview(url);
       goTo(1);
-      if (url !== aiUrl.current) void runAi(url);
     } catch (err) {
       setLookupError(parseApiError(err, "링크를 확인하지 못했습니다.").message);
     } finally {
@@ -362,7 +364,27 @@ export default function PerformanceRegisterPage() {
     }
   };
 
-  /** AI로 회차·구역 읽기(자동 1회, 실패하면 '다시 읽기'). 사용자가 입력한 줄·칸은 덮어쓰지 않고 빈 곳만 채운다 */
+  /** 이번 달 남은 불러오기 횟수. 다 썼으면 직접 입력 창을 바로 연다. 조회 실패는 null(버튼은 그대로, 서버가 다시 검사) */
+  const loadQuota = async () => {
+    try {
+      const q = await performancesApi.aiQuota();
+      if (unmounted.current) return;
+      setQuota(q);
+      if (q.remaining <= 0) setInfoMode((m) => (m === "choose" ? "manual" : m));
+    } catch {
+      if (!unmounted.current) setQuota(null);
+    }
+  };
+  useEffect(() => {
+    if (step === 1 && infoMode === "choose") void loadQuota();
+  }, [step]);
+
+  /** [불러오기]: AI로 회차·구역 읽기(이번 달 횟수 1회, AI가 못 읽으면 반환). 사용자가 입력한 줄·칸은 덮어쓰지 않고 빈 곳만 채운다 */
+  const loadInfo = () => {
+    setInfoMode("ai");
+    void runAi(sourceUrl.trim());
+  };
+
   const runAi = async (url: string) => {
     aiAbort.current?.abort(); // 다른 링크의 진행 중 호출은 버린다
     const controller = new AbortController();
@@ -417,16 +439,18 @@ export default function PerformanceRegisterPage() {
       setAiNote({ text, tone: "info", retry: false });
     } catch (err) {
       if (unmounted.current || aiAbort.current !== controller) return;
-      if (controller.signal.aborted || axios.isCancel(err)) setAiNote({ text: "AI 읽기를 취소했어요. 직접 입력하거나 다시 읽을 수 있어요.", tone: "error", retry: true });
+      if (controller.signal.aborted || axios.isCancel(err)) setAiNote({ text: "AI 읽기를 취소했어요. 직접 입력해 주세요.", tone: "error", retry: false });
       else {
-        const unsupported = getErrorCode(err) === "UNSUPPORTED_SITE";
-        setAiNote({ text: aiErrorText(err), tone: unsupported ? "info" : "error", retry: !unsupported });
+        const code = getErrorCode(err);
+        const noRetry = code === "UNSUPPORTED_SITE" || code === "AI_MONTHLY_LIMIT_REACHED";
+        setAiNote({ text: aiErrorText(err), tone: code === "UNSUPPORTED_SITE" ? "info" : "error", retry: !noRetry });
       }
     } finally {
       if (aiAbort.current === controller) {
         aiAbort.current = null;
         if (!unmounted.current) setAiLoading(false);
       }
+      if (!unmounted.current) void loadQuota(); // 쓴 횟수(실패하면 반환된 횟수)를 다시 보여 준다
     }
   };
 
@@ -550,6 +574,7 @@ export default function PerformanceRegisterPage() {
 
   /** 제목·공연장·회차를 모두 검사. 처음 오류가 있는 칸으로 포커스를 옮긴다 */
   const confirmInfo = () => {
+    if (infoMode === "choose") setInfoMode("manual"); // 회차 칸을 보여 줘야 오류를 볼 수 있다
     const t = title.trim();
     const v = venueName.trim();
     const tErr = !t ? "공연 제목을 입력해주세요." : t.length > TITLE_MAX ? `공연 제목은 ${TITLE_MAX}자 이하로 입력해주세요.` : undefined;
@@ -754,144 +779,178 @@ export default function PerformanceRegisterPage() {
         </div>
         <PosterImage key={posterUrl ?? "none"} url={posterUrl} title={title || "공연"} className="self-start" />
         </div>
-        {/* AI 읽기 상태 줄 — 읽는 동안에도 아래 입력칸은 그대로 쓸 수 있다 */}
-        <div className="flex flex-col gap-2">
-          {(aiLoading || aiNote) && (
-            <div className={`${aiNote?.tone === "error" && !aiLoading ? ui.errorBox : ui.notice} flex flex-wrap items-center gap-x-3 gap-y-1`}>
-              <p className="min-w-0 flex-1 basis-56" role="status" aria-busy={aiLoading}>
-                {aiLoading ? "AI가 회차와 구역을 읽는 중이에요. 기다리지 않고 직접 입력해도 돼요." : aiNote?.text}
-              </p>
-              {aiLoading && (
-                <button type="button" className={`${button.outline} shrink-0`} onClick={() => aiAbort.current?.abort()}>
-                  취소
-                </button>
-              )}
-              {!aiLoading && aiNote?.retry && (
-                <button
-                  type="button"
-                  className={`${ui.link} min-h-11 shrink-0 cursor-pointer touch-manipulation px-1`}
-                  onClick={() => void runAi(aiUrl.current ?? sourceUrl.trim())}
-                >
-                  다시 읽기
-                </button>
-              )}
-            </div>
-          )}
-          {!aiLoading && (aiSessionsShown || (aiZonesShown && zoneRows.length > 0)) && <p className={ui.hint}>{AI_NOTICE}</p>}
-        </div>
-
-        <form id="perf-sessions" className="flex flex-col gap-2" onSubmit={addSession} noValidate>
-          <div className="flex flex-wrap items-end gap-2">
-            <SessionDateTimePicker
-              legend="회차 날짜·시간 (한국 시간)"
-              value={sessionInput}
-              onChange={setSessionInput}
-              datePreset={datePreset}
-              invalid={!!sessionError}
-              describedBy={`perf-session-hint${sessionError ? " perf-session-error" : ""}`}
-            />
-            <button type="submit" className={button.outline}>
-              회차 추가
-            </button>
-          </div>
-          {sessionError && (
-            <p id="perf-session-error" className={ui.fieldError} role="alert">
-              {sessionError}
-            </p>
-          )}
-          {/* 안내는 오류가 있어도 계속 보이고 aria-describedby로 연결된다 */}
-          {autoFill?.periodStart && (
-            <p className={ui.hint}>
-              링크에 적힌 공연 기간: {periodText(autoFill.periodStart, autoFill.periodEnd)} ·{" "}
-              {candidateDates.length > 0
-                ? "날짜는 공연 기간에 맞춰, 시각은 링크 본문과 AI가 읽은 값으로 채워져요. 맞는지 확인하고 다르면 고쳐 주세요. 시각을 읽지 못했다면 직접 골라 주세요."
-                : "회차는 링크에서 읽은 값으로 채워져요. 읽지 못했다면 직접 입력해 주세요."}
-            </p>
-          )}
-          {candidateDates.length > 1 && (
-            <div className="flex flex-col items-start gap-1">
-              <button type="button" className={button.solid} onClick={fillAllCandidates}>
-                {`${dotShort(candidateDates[0])}~${dotShort(candidateDates[candidateDates.length - 1])}, ${candidateDates.length}일 모두 회차로 채우기`}
+        {infoMode === "choose" ? (
+          <section className="flex flex-col gap-3" aria-labelledby="perf-info-choose-title">
+            <h3 id="perf-info-choose-title" className={ui.sectionTitle}>
+              회차·구역 입력
+            </h3>
+            <p className={ui.hint}>AI가 공연 상세 페이지에서 회차와 좌석 구역을 읽어 채워요. 직접 입력해도 돼요.</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className={`${button.solid} flex-col gap-0`}
+                onClick={loadInfo}
+                disabled={quota !== null && quota.remaining <= 0}
+              >
+                <span>공연정보 불러오기</span>
+                {quota !== null && (
+                  <span className="text-xs/[normal] font-normal opacity-90">
+                    남은 횟수 {quota.remaining}/{quota.limit}회·월
+                  </span>
+                )}
               </button>
-              <p className={ui.hint}>날짜마다 회차 한 줄이 만들어져요. 이미 있는 날짜는 건너뛰고, 기존 입력은 지우지 않아요.</p>
+              <button type="button" className={button.outline} onClick={() => setInfoMode("manual")}>
+                직접 입력
+              </button>
             </div>
-          )}
-          {candidateDates.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2" role="group" aria-label="공연 기간 날짜 선택">
-              <span className={ui.hint}>날짜 바로 채우기:</span>
-              {(showAllCandidates ? candidateDates : candidateDates.slice(0, CANDIDATE_PREVIEW)).map((d) => (
-                <button key={d} type="button" className={button.outline} onClick={() => presetDate(d)}>
-                  {dotDate(d)}
-                </button>
-              ))}
-              {candidateDates.length > CANDIDATE_PREVIEW && (
-                <button
-                  type="button"
-                  className={button.outline}
-                  aria-expanded={showAllCandidates}
-                  onClick={() => setShowAllCandidates((v) => !v)}
-                >
-                  {showAllCandidates ? "접기" : `더 보기 (${candidateDates.length - CANDIDATE_PREVIEW}개)`}
-                </button>
-              )}
-            </div>
-          )}
-          <p id="perf-session-hint" className={ui.hint}>
-            {/* TODO: Hint 지우기 */}
-            {/* {SESSION_TIME_STEP_HINT}  */}같은 공연의 여러 회차를 모두 추가해 주세요.
-          </p>
-        </form>
-
-        <p className={ui.status} role="status">
-          {sessions.length > 0 ? `추가한 회차 ${sessions.length}개` : "아직 추가한 회차가 없어요."}
-        </p>
-        <p className={ui.notice} role="status" hidden={!bulkNote}>
-          {bulkNote}
-        </p>
-        {sessions.length > 1 && (
-          <div className="flex flex-wrap items-end gap-2" role="group" aria-label="모든 회차 시각 한번에 넣기">
-            <div className="flex flex-col gap-1">
-              <span className="text-sm/[normal] font-semibold text-gray-700">모든 회차 시각 한번에 넣기</span>
-              <TimeSelect label="모든 회차 시각" value={bulkTime} onChange={setBulkTime} />
-            </div>
-            <button type="button" className={button.outline} onClick={applyBulkTime}>
-              적용
-            </button>
-            <p className={`${ui.hint} basis-full`}>시각이 비어 있는 줄에만 채워요. 이미 시각이 있는 줄은 바뀌지 않아요.</p>
+          </section>
+        ) : (
+          <>
+          {/* AI 읽기 상태 줄 — 읽는 동안에도 아래 입력칸은 그대로 쓸 수 있다 */}
+          <div className="flex flex-col gap-2">
+            {infoMode === "manual" && !aiNote && quota !== null && quota.remaining <= 0 && (
+              <p className={ui.notice} role="status">
+                이번 달 공연정보 불러오기 횟수({quota.limit}회)를 모두 사용했어요. 다음 달 1일에 다시 채워져요. 직접 입력해 주세요.
+              </p>
+            )}
+            {(aiLoading || aiNote) && (
+              <div className={`${aiNote?.tone === "error" && !aiLoading ? ui.errorBox : ui.notice} flex flex-wrap items-center gap-x-3 gap-y-1`}>
+                <p className="min-w-0 flex-1 basis-56" role="status" aria-busy={aiLoading}>
+                  {aiLoading ? "AI가 회차와 구역을 읽는 중이에요. 기다리지 않고 직접 입력해도 돼요." : aiNote?.text}
+                </p>
+                {aiLoading && (
+                  <button type="button" className={`${button.outline} shrink-0`} onClick={() => aiAbort.current?.abort()}>
+                    취소
+                  </button>
+                )}
+                {!aiLoading && aiNote?.retry && (
+                  <button
+                    type="button"
+                    className={`${ui.link} min-h-11 shrink-0 cursor-pointer touch-manipulation px-1`}
+                    onClick={() => void runAi(aiUrl.current ?? sourceUrl.trim())}
+                  >
+                    다시 읽기
+                  </button>
+                )}
+              </div>
+            )}
+            {!aiLoading && (aiSessionsShown || (aiZonesShown && zoneRows.length > 0)) && <p className={ui.hint}>{AI_NOTICE}</p>}
           </div>
-        )}
-        {sessions.length > 0 && (
-          <ul className={cls.sessionList} aria-label="추가한 회차">
-            {sessions.map((r) => (
-              <li key={r.id} className={cls.sessionRow}>
-                <span className={`${ui.body} min-w-[14rem] flex-1`}>{rowLabel(r.value)}</span>
-                <TimeSelect
-                  label={`${dotDate(dateOf(r.value))} 회차 시각`}
-                  value={hasTime(r.value) ? r.value.slice(11, 16) : ""}
-                  onChange={(time) => setRowTime(r.id, time)}
-                />
-                <button
-                  type="button"
-                  className={button.outline}
-                  onClick={() => removeSession(r.id)}
-                  aria-label={`${rowLabel(r.value)} 회차 삭제`}
-                >
-                  삭제
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
 
-        <section className="flex flex-col gap-3" aria-labelledby="perf-zone-title">
-          <h3 id="perf-zone-title" className={ui.sectionTitle}>
-            구역 확인
-          </h3>
-          <p className={ui.hint}>
-            티켓 등록·교환 조건에서 구역 지도를 눌러 구역을 고를 수 있게 해 줘요. 선택 사항이고, 비워도 등록할 수 있어요.
+          <form id="perf-sessions" className="flex flex-col gap-2" onSubmit={addSession} noValidate>
+            <div className="flex flex-wrap items-end gap-2">
+              <SessionDateTimePicker
+                legend="회차 날짜·시간 (한국 시간)"
+                value={sessionInput}
+                onChange={setSessionInput}
+                datePreset={datePreset}
+                invalid={!!sessionError}
+                describedBy={`perf-session-hint${sessionError ? " perf-session-error" : ""}`}
+              />
+              <button type="submit" className={button.outline}>
+                회차 추가
+              </button>
+            </div>
+            {sessionError && (
+              <p id="perf-session-error" className={ui.fieldError} role="alert">
+                {sessionError}
+              </p>
+            )}
+            {/* 안내는 오류가 있어도 계속 보이고 aria-describedby로 연결된다 */}
+            {autoFill?.periodStart && (
+              <p className={ui.hint}>
+                링크에 적힌 공연 기간: {periodText(autoFill.periodStart, autoFill.periodEnd)} ·{" "}
+                {candidateDates.length > 0
+                  ? "날짜는 공연 기간에 맞춰, 시각은 링크 본문과 AI가 읽은 값으로 채워져요. 맞는지 확인하고 다르면 고쳐 주세요. 시각을 읽지 못했다면 직접 골라 주세요."
+                  : "회차는 링크에서 읽은 값으로 채워져요. 읽지 못했다면 직접 입력해 주세요."}
+              </p>
+            )}
+            {candidateDates.length > 1 && (
+              <div className="flex flex-col items-start gap-1">
+                <button type="button" className={button.solid} onClick={fillAllCandidates}>
+                  {`${dotShort(candidateDates[0])}~${dotShort(candidateDates[candidateDates.length - 1])}, ${candidateDates.length}일 모두 회차로 채우기`}
+                </button>
+                <p className={ui.hint}>날짜마다 회차 한 줄이 만들어져요. 이미 있는 날짜는 건너뛰고, 기존 입력은 지우지 않아요.</p>
+              </div>
+            )}
+            {candidateDates.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2" role="group" aria-label="공연 기간 날짜 선택">
+                <span className={ui.hint}>날짜 바로 채우기:</span>
+                {(showAllCandidates ? candidateDates : candidateDates.slice(0, CANDIDATE_PREVIEW)).map((d) => (
+                  <button key={d} type="button" className={button.outline} onClick={() => presetDate(d)}>
+                    {dotDate(d)}
+                  </button>
+                ))}
+                {candidateDates.length > CANDIDATE_PREVIEW && (
+                  <button
+                    type="button"
+                    className={button.outline}
+                    aria-expanded={showAllCandidates}
+                    onClick={() => setShowAllCandidates((v) => !v)}
+                  >
+                    {showAllCandidates ? "접기" : `더 보기 (${candidateDates.length - CANDIDATE_PREVIEW}개)`}
+                  </button>
+                )}
+              </div>
+            )}
+            <p id="perf-session-hint" className={ui.hint}>
+              {/* TODO: Hint 지우기 */}
+              {/* {SESSION_TIME_STEP_HINT}  */}같은 공연의 여러 회차를 모두 추가해 주세요.
+            </p>
+          </form>
+
+          <p className={ui.status} role="status">
+            {sessions.length > 0 ? `추가한 회차 ${sessions.length}개` : "아직 추가한 회차가 없어요."}
           </p>
-          <ZoneEditor rows={zoneRows} aspect={seatmapAspect} onChange={(r) => { setZoneRows(r); setZoneError(undefined); }} serverError={zoneError} />
-        </section>
+          <p className={ui.notice} role="status" hidden={!bulkNote}>
+            {bulkNote}
+          </p>
+          {sessions.length > 1 && (
+            <div className="flex flex-wrap items-end gap-2" role="group" aria-label="모든 회차 시각 한번에 넣기">
+              <div className="flex flex-col gap-1">
+                <span className="text-sm/[normal] font-semibold text-gray-700">모든 회차 시각 한번에 넣기</span>
+                <TimeSelect label="모든 회차 시각" value={bulkTime} onChange={setBulkTime} />
+              </div>
+              <button type="button" className={button.outline} onClick={applyBulkTime}>
+                적용
+              </button>
+              <p className={`${ui.hint} basis-full`}>시각이 비어 있는 줄에만 채워요. 이미 시각이 있는 줄은 바뀌지 않아요.</p>
+            </div>
+          )}
+          {sessions.length > 0 && (
+            <ul className={cls.sessionList} aria-label="추가한 회차">
+              {sessions.map((r) => (
+                <li key={r.id} className={cls.sessionRow}>
+                  <span className={`${ui.body} min-w-[14rem] flex-1`}>{rowLabel(r.value)}</span>
+                  <TimeSelect
+                    label={`${dotDate(dateOf(r.value))} 회차 시각`}
+                    value={hasTime(r.value) ? r.value.slice(11, 16) : ""}
+                    onChange={(time) => setRowTime(r.id, time)}
+                  />
+                  <button
+                    type="button"
+                    className={button.outline}
+                    onClick={() => removeSession(r.id)}
+                    aria-label={`${rowLabel(r.value)} 회차 삭제`}
+                  >
+                    삭제
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <section className="flex flex-col gap-3" aria-labelledby="perf-zone-title">
+            <h3 id="perf-zone-title" className={ui.sectionTitle}>
+              구역 확인
+            </h3>
+            <p className={ui.hint}>
+              티켓 등록·교환 조건에서 구역 지도를 눌러 구역을 고를 수 있게 해 줘요. 선택 사항이고, 비워도 등록할 수 있어요.
+            </p>
+            <ZoneEditor rows={zoneRows} aspect={seatmapAspect} onChange={(r) => { setZoneRows(r); setZoneError(undefined); }} serverError={zoneError} />
+          </section>
+          </>
+        )}
 
         <div className={cls.actions}>
           <button type="button" className={button.outline} onClick={() => goTo(0)}>

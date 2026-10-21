@@ -76,6 +76,7 @@ class PerformanceZoneMysqlTest {
     @BeforeEach
     void setUp() {
         assertThat(jdbc.queryForObject("SELECT DATABASE()", String.class)).endsWith("_zoneschema_it");
+        jdbc.update("DELETE FROM ai_extract_usage");
         jdbc.update("DELETE FROM performance_zone");
         jdbc.update("DELETE FROM performance_session");
         jdbc.update("DELETE FROM performance");
@@ -186,5 +187,48 @@ class PerformanceZoneMysqlTest {
         assertThat(aiResultStore.find("melon:2")).isEmpty();
         aiResultStore.save("melon:3", r1, 60_000); // 저장할 때 만료 행 정리
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ai_extract_cache WHERE source_key = 'melon:2'", Integer.class)).isZero();
+    }
+
+    @Autowired
+    private com.matjari.service.aiextract.JdbcAiMonthlyQuota monthlyQuota;
+    @Autowired
+    private com.matjari.service.aiextract.VenueZoneHints venueZoneHints;
+
+    /** V24 ai_extract_usage: 월 상한·반환·지난달 기록 제외, 탈퇴 사용자 401. */
+    @Test
+    void monthlyQuotaReserveLimitAndRefund() {
+        LocalDateTime month = LocalDateTime.of(2099, 1, 1, 0, 0);
+        LocalDateTime now = month.plusDays(3);
+        long a = monthlyQuota.reserve(1L, "melon:1", 2, month, now);
+        long b = monthlyQuota.reserve(1L, "melon:2", 2, month, now);
+        assertThat(a).isPositive();
+        assertThat(b).isPositive();
+        assertThat(monthlyQuota.reserve(1L, "melon:3", 2, month, now)).isEqualTo(-1);
+        monthlyQuota.refund(b, now);
+        monthlyQuota.refund(b, now); // 멱등
+        assertThat(monthlyQuota.used(1L, month)).isEqualTo(1);
+        assertThat(monthlyQuota.reserve(1L, "melon:3", 2, month, now)).isPositive();
+        assertThat(monthlyQuota.used(1L, month.plusMonths(1))).isZero(); // 다음 달은 새로
+        jdbc.update("UPDATE users SET withdrawn_at = NOW(6) WHERE id = 1");
+        assertThatThrownBy(() -> monthlyQuota.reserve(1L, "melon:4", 9, month, now))
+                .isInstanceOf(org.springframework.security.authentication.InsufficientAuthenticationException.class);
+    }
+
+    /** 같은 공연장(공백·대소문자 무시) 구역이 기준 이상인 가장 최근 공연의 이름만, 숨긴 공연·작은 공연은 제외. */
+    @Test
+    void venueZoneHintsUseLatestBigVenueOnly() {
+        List<ZoneInput> many = new java.util.ArrayList<>();
+        for (int i = 1; i <= 50; i++) {
+            many.add(new ZoneInput("T" + i, null));
+        }
+        register("https://ticket.melon.com/performance/index.htm?prodId=901", many, null);
+        jdbc.update("UPDATE performance SET venue_name = '고척 스카이돔' WHERE source_key = 'melon:901'");
+        register("https://ticket.melon.com/performance/index.htm?prodId=902", List.of(new ZoneInput("A", null)), null);
+        jdbc.update("UPDATE performance SET venue_name = '고척스카이돔' WHERE source_key = 'melon:902'");
+
+        assertThat(venueZoneHints.namesFor("고척스카이돔")).hasSize(50).startsWith("T1", "T2");
+        assertThat(venueZoneHints.namesFor("KSPO DOME")).isEmpty();
+        jdbc.update("UPDATE performance SET hidden_at = NOW(6), hidden_by_id = 1, hidden_reason = 'x' WHERE source_key = 'melon:901'");
+        assertThat(venueZoneHints.namesFor("고척스카이돔")).isEmpty();
     }
 }

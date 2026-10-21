@@ -50,6 +50,14 @@ export interface PerformanceZonesResponse {
 
 /** POST /api/performances/ai-extract 응답 */
 export type AiSessionsSource = "TEXT_RULE" | "AI" | "NONE";
+/** 이번 달 공연정보 불러오기(AI) 사용 현황. resetsAt 은 다음 달 1일 0시(KST) */
+export interface AiQuota {
+  limit: number;
+  used: number;
+  remaining: number;
+  resetsAt: string;
+}
+
 export interface AiExtractResult {
   sessions: { date: string; time: string }[];
   sessionsSource: AiSessionsSource;

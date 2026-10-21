@@ -98,20 +98,31 @@ public class DetailExtractionService {
     private final Map<String, CacheEntry> cache;
     /** 링크별 결과 DB 보관(V23). null 이면 메모리 캐시만 쓴다(단위 시험·평가 도구). */
     private final AiResultStore store;
+    /** 같은 공연장의 등록된 구역 이름(구역이 많은 공연장만). null 이면 참고 없이 읽는다. */
+    private final VenueZoneHints venueHints;
 
     public DetailExtractionService(SourceKeyResolver sourceKeyResolver, PerformancePreviewService previewService,
                                    SessionTextParser textParser, DetailImageFetcher imageFetcher, ImageSlicer slicer,
                                    ShapeSegmenter segmenter, DetailExtractor extractor, AiUsageLimiter limiter, AiProperties properties, Clock clock) {
         this(sourceKeyResolver, previewService, textParser, imageFetcher, slicer, segmenter, extractor, limiter, properties,
-                clock, null);
+                clock, null, null);
+    }
+
+    public DetailExtractionService(SourceKeyResolver sourceKeyResolver, PerformancePreviewService previewService,
+                                   SessionTextParser textParser, DetailImageFetcher imageFetcher, ImageSlicer slicer,
+                                   ShapeSegmenter segmenter, DetailExtractor extractor, AiUsageLimiter limiter, AiProperties properties,
+                                   Clock clock, AiResultStore store) {
+        this(sourceKeyResolver, previewService, textParser, imageFetcher, slicer, segmenter, extractor, limiter, properties,
+                clock, store, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
     public DetailExtractionService(SourceKeyResolver sourceKeyResolver, PerformancePreviewService previewService,
                                    SessionTextParser textParser, DetailImageFetcher imageFetcher, ImageSlicer slicer,
                                    ShapeSegmenter segmenter, DetailExtractor extractor, AiUsageLimiter limiter, AiProperties properties,
-                                   Clock clock, AiResultStore store) {
+                                   Clock clock, AiResultStore store, VenueZoneHints venueHints) {
         this.store = store;
+        this.venueHints = venueHints;
         this.sourceKeyResolver = sourceKeyResolver;
         this.previewService = previewService;
         this.textParser = textParser;
@@ -129,6 +140,11 @@ public class DetailExtractionService {
                 return size() > max;
             }
         };
+    }
+
+    /** 이번 달 공연정보 불러오기 사용 현황(화면의 남은 횟수 표시용). */
+    public AiUsageLimiter.Quota quota(Long userId) {
+        return limiter.quota(userId);
     }
 
     public Response extract(Long userId, String sourceUrl) {
@@ -197,6 +213,13 @@ public class DetailExtractionService {
 
         boolean truncated = sliced.stream().anyMatch(ImageSlicer.SliceResult::truncated);
         List<DetailExtractor.Part> parts = new ArrayList<>();
+        // 구역이 많은 공연장: 같은 공연장에 등록된 공연의 구역 이름을 참고로 준다(배치가 다를 수 있어 이미지에 보이는 것만 적게 한다)
+        List<String> hint = venueHints == null ? List.of() : venueHints.namesFor(page.venue());
+        if (!hint.isEmpty()) {
+            parts.add(DetailExtractor.Part.ofText("[참고] 같은 공연장에서 이전에 등록된 공연의 좌석 구역 이름: " + String.join(", ", hint)
+                    + " / 공연마다 무대·좌석 배치가 다를 수 있으니 이 목록은 철자와 번호 체계 참고용이다. 이미지의 좌석표에 실제로 보이는 구역만 적어라."));
+            log.info("AI 1차 읽기: 같은 공연장 구역 이름 {}개 참고", hint.size());
+        }
         int sliceCount = 0;
         for (int n = 0; n < sliced.size(); n++) {
             List<ImageSlicer.SliceImage> sl = sliced.get(n).slices();
@@ -214,7 +237,8 @@ public class DetailExtractionService {
         int cropW = 0;
         int cropH = 0;
         boolean aiError = false;
-        try (AiUsageLimiter.Permit ignored = limiter.acquire(userId)) {
+        AiUsageLimiter.Permit permit = limiter.acquire(userId, key);
+        try (permit) {
             DetailExtractor.FirstPass first = extractor.first(parts);
             aiSessions = cleanSessions(first.sessions(), page.periodStart(), page.periodEnd());
             List<String> names = cleanNames(first.zones());
@@ -299,6 +323,7 @@ public class DetailExtractionService {
                 }
             }
             zones = mergeZones(names, shapes);
+            zones = dropHintOnly(zones, hint, shapes);
             logExtent(zones, cropW, cropH);
             if (aspect != null && cropW > 0 && cropH > 0) { // 좌석표가 잘라 낸 이미지의 일부만 차지해도 미리보기가 꽉 차도록 모양 좌표를 좌석표 영역에 맞춘다
                 FitResult fit = fitToBounds(zones, cropW, cropH);
@@ -316,6 +341,9 @@ public class DetailExtractionService {
             aiError = true;
             log.info("AI 추출 실패: {}", e.getClass().getSimpleName());
         }
+        if (aiError) {
+            permit.refund(); // AI 가 읽지 못한 호출은 이번 달 횟수에서 빼 준다(사용자 결정 2026-10-21)
+        }
         log.info("AI 추출 완료: {}ms, slices={}, aiSessions={}, zones={}, aiError={}",
                 (System.nanoTime() - started) / 1_000_000, sliceCount, aiSessions.size(), zones.size(), aiError);
 
@@ -327,6 +355,41 @@ public class DetailExtractionService {
             cacheIfUseful(key, r);
         }
         return r;
+    }
+
+    /**
+     * 같은 공연장 참고 이름을 그대로 베낀 구역을 뺀다: 모양이 하나라도 있는 지도에서, 모양 없이 이름만 남은 구역 중 참고 목록에 있는 이름.
+     * (실제로 지도에 있으면 도형 판독에서 모양이 붙는다.) 참고가 없었으면 그대로다.
+     */
+    static List<ZoneDto> dropHintOnly(List<ZoneDto> zones, List<String> hint, List<DetailExtractor.RawZone> shapes) {
+        if (hint.isEmpty() || shapes.isEmpty() || zones.stream().noneMatch(z -> z.shapePolygons() != null)) {
+            return zones;
+        }
+        java.util.Set<String> hinted = new java.util.HashSet<>();
+        for (String h : hint) {
+            hinted.add(hintKey(h));
+        }
+        List<ZoneDto> out = new ArrayList<>();
+        int dropped = 0;
+        for (ZoneDto z : zones) {
+            if (z.shapePolygons() == null && hinted.contains(hintKey(z.name()))) {
+                dropped++;
+                continue;
+            }
+            out.add(z);
+        }
+        if (dropped > 0) {
+            log.info("같은 공연장 참고 이름 중 지도에 없는 구역 {}개 제외", dropped);
+        }
+        return out;
+    }
+
+    private static String hintKey(String name) {
+        try {
+            return com.matjari.service.SeatKeyNormalizer.zoneKey(name);
+        } catch (RuntimeException e) { // 비었거나 너무 긴 이름은 그대로 비교
+            return String.valueOf(name);
+        }
     }
 
     /** 평가 결과: 1차 이름 목록, 좌석표 기준 0~1000 좌표의 구역(fitToBounds 전), AI 좌표 방식으로 대체했는지. */

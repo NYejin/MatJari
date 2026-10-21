@@ -42,6 +42,7 @@ class DetailExtractionServiceTest {
         int firstCalls;
         int secondCalls;
         int lastPartCount;
+        List<Part> firstParts = List.of();
         FirstPass firstResult;
         List<RawZone> secondResult = List.of();
 
@@ -52,6 +53,7 @@ class DetailExtractionServiceTest {
         public FirstPass first(List<Part> parts) {
             firstCalls++;
             lastPartCount = parts.size();
+            firstParts = parts;
             if (failFirst) {
                 throw new ExtractionFailedException("x");
             }
@@ -84,7 +86,7 @@ class DetailExtractionServiceTest {
     @BeforeEach
     void setUp() throws IOException {
         props = new AiProperties();
-        props.setDailyPerUser(1);
+        props.setMonthlyPerUser(1);
         fake = new FakeExtractor();
         fake.firstResult = new DetailExtractor.FirstPass(
                 List.of(new DetailExtractor.RawSession("2026-11-01", "19:00"), new DetailExtractor.RawSession("2026-11-01", "19:05")),
@@ -178,15 +180,61 @@ class DetailExtractionServiceTest {
     }
 
     @Test
-    void dailyLimitIs429WithRetryAfter() {
+    void monthlyLimitIs429WithRetryAfterUntilNextMonth() {
         service.extract(1L, MELON);
+        assertThat(service.quota(1L).remaining()).isZero();
         assertThatThrownBy(() -> service.extract(1L, MELON2))
                 .isInstanceOfSatisfying(DetailExtractionService.AiExtractException.class, e -> {
                     assertThat(e.getStatus()).isEqualTo(429);
-                    assertThat(e.getCode()).isEqualTo("AI_RATE_LIMITED");
-                    assertThat(e.getRetryAfterSeconds()).isPositive();
+                    assertThat(e.getCode()).isEqualTo("AI_MONTHLY_LIMIT_REACHED");
+                    // 시험 시계 2026-10-18 12:00 KST → 11월 1일 0시까지
+                    assertThat(e.getRetryAfterSeconds()).isEqualTo(java.time.Duration.ofDays(13).plusHours(12).toSeconds());
                 });
         assertThat(fake.firstCalls).isEqualTo(1);
+        assertThat(service.quota(1L).resetsAt()).isEqualTo(java.time.LocalDateTime.of(2026, 11, 1, 0, 0));
+        // 다른 사용자는 별개
+        assertThat(service.extract(2L, MELON2).cached()).isFalse();
+    }
+
+    @Test
+    void bigVenueHintIsGivenToFirstPassAndCopiedNamesWithoutShapeAreDropped() throws IOException {
+        VenueZoneHints hints = mock(VenueZoneHints.class);
+        when(hints.namesFor("고척스카이돔")).thenReturn(List.of("A구역", "Z구역"));
+        when(preview.fetchPage(anyString(), anyString())).thenReturn(new PerformancePreviewService.FetchedPage(
+                Jsoup.parse("<html><body>x</body></html>"), null, null, "고척스카이돔"));
+        // 1차가 참고 목록의 Z구역을 베꼈지만 지도에는 A구역 모양만 있다
+        fake.firstResult = new DetailExtractor.FirstPass(List.of(new DetailExtractor.RawSession("2026-11-01", "19:00")),
+                List.of("A구역", "B구역", "Z구역"), new DetailExtractor.SeatMapLocation(true, 1, 1, 2));
+        fake.secondResult = List.of(
+                new DetailExtractor.RawZone("A구역", List.of(List.of(List.of(0, 0), List.of(1000, 0), List.of(0, 1000)))),
+                new DetailExtractor.RawZone("B구역", List.of(List.of(List.of(1000, 1000), List.of(1000, 0), List.of(0, 1000)))));
+        Clock clock = Clock.fixed(Instant.parse("2026-10-18T03:00:00Z"), ZoneId.of("Asia/Seoul"));
+        DetailExtractionService svc = new DetailExtractionService(new SourceKeyResolver(), preview, parser, fetcher,
+                new ImageSlicer(props), new ShapeSegmenter(), fake, new AiUsageLimiter(clock, props), props, clock, null, hints);
+
+        DetailExtractionService.Response r = svc.extract(1L, MELON);
+        assertThat(fake.firstParts.get(0).text()).startsWith("[참고] 같은 공연장").contains("A구역, Z구역");
+        // 지도에서 모양이 붙은 A·B는 남고, 참고 목록에서 베꼈고 모양이 없는 Z구역만 빠진다
+        assertThat(r.zones()).extracting(DetailExtractionService.ZoneDto::name).containsExactly("A구역", "B구역");
+    }
+
+    @Test
+    void noHintMeansNoExtraPart() {
+        service.extract(1L, MELON);
+        assertThat(fake.firstParts.get(0).text()).startsWith("[이미지 1");
+    }
+
+    @Test
+    void aiFailureRefundsMonthlyCount() {
+        fake.failFirst = true;
+        assertThatThrownBy(() -> service.extract(1L, MELON)).isInstanceOf(DetailExtractionService.AiExtractException.class);
+        assertThat(service.quota(1L).used()).isZero(); // 503 은 횟수에서 빼 준다
+        when(parser.parse(any(), any(), any())).thenReturn(List.of(new ExtractedSession(LocalDate.of(2026, 11, 2), LocalTime.of(14, 0))));
+        assertThat(service.extract(1L, MELON).aiError()).isTrue(); // 규칙 결과만 온 경우도 AI 는 못 읽었으니 반환
+        assertThat(service.quota(1L).used()).isZero();
+        fake.failFirst = false;
+        assertThat(service.extract(1L, MELON2).aiError()).isFalse(); // 그래서 상한 1이어도 통과
+        assertThat(service.quota(1L).used()).isEqualTo(1);
     }
 
     @Test

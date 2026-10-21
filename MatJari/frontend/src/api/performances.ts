@@ -3,6 +3,7 @@ import { apiClient } from "./client";
 import type { PageResponse } from "../types/page";
 import type {
   AiExtractResult,
+  AiQuota,
   PerformanceCreateRequest,
   PerformanceDetail,
   PerformanceListParams,
@@ -51,10 +52,16 @@ export const performancesApi = {
 
   /**
    * POST /api/performances/ai-extract — 링크 페이지를 AI로 읽어 회차·구역 제안. 10~40초 걸릴 수 있어 signal로 취소할 수 있다.
-   * 오류 본문 {code, message[, retryAfterSeconds]}: 400 UNSUPPORTED_SITE, 429 AI_RATE_LIMITED, 503 AI_UNAVAILABLE·PAGE_FETCH_FAILED
+   * 오류 본문 {code, message[, retryAfterSeconds]}: 400 UNSUPPORTED_SITE, 429 AI_RATE_LIMITED·AI_MONTHLY_LIMIT_REACHED, 503 AI_UNAVAILABLE·PAGE_FETCH_FAILED
    */
   async aiExtract(sourceUrl: string, signal?: AbortSignal): Promise<AiExtractResult> {
     const { data } = await apiClient.post<AiExtractResult>("/performances/ai-extract", { sourceUrl }, { signal });
+    return data;
+  },
+
+  /** GET /api/performances/ai-extract/quota — 이번 달 공연정보 불러오기 사용 현황(매월 1일 초기화) */
+  async aiQuota(signal?: AbortSignal): Promise<AiQuota> {
+    const { data } = await apiClient.get<AiQuota>("/performances/ai-extract/quota", { signal });
     return data;
   },
 

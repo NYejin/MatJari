@@ -56,6 +56,17 @@ class ZoneConsistencyTest {
     }
 
     @Test
+    void textBreakIsEndToEndButFrontStripRunsAlongside() {
+        // 가는 블록이 글자로 끊긴 두 조각은 끝과 끝이 마주 본다(잇는다)
+        assertThat(ZoneConsistency.sideStrip(new int[]{100, 100, 160, 110}, new int[]{172, 100, 240, 110})).isFalse();
+        // 블록 긴 변 옆에 나란히 선 앞쪽 띠(화정체육관)는 따로 둔다
+        assertThat(ZoneConsistency.sideStrip(new int[]{100, 100, 200, 112}, new int[]{100, 116, 200, 220})).isTrue();
+        // 글자 테두리의 섞인 색(흰 글자 + 보라 블록)은 두 색을 잇는 선 위에 있다
+        assertThat(ZoneConsistency.blendDist(0xFFE090FC, 0xFFC528FB, 0xFFFEC8FE)).isLessThan(30);
+        assertThat(ZoneConsistency.blendDist(0xFF181818, 0xFFC528FB, 0xFFFEC8FE)).isGreaterThan(100);
+    }
+
+    @Test
     void seriesKeySplitsHundredsAndPrefixes() {
         assertThat(ZoneConsistency.seriesKey("311")).isEqualTo(ZoneConsistency.seriesKey("322"));
         assertThat(ZoneConsistency.seriesKey("311")).isNotEqualTo(ZoneConsistency.seriesKey("411"));

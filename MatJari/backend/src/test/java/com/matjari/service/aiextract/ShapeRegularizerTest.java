@@ -98,6 +98,21 @@ class ShapeRegularizerTest {
     }
 
     @Test
+    void neighborRowEdgesLineUpButConsoleGapIsLeftAlone() {
+        // 통로(6) 하나를 두고 나란한 두 블록: 윗변·밑변이 4씩 어긋나 있으면 한 줄로 맞춘다
+        List<int[][]> polys = new ArrayList<>(List.of(
+                new int[][]{{100, 100}, {200, 100}, {200, 200}, {100, 200}},
+                new int[][]{{206, 104}, {306, 104}, {306, 204}, {206, 204}},
+                // 가운데 콘솔(폭 80)을 사이에 둔 블록은 어긋나도 그대로 둔다
+                new int[][]{{386, 110}, {486, 110}, {486, 210}, {386, 210}}));
+        ShapeRegularizer.alignNeighbors(polys, List.of(0, 1, 2));
+        assertThat(polys.get(0)[1][1]).isEqualTo(polys.get(1)[0][1]);
+        assertThat(polys.get(0)[2][1]).isEqualTo(polys.get(1)[3][1]);
+        assertThat(polys.get(1)[0][0] - polys.get(0)[1][0]).as("통로 폭 유지").isEqualTo(6);
+        assertThat(polys.get(2)[0][1]).isEqualTo(110);
+    }
+
+    @Test
     void mirrorThatWouldCoverAnotherZoneIsNotApplied() {
         // 왼쪽 조각이 옆 블록까지 잡아 두 블록 폭이다: 그 거울상을 오른쪽 짝에 덮으면 오른쪽 옆 구역(700~795)을 침범하므로 바꾸지 않는다(고척돔 419→406)
         List<int[][]> polys = new ArrayList<>(List.of(

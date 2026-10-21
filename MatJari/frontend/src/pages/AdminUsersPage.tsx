@@ -4,7 +4,8 @@ import { formatKstDateTime } from "../api/dateTime";
 import { exchangeErrorMessage } from "../api/exchangeMessages";
 import { adminUsersApi, type AdminUserItem, type UserRoleFilter, type UserStatusFilter } from "../api/adminUsers";
 import TextField from "../components/TextField";
-import { FOCUS_RING, button, input, ui } from "../components/ui";
+import { FOCUS_RING, button, input, ui } from "../components/adminUi";
+import { tbl, tone } from "../components/adminUi";
 import { usePagedList } from "../hooks/usePagedList";
 
 // 관리자 이용자 목록 (/admin/users). 검색 + 상태·역할 필터.
@@ -37,14 +38,14 @@ export default function AdminUsersPage() {
         <h1 className={ui.pageTitle}>이용자 관리</h1>
 
         <form
-          className="flex flex-col gap-3"
+          className="flex flex-col gap-1.5"
           role="search"
           onSubmit={(e) => {
             e.preventDefault();
             setQuery(draft.trim());
           }}
         >
-          <TextField
+          <TextField dense
             id="admin-user-query"
             label="검색"
             hint="이메일·닉네임 일부 또는 회원 번호"
@@ -89,7 +90,7 @@ export default function AdminUsersPage() {
           </p>
         )}
         {state.status === "error" && (
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
             <p className={ui.errorBox} role="alert">
               {exchangeErrorMessage(state.error, "이용자 목록을 불러오지 못했어요.").message}
             </p>
@@ -104,27 +105,42 @@ export default function AdminUsersPage() {
         {state.status === "success" && state.items.length > 0 && (
           <>
             <p className={ui.muted}>총 {state.totalElements}명</p>
-            <ul className="flex flex-col gap-3" aria-label="이용자 목록">
-              {state.items.map((u) => (
-                <li key={u.id}>
-                  <Link
-                    to={`/admin/users/${u.id}`}
-                    className={`${ui.card} flex min-h-11 flex-col gap-1 no-underline active:bg-gray-50 ${FOCUS_RING}`}
-                  >
-                    <span className="flex flex-wrap items-center gap-2">
-                      <span className="text-base/[normal] font-bold break-all text-gray-900">{u.nickname}</span>
-                      {u.role === "ADMIN" && <span className={ui.badge}>관리자</span>}
-                      {u.suspended && <span className={ui.badge}>이용 정지</span>}
-                      {u.withdrawn && <span className={ui.badge}>탈퇴</span>}
-                    </span>
-                    <span className={`${ui.body} break-all`}>{u.emailPlaceholder ? "(소셜 가입, 이메일 없음)" : u.email}</span>
-                    <span className={ui.muted}>
-                      #{u.id} · 가입 {formatKstDateTime(u.createdAt)}
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
+            <div className={tbl.wrap}>
+              <table className={tbl.table} aria-label="이용자 목록">
+                <thead>
+                  <tr>
+                    {["#", "닉네임", "이메일", "역할", "상태", "정지 기한", "가입"].map((c) => (
+                      <th key={c} className={tbl.th}>
+                        {c}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {state.items.map((u) => (
+                    <tr key={u.id} className={tbl.tr}>
+                      <td className={tbl.num}>
+                        <Link to={`/admin/users/${u.id}`} className={`${ui.link} ${FOCUS_RING}`}>
+                          {u.id}
+                        </Link>
+                      </td>
+                      <td className={`${tbl.td} font-semibold break-all`}>
+                        <Link to={`/admin/users/${u.id}`} className="text-gray-900 no-underline hover:underline">
+                          {u.nickname}
+                        </Link>
+                      </td>
+                      <td className={`${tbl.td} break-all`}>{u.emailPlaceholder ? <span className={tone.info}>소셜(이메일 없음)</span> : u.email}</td>
+                      <td className={tbl.td}>{u.role === "ADMIN" ? <span className={tone.warn}>관리자</span> : "회원"}</td>
+                      <td className={tbl.td}>
+                        {u.withdrawn ? <span className={tone.mute}>탈퇴</span> : u.suspended ? <span className={tone.danger}>정지</span> : <span className={tone.ok}>활성</span>}
+                      </td>
+                      <td className={`${tbl.td} whitespace-nowrap`}>{u.suspended ? (u.suspendedUntil ? formatKstDateTime(u.suspendedUntil) : "무기한") : "-"}</td>
+                      <td className={`${tbl.td} whitespace-nowrap`}>{formatKstDateTime(u.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             {moreError && (
               <p className={ui.errorBox} role="alert">
                 {moreError}

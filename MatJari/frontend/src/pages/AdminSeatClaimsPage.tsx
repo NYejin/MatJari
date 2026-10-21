@@ -12,7 +12,7 @@ import {
   type SeatClaimStatus,
 } from "../api/seatClaims";
 import SeatClaimImage from "../components/SeatClaimImage";
-import { button, input, ui } from "../components/ui";
+import { button, input, ui } from "../components/adminUi";
 import { usePagedList } from "../hooks/usePagedList";
 
 // 관리자 좌석 인증 요청 처리 (/admin/seat-claims, ADMIN 전용 — 가드는 라우트에서).
@@ -70,7 +70,7 @@ export default function AdminSeatClaimsPage() {
           </p>
         )}
         {state.status === "error" && (
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
             <p className={ui.errorBox} role="alert">
               {exchangeErrorMessage(state.error, "인증 요청을 불러오지 못했습니다.").message}
             </p>
@@ -86,7 +86,7 @@ export default function AdminSeatClaimsPage() {
         )}
         {state.status === "success" && state.items.length > 0 && (
           <>
-            <ul className="flex flex-col gap-3" aria-label={`${CLAIM_STATUS_LABEL[status]} 인증 요청 목록`}>
+            <ul className="grid grid-cols-1 items-start gap-2 lg:grid-cols-2 2xl:grid-cols-3" aria-label={`${CLAIM_STATUS_LABEL[status]} 인증 요청 목록`}>
               {state.items.map((c) => (
                 <li key={c.id}>
                   <ClaimCard claim={c} onDone={reload} />
@@ -145,9 +145,9 @@ function ClaimCard({ claim, onDone }: { claim: AdminSeatClaim; onDone: () => voi
   };
 
   return (
-    <article className={`${ui.card} flex flex-col gap-3`} aria-labelledby={`${idBase}-title`}>
+    <article className={`${ui.card} flex flex-col gap-1.5`} aria-labelledby={`${idBase}-title`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id={`${idBase}-title`} className="text-base/[normal] font-bold break-keep text-gray-900">
+        <h2 id={`${idBase}-title`} className="text-[13px]/[normal] font-bold break-keep text-gray-900">
           {claim.performanceTitle}
         </h2>
         <span className={CLAIM_BADGE[claim.status]}>{CLAIM_STATUS_LABEL[claim.status]}</span>
@@ -160,7 +160,7 @@ function ClaimCard({ claim, onDone }: { claim: AdminSeatClaim; onDone: () => voi
       </p>
       {claim.memo && <p className={ui.body}>메모: {claim.memo}</p>}
 
-      <div className="rounded-[10px] bg-gray-100 px-3.5 py-3 text-sm/[normal] text-gray-900">
+      <div className="rounded-md bg-gray-100 px-3.5 py-3 text-sm/[normal] text-gray-900">
         <span className="font-semibold">지금 이 좌석: </span>
         {claim.holder ? (
           <>
@@ -209,7 +209,7 @@ function ClaimCard({ claim, onDone }: { claim: AdminSeatClaim; onDone: () => voi
       )}
 
       {pending && mode === "approve" && (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1.5">
           <p className={ui.warning} role="alert">
             승인하면 지금 이 좌석에 등록된 티켓({claim.holder ? claim.holder.holderNickname : "없음"})이 내려가고, 그 티켓의 교환 요청과
             진행 중인 채팅도 정리돼요. 되돌릴 수 없어요. 승인할까요?
@@ -232,7 +232,7 @@ function ClaimCard({ claim, onDone }: { claim: AdminSeatClaim; onDone: () => voi
       )}
 
       {pending && mode === "reject" && (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1.5">
           <div className="flex flex-col gap-1.5">
             <label htmlFor={`${idBase}-note`} className={ui.label}>
               거절 사유 (요청자에게 보여요)

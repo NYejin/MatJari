@@ -14,7 +14,7 @@ import { toPayloadZones, toZoneRows, validateZoneRows, type ZoneRow } from "../a
 import SessionEditor, { checkSessionChanges, initialSessionRows, type SessionRow } from "../components/SessionEditor";
 import TextField from "../components/TextField";
 import ZoneEditor from "../components/ZoneEditor";
-import { button, input, linkButton, liveRegionClass, ui } from "../components/ui";
+import { button, input, linkButton, liveRegionClass, ui } from "../components/adminUi";
 
 // 관리자 공연 관리 상세 (/admin/performances/:id): 정보 수정·숨김·회차·구역. 모든 변경은 사유가 필요하다.
 
@@ -71,7 +71,7 @@ export default function AdminPerformanceDetailPage() {
     );
   } else if (state.status === "error") {
     content = (
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1.5">
         <p className={ui.errorBox} role="alert">
           {state.message}
         </p>
@@ -103,10 +103,15 @@ export default function AdminPerformanceDetailPage() {
             사용자 화면에서 보기
           </Link>
         </p>
-        <InfoCard detail={d} onUpdated={updated} />
-        <HideCard detail={d} onUpdated={updated} />
-        <SessionsCard detail={d} onUpdated={updated} />
-        <ZonesCard detail={d} onUpdated={updated} />
+        {/* 넓은 화면에서는 정보·숨김 / 회차 / 구역을 나란히 둔다 */}
+        <div className="grid grid-cols-1 items-start gap-2 xl:grid-cols-3">
+          <div className="flex min-w-0 flex-col gap-2">
+            <InfoCard detail={d} onUpdated={updated} />
+            <HideCard detail={d} onUpdated={updated} />
+          </div>
+          <SessionsCard detail={d} onUpdated={updated} />
+          <ZonesCard detail={d} onUpdated={updated} />
+        </div>
       </>
     );
   }
@@ -170,7 +175,7 @@ function ReasonField({
 
 function SectionCard({ titleId, title, children }: { titleId: string; title: string; children: ReactNode }) {
   return (
-    <section className={`${ui.card} flex flex-col gap-4`} aria-labelledby={titleId}>
+    <section className={`${ui.card} flex flex-col gap-2`} aria-labelledby={titleId}>
       <h2 id={titleId} className={ui.sectionTitle}>
         {title}
       </h2>
@@ -257,9 +262,9 @@ function InfoCard({ detail, onUpdated }: CardProps) {
 
   return (
     <SectionCard titleId="admin-perf-info" title="공연 정보">
-      <form className="flex flex-col gap-4" onSubmit={(e) => void submit(e)} noValidate>
-        <TextField id="admin-perf-title" label="제목" value={title} maxLength={EDIT_TITLE_MAX} disabled={busy} onChange={(e) => setTitle(e.target.value)} />
-        <TextField id="admin-perf-venue" label="공연장" value={venue} maxLength={EDIT_VENUE_MAX} disabled={busy} onChange={(e) => setVenue(e.target.value)} />
+      <form className="flex flex-col gap-2" onSubmit={(e) => void submit(e)} noValidate>
+        <TextField dense id="admin-perf-title" label="제목" value={title} maxLength={EDIT_TITLE_MAX} disabled={busy} onChange={(e) => setTitle(e.target.value)} />
+        <TextField dense id="admin-perf-venue" label="공연장" value={venue} maxLength={EDIT_VENUE_MAX} disabled={busy} onChange={(e) => setVenue(e.target.value)} />
         <ReasonField id="admin-perf-info-reason" value={reason} onChange={setReason} disabled={busy} error={reasonError} />
         <Feedback done={done} error={error} />
         <button type="submit" className={`${button.solid} self-start`} disabled={busy} aria-busy={busy}>
@@ -348,7 +353,7 @@ function HideCard({ detail, onUpdated }: CardProps) {
               공연 숨기기
             </button>
           ) : (
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
               <p className={ui.warning} role="alert">
                 「{detail.title}」을(를) 숨길까요? 사용자는 새로 티켓을 등록하거나 교환을 요청할 수 없게 돼요.
               </p>
@@ -424,7 +429,7 @@ function SessionsCard({ detail, onUpdated }: CardProps) {
 
   return (
     <SectionCard titleId="admin-perf-sessions" title={`회차 ${detail.sessions.length}개`}>
-      <form className="flex flex-col gap-4" onSubmit={(e) => void submit(e)} noValidate>
+      <form className="flex flex-col gap-2" onSubmit={(e) => void submit(e)} noValidate>
         <SessionEditor
           rows={rows}
           onChange={setRows}
@@ -492,7 +497,7 @@ function ZonesCard({ detail, onUpdated }: CardProps) {
 
   return (
     <SectionCard titleId="admin-perf-zones" title={`구역 ${detail.zones.length}개`}>
-      <form className="flex flex-col gap-4" onSubmit={(e) => void submit(e)} noValidate>
+      <form className="flex flex-col gap-2" onSubmit={(e) => void submit(e)} noValidate>
         <p className={ui.hint}>
           저장하면 구역 목록 전체가 지금 화면의 목록으로 바뀌어요. 이름을 고쳐도 모양은 유지되고, 구역을 지우면 모양도 사라져요. 모두 지우면 구역이 없는 공연이 돼요.
         </p>

@@ -13,7 +13,7 @@ import {
   type AdminReport,
   type ReportMessage,
 } from "../api/adminReports";
-import { button, input, ui } from "../components/ui";
+import { button, input, ui } from "../components/adminUi";
 
 // 관리자 신고 상세·처리 (/admin/reports/:id). 채팅 근거 메시지는 최신부터 불러오고 '이전 메시지 더 보기'로 위로 확장한다.
 
@@ -77,7 +77,7 @@ export default function AdminReportDetailPage() {
         <h1 className={ui.pageTitle}>신고 상세</h1>
 
         {loadError && (
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
             <p className={ui.errorBox} role="alert">
               {loadError}
             </p>
@@ -94,9 +94,9 @@ export default function AdminReportDetailPage() {
           </p>
         )}
         {report && (
-          <>
+          <div className="grid grid-cols-1 items-start gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
+           <div className="flex min-w-0 flex-col gap-2">
             <ReportSummary report={report} />
-            <Evidence reportId={report.id} />
             {report.status === "OPEN" ? (
               <ProcessForm report={report} onDone={setReport} onStale={() => void load()} />
             ) : (
@@ -109,7 +109,9 @@ export default function AdminReportDetailPage() {
                 <p className={ui.body}>메모: {report.handlerNote || "없음"}</p>
               </section>
             )}
-          </>
+           </div>
+            <Evidence reportId={report.id} />
+          </div>
         )}
       </div>
     </div>
@@ -184,7 +186,7 @@ function Evidence({ reportId }: { reportId: number }) {
   }, [fetchMore]);
 
   return (
-    <section className={`${ui.card} flex flex-col gap-3`} aria-label="채팅 근거">
+    <section className={`${ui.card} flex flex-col gap-1.5`} aria-label="채팅 근거">
       <h2 className={ui.sectionTitle}>채팅 근거</h2>
       <p className={ui.warning}>
         관리자 전용 정보예요. 채팅에는 개인정보(예매번호 등)가 섞여 있을 수 있어요. 신고 처리 목적 외에는 열람·복사·공유하지 마세요.
@@ -221,7 +223,7 @@ function Evidence({ reportId }: { reportId: number }) {
       {messages.length > 0 && (
         <ul className="flex flex-col gap-2" aria-label="채팅 메시지">
           {messages.map((m) => (
-            <li key={m.id} className="rounded-[10px] bg-gray-100 px-3.5 py-2.5">
+            <li key={m.id} className="rounded-md bg-gray-100 px-3.5 py-2.5">
               <p className={ui.muted}>
                 {m.senderNickname} · {formatKstDateTime(m.createdAt)}
               </p>
@@ -294,7 +296,7 @@ function ProcessForm({
   };
 
   return (
-    <section className={`${ui.card} flex flex-col gap-4`} aria-label="신고 처리">
+    <section className={`${ui.card} flex flex-col gap-2`} aria-label="신고 처리">
       <h2 className={ui.sectionTitle}>신고 처리</h2>
 
       {mode === "idle" && (
@@ -328,7 +330,7 @@ function ProcessForm({
           </label>
 
           {withSanction && (
-            <div className="flex flex-col gap-3 rounded-[10px] bg-gray-100 p-3.5">
+            <div className="flex flex-col gap-1.5 rounded-md bg-gray-100 p-3.5">
               <fieldset className="flex flex-col gap-1">
                 <legend className={ui.label}>정지 기간</legend>
                 <div className="flex flex-wrap gap-4">
@@ -396,7 +398,7 @@ function ProcessForm({
       )}
 
       {mode === "confirmResolve" && (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1.5">
           <p className={ui.warning} role="alert">
             {withSanction
               ? `${report.reported.nickname}님에게 이용 정지(${daysLabel})를 걸고 신고를 처리할까요? 정지하면 로그인이 막히고, 진행 중인 교환 채팅이 모두 종료돼요.`
@@ -420,7 +422,7 @@ function ProcessForm({
       )}
 
       {mode === "confirmDismiss" && (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1.5">
           <p className={ui.warning} role="alert">
             이 신고를 기각할까요? 기각한 신고는 다시 처리할 수 없어요.
           </p>

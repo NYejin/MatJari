@@ -12,7 +12,7 @@ import {
   type AdminUserSanction,
 } from "../api/adminUsers";
 import TextField from "../components/TextField";
-import { button, input, ui } from "../components/ui";
+import { button, input, ui } from "../components/adminUi";
 import { useAuth } from "../hooks/useAuth";
 
 // 관리자 이용자 상세·조치 (/admin/users/:id). 조치마다 사유 입력 → 확인 단계 → 실행.
@@ -57,7 +57,7 @@ export default function AdminUserDetailPage() {
           </p>
         )}
         {state.status === "error" && (
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
             <p className={ui.errorBox} role="alert">
               {state.message}
             </p>
@@ -76,16 +76,16 @@ export default function AdminUserDetailPage() {
 
 function UserBody({ user: u, isSelf, onChanged }: { user: AdminUserDetail; isSelf: boolean; onChanged: () => void }) {
   return (
-    <>
+    <div className="grid grid-cols-1 items-start gap-2 lg:grid-cols-2 2xl:grid-cols-3">
       <section className={`${ui.card} flex flex-col gap-2`} aria-label="기본 정보">
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-xl/[normal] font-bold break-all text-gray-900">{u.nickname}</h1>
+          <h1 className="text-[13px]/[normal] font-bold break-all text-gray-900">{u.nickname}</h1>
           {u.role === "ADMIN" && <span className={ui.badge}>관리자</span>}
           {u.suspended && <span className={ui.badge}>이용 정지 중 ({formatUntil(u.suspendedUntil)})</span>}
           {u.withdrawn && <span className={ui.badge}>탈퇴</span>}
           {isSelf && <span className={ui.badge}>나</span>}
         </div>
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[0.9375rem]/[normal] text-gray-700">
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs/[normal] text-gray-700">
           <dt className="text-gray-500">회원 번호</dt>
           <dd>#{u.id}</dd>
           <dt className="text-gray-500">이메일</dt>
@@ -116,7 +116,7 @@ function UserBody({ user: u, isSelf, onChanged }: { user: AdminUserDetail; isSel
         </p>
       </section>
 
-      <section className={`${ui.card} flex flex-col gap-3`} aria-label="제재 내역">
+      <section className={`${ui.card} flex flex-col gap-1.5`} aria-label="제재 내역">
         <h2 className={ui.sectionTitle}>제재 내역</h2>
         {u.sanctions.length === 0 ? (
           <p className={ui.body}>제재 내역이 없어요.</p>
@@ -142,7 +142,7 @@ function UserBody({ user: u, isSelf, onChanged }: { user: AdminUserDetail; isSel
           <ForceWithdrawPanel user={u} isSelf={isSelf} onDone={onChanged} />
         </>
       )}
-    </>
+    </div>
   );
 }
 
@@ -153,7 +153,7 @@ function SanctionRow({ sanction: s }: { sanction: AdminUserSanction }) {
       ? "정지 중"
       : "기간 만료";
   return (
-    <div className="flex flex-col gap-1 rounded-[10px] bg-gray-50 p-3">
+    <div className="flex flex-col gap-0.5 rounded bg-gray-50 p-1.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className={ui.badge}>{status}</span>
         <span className={ui.muted}>
@@ -239,7 +239,7 @@ function ActionPanel(p: ActionPanelProps) {
   };
 
   return (
-    <section className={`${ui.card} flex flex-col gap-3 ${p.danger ? "border border-red-200" : ""}`} aria-label={p.title}>
+    <section className={`${ui.card} flex flex-col gap-1.5 ${p.danger ? "border border-red-200" : ""}`} aria-label={p.title}>
       <h2 className={p.danger ? "text-lg/[normal] font-bold text-red-700" : ui.sectionTitle}>{p.title}</h2>
       <p className={ui.body}>{p.description}</p>
       {p.disabledReason ? (
@@ -267,7 +267,7 @@ function ActionPanel(p: ActionPanelProps) {
             </p>
           </div>
           {p.confirmPhrase !== undefined && (
-            <TextField
+            <TextField dense
               id={`${fieldId}-phrase`}
               label={`확인 문구: "${p.confirmPhrase}"를 그대로 입력해 주세요`}
               value={phrase}
@@ -302,7 +302,7 @@ function ActionPanel(p: ActionPanelProps) {
             </div>
           )}
           {confirming && (
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
               <p className={ui.warning} role="alert">
                 {p.confirmMessage}
               </p>

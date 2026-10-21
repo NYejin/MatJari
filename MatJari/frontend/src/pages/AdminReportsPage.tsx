@@ -11,7 +11,8 @@ import {
   type ReportReason,
   type ReportStatus,
 } from "../api/adminReports";
-import { FOCUS_RING, button, input, ui } from "../components/ui";
+import { FOCUS_RING, button, input, ui } from "../components/adminUi";
+import { tbl, tone } from "../components/adminUi";
 import { usePagedList } from "../hooks/usePagedList";
 
 // 관리자 신고 목록 (/admin/reports, ADMIN 전용 — 가드는 라우트에서).
@@ -36,7 +37,8 @@ export default function AdminReportsPage() {
       <div className={ui.container}>
         <h1 className={ui.pageTitle}>신고 처리</h1>
 
-        <div role="group" aria-label="처리 상태" className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-end gap-2">
+        <div role="group" aria-label="처리 상태" className="flex flex-wrap gap-1">
           {STATUS_TABS.map((t) => (
             <button
               key={t.value || "all"}
@@ -49,7 +51,7 @@ export default function AdminReportsPage() {
             </button>
           ))}
         </div>
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-0.5">
           <label htmlFor="report-reason-filter" className={ui.label}>
             신고 사유
           </label>
@@ -67,6 +69,7 @@ export default function AdminReportsPage() {
             ))}
           </select>
         </div>
+        </div>
 
         {state.status === "loading" && (
           <p className={ui.status} role="status">
@@ -74,7 +77,7 @@ export default function AdminReportsPage() {
           </p>
         )}
         {state.status === "error" && (
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
             <p className={ui.errorBox} role="alert">
               {exchangeErrorMessage(state.error, "신고 목록을 불러오지 못했습니다.").message}
             </p>
@@ -88,13 +91,24 @@ export default function AdminReportsPage() {
         {state.status === "success" && state.items.length === 0 && <p className={`${ui.card} ${ui.body}`}>해당하는 신고가 없어요.</p>}
         {state.status === "success" && state.items.length > 0 && (
           <>
-            <ul className="flex flex-col gap-3" aria-label="신고 목록">
-              {state.items.map((r) => (
-                <li key={r.id}>
-                  <ReportCard report={r} />
-                </li>
-              ))}
-            </ul>
+            <div className={tbl.wrap}>
+              <table className={tbl.table} aria-label="신고 목록">
+                <thead>
+                  <tr>
+                    {["#", "사유", "상태", "신고자", "대상", "대상 누적", "대상 열린", "대상 정지", "접수"].map((c) => (
+                      <th key={c} className={tbl.th}>
+                        {c}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {state.items.map((r) => (
+                    <ReportRow key={r.id} report={r} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
             {moreError && (
               <p className={ui.errorBox} role="alert">
                 {moreError}
@@ -112,23 +126,28 @@ export default function AdminReportsPage() {
   );
 }
 
-function ReportCard({ report: r }: { report: AdminReport }) {
+function ReportRow({ report: r }: { report: AdminReport }) {
   return (
-    <Link
-      to={`/admin/reports/${r.id}`}
-      className={`${ui.card} flex min-h-11 flex-col gap-2 no-underline active:bg-gray-50 ${FOCUS_RING}`}
-    >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-base/[normal] font-bold text-gray-900">{REPORT_REASON_LABEL[r.reason]}</span>
-        <span className={ui.badge}>{REPORT_STATUS_LABEL[r.status]}</span>
-      </div>
-      <p className={ui.body}>
-        {r.reporter.nickname} → <span className="font-semibold">{r.reported.nickname}</span>
-      </p>
-      <p className={ui.muted}>
-        대상의 누적 신고 {r.reported.totalReports}건 · 열린 신고 {r.reported.openReports}건 · {formatKstDateTime(r.createdAt)}
-      </p>
-      {r.reported.activeSanction && <p className={ui.errorBox}>이용 정지 중 ({formatUntil(r.reported.activeSanction.until)})</p>}
-    </Link>
+    <tr className={tbl.tr}>
+      <td className={tbl.num}>
+        <Link to={`/admin/reports/${r.id}`} className={`${ui.link} ${FOCUS_RING}`}>
+          {r.id}
+        </Link>
+      </td>
+      <td className={`${tbl.td} font-semibold whitespace-nowrap`}>
+        <Link to={`/admin/reports/${r.id}`} className="text-gray-900 no-underline hover:underline">
+          {REPORT_REASON_LABEL[r.reason]}
+        </Link>
+      </td>
+      <td className={tbl.td}>
+        <span className={r.status === "OPEN" ? tone.warn : r.status === "RESOLVED" ? tone.danger : tone.mute}>{REPORT_STATUS_LABEL[r.status]}</span>
+      </td>
+      <td className={tbl.td}>{r.reporter.nickname}</td>
+      <td className={`${tbl.td} font-semibold`}>{r.reported.nickname}</td>
+      <td className={tbl.num}>{r.reported.totalReports}</td>
+      <td className={tbl.num}>{r.reported.openReports}</td>
+      <td className={`${tbl.td} whitespace-nowrap`}>{r.reported.activeSanction ? <span className={tone.danger}>{formatUntil(r.reported.activeSanction.until)}</span> : "-"}</td>
+      <td className={`${tbl.td} whitespace-nowrap`}>{formatKstDateTime(r.createdAt)}</td>
+    </tr>
   );
 }

@@ -16,6 +16,7 @@ import MatchesPage from "./pages/MatchesPage";
 import NotificationsPage from "./pages/NotificationsPage";
 import ChatPage from "./pages/ChatPage";
 import AdminRoute from "./components/AdminRoute";
+import AdminLayout from "./components/AdminLayout";
 import SeatClaimNewPage from "./pages/SeatClaimNewPage";
 import ExchangeHistoryPage from "./pages/ExchangeHistoryPage";
 import MySeatClaimsPage from "./pages/MySeatClaimsPage";
@@ -75,6 +76,7 @@ export default function App() {
 
             {/* 관리자 전용 (UI 가드 — 최종 권한은 서버) */}
             <Route element={<AdminRoute />}>
+             <Route element={<AdminLayout />}>
               <Route path="/admin" element={<AdminDashboardPage />} />
               <Route path="/admin/performance-edit-proposals" element={<AdminEditProposalsPage />} />
               <Route path="/admin/seat-claims" element={<AdminSeatClaimsPage />} />
@@ -87,6 +89,7 @@ export default function App() {
               <Route path="/admin/users" element={<AdminUsersPage />} />
               <Route path="/admin/users/:id" element={<AdminUserDetailPage />} />
               <Route path="/admin/logs" element={<AdminLogsPage />} />
+             </Route>
             </Route>
           </Route>
         </Route>

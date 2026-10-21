@@ -3,7 +3,8 @@ import { Link } from "react-router-dom";
 import { formatKstDateTime } from "../api/dateTime";
 import { exchangeErrorMessage } from "../api/exchangeMessages";
 import { adminPerformancesApi, type AdminPerformanceItem, type HiddenFilter } from "../api/adminPerformances";
-import { button, input, ui } from "../components/ui";
+import { button, input, ui } from "../components/adminUi";
+import { tbl, tone } from "../components/adminUi";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { usePagedList } from "../hooks/usePagedList";
 
@@ -29,7 +30,8 @@ export default function AdminPerformancesPage() {
       <div className={ui.container}>
         <h1 className={ui.pageTitle}>공연 관리</h1>
 
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-wrap items-end gap-2">
+        <div className="flex min-w-48 flex-1 flex-col gap-0.5">
           <label htmlFor="admin-perf-search" className={ui.label}>
             제목 검색
           </label>
@@ -44,7 +46,7 @@ export default function AdminPerformancesPage() {
           />
         </div>
 
-        <div role="group" aria-label="노출 상태" className="flex gap-2">
+        <div role="group" aria-label="노출 상태" className="flex gap-1">
           {TABS.map((t) => (
             <button
               key={t.value}
@@ -57,6 +59,7 @@ export default function AdminPerformancesPage() {
             </button>
           ))}
         </div>
+        </div>
 
         {state.status === "loading" && (
           <p className={ui.status} role="status">
@@ -64,7 +67,7 @@ export default function AdminPerformancesPage() {
           </p>
         )}
         {state.status === "error" && (
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
             <p className={ui.errorBox} role="alert">
               {exchangeErrorMessage(state.error, "공연 목록을 불러오지 못했습니다.").message}
             </p>
@@ -79,22 +82,37 @@ export default function AdminPerformancesPage() {
         {state.status === "success" && state.items.length > 0 && (
           <>
             <p className={ui.muted}>총 {state.totalElements}개</p>
-            <ul className="flex flex-col gap-3" aria-label="공연 목록">
-              {state.items.map((p) => (
-                <li key={p.id}>
-                  <Link to={`/admin/performances/${p.id}`} className={`${ui.card} flex flex-col gap-1.5 no-underline active:bg-gray-50`}>
-                    <span className="flex flex-wrap items-center gap-2">
-                      <span className="min-w-0 text-base/[normal] font-bold break-words text-gray-900">{p.title}</span>
-                      {p.hidden && <span className={ui.badge}>숨김</span>}
-                    </span>
-                    <span className={`${ui.body} break-words`}>{p.venueName}</span>
-                    <span className={ui.muted}>
-                      회차 {p.sessionCount}개 · 구역 {p.zoneCount}개 · 등록 {p.registrantNickname} · {formatKstDateTime(p.createdAt)}
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
+            <div className={tbl.wrap}>
+              <table className={tbl.table} aria-label="공연 목록">
+                <thead>
+                  <tr>
+                    {["#", "제목", "공연장", "상태", "회차", "구역", "등록자", "등록"].map((c) => (
+                      <th key={c} className={tbl.th}>
+                        {c}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {state.items.map((p) => (
+                    <tr key={p.id} className={tbl.tr}>
+                      <td className={tbl.num}>{p.id}</td>
+                      <td className={`${tbl.td} font-semibold`}>
+                        <Link to={`/admin/performances/${p.id}`} className={ui.link}>
+                          {p.title}
+                        </Link>
+                      </td>
+                      <td className={tbl.td}>{p.venueName}</td>
+                      <td className={tbl.td}>{p.hidden ? <span className={tone.danger}>숨김</span> : <span className={tone.ok}>노출</span>}</td>
+                      <td className={tbl.num}>{p.sessionCount}</td>
+                      <td className={tbl.num}>{p.zoneCount}</td>
+                      <td className={tbl.td}>{p.registrantNickname}</td>
+                      <td className={`${tbl.td} whitespace-nowrap`}>{formatKstDateTime(p.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             {moreError && (
               <p className={ui.errorBox} role="alert">
                 {moreError}

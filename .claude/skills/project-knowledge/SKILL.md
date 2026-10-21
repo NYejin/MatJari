@@ -74,6 +74,7 @@ description: 맞자리의 현재 유효한 서비스 개요·확정 교환 규�
 ### 3.6 신고·차단·후기·관리자
 - 후기 기능은 만들지 않는다. 신뢰도 점수는 매칭에 쓰지 않는다(우선순위는 사용자가 정한 것). 신뢰도 점수 컬럼은 V18에서 제거했다.
 - **사용자 차단·신고·이용 정지(구현됨, V13)**: 채팅 화면에서 차단(양방향 효과: 후보 제외, 둘 사이 열린 매칭 시스템 취소·잠금 해제, 상대에게 알리지 않음, 해제 `/my/blocks`)·신고(사유 5종, 매칭당 OPEN 1건, 사용자당 OPEN 10건, 자동 제재 없음, `/my/reports`). 관리자는 `/admin/reports`에서 채팅 근거를 보고 처리/기각하고 이용 정지(7·30일/무기한)를 걸 수 있으며 `/admin/sanctions`(해제)·`/admin/blocks`(현황)로 관리한다. 정지 계정은 모든 인증 API·로그인이 403 `ACCOUNT_SUSPENDED`.
+- **관리자 운영 대시보드(2026-10-21)**: `/admin` 첫 화면, `GET /api/admin/dashboard`(수치·14일 추이·대기열·최근 목록·알림). 관리자 화면은 정보 밀도 우선(`AdminLayout`·`adminUi`, 목록은 표).
 - **관리자 페이지(구현됨, V12)**: 관리자는 DB에서 `users.role=ADMIN`을 직접 부여하고 `/api/admin/**`는 ADMIN만, 프론트 `/admin`은 `AdminRoute`. ①공연 수정 제안(`performance_edit_proposal`): 제목·공연장만, 관리자 승인으로만 공연 수정, 사용자당 PENDING 3건, 알림 없음(`/my/edit-proposals`). ②좌석 소유 인증(`seat_claim`): 사진(jpeg/png/webp ≤5 MiB, `matjari.upload.dir`) 업로드→관리자 승인 시 기존 활성 티켓 INACTIVE(요청 CLOSED, CHATTING 매칭 취소, 예약 잠금이면 409), 처리 후 사진 삭제, 사용자당 PENDING 5건(`/my/seat-claims`). 상세는 wiki/decisions/admin-design.md.
 
 ### 3.7 공연 등록

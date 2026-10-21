@@ -12,7 +12,7 @@ import { formatKstDateTime } from "../api/dateTime";
 import { getErrorCode, parseApiError } from "../api/errors";
 import { usePagedList } from "../hooks/usePagedList";
 import SessionChangesView from "../components/SessionChangesView";
-import { button, FOCUS_RING, input, liveRegionClass, ui } from "../components/ui";
+import { button, FOCUS_RING, input, liveRegionClass, ui } from "../components/adminUi";
 
 // 관리자 — 공연 수정 제안 처리 (/admin/performance-edit-proposals, AdminRoute).
 // 상태 탭 → 현재 값→제안 값 비교 → 승인 / 거절(사유 + 2단계 확인). 처리 뒤 목록을 새로 불러온다.
@@ -21,7 +21,7 @@ const PAGE_SIZE = 20;
 const TABS: EditProposalStatus[] = ["PENDING", "APPROVED", "REJECTED"];
 
 const tabClass = (active: boolean) =>
-  `inline-flex min-h-11 flex-1 items-center justify-center rounded-[10px] border px-3 text-[0.9375rem]/[normal] font-semibold ${FOCUS_RING} ` +
+  `inline-flex min-h-11 flex-1 items-center justify-center rounded-md border px-3 text-xs/[normal] font-semibold ${FOCUS_RING} ` +
   (active
     ? "border-primary-600 bg-primary-600 text-white"
     : "border-gray-300 bg-white text-gray-900 active:bg-gray-100");
@@ -67,7 +67,7 @@ export default function AdminEditProposalsPage() {
         </p>
 
         {state.status === "error" && (
-          <div className={`${ui.card} flex flex-col gap-3`}>
+          <div className={`${ui.card} flex flex-col gap-1.5`}>
             <p className={ui.errorBox} role="alert">
               {parseApiError(state.error, "제안 목록을 불러오지 못했습니다.").message}
             </p>
@@ -84,7 +84,7 @@ export default function AdminEditProposalsPage() {
         )}
 
         {state.status === "success" && state.items.length > 0 && (
-          <ul className="flex flex-col gap-3">
+          <ul className="grid grid-cols-1 items-start gap-2 lg:grid-cols-2 2xl:grid-cols-3">
             {state.items.map((p) => (
               <li key={p.id}>
                 <ProposalCard
@@ -142,7 +142,7 @@ function ProposalCard({ proposal: p, onDone }: { proposal: AdminEditProposal; on
   };
 
   return (
-    <article className={`${ui.card} flex flex-col gap-3`} aria-label={`${p.performanceTitle} 수정 제안`}>
+    <article className={`${ui.card} flex flex-col gap-1.5`} aria-label={`${p.performanceTitle} 수정 제안`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Link to={`/performances/${p.performanceId}`} className={`${ui.link} break-words`}>
           {p.performanceTitle}

@@ -4,7 +4,8 @@ import { formatKstDateTime } from "../api/dateTime";
 import { exchangeErrorMessage } from "../api/exchangeMessages";
 import { ACTION_LABEL, TARGET_TYPE_LABEL, adminUsersApi, type AdminActionLog } from "../api/adminUsers";
 import TextField from "../components/TextField";
-import { button, input, ui } from "../components/ui";
+import { button, input, ui } from "../components/adminUi";
+import { tbl } from "../components/adminUi";
 import { usePagedList } from "../hooks/usePagedList";
 
 // 관리자 조치 기록 (/admin/logs). 액션·대상 필터, 상세 JSON은 접어서 본다.
@@ -42,7 +43,7 @@ export default function AdminLogsPage() {
         <h1 className={ui.pageTitle}>조치 기록</h1>
 
         <form
-          className="flex flex-col gap-3"
+          className="flex flex-col gap-1.5"
           onSubmit={(e) => {
             e.preventDefault();
             setTargetId(targetIdDraft.trim());
@@ -71,7 +72,7 @@ export default function AdminLogsPage() {
               ))}
             </select>
           </div>
-          <TextField
+          <TextField dense
             id="admin-log-target-id"
             label="대상 번호"
             hint="비우면 전체예요. 숫자만 입력해 주세요."
@@ -92,7 +93,7 @@ export default function AdminLogsPage() {
           </p>
         )}
         {state.status === "error" && (
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
             <p className={ui.errorBox} role="alert">
               {exchangeErrorMessage(state.error, "조치 기록을 불러오지 못했어요.").message}
             </p>
@@ -106,13 +107,24 @@ export default function AdminLogsPage() {
         {state.status === "success" && state.items.length === 0 && <p className={`${ui.card} ${ui.body}`}>조치 기록이 없어요.</p>}
         {state.status === "success" && state.items.length > 0 && (
           <>
-            <ul className="flex flex-col gap-3" aria-label="조치 기록 목록">
-              {state.items.map((l) => (
-                <li key={l.id}>
-                  <LogCard log={l} />
-                </li>
-              ))}
-            </ul>
+            <div className={tbl.wrap}>
+              <table className={tbl.table} aria-label="조치 기록 목록">
+                <thead>
+                  <tr>
+                    {["#", "시각", "조치", "대상", "처리자", "사유", "상세"].map((c) => (
+                      <th key={c} className={tbl.th}>
+                        {c}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {state.items.map((l) => (
+                    <LogRow key={l.id} log={l} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
             {moreError && (
               <p className={ui.errorBox} role="alert">
                 {moreError}
@@ -130,35 +142,35 @@ export default function AdminLogsPage() {
   );
 }
 
-function LogCard({ log }: { log: AdminActionLog }) {
+function LogRow({ log }: { log: AdminActionLog }) {
   const link = targetLink(log);
   const targetLabel = `${TARGET_TYPE_LABEL[log.targetType] ?? log.targetType} #${log.targetId}`;
   return (
-    <article className={`${ui.card} flex flex-col gap-2`}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-base/[normal] font-bold text-gray-900">{ACTION_LABEL[log.action] ?? log.action}</h2>
-        <span className={ui.muted}>{formatKstDateTime(log.createdAt)}</span>
-      </div>
-      <p className={ui.body}>
-        대상:{" "}
+    <tr className={tbl.tr}>
+      <td className={tbl.num}>{log.id}</td>
+      <td className={`${tbl.td} whitespace-nowrap`}>{formatKstDateTime(log.createdAt)}</td>
+      <td className={`${tbl.td} font-semibold whitespace-nowrap`}>{ACTION_LABEL[log.action] ?? log.action}</td>
+      <td className={`${tbl.td} whitespace-nowrap`}>
         {link ? (
           <Link to={link} className={ui.link}>
             {targetLabel}
           </Link>
         ) : (
           targetLabel
-        )}{" "}
-        · 처리 {log.adminNickname}
-      </p>
-      {log.reason && <p className={`${ui.body} break-words`}>사유: {log.reason}</p>}
-      {log.detail && (
-        <details>
-          <summary className={`${ui.muted} cursor-pointer`}>상세 보기</summary>
-          <pre className="mt-2 max-w-full overflow-x-auto rounded-[10px] bg-gray-100 p-3 text-xs/[normal] break-all whitespace-pre-wrap text-gray-800">
-            {prettyDetail(log.detail)}
-          </pre>
-        </details>
-      )}
-    </article>
+        )}
+      </td>
+      <td className={tbl.td}>{log.adminNickname}</td>
+      <td className={`${tbl.td} max-w-72 break-words`}>{log.reason ?? ""}</td>
+      <td className={`${tbl.td} max-w-96`}>
+        {log.detail && (
+          <details>
+            <summary className={`${ui.muted} cursor-pointer`}>보기</summary>
+            <pre className="mt-1 max-w-full overflow-x-auto rounded bg-gray-100 p-1.5 text-[11px]/[normal] break-all whitespace-pre-wrap text-gray-800">
+              {prettyDetail(log.detail)}
+            </pre>
+          </details>
+        )}
+      </td>
+    </tr>
   );
 }

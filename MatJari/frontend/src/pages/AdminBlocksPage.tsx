@@ -1,7 +1,8 @@
 import { formatKstDateTime } from "../api/dateTime";
 import { exchangeErrorMessage } from "../api/exchangeMessages";
 import { adminReportsApi, type AdminBlock } from "../api/adminReports";
-import { button, ui } from "../components/ui";
+import { button, ui } from "../components/adminUi";
+import { tbl } from "../components/adminUi";
 import { usePagedList } from "../hooks/usePagedList";
 
 // 관리자 차단 현황 (/admin/blocks) — 읽기 전용.
@@ -24,7 +25,7 @@ export default function AdminBlocksPage() {
           </p>
         )}
         {state.status === "error" && (
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
             <p className={ui.errorBox} role="alert">
               {exchangeErrorMessage(state.error, "차단 현황을 불러오지 못했습니다.").message}
             </p>
@@ -39,17 +40,29 @@ export default function AdminBlocksPage() {
         {state.status === "success" && state.items.length > 0 && (
           <>
             <p className={ui.muted}>총 {state.totalElements}건</p>
-            <ul className="flex flex-col gap-3" aria-label="차단 목록">
-              {state.items.map((b) => (
-                <li key={b.id} className={`${ui.card} flex flex-col gap-1`}>
-                  <p className={ui.body}>
-                    <span className="font-semibold">{b.blocker.nickname}</span> 님이{" "}
-                    <span className="font-semibold">{b.blocked.nickname}</span> 님을 차단
-                  </p>
-                  <p className={ui.muted}>{formatKstDateTime(b.createdAt)}</p>
-                </li>
-              ))}
-            </ul>
+            <div className={tbl.wrap}>
+              <table className={tbl.table} aria-label="차단 목록">
+                <thead>
+                  <tr>
+                    {["#", "차단한 사람", "차단된 사람", "일시"].map((c) => (
+                      <th key={c} className={tbl.th}>
+                        {c}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {state.items.map((b) => (
+                    <tr key={b.id} className={tbl.tr}>
+                      <td className={tbl.num}>{b.id}</td>
+                      <td className={`${tbl.td} font-semibold`}>{b.blocker.nickname}</td>
+                      <td className={`${tbl.td} font-semibold`}>{b.blocked.nickname}</td>
+                      <td className={`${tbl.td} whitespace-nowrap`}>{formatKstDateTime(b.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             {moreError && (
               <p className={ui.errorBox} role="alert">
                 {moreError}

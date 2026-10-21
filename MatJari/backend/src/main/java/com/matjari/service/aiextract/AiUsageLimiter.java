@@ -121,6 +121,11 @@ public class AiUsageLimiter {
         };
     }
 
+    /** 오늘(KST) 전체 AI 호출 수(메모리, 재시작하면 0). 관리자 대시보드용. */
+    public synchronized int globalUsedToday() {
+        return LocalDate.now(clock).equals(day) ? global : 0;
+    }
+
     private synchronized void releaseGlobal() {
         if (global > 0) {
             global--;

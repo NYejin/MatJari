@@ -1253,3 +1253,21 @@ CHECK 3개 (V8 `ck_exchange_match_reserved`와 같은 안전망 성격, NULL 통
 - 재실행 가능한 프로시저 패턴(INFORMATION_SCHEMA 가드), 파괴적 단계 없음. 되돌리기는 롤포워드(테이블·컬럼·CHECK 삭제). 테이블 수 21 -> 22.
 - ERD: `산출물/08_ERD/erd.dot`에 `performance_zone` 노드와 `performance -> performance_zone`(1:N), `performance.seatmap_aspect`를 반영했다. ERD.png는 이 환경에 graphviz가 없어 만들지 못했다(DOT 문법만 점검).
 - 다음 마이그레이션은 V22다.
+
+## 20. V22: 관리자 권한 확장 (2026-10-19, `V22__admin_powers.sql`, `feature/admin-powers`)
+
+- `performance.hidden_at/hidden_by_id/hidden_reason`(셋은 함께 NULL이거나 함께 값, `ck_performance_hidden`, `fk_performance_hidden_by` → users, 단일 컬럼 인덱스)과 `admin_action_log`(관리자 직접 조치 기록, 추가만, 대상은 FK 아님) 신설. 테이블 수 22 -> 23. 상세 규칙은 CLAUDE.md '관리자 권한 확장' 절.
+
+## 21. V23: AI 읽기 결과 보관 (2026-10-21, `V23__ai_extract_cache.sql`, `feature/ai-cache-db`)
+
+- 목적: 같은 링크의 AI 회차·구역 읽기 결과를 168시간 보관해 배포·재시작 뒤에도 AI를 다시 부르지 않는다(메모리 캐시는 배포 때마다 비워진다).
+- 테이블 `ai_extract_cache`: `source_key` VARCHAR(500) utf8mb4_bin PK(`performance.source_key`와 같은 형식), `result` JSON NN(응답: 회차·구역 이름·모양 좌표·지도 비율), `created_at` DATETIME(6) NN, `expires_at_ms` BIGINT NN(epoch 밀리초, `idx_ai_extract_cache_expires`). 원본 이미지·프롬프트·이용자 정보는 저장하지 않는다.
+- 조회 때 만료 행은 쓰지 않고, 새 결과를 저장할 때(같은 링크는 `ON DUPLICATE KEY UPDATE`로 덮어쓰기) 만료 행을 최대 50개씩 지운다(스케줄러 없음). FK 없음, 다른 테이블과 같은 트랜잭션에서 쓰지 않아 잠금 사슬 밖이다. 테이블 수 23 -> 24.
+
+## 22. V24: AI 불러오기 사용 기록 (2026-10-21, `V24__ai_extract_usage.sql`, `feature/ai-monthly-limit`)
+
+- 목적: [공연정보 불러오기](AI) 사용자당 매월 3회(KST 달력 월) 제한을 재시작해도 유지되게 DB에 기록한다. 나중에 추가 횟수(BM)도 이 기록 위에 계산한다.
+- 테이블 `ai_extract_usage`: `id` PK, `user_id` BIGINT NN(FK → users, `idx_ai_extract_usage_user` 단일 컬럼), `source_key` VARCHAR(500) bin NN, `used_at` DATETIME(6) NN, `refunded_at` DATETIME(6) NULL(AI가 읽지 못하면 채워 횟수에서 뺀다). 월 집계용 `idx_ai_extract_usage_user_month`(user_id, used_at). 행은 지우지 않는다.
+- 이번 달 사용 수 = `used_at >= 이번 달 1일 AND refunded_at IS NULL`. 예약은 users 행 FOR UPDATE(첫 쿼리) → COUNT → INSERT를 짧은 트랜잭션에서 하고 AI 호출 전에 커밋한다. 반환은 PK로 한 행만 갱신한다. 티켓·요청·매칭 잠금 사슬과 겹치지 않는다. 테이블 수 24 -> 25.
+- 재실행 가능한 프로시저 패턴, 파괴적 단계 없음. ERD.png는 재생성하지 않았다(graphviz 미설치, `erd.dot`에 V22~V24 노드만 추가).
+- 다음 마이그레이션은 V25다.

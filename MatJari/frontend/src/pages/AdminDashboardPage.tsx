@@ -108,20 +108,24 @@ function Panel({ title, right, children, className = "" }: { title: string; righ
 }
 
 function Kpi({ label, value, sub, to, warn }: { label: string; value: unknown; sub?: string; to?: string; warn?: boolean }) {
+  // 두 줄: 이름·값 한 줄, 보조 수치 한 줄(잘리면 마우스를 올려 전체를 본다)
   const body = (
     <>
-      <span className="truncate text-[11px]/[normal] text-gray-500">{label}</span>
-      <span className={`text-lg/[1.2] font-bold tabular-nums ${warn ? "text-red-600" : "text-gray-900"}`}>{fmt(value)}</span>
-      {sub && <span className="truncate text-[10px]/[normal] text-gray-500">{sub}</span>}
+      <span className="flex min-w-0 items-baseline justify-between gap-1">
+        <span className="truncate text-[11px]/4 text-gray-500">{label}</span>
+        <span className={`shrink-0 text-sm/4 font-bold tabular-nums ${warn ? "text-red-600" : "text-gray-900"}`}>{fmt(value)}</span>
+      </span>
+      {sub && <span className="truncate text-[10px]/3.5 text-gray-400">{sub}</span>}
     </>
   );
-  const cls = "flex min-w-0 flex-col rounded-md border border-gray-200 bg-white px-2 py-1 no-underline";
+  const cls = "flex min-w-0 flex-col rounded border border-gray-200 bg-white px-1.5 py-0.5 no-underline";
+  const tip = sub ? `${label}: ${fmt(value)} (${sub})` : undefined;
   return to ? (
-    <Link to={to} className={`${cls} hover:border-primary-400`}>
+    <Link to={to} title={tip} className={`${cls} hover:border-primary-400`}>
       {body}
     </Link>
   ) : (
-    <div className={cls}>{body}</div>
+    <div title={tip} className={cls}>{body}</div>
   );
 }
 

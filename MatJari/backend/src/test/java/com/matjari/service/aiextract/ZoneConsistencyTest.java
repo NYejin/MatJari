@@ -67,6 +67,16 @@ class ZoneConsistencyTest {
     }
 
     @Test
+    void tileRereadThatDropsADigitIsDetected() {
+        // 확대 타일이 두 자리 번호의 '1'을 빠뜨린 경우(213836 T11 → T1)
+        assertThat(DetailExtractionService.droppedOne("T11", "T1")).isTrue();
+        assertThat(DetailExtractionService.droppedOne("T13", "T3")).isTrue();
+        assertThat(DetailExtractionService.droppedOne("213", "23")).isTrue();
+        assertThat(DetailExtractionService.droppedOne("T11", "T12")).isFalse();
+        assertThat(DetailExtractionService.droppedOne("AB", "A")).isFalse();
+    }
+
+    @Test
     void seriesKeySplitsHundredsAndPrefixes() {
         assertThat(ZoneConsistency.seriesKey("311")).isEqualTo(ZoneConsistency.seriesKey("322"));
         assertThat(ZoneConsistency.seriesKey("311")).isNotEqualTo(ZoneConsistency.seriesKey("411"));

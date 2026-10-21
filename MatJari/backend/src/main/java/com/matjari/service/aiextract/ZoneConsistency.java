@@ -69,6 +69,7 @@ final class ZoneConsistency {
             addMirrorZones(zones, byId, img, jpeg, names, extractor);
             addSequenceGaps(zones, byId, jpeg, extractor);
             fixSeriesOutliers(zones, byId);
+            snapTextBlocks(zones, byId, color, img, bg); // 글자에 쪼개진 블록 조각을 띠로 오인해 옆 구역에 옮기지 않게 먼저 블록으로 바꾼다
             reassignStrips(zones, byId);
             if (chips.size() >= 2) {
                 refillDented(zones, byId, color, chips, bg, img);
@@ -252,6 +253,8 @@ final class ZoneConsistency {
 
     /** 글자로 끊겼다고 볼 수 있는 같은 구역 두 조각 사이의 최대 틈(px). */
     static final int TEXT_GAP = 16;
+    /** 글자 획 굵기: 글자색 픽셀 양옆으로 이만큼 안에 구역 색이 있어야 블록 안 글자로 본다. */
+    static final int TEXT_REACH = 8;
 
     /**
      * 구역 이름 글자가 가는 블록을 가로질러 한 구역이 두 조각으로 끊긴 것(고척돔 T01·309, 213836 T4·113)을 다시 잇는다(사용자 지시 2026-10-21).
@@ -354,6 +357,219 @@ final class ZoneConsistency {
                 }
             }
         }
+    }
+
+    /**
+     * 이름 글자가 블록 대부분을 덮어 도형이 잘게 쪼개지고 어긋난 구역(213836 200번대·T 줄, 사용자 지적 2026-10-21)을 실제 블록으로 바꾼다.
+     * 구역 색 픽셀과 이름 글자색(과 둘이 섞인 글자 테두리색) 픽셀을 함께 4방향으로 이어 블록을 다시 잡으면, 블록 사이의 어두운 경계선에서 끊겨
+     * 블록 하나가 덩어리 하나가 된다. 덩어리마다 지금 도형이 가장 많이 덮는 구역(덮인 픽셀의 60% 이상)에 그 덩어리를 주고, 그 구역의 기존 조각 중
+     * 덩어리에 절반 넘게 들어간 조각을 뺀다. 두 구역 조각을 각각 절반 넘게 품은 덩어리(경계선이 없는 붙은 블록)와 구역 조각 중앙값의 6배를 넘는 덩어리는 건드리지 않는다.
+     */
+    private static void snapTextBlocks(Map<String, List<Integer>> zones, Map<Integer, ShapeSegmenter.Segment> byId, Map<Integer, Integer> color,
+                                       BufferedImage img, int bg) {
+        Integer text = labelTextColor(zones, byId, color, img, bg);
+        if (text == null) {
+            return;
+        }
+        int w = img.getWidth(), h = img.getHeight();
+        int[] rgb = img.getRGB(0, 0, w, h, null, 0, w);
+        // 픽셀마다 덮는 조각 id(0 = 없음)
+        int[] owner = new int[w * h];
+        Map<Integer, String> zoneOf = new HashMap<>();
+        List<Integer> palette = new ArrayList<>();
+        int medArea = medianArea(owned(zones, byId));
+        for (Map.Entry<String, List<Integer>> e : zones.entrySet()) {
+            for (Integer id : e.getValue()) {
+                ShapeSegmenter.Segment s = byId.get(id);
+                if (s == null || !color.containsKey(id)) {
+                    continue;
+                }
+                zoneOf.put(id, e.getKey());
+                if (s.sat() >= 0.2 && palette.stream().noneMatch(c -> dist(c, color.get(id)) < 40)) {
+                    palette.add(color.get(id));
+                }
+                Polygon p = poly(s.pixels(), 0, false);
+                java.awt.Rectangle r = p.getBounds().intersection(new java.awt.Rectangle(0, 0, w, h));
+                for (int y = r.y; y < r.y + r.height; y++) {
+                    for (int x = r.x; x < r.x + r.width; x++) {
+                        if (p.contains(x, y)) {
+                            owner[y * w + x] = id;
+                        }
+                    }
+                }
+            }
+        }
+        int nextId = byId.keySet().stream().mapToInt(Integer::intValue).max().orElse(0) + 1;
+        int[] comp = new int[w * h]; // 받아들인 덩어리 번호
+        int[] seen = new int[w * h];
+        int[] queue = new int[w * h];
+        int label = 0;
+        java.util.Set<Integer> accepted = new java.util.HashSet<>(), fresh = new java.util.HashSet<>();
+        for (int zc : palette) {
+            if (dist(zc, text) < 60) {
+                continue; // 글자색과 같은 색 구역은 글자와 구별할 수 없다
+            }
+            int passStart = label; // 이 색에서 처음 붙인 번호보다 작으면 다른 색에서 본 픽셀이다
+            boolean[] body = new boolean[w * h];
+            for (int i = 0; i < body.length; i++) {
+                body[i] = comp[i] == 0 && dist(rgb[i], zc) < 70;
+            }
+            // 글자색 픽셀은 양옆(가로나 세로)에 구역 색이 있을 때만 블록에 넣는다: 블록 옆을 지나는 흰 선(211358 대각선)은 한쪽만 구역 색이다
+            boolean[] mask = body.clone();
+            for (int i = 0; i < mask.length; i++) {
+                if (!body[i] && comp[i] == 0 && (dist(rgb[i], text) < 60 || blendDist(rgb[i], zc, text) < 35)) {
+                    int x = i % w, y = i / w;
+                    mask[i] = (reach(body, w, h, x, y, -1, 0) && reach(body, w, h, x, y, 1, 0)) || (reach(body, w, h, x, y, 0, -1) && reach(body, w, h, x, y, 0, 1));
+                }
+            }
+            for (int start = 0; start < mask.length; start++) {
+                if (!mask[start] || seen[start] > passStart) {
+                    continue;
+                }
+                label++;
+                int head = 0, tail = 0;
+                queue[tail++] = start;
+                seen[start] = label;
+                Map<Integer, Integer> hits = new HashMap<>();
+                int x0 = w, y0 = h, x1 = 0, y1 = 0;
+                while (head < tail) {
+                    int i = queue[head++], x = i % w, y = i / w;
+                    x0 = Math.min(x0, x);
+                    y0 = Math.min(y0, y);
+                    x1 = Math.max(x1, x);
+                    y1 = Math.max(y1, y);
+                    if (owner[i] != 0 && dist(color.get(owner[i]), zc) < 40) {
+                        hits.merge(owner[i], 1, Integer::sum);
+                    }
+                    int[] nb = {x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1};
+                    for (int n : nb) {
+                        if (n >= 0 && mask[n] && seen[n] != label) {
+                            seen[n] = label;
+                            queue[tail++] = n;
+                        }
+                    }
+                }
+                int area = tail;
+                if (area < 30 || hits.isEmpty() || (medArea > 0 && area > 6 * medArea)) {
+                    continue;
+                }
+                Map<String, Integer> byZone = new HashMap<>();
+                hits.forEach((id, n) -> byZone.merge(zoneOf.get(id), n, Integer::sum));
+                int covered = byZone.values().stream().mapToInt(Integer::intValue).sum();
+                Map.Entry<String, Integer> top = byZone.entrySet().stream().max(Map.Entry.comparingByValue()).orElseThrow();
+                if (top.getValue() < 0.6 * covered || covered < 0.2 * area) {
+                    continue;
+                }
+                // 조각 하나하나가 덩어리 안에 얼마나 들어갔는지(조각 넓이 대비)
+                List<Integer> inside = new ArrayList<>();
+                boolean twoZones = false;
+                for (Map.Entry<Integer, Integer> hit : hits.entrySet()) {
+                    ShapeSegmenter.Segment s = byId.get(hit.getKey());
+                    if (hit.getValue() > 0.5 * Math.max(1, s.area())) {
+                        if (zoneOf.get(hit.getKey()).equals(top.getKey())) {
+                            inside.add(hit.getKey());
+                        } else {
+                            twoZones = true;
+                        }
+                    }
+                }
+                List<Integer> ids = zones.get(top.getKey());
+                // 한 덩어리 안에 같은 구역 조각이 둘 이상 들어 있고 서로 긴 변을 맞댄 띠면(흰 선으로 나뉜 앞쪽 띠) 건드리지 않는다
+                boolean strips = false;
+                for (int a = 0; a < inside.size() && !strips; a++) {
+                    for (int b = a + 1; b < inside.size(); b++) {
+                        int[] ba = box(byId.get(inside.get(a))), bb = box(byId.get(inside.get(b)));
+                        if (sideStrip(ba, bb) || sideStrip(bb, ba)) {
+                            strips = true;
+                            break;
+                        }
+                    }
+                }
+                // 기존 조각이 이미 블록을 거의 다 덮으면(글자에 쪼개지지 않은 블록, 화정체육관) 원래 외곽선을 둔다
+                int had = inside.stream().mapToInt(id -> byId.get(id).area()).sum();
+                if (twoZones || strips || had >= 0.85 * area) {
+                    continue;
+                }
+                java.awt.Rectangle bounds = new java.awt.Rectangle(x0, y0, x1 - x0 + 1, y1 - y0 + 1);
+                boolean[] keep = new boolean[bounds.width * bounds.height];
+                for (int k = 0; k < tail; k++) {
+                    int i = queue[k];
+                    comp[i] = label;
+                    keep[(i / w - y0) * bounds.width + (i % w - x0)] = true;
+                }
+                ShapeSegmenter.Segment block = outlineSegment(keep, bounds, zc, nextId, false);
+                if (block == null) {
+                    continue;
+                }
+                // 가장자리에 걸친 글자 획이 외곽선에 홈을 내므로, 거의 볼록한 블록(볼록 껍질의 85% 이상)은 볼록 껍질을 쓴다
+                List<int[]> hull = ShapeSegmenter.convexHull(block.pixels());
+                if (hull.size() >= 3 && area >= 0.85 * Math.abs(ShapeSegmenter.shoelaceArea(hull))
+                        && othersInside(poly(hull, 0, false), owner, zoneOf, top.getKey(), w, h) <= 0.02 * area) {
+                    block = new ShapeSegmenter.Segment(nextId, hull, block.area(), block.cx(), block.cy(), block.sat(), block.val());
+                }
+                byId.put(nextId, block);
+                color.put(nextId, zc);
+                ids.removeAll(inside);
+                ids.add(nextId);
+                log.info("글자 포함 블록으로 바꾸기: {} 조각 {} → {} ({}px)", top.getKey(), inside, nextId, area);
+                accepted.add(label);
+                fresh.add(nextId);
+                nextId++;
+            }
+        }
+        // 블록 두 개에 걸쳐 어긋나 있던 기존 조각(어느 덩어리에도 절반 넘게 들어가지 않은 것)도, 새 블록들이 절반 넘게 덮으면 뺀다
+        for (Map.Entry<String, List<Integer>> e : zones.entrySet()) {
+            if (e.getValue().stream().noneMatch(fresh::contains)) {
+                continue;
+            }
+            e.getValue().removeIf(id -> {
+                ShapeSegmenter.Segment s = byId.get(id);
+                if (s == null || fresh.contains(id)) {
+                    return false;
+                }
+                Polygon p = poly(s.pixels(), 0, false);
+                java.awt.Rectangle r = p.getBounds().intersection(new java.awt.Rectangle(0, 0, w, h));
+                int all = 0, in = 0;
+                for (int y = r.y; y < r.y + r.height; y++) {
+                    for (int x = r.x; x < r.x + r.width; x++) {
+                        if (p.contains(x, y)) {
+                            all++;
+                            in += accepted.contains(comp[y * w + x]) ? 1 : 0;
+                        }
+                    }
+                }
+                return all > 0 && in > 0.5 * all;
+            });
+        }
+    }
+
+    /** (x, y)에서 (dx, dy) 방향으로 TEXT_REACH 픽셀 안에 body 픽셀이 있다. */
+    private static boolean reach(boolean[] body, int w, int h, int x, int y, int dx, int dy) {
+        for (int k = 1; k <= TEXT_REACH; k++) {
+            int nx = x + k * dx, ny = y + k * dy;
+            if (nx < 0 || ny < 0 || nx >= w || ny >= h) {
+                return false;
+            }
+            if (body[ny * w + nx]) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 다각형 p 안에서 zone 이 아닌 구역 조각이 덮는 픽셀 수(볼록 껍질이 이웃 블록을 덮는지 본다). */
+    private static int othersInside(Polygon p, int[] owner, Map<Integer, String> zoneOf, String zone, int w, int h) {
+        java.awt.Rectangle r = p.getBounds().intersection(new java.awt.Rectangle(0, 0, w, h));
+        int n = 0;
+        for (int y = r.y; y < r.y + r.height; y++) {
+            for (int x = r.x; x < r.x + r.width; x++) {
+                int o = owner[y * w + x];
+                if (o != 0 && p.contains(x, y) && !zone.equals(zoneOf.get(o))) {
+                    n++;
+                }
+            }
+        }
+        return n;
     }
 
     /**

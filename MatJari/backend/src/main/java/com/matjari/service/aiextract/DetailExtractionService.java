@@ -858,6 +858,61 @@ public class DetailExtractionService {
         return Math.min(b[2] - b[0], b[3] - b[1]) + 1;
     }
 
+    /**
+     * 확대 타일 재판독이 두 자리 번호의 한 글자를 빠뜨린 것(213836 T11→T1, T13→T3: 타일 가장자리에 걸린 '1')을 되돌리고 되돌린 개수를 돌려준다.
+     * 처음 이름 X에서 한 글자를 뺀 이름 Y로 바뀐 도형은, Y가 처음부터 자기 도형을 가진 구역이면 X로 되돌린다. 그래도 X 구역에 도형이 하나도 남지 않으면
+     * Y로 바뀐 도형 중 가장 큰 것을 X로 되돌린다(X의 실제 블록).
+     */
+    private static int keepDroppedDigit(Map<Integer, String> owner, List<DetailExtractor.RawLabel> labels, Map<Integer, ShapeSegmenter.Segment> byId) {
+        Map<Integer, String> first = new java.util.HashMap<>();
+        labels.forEach(l -> l.segmentIds().forEach(id -> first.put(id, l.name())));
+        // 회색 구조물(콘솔)을 처음에 Y로 읽은 것은 Y의 자기 도형으로 치지 않는다(213836 T3)
+        java.util.Set<String> hadOwn = new java.util.HashSet<>();
+        first.forEach((id, n) -> {
+            if (byId.containsKey(id) && byId.get(id).sat() >= 0.2) {
+                hadOwn.add(n);
+            }
+        });
+        int reverted = 0;
+        Map<String, List<Integer>> lost = new java.util.HashMap<>();
+        for (Map.Entry<Integer, String> e : owner.entrySet()) {
+            String x = first.get(e.getKey()), y = e.getValue();
+            if (x == null || !droppedOne(x, y)) {
+                continue;
+            }
+            if (hadOwn.contains(y)) {
+                e.setValue(x);
+                reverted++;
+            } else {
+                lost.computeIfAbsent(x, k -> new ArrayList<>()).add(e.getKey());
+            }
+        }
+        for (Map.Entry<String, List<Integer>> l : lost.entrySet()) {
+            if (owner.containsValue(l.getKey())) {
+                continue;
+            }
+            l.getValue().stream().filter(byId::containsKey).max(java.util.Comparator.comparingInt(id -> byId.get(id).area())).ifPresent(id -> {
+                owner.put(id, l.getKey());
+                log.info("타일 재판독이 빠뜨린 글자 되돌림: 도형 {} → {}", id, l.getKey());
+            });
+            reverted++;
+        }
+        return reverted;
+    }
+
+    /** y가 x에서 숫자 한 글자만 뺀 이름이다(T11 → T1, 213 → 23). */
+    static boolean droppedOne(String x, String y) {
+        if (x.length() != y.length() + 1) {
+            return false;
+        }
+        for (int i = 0; i < x.length(); i++) {
+            if (Character.isDigit(x.charAt(i)) && (x.substring(0, i) + x.substring(i + 1)).equals(y)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** 두 도형의 경계 상자 사이 간격(겹치면 0). */
     private static int gap(ShapeSegmenter.Segment a, ShapeSegmenter.Segment b) {
         int[] ba = box(a), bb = box(b);
@@ -937,6 +992,7 @@ public class DetailExtractionService {
                 }
             }
         }
+        changed -= keepDroppedDigit(owner, labels, byId);
         log.info("AI 타일 다시 읽기로 바꾼 도형 {}개 / {}개", changed, ids.size());
         Map<String, List<Integer>> byName = new LinkedHashMap<>();
         for (Map.Entry<Integer, String> e : owner.entrySet()) {

@@ -4,7 +4,7 @@ import { adminDashboardApi, type AdminDashboard, type Row } from "../api/adminDa
 import { REPORT_REASON_LABEL, type ReportReason } from "../api/adminReports";
 import { ACTION_LABEL, TARGET_TYPE_LABEL } from "../api/adminUsers";
 import { exchangeErrorMessage } from "../api/exchangeMessages";
-import { BarChart, HBars, Legend, LineChart, Meter, StackBar } from "../components/AdminCharts";
+import { BarChart, HBars, Legend, LineChart, Meter, RemainGauge, StackBar } from "../components/AdminCharts";
 import { button, tbl, tone, ui } from "../components/adminUi";
 
 // 관리자 운영 대시보드 (/admin). 한 화면에 수치·추이 그래프·구성 비율·처리 대기열·최근 목록·알림을 촘촘하게 모은다(1분마다 갱신).
@@ -17,6 +17,19 @@ const fmt = (v: unknown) => n(v).toLocaleString("ko-KR");
 const short = (v: unknown) => {
   const s = typeof v === "string" ? v : "";
   return s.length >= 16 ? `${Number(s.slice(5, 7))}/${Number(s.slice(8, 10))} ${s.slice(11, 16)}` : s ? s.slice(5, 10) : "-";
+};
+/** 달러 표시: 1달러 미만은 소수 넷째 자리까지 */
+const usd = (v: unknown) => {
+  const x = n(v);
+  return `$${x < 1 ? x.toFixed(4) : x.toFixed(2)}`;
+};
+const STAGE_LABEL: Record<string, string> = {
+  first: "1차 읽기",
+  locate: "좌석표 띠 찾기",
+  label: "도형 이름 판독",
+  second: "좌표 대체",
+  tile: "타일 재판독",
+  legend: "범례 읽기",
 };
 const md = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
 /** 지금부터 몇 시간/일 전 */
@@ -183,6 +196,7 @@ function Dashboard({ d }: { d: AdminDashboard }) {
         <Kpi label="오늘 채팅 메시지" value={chat.today} sub={`7일 ${fmt(chat.last7d)} · 대화방 ${fmt(chat.activeMatches7d)}`} />
         <Kpi label="AI 이번 달" value={ai.usedMonth} sub={`반환 ${fmt(ai.refundedMonth)} · 사용자 ${fmt(ai.usersMonth)}`} />
         <Kpi label="AI 오늘(전체)" value={ai.globalToday} sub={`상한 ${fmt(ai.dailyGlobalLimit)} · 보관 ${fmt(ai.cacheEntries)}`} warn={n(ai.globalToday) >= n(ai.dailyGlobalLimit) * 0.8} />
+        <Kpi label="AI 이번 달 예상 비용($)" value={Math.round(n(ai.costMonthUsd) * 100) / 100} sub={`오늘 ${usd(ai.costTodayUsd)} · 1회 평균 ${usd(ai.avgCostPerLoadUsd)}`} />
         <Kpi label="7일 신고" value={queues.reports7d} sub={`차단 7일 ${fmt(queues.blocks7d)} · 누적 ${fmt(queues.blocksTotal)}`} />
         <Kpi label="7일 관리자 조치" value={queues.actions7d} to="/admin/logs" />
       </section>
@@ -212,8 +226,24 @@ function Dashboard({ d }: { d: AdminDashboard }) {
           />
         </Panel>
         <Panel title="AI 공연정보 불러오기">
+          {ai.creditRemainingRatio !== undefined && (
+            <>
+              <RemainGauge label="남은 크레딧(추정)" ratio={n(ai.creditRemainingRatio)} value={`${usd(ai.creditRemainingUsd)} / ${usd(ai.creditBaselineUsd)}`} />
+              <p className="text-[10px]/[normal] text-gray-500">
+                {String(ai.creditBaselineAt).replace("T", " ")} Console 잔액에서 이 서버가 기록한 호출 비용({usd(ai.spentSinceBaselineUsd)})을 뺀 추정치예요. 평가·다른 앱 사용은 빠져 실제 잔액은 Console에서 확인하세요.
+              </p>
+            </>
+          )}
           <Meter label="오늘 전체 호출(메모리)" value={n(ai.globalToday)} max={n(ai.dailyGlobalLimit)} />
-          <BarChart title="최근 14일 AI 호출" labels={labels} values={d.daily.map((x) => x.aiCalls)} color={C.teal} height={90} />
+          <BarChart title="최근 14일 AI 불러오기 횟수" labels={labels} values={d.daily.map((x) => x.aiCalls)} color={C.teal} height={80} />
+          <span className={ui.label}>최근 14일 예상 비용(센트)</span>
+          <BarChart title="최근 14일 AI 예상 비용(센트)" labels={labels} values={d.daily.map((x) => Math.round(n(x.aiCostUsd) * 1000) / 10)} color={C.violet} height={80} />
+          <span className={ui.label}>이번 달 단계별 비용</span>
+          <HBars
+            color={C.violet}
+            empty="이번 달 기록된 호출이 없어요"
+            items={Object.entries(d.aiCostByStage).map(([k, v]) => ({ label: STAGE_LABEL[k] ?? k, value: Math.round(v * 10000) / 10000 }))}
+          />
           <div className="grid grid-cols-2 gap-x-2 text-[11px]/[normal] text-gray-600">
             <span>
               이번 달 사용 <b className="text-gray-900">{fmt(ai.usedMonth)}</b> · 반환 <b className="text-gray-900">{fmt(ai.refundedMonth)}</b>
@@ -226,6 +256,9 @@ function Dashboard({ d }: { d: AdminDashboard }) {
             </span>
             <span>
               보관 결과 <b className="text-gray-900">{fmt(ai.cacheEntries)}개</b>
+            </span>
+            <span>
+              이번 달 토큰 <b className="text-gray-900">{fmt(ai.tokensMonth)}</b> · 호출 <b className="text-gray-900">{fmt(ai.callsMonth)}</b>
             </span>
           </div>
         </Panel>

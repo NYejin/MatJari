@@ -123,6 +123,14 @@ matjari:
     request-timeout-seconds: ${MATJARI_AI_REQUEST_TIMEOUT_SECONDS:60}
     monthly-per-user: ${MATJARI_AI_MONTHLY_PER_USER:3}
     venue-hint-min-zones: ${MATJARI_AI_VENUE_HINT_MIN_ZONES:50}
+    # 예상 비용(관리자 대시보드): Haiku 5.5 단가($/100만 토큰)와 남은 크레딧 추정 기준(Console 잔액·그 시각, 충전하면 새로 적는다)
+    price-input-per-mtok: ${MATJARI_AI_PRICE_INPUT_PER_MTOK:0.10}
+    price-output-per-mtok: ${MATJARI_AI_PRICE_OUTPUT_PER_MTOK:0.50}
+    price-long-input-per-mtok: ${MATJARI_AI_PRICE_LONG_INPUT_PER_MTOK:0.50}
+    price-long-output-per-mtok: ${MATJARI_AI_PRICE_LONG_OUTPUT_PER_MTOK:2.50}
+    long-prompt-tokens: ${MATJARI_AI_LONG_PROMPT_TOKENS:100000}
+    credit-baseline-usd: ${MATJARI_AI_CREDIT_BASELINE_USD:32.65}
+    credit-baseline-at: ${MATJARI_AI_CREDIT_BASELINE_AT:2026-10-22T00:00}
     daily-global: ${MATJARI_AI_DAILY_GLOBAL:40}
     max-concurrent: ${MATJARI_AI_MAX_CONCURRENT:2}
     debug-dir: ${MATJARI_AI_DEBUG_DIR:}

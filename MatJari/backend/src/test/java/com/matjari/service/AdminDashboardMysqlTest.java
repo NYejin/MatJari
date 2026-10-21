@@ -58,17 +58,22 @@ class AdminDashboardMysqlTest {
     @BeforeEach
     void setUp() {
         assertThat(jdbc.queryForObject("SELECT DATABASE()", String.class)).endsWith("_dash_it");
-        for (String t : List.of("ai_extract_usage", "ai_extract_cache", "admin_action_log", "abuse_report", "exchange_request",
+        for (String t : List.of("ai_call_log", "ai_extract_usage", "ai_extract_cache", "admin_action_log", "abuse_report", "exchange_request",
                 "ticket", "performance_zone", "performance_session", "performance", "users")) {
             jdbc.update("DELETE FROM " + t);
         }
-        jdbc.update("INSERT INTO users(id,email,password,nickname,role,created_at) VALUES (1,'u1@t','x','U1','USER',NOW(6))");
-        jdbc.update("INSERT INTO users(id,email,password,nickname,role,created_at) VALUES (2,'u2@t','x','U2','ADMIN',NOW(6))");
+        // 앱은 KST 현지 시각을 저장한다(MySQL NOW() 는 UTC 라 자정 무렵 날짜가 어긋난다)
+        jdbc.update("INSERT INTO users(id,email,password,nickname,role,created_at) VALUES (1,'u1@t','x','U1','USER',?)", kstNow());
+        jdbc.update("INSERT INTO users(id,email,password,nickname,role,created_at) VALUES (2,'u2@t','x','U2','ADMIN',?)", kstNow());
+    }
+
+    private static LocalDateTime kstNow() {
+        return LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul"));
     }
 
     @Test
     void allQueriesRunAndReflectData() {
-        LocalDateTime show = LocalDateTime.now().plusDays(3).withHour(19).withMinute(0).withSecond(0).withNano(0);
+        LocalDateTime show = kstNow().plusDays(3).withHour(19).withMinute(0).withSecond(0).withNano(0);
         performanceService.create(1L, new PerformanceCreateRequest("https://ticket.melon.com/performance/index.htm?prodId=7",
                 "공연", "홀", List.of(show), List.of(new PerformanceCreateRequest.ZoneInput("A", null)), null,
                 new PerformanceCreateRequest.TicketInput(show, "A", "1", "2")));
@@ -77,12 +82,16 @@ class AdminDashboardMysqlTest {
             try (var st = con.createStatement()) {
                 st.execute("SET FOREIGN_KEY_CHECKS = 0");
                 st.execute("INSERT INTO abuse_report(reporter_id,reported_id,match_id,reason,detail,status,created_at,updated_at) "
-                        + "VALUES (2,1,999,'ABUSE',NULL,'OPEN',NOW(6) - INTERVAL 2 DAY,NOW(6))");
+                        + "VALUES (2,1,999,'ABUSE',NULL,'OPEN','" + kstNow().minusDays(2) + "','" + kstNow() + "')");
                 st.execute("SET FOREIGN_KEY_CHECKS = 1");
             }
             return null;
         });
-        jdbc.update("INSERT INTO ai_extract_usage(user_id,source_key,used_at,refunded_at) VALUES (1,'melon:7',NOW(6),NULL),(1,'melon:8',NOW(6),NOW(6))");
+        jdbc.update("INSERT INTO ai_extract_usage(user_id,source_key,used_at,refunded_at) VALUES (1,'melon:7',?,NULL),(1,'melon:8',?,?)",
+                kstNow(), kstNow(), kstNow());
+
+        jdbc.update("INSERT INTO ai_call_log(called_at,stage,model,input_tokens,output_tokens,cost_micro_usd) VALUES "
+                + "(?,'first','claude-haiku-5-5',40000,2000,5000),(?,'label','claude-haiku-5-5',10000,1000,1500)", kstNow(), kstNow());
 
         AdminDashboardService.Response r = dashboard.dashboard();
 
@@ -91,6 +100,11 @@ class AdminDashboardMysqlTest {
         assertThat(r.kpis().get("tickets")).containsEntry("active", 1L).containsEntry("newToday", 1L);
         assertThat(r.kpis().get("queues")).containsEntry("openReports", 1L);
         assertThat(r.kpis().get("ai")).containsEntry("usedMonth", 1L).containsEntry("refundedMonth", 1L).containsEntry("usedToday", 1L);
+        assertThat(r.kpis().get("ai")).containsEntry("costTodayUsd", 0.0065).containsEntry("tokensToday", 53000L)
+                .containsEntry("creditBaselineUsd", 32.65);
+        assertThat((Double) r.kpis().get("ai").get("creditRemainingUsd")).isCloseTo(32.6435, org.assertj.core.data.Offset.offset(1e-9));
+        assertThat(r.aiCostByStage()).containsKeys("first", "label");
+        assertThat(r.daily().get(r.daily().size() - 1).aiCostUsd()).isEqualTo(0.0065);
         assertThat(r.daily()).hasSize(AdminDashboardService.DAYS);
         assertThat(r.daily().get(r.daily().size() - 1).tickets()).isEqualTo(1);
         assertThat(r.topPerformances()).hasSize(1);

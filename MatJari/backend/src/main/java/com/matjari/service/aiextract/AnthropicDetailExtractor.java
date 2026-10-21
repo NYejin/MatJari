@@ -84,6 +84,14 @@ public class AnthropicDetailExtractor implements DetailExtractor {
     private final AiProperties properties;
     private volatile AnthropicClient client;
 
+    /** 호출별 토큰·예상 비용 기록(관리자 대시보드). 단위 시험처럼 없으면 기록하지 않는다. */
+    private AiCallLog callLog;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setCallLog(AiCallLog callLog) {
+        this.callLog = callLog;
+    }
+
     public AnthropicDetailExtractor(AiProperties properties) {
         this.properties = properties;
     }
@@ -239,6 +247,9 @@ public class AnthropicDetailExtractor implements DetailExtractor {
             long ms = (System.nanoTime() - started) / 1_000_000;
             log.info("AI 호출 ({}): {}ms, inputTokens={}, outputTokens={}, blocks={}", stage, ms,
                     message.usage().inputTokens(), message.usage().outputTokens(), blocks.size());
+            if (callLog != null) {
+                callLog.record(stage, model, message.usage().inputTokens(), message.usage().outputTokens());
+            }
             StopReason stop = message.stopReason().orElse(null);
             if (stop != null && (stop.equals(StopReason.REFUSAL) || stop.equals(StopReason.MAX_TOKENS))) {
                 throw new ExtractionFailedException("AI 응답을 쓸 수 없어요(" + (stop.equals(StopReason.REFUSAL) ? "refusal" : "max_tokens") + ")");

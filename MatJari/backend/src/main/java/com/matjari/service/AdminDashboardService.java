@@ -39,12 +39,12 @@ public class AdminDashboardService {
     }
 
     public record Daily(LocalDate date, long signups, long tickets, long matches, long completed, long messages,
-                        long reports, long aiCalls) {}
+                        long reports, long aiCalls, double aiCostUsd) {}
 
     public record Alert(String level, String text, String link) {}
 
     public record Response(LocalDateTime generatedAt, Map<String, Map<String, Object>> kpis, List<Daily> daily,
-                           Map<String, Long> openReportReasons, Map<String, Long> matchStatus,
+                           Map<String, Long> openReportReasons, Map<String, Long> matchStatus, Map<String, Double> aiCostByStage,
                            List<Map<String, Object>> topPerformances, List<Map<String, Object>> upcomingSessions,
                            List<Map<String, Object>> openReports, List<Map<String, Object>> pendingClaims,
                            List<Map<String, Object>> pendingProposals, List<Map<String, Object>> recentActions,
@@ -119,6 +119,35 @@ public class AdminDashboardService {
         ai.put("usersAtLimit", count("""
                 SELECT COUNT(*) FROM (SELECT user_id FROM ai_extract_usage WHERE used_at >= ? AND refunded_at IS NULL
                 GROUP BY user_id HAVING COUNT(*) >= ?) x""", tm, aiProperties.getMonthlyPerUser()));
+        // 예상 비용(ai_call_log, 마이크로 달러)과 남은 크레딧 추정(설정의 기준 잔액 − 기준 시각 이후 비용)
+        Map<String, Object> cost = row("""
+                SELECT SUM(IF(called_at >= ?, cost_micro_usd, 0)) today, SUM(cost_micro_usd) month,
+                       SUM(IF(called_at >= ?, input_tokens + output_tokens, 0)) tokensToday, SUM(input_tokens + output_tokens) tokensMonth,
+                       COUNT(*) callsMonth
+                FROM ai_call_log WHERE called_at >= ?""", t0, t0, tm);
+        ai.put("costTodayUsd", usd(cost.get("today")));
+        ai.put("costMonthUsd", usd(cost.get("month")));
+        ai.put("tokensToday", cost.get("tokensToday"));
+        ai.put("tokensMonth", cost.get("tokensMonth"));
+        ai.put("callsMonth", cost.get("callsMonth"));
+        long used = ((Number) ai.get("usedMonth")).longValue();
+        ai.put("avgCostPerLoadUsd", used == 0 ? 0.0 : usd(cost.get("month")) / used);
+        double baseline = aiProperties.getCreditBaselineUsd();
+        ai.put("creditBaselineUsd", baseline);
+        ai.put("creditBaselineAt", aiProperties.getCreditBaselineAt());
+        if (baseline > 0) {
+            LocalDateTime from;
+            try {
+                from = LocalDateTime.parse(aiProperties.getCreditBaselineAt());
+            } catch (RuntimeException e) {
+                from = month;
+            }
+            double spent = usd(count("SELECT COALESCE(SUM(cost_micro_usd), 0) FROM ai_call_log WHERE called_at >= ?",
+                    Timestamp.valueOf(from)));
+            ai.put("spentSinceBaselineUsd", spent);
+            ai.put("creditRemainingUsd", Math.max(0, baseline - spent));
+            ai.put("creditRemainingRatio", Math.max(0, baseline - spent) / baseline);
+        }
         k.put("ai", ai);
 
         List<Daily> daily = daily(week.minusDays(DAYS - 7), now.toLocalDate());
@@ -126,6 +155,9 @@ public class AdminDashboardService {
         Map<String, Long> reasons = new LinkedHashMap<>();
         jdbc.query("SELECT reason, COUNT(*) n FROM abuse_report WHERE status = 'OPEN' GROUP BY reason ORDER BY n DESC",
                 rs -> { reasons.put(rs.getString(1), rs.getLong(2)); });
+        Map<String, Double> costByStage = new LinkedHashMap<>();
+        jdbc.query("SELECT stage, SUM(cost_micro_usd) c FROM ai_call_log WHERE called_at >= ? GROUP BY stage ORDER BY c DESC",
+                rs -> { costByStage.put(rs.getString(1), rs.getLong(2) / 1_000_000.0); }, tm);
         Map<String, Long> matchStatus = new LinkedHashMap<>();
         jdbc.query("SELECT status, COUNT(*) FROM exchange_match GROUP BY status",
                 rs -> { matchStatus.put(rs.getString(1), rs.getLong(2)); });
@@ -172,7 +204,7 @@ public class AdminDashboardService {
                        (SELECT COUNT(*) FROM ticket t WHERE t.user_id = u.id AND t.status = 'ACTIVE') activeTickets
                 FROM users u WHERE u.withdrawn_at IS NULL ORDER BY u.created_at DESC, u.id DESC LIMIT ?""", LIST);
 
-        return new Response(now, k, daily, reasons, matchStatus, top, upcoming, openReports, claims, proposals,
+        return new Response(now, k, daily, reasons, matchStatus, costByStage, top, upcoming, openReports, claims, proposals,
                 actions, users, alerts(k, now));
     }
 
@@ -180,12 +212,12 @@ public class AdminDashboardService {
         Timestamp f = Timestamp.valueOf(from);
         Map<LocalDate, long[]> m = new LinkedHashMap<>();
         for (LocalDate d = from.toLocalDate(); !d.isAfter(to); d = d.plusDays(1)) {
-            m.put(d, new long[7]);
+            m.put(d, new long[8]);
         }
         String[][] series = {
                 {"users", "created_at"}, {"ticket", "created_at"}, {"exchange_match", "created_at"},
                 {"exchange_history", "created_at"}, {"chat_message", "created_at"}, {"abuse_report", "created_at"},
-                {"ai_extract_usage", "used_at"}};
+                {"ai_extract_usage", "used_at"}, {"ai_call_log", "called_at"}};
         for (int i = 0; i < series.length; i++) {
             final int idx = i;
             String sql = i == 3
@@ -193,6 +225,8 @@ public class AdminDashboardService {
                     ? "SELECT DATE(created_at) d, COUNT(DISTINCT match_id) n FROM exchange_history WHERE created_at >= ? GROUP BY d"
                     : i == 6
                     ? "SELECT DATE(used_at) d, COUNT(*) n FROM ai_extract_usage WHERE used_at >= ? AND refunded_at IS NULL GROUP BY d"
+                    : i == 7
+                    ? "SELECT DATE(called_at) d, SUM(cost_micro_usd) n FROM ai_call_log WHERE called_at >= ? GROUP BY d"
                     : "SELECT DATE(" + series[i][1] + ") d, COUNT(*) n FROM " + series[i][0] + " WHERE " + series[i][1] + " >= ? GROUP BY d";
             jdbc.query(sql, rs -> {
                 long[] v = m.get(rs.getDate(1).toLocalDate());
@@ -202,7 +236,7 @@ public class AdminDashboardService {
             }, f);
         }
         List<Daily> out = new ArrayList<>();
-        m.forEach((d, v) -> out.add(new Daily(d, v[0], v[1], v[2], v[3], v[4], v[5], v[6])));
+        m.forEach((d, v) -> out.add(new Daily(d, v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7] / 1_000_000.0)));
         return out;
     }
 
@@ -234,6 +268,10 @@ public class AdminDashboardService {
         if (refunded > 0 && refunded * 5 >= (used + refunded)) {
             out.add(new Alert("warn", "이번 달 AI 실패(반환) " + refunded + "건, 전체의 20% 이상", null));
         }
+        if (ai.get("creditRemainingRatio") instanceof Double ratio && ratio < 0.2) {
+            out.add(new Alert(ratio < 0.1 ? "danger" : "warn", String.format("남은 AI 크레딧(추정) $%.2f, %.0f%%", 
+                    ((Number) ai.get("creditRemainingUsd")).doubleValue(), ratio * 100), null));
+        }
         long reserved = num(k.get("matches").get("reserved"));
         if (reserved > 0) {
             out.add(new Alert("info", "예약 중인 교환 " + reserved + "건 (양쪽 교환 수락 대기)", null));
@@ -246,6 +284,10 @@ public class AdminDashboardService {
             out.add(new Alert("ok", "처리할 대기 항목이 없어요", null));
         }
         return out;
+    }
+
+    private static double usd(Object micro) {
+        return (micro instanceof Number n ? n.longValue() : 0L) / 1_000_000.0;
     }
 
     private static boolean olderThan(Object at, LocalDateTime now, Duration d) {

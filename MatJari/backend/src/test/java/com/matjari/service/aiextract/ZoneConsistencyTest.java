@@ -44,6 +44,18 @@ class ZoneConsistencyTest {
     }
 
     @Test
+    void lightLegendDoesNotAcceptGrayStructure() {
+        // 화정체육관: 배경 연회색에 흰색·연두·보라 칩. 범례에 없는 짙은 회색 단(연두와 RGB 거리 36)은 범례 색이 아니다
+        List<ZoneConsistency.Chip> chips = List.of(new ZoneConsistency.Chip(0, 0, 9, 9, 0xFFF3F5F2),
+                new ZoneConsistency.Chip(20, 0, 29, 9, 0xFFA6B1A0), new ZoneConsistency.Chip(40, 0, 49, 9, 0xFFB399C0));
+        int bg = 0xFFC6CEC3;
+        assertThat(ZoneConsistency.inLegend(0xFFA4B2A1, chips, bg)).isTrue();
+        assertThat(ZoneConsistency.inLegend(0xFF949494, chips, bg)).isFalse();
+        // 어두운 배경에서는 허용 폭이 그대로(50)다
+        assertThat(ZoneConsistency.tolerance(chips.get(1), chips, 0xFF050505, ZoneConsistency.SAME_COLOR)).isEqualTo(ZoneConsistency.SAME_COLOR);
+    }
+
+    @Test
     void seriesKeySplitsHundredsAndPrefixes() {
         assertThat(ZoneConsistency.seriesKey("311")).isEqualTo(ZoneConsistency.seriesKey("322"));
         assertThat(ZoneConsistency.seriesKey("311")).isNotEqualTo(ZoneConsistency.seriesKey("411"));

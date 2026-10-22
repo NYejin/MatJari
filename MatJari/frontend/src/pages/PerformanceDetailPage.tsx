@@ -30,9 +30,8 @@ const cls = {
   desc: "min-w-0 text-[0.9375rem]/[normal] break-words text-gray-900",
   descSub: "block text-sm/[normal] text-gray-700",
   title: "text-2xl/[normal] font-bold break-keep text-gray-900",
-  sessionList: "flex flex-col divide-y divide-gray-200",
-  sessionRow: "flex flex-col gap-2 py-3",
-  sessionMain: "flex flex-wrap items-center justify-between gap-2",
+  sessionList: "flex flex-col gap-1",
+  sessionRow: "flex flex-wrap items-center gap-2",
   /** 회차 시각 — 지난 회차는 gray-500(흰 배경 4.83:1)으로 흐리게 + "지난 회차" 배지 (색만으로 구분하지 않음) */
   sessionTimeUpcoming: "text-[0.9375rem]/[normal] font-semibold text-gray-900",
   sessionTimePast: "text-[0.9375rem]/[normal] text-gray-500",
@@ -115,7 +114,6 @@ export default function PerformanceDetailPage() {
           </p>
         )}
         <InfoSection detail={detail} />
-        <SessionsSection detail={detail} />
         <ZoneMapSection detail={detail} />
         {!detail.hidden && <EditProposalSection detail={detail} />}
         <section className={`${ui.card} flex flex-col gap-4`} aria-labelledby="perf-coming-title">
@@ -196,6 +194,10 @@ function InfoSection({ detail }: { detail: PerformanceDetail }) {
             <span className="break-all">{detail.sourceUrl}</span>
           )}
         </dd>
+        <dt className={cls.term}>회차</dt>
+        <dd className={cls.desc}>
+          <SessionList detail={detail} />
+        </dd>
       </dl>
       </div>
       <PosterImage key={posterUrl ?? "none"} url={posterUrl} title={detail.title} className="self-start" />
@@ -203,7 +205,7 @@ function InfoSection({ detail }: { detail: PerformanceDetail }) {
   );
 }
 
-// ---- 회차 (읽기 전용) ----
+// ---- 구역 (읽기 전용) ----
 
 function ZoneMapSection({ detail }: { detail: PerformanceDetail }) {
   const zones = detail.zones ?? [];
@@ -219,37 +221,36 @@ function ZoneMapSection({ detail }: { detail: PerformanceDetail }) {
   );
 }
 
-function SessionsSection({ detail }: { detail: PerformanceDetail }) {
+// ---- 회차 (읽기 전용, 공연 정보 카드 안) ----
+
+/** 이보다 많으면 접어 두고 '모두 보기'로 펼친다 */
+const SESSION_PREVIEW = 6;
+
+function SessionList({ detail }: { detail: PerformanceDetail }) {
   const sessions = [...detail.sessions].sort((a, b) => compareLocalDateTime(a.startsAt, b.startsAt));
+  const [showAll, setShowAll] = useState(false);
+  if (sessions.length === 0) return <span className={ui.body}>등록된 회차가 없어요.</span>;
+  const shown = showAll ? sessions : sessions.slice(0, SESSION_PREVIEW);
 
   return (
-    <section className={`${ui.card} flex flex-col gap-4`} aria-labelledby="perf-sessions-title">
-      <h2 id="perf-sessions-title" className={ui.sectionTitle}>
-        회차 {sessions.length}개
-      </h2>
-
-      {sessions.length === 0 ? (
-        <p className={ui.body}>등록된 회차가 없어요.</p>
-      ) : (
-        <ul className={cls.sessionList}>
-          {sessions.map((session) => {
-            const past = isPastKst(session.startsAt);
-            return (
-              <li key={session.id} className={cls.sessionRow}>
-                <div className={cls.sessionMain}>
-                  <span className="flex flex-wrap items-center gap-2">
-                    <span className={past ? cls.sessionTimePast : cls.sessionTimeUpcoming}>
-                      {formatKstDateTime(session.startsAt)}
-                    </span>
-                    {past && <span className={ui.badge}>지난 회차</span>}
-                  </span>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+    <div className="flex flex-col items-start gap-1">
+      <ul className={cls.sessionList} aria-label={`회차 ${sessions.length}개`}>
+        {shown.map((session) => {
+          const past = isPastKst(session.startsAt);
+          return (
+            <li key={session.id} className={cls.sessionRow}>
+              <span className={past ? cls.sessionTimePast : cls.sessionTimeUpcoming}>{formatKstDateTime(session.startsAt)}</span>
+              {past && <span className={ui.badge}>지난 회차</span>}
+            </li>
+          );
+        })}
+      </ul>
+      {sessions.length > SESSION_PREVIEW && (
+        <button type="button" className={`${ui.link} cursor-pointer`} aria-expanded={showAll} onClick={() => setShowAll((v) => !v)}>
+          {showAll ? "접기" : `회차 ${sessions.length}개 모두 보기`}
+        </button>
       )}
-    </section>
+    </div>
   );
 }
 

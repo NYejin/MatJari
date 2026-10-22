@@ -32,6 +32,8 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      renderer:
+        condition: service_started
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/matjari
       SPRING_DATASOURCE_USERNAME: matjari
@@ -64,8 +66,21 @@ services:
       SPRING_MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH: "true"
       SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE: "true"
+      # 티켓링크 상세 화면을 그리는 헤드리스 크롬(renderer). 비우면 티켓링크는 링크 HTML 글자만 읽는다
+      MATJARI_AI_RENDERER_URL: ${AI_RENDERER_URL:-http://renderer:9222}
     volumes:
       - upload_data:/data/seat-claims
+    networks: [default, render]
+
+  # 티켓링크 상세(화면이 뜬 뒤 채워짐)를 그리는 헤드리스 Chromium. 백엔드만 닿는 render 네트워크에 두고 포트를 열지 않는다(DB 네트워크와 분리).
+  # update.ps1 의 up 때 없으면 빌드해 함께 띄운다(pull 대상 아님).
+  renderer:
+    # 배포 clone 의 소스로 이 PC 에서 빌드한다(MatJari/renderer: Debian Chromium 새 headless 모드). Dockerfile 을 바꾸면 up -d --build renderer
+    build: ./renderer
+    restart: unless-stopped
+    shm_size: 256m
+    mem_limit: 768m
+    networks: [render]
 
   web:
     image: ${IMAGE_PREFIX:-ghcr.io/nyejin}/matjari-web:${IMAGE_TAG:-latest}
@@ -87,6 +102,10 @@ services:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
     depends_on:
       - web
+
+networks:
+  default:
+  render:
 
 volumes:
   mysql_data:

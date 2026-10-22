@@ -131,15 +131,36 @@ class DetailExtractionServiceTest {
         assertThat(r.zones().get(1).shapePolygons()).isNull();
         assertThat(r.seatmapAspect()).isNotNull().isGreaterThan(0.0);
         assertThat(fake.secondCalls).isEqualTo(1);
-        assertThat(fake.lastPartCount % 2).isZero(); // 조각마다 텍스트+이미지
+        assertThat(fake.lastPartCount % 2).isOne(); // 본문 글자 1 + 조각마다 텍스트+이미지
     }
 
     @Test
-    void rulesWinOverAiSessions() {
+    void aiContextSessionsWinOverRulesAndRulesAreFallback() {
         when(parser.parse(any(), any(), any())).thenReturn(List.of(new ExtractedSession(LocalDate.of(2026, 11, 2), LocalTime.of(14, 0))));
         DetailExtractionService.Response r = service.extract(1L, MELON);
-        assertThat(r.sessionsSource()).isEqualTo("TEXT_RULE");
-        assertThat(r.sessions()).containsExactly(new DetailExtractionService.SessionDto("2026-11-02", "14:00"));
+        assertThat(r.sessionsSource()).isEqualTo("AI");
+        assertThat(r.sessions()).containsExactly(new DetailExtractionService.SessionDto("2026-11-01", "19:00"));
+        // AI 가 회차를 주지 못하면 규칙 결과를 쓴다
+        fake.firstResult = new DetailExtractor.FirstPass(List.of(), List.of("A구역"), new DetailExtractor.SeatMapLocation(false, 0, 0, 0));
+        DetailExtractionService.Response r2 = service.extract(2L, MELON2);
+        assertThat(r2.sessionsSource()).isEqualTo("TEXT_RULE");
+    }
+
+    @Test
+    void detailTextIsSentToAiWithTodayAndPeriod() {
+        when(preview.fetchPage(anyString(), anyString())).thenReturn(new PerformancePreviewService.FetchedPage(
+                Jsoup.parse("<html><body>평일 8시 / 토 3시·7시</body></html>"), LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 8)));
+        service.extract(1L, MELON);
+        assertThat(fake.firstParts.get(0).text()).contains("오늘(KST)").contains("2026-11-01 ~ 2026-11-08").contains("평일 8시 / 토 3시·7시");
+    }
+
+    @Test
+    void textOnlyPageStillReadsSessionsButNoZones() {
+        when(fetcher.fetch(anyString(), any())).thenReturn(List.of());
+        DetailExtractionService.Response r = service.extract(1L, MELON);
+        assertThat(fake.firstCalls).isEqualTo(1);
+        assertThat(r.sessions()).isNotEmpty();
+        assertThat(r.zones()).isEmpty();
     }
 
     @Test
@@ -281,7 +302,8 @@ class DetailExtractionServiceTest {
     @Test
     void noHintMeansNoExtraPart() {
         service.extract(1L, MELON);
-        assertThat(fake.firstParts.get(0).text()).startsWith("[이미지 1");
+        assertThat(fake.firstParts.get(0).text()).startsWith("[참고] 오늘"); // 본문 글자 다음에 이미지 조각
+        assertThat(fake.firstParts.get(1).text()).startsWith("[이미지 1");
     }
 
     @Test
@@ -316,8 +338,10 @@ class DetailExtractionServiceTest {
     }
 
     @Test
-    void noImagesMeansNoAiCallAndNoCount() throws IOException {
+    void noImagesAndNoTextMeansNoAiCallAndNoCount() throws IOException {
         when(fetcher.fetch(anyString(), any())).thenReturn(List.of());
+        when(preview.fetchPage(anyString(), anyString())).thenReturn(
+                new PerformancePreviewService.FetchedPage(Jsoup.parse("<html><body></body></html>"), null, null));
         DetailExtractionService.Response r = service.extract(1L, MELON);
         assertThat(r.aiEnabled()).isTrue();
         assertThat(r.sessionsSource()).isEqualTo("NONE");

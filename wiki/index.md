@@ -21,6 +21,7 @@ status: draft
 - [채팅 설계 근거 (REST 전송 + STOMP 수신)](decisions/chat-design.md): REST 전송 대 STOMP 전송, 읽음 포인터 대 메시지별 read_at, 시스템 메시지 저장 대 상단 배너, 종료 후 읽기 전용. 사용자 결정 4개 명시.
 
 - [링크 기반 공연정보 자동 입력 설계 근거](decisions/link-autofill-design.md): 3개 사이트 실측, 고정 템플릿 URL로 SSRF를 구조적으로 막은 이유, 회차 시각 미지원, 사용자 URL 요청+IP 고정 대안을 택하지 않은 이유, 한계.
+- [티켓팅 사이트별 공연정보 읽는 법](decisions/ticketing-site-reading.md): 멜론·인터파크(NOL)·티켓링크·YES24 각각 어디에 무엇이 있고 어떻게 가져오는지(고정 주소, robots, renderer, 봇 차단), AI 에 본문 글자+이미지를 넘겨 회차를 맥락으로 읽는 방식, 실측 비용.
 
 - [관리자 페이지 설계 근거](decisions/admin-design.md): 범위 확정 과정("다"의 해석), 수정 대상 제목·공연장만, 승인=기존 티켓 내림, 사진 처리 후 삭제, 알림 테이블 미사용 이유, 택하지 않은 대안, 한계.
 

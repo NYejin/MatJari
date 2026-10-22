@@ -28,16 +28,23 @@ enum TicketingSite {
      * [확인] http://ticket.interpark.com/Ticket/Goods/GoodsInfo.asp?GoodsCode=24013928 (구 형식 — 이 경로일 때만 GoodsCode 인정)
      * [추정] https://mobileticket.interpark.com/goods/24013928
      * [추정] https://nol.interpark.com/ticket/goods/24013928 (nol. 호스트는 /ticket/ 접두 경로만)
+     * [확인] https://nol.yanolja.com/ticket/products/26014836 (2026-10-22: tickets.interpark.com/goods/{id} 가 이 주소로 301,
+     *        같은 상품 번호. nol.yanolja.com 의 robots.txt 는 /ticket/ 을 허용한다 — 옛 인터파크 도메인은 모든 봇을 막아 요청하지 않는다)
      */
     INTERPARK("interpark",
             Set.of("tickets.interpark.com", "ticket.interpark.com", "mobileticket.interpark.com",
-                    "nol.interpark.com")) {
+                    "nol.interpark.com", "nol.yanolja.com")) {
         private final Pattern goodsPath = Pattern.compile("^/goods/(\\d{1,20})/?$", Pattern.CASE_INSENSITIVE);
         private final Pattern nolGoodsPath =
                 Pattern.compile("^/ticket/goods/(\\d{1,20})/?$", Pattern.CASE_INSENSITIVE);
+        private final Pattern nolProductsPath =
+                Pattern.compile("^/ticket/products/(\\d{1,20})/?$", Pattern.CASE_INSENSITIVE);
 
         @Override
         Optional<String> extractProductId(String host, String path, Map<String, String> query) {
+            if ("nol.yanolja.com".equals(host)) {
+                return group(nolProductsPath, path);
+            }
             if ("nol.interpark.com".equals(host)) {
                 return group(nolGoodsPath, path);
             }

@@ -16,7 +16,14 @@ import java.util.List;
 public class AiProperties {
 
     /** 상세 이미지를 받아도 되는 호스트(정확히 일치). */
-    private List<String> imageHosts = new ArrayList<>(List.of("cdnticket.melon.co.kr"));
+    private List<String> imageHosts = new ArrayList<>(List.of("cdnticket.melon.co.kr", "image.toast.com", "ticketimage.interpark.com"));
+    /**
+     * 티켓링크 상세 화면을 그릴 헤드리스 크롬(별도 renderer 컨테이너)의 DevTools 주소(예: http://renderer:9222).
+     * 비우면 티켓링크는 링크 HTML 글자만 쓴다(상세가 화면이 뜬 뒤에 채워진다).
+     */
+    private String rendererUrl = "";
+    /** 페이지 열기부터 화면이 채워질 때까지 기다리는 전체 제한. */
+    private long renderTimeoutMs = 20000;
     /** 한 번에 내려받아 보는 이미지 후보 수 상한. */
     private int maxCandidates = 4;
     /** 상세 이미지로 남기는 최대 개수. */
@@ -64,7 +71,8 @@ public class AiProperties {
     private int maxConcurrent = 2;
     private int cacheTtlHours = 168;
     private int cacheMaxEntries = 200;
-    private int firstMaxTokens = 4000;
+    /** 1차 읽기 출력 한도. 장기 공연은 회차가 수백 개라 넉넉히 둔다(초과하면 응답이 잘려 실패). */
+    private int firstMaxTokens = 16000;
     private int secondMaxTokens = 12000;
     /** 비어 있지 않으면 구역 모양 만들기 과정(좌석표 이미지·번호 이미지·AI 번호 응답)을 이 폴더에 저장한다(정확도 점검용, 운영에서는 비운다). */
     private String debugDir = "";

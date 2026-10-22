@@ -42,7 +42,7 @@ function Step($text, [scriptblock]$action) {
 }
 
 function RunningImages {
-    $ids = docker compose -f $compose ps -q backend web
+    $ids = docker compose -f $compose ps -q backend web renderer
     if (-not $ids) { return '' }
     (@($ids) | ForEach-Object { docker inspect --format '{{.Image}}' $_ }) -join ','
 }
@@ -72,7 +72,7 @@ try {
     }
 
     Step "backend·web 교체 (바뀐 것만 재시작, mysql·터널은 그대로)" {
-        docker compose -f $compose up -d backend web
+        docker compose -f $compose up -d backend web renderer
     }
 
     if ($DryRun) { Write-Host '    (dry-run) 교체 여부 확인·응답 확인은 건너뜀'; exit 0 }

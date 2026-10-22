@@ -101,11 +101,26 @@ class DetailImageFetcherTest {
 
     @Test
     void hostListIsConfigurableAndExact() {
-        props.setImageHosts(List.of("img.example.test"));
+        // 설정 목록에서 빼면 그 사이트 호스트도 거절, 사이트별 호스트가 아닌 주소는 목록에 있어도 거절
+        props.setImageHosts(List.of("image.toast.com", "img.example.test"));
         DetailImageFetcher f = new DetailImageFetcher(props);
         assertNull(f.validate(H + "/upload/product/a.jpg"));
-        assertEquals(URI.create("https://img.example.test/upload/product/a.jpg"),
-                f.validate("https://IMG.example.test/upload/product/a.jpg"));
+        assertNull(f.validate("https://img.example.test/upload/product/a.jpg"));
+        assertEquals(URI.create("https://IMAGE.toast.com/aaaaab/ticketlink/x.jpg"),
+                f.validate("ticketlink", "https://IMAGE.toast.com/aaaaab/ticketlink/x.jpg"));
+    }
+
+    @Test
+    void ticketlinkAndInterparkUseTheirOwnImageHostsAndPaths() {
+        DetailImageFetcher f = new DetailImageFetcher(props);
+        assertEquals(URI.create("https://image.toast.com/aaaaab/ticketlink/TKL_9/ST_INFO_1012.jpg"),
+                f.validate("ticketlink", "https://image.toast.com/aaaaab/ticketlink/TKL_9/ST_INFO_1012.jpg"));
+        assertNull(f.validate("ticketlink", "https://image.toast.com/other/x.jpg"));
+        assertNull(f.validate("ticketlink", H + "/upload/product/a.jpg"));
+        // 인터파크 본문은 http 주소로 적혀 있어 https 로 올려 받는다
+        assertEquals(URI.create("https://ticketimage.interpark.com/Play/image/etc/26/26014836-02.jpg"),
+                f.validate("interpark", "http://ticketimage.interpark.com/Play/image/etc/26/26014836-02.jpg"));
+        assertNull(f.validate("interpark", "https://evil.example.com/Play/image/etc/a.jpg"));
     }
 
     @Test

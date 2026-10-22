@@ -113,7 +113,10 @@ matjari:
     max-concurrent: ${MATJARI_LINKINFO_MAX_CONCURRENT:4}
   ai:
     # AI 공연 정보 추출의 입력부(상세 이미지 수집·조각내기). 이미지 호스트는 정확히 일치해야 하고 https 만 쓴다.
-    image-hosts: ${MATJARI_AI_IMAGE_HOSTS:cdnticket.melon.co.kr}
+    image-hosts: ${MATJARI_AI_IMAGE_HOSTS:cdnticket.melon.co.kr,image.toast.com,ticketimage.interpark.com}
+    # 티켓링크 상세는 화면이 뜬 뒤 채워져서 별도 renderer 컨테이너(헤드리스 크롬)로 그린 화면의 글자·이미지를 읽는다. 비우면 링크 HTML 글자만.
+    renderer-url: ${MATJARI_AI_RENDERER_URL:}
+    render-timeout-ms: ${MATJARI_AI_RENDER_TIMEOUT_MS:20000}
     slice-height: ${MATJARI_AI_SLICE_HEIGHT:1400}
     slice-overlap: ${MATJARI_AI_SLICE_OVERLAP:0.2}
     max-slices: ${MATJARI_AI_MAX_SLICES:24}

@@ -34,7 +34,7 @@ import java.util.regex.Pattern;
 public class DetailExtractionService {
 
     private static final Logger log = LoggerFactory.getLogger(DetailExtractionService.class);
-    private static final Pattern KEY = Pattern.compile("^(yes24|ticketlink|melon):(\\d{1,20})$");
+    private static final Pattern KEY = Pattern.compile("^(yes24|ticketlink|melon|interpark):(\\d{1,20})$");
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("uuuu-MM-dd").withResolverStyle(ResolverStyle.STRICT);
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm");
     static final int MAX_SESSIONS = 100;
@@ -112,6 +112,14 @@ public class DetailExtractionService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setCredit(AiCredit credit) {
         this.credit = credit;
+    }
+
+    /** 티켓링크 상세 화면 그리기(renderer 컨테이너). null 이거나 꺼져 있으면 티켓링크는 링크 HTML 글자만 쓴다. */
+    private DetailPageRenderer renderer;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setRenderer(DetailPageRenderer renderer) {
+        this.renderer = renderer;
     }
 
     /** 사람이 검수한 구역 정답(정답검수 탭). null 이면 쓰지 않는다. */
@@ -211,7 +219,7 @@ public class DetailExtractionService {
         String key = sourceKeyResolver.resolve(sourceUrl); // 형식 오류는 400(FieldValidationException)
         Matcher m = KEY.matcher(key);
         if (!m.matches()) {
-            throw new AiExtractException(400, "UNSUPPORTED_SITE", "지원하지 않는 사이트예요. YES24·티켓링크·멜론티켓 링크만 읽을 수 있어요.", 0);
+            throw new AiExtractException(400, "UNSUPPORTED_SITE", "지원하지 않는 사이트예요. YES24·티켓링크·멜론티켓·인터파크(NOL) 링크만 읽을 수 있어요.", 0);
         }
         String site = m.group(1);
         // 검수 정답이 있는 상품은 예전 AI 보관 결과보다 검수 정답을 먼저 확인한다
@@ -260,12 +268,22 @@ public class DetailExtractionService {
             return build(ruleSessions, List.of(), List.of(), null, false, false, false);
         }
 
-        // 이미지 수집·조각내기(AI 호출 전이라 횟수에 세지 않는다). 멜론만 지원한다.
+        // 티켓링크는 상세 내용이 화면이 뜬 뒤에 채워져서 renderer(헤드리스 크롬)로 그린 화면의 글자·이미지를 쓴다
+        DetailPageRenderer.Rendered rendered = null;
+        if ("ticketlink".equals(site) && renderer != null && renderer.available()) {
+            rendered = renderer.renderTicketlink(m.group(2));
+        }
+        // AI 에 함께 보낼 상세 본문 글자(회차 맥락 읽기용, 사용자 지시 2026-10-22)
+        String detailText = detailText(rendered != null ? rendered.text() : page.document().body() == null ? "" : page.document().body().text());
+
+        // 이미지 수집·조각내기(AI 호출 전이라 횟수에 세지 않는다). 멜론은 받은 페이지, 티켓링크는 그린 화면에서 찾는다.
         List<DetailImageFetcher.DetailImage> images = new ArrayList<>();
         List<ImageSlicer.SliceResult> sliced = new ArrayList<>();
-        if ("melon".equals(site)) {
+        org.jsoup.nodes.Document imagePage = "melon".equals(site) || "interpark".equals(site) ? page.document()
+                : rendered != null ? rendered.document() : null;
+        if (imagePage != null) {
             try {
-                for (DetailImageFetcher.DetailImage img : imageFetcher.fetch(site, page.document())) {
+                for (DetailImageFetcher.DetailImage img : imageFetcher.fetch(site, imagePage)) {
                     try {
                         ImageSlicer.SliceResult r = slicer.slice(img.bytes());
                         if (!r.slices().isEmpty()) {
@@ -280,7 +298,7 @@ public class DetailExtractionService {
                 log.info("상세 이미지 수집 실패: {}", e.getClass().getSimpleName());
             }
         }
-        if (images.isEmpty()) {
+        if (images.isEmpty() && detailText.isBlank()) {
             Response r = build(ruleSessions, List.of(), List.of(), null, true, false, false);
             cacheIfUseful(key, r);
             return r;
@@ -294,6 +312,9 @@ public class DetailExtractionService {
             parts.add(DetailExtractor.Part.ofText("[참고] 같은 공연장에서 이전에 등록된 공연의 좌석 구역 이름: " + String.join(", ", hint)
                     + " / 공연마다 무대·좌석 배치가 다를 수 있으니 이 목록은 철자와 번호 체계 참고용이다. 이미지의 좌석표에 실제로 보이는 구역만 적어라."));
             log.info("AI 1차 읽기: 같은 공연장 구역 이름 {}개 참고", hint.size());
+        }
+        if (!detailText.isBlank()) {
+            parts.add(DetailExtractor.Part.ofText(contextHeader(page) + "\n[상세 본문 글자]\n" + detailText));
         }
         int sliceCount = 0;
         for (int n = 0; n < sliced.size(); n++) {
@@ -316,7 +337,7 @@ public class DetailExtractionService {
         try (permit) {
             DetailExtractor.FirstPass first = extractor.first(parts);
             aiSessions = cleanSessions(first.sessions(), page.periodStart(), page.periodEnd());
-            List<String> names = cleanNames(first.zones());
+            List<String> names = images.isEmpty() ? List.of() : cleanNames(first.zones()); // 글자만 읽었으면 구역은 쓰지 않는다
             List<DetailExtractor.RawZone> shapes = List.of();
             DetailExtractor.SeatMapLocation loc = first.seatMap();
             if (loc != null && loc.found() && !names.isEmpty() && loc.imageIndex() >= 1 && loc.imageIndex() <= images.size()) {
@@ -531,6 +552,27 @@ public class DetailExtractionService {
         Response r = build(List.of(), List.of(), zones, aspect, true, false, false);
         cacheIfUseful(key, r);
         return r;
+    }
+
+    /** AI 에 보낼 본문 글자: 공백을 줄이고 최대 MAX_DETAIL_TEXT 자. */
+    static String detailText(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String t = raw.replaceAll("[\\s\\u00a0]+", " ").trim();
+        return t.length() > MAX_DETAIL_TEXT ? t.substring(0, MAX_DETAIL_TEXT) : t;
+    }
+
+    static final int MAX_DETAIL_TEXT = 8000;
+
+    /** 연도·기간 판단을 돕는 머리말: 오늘 날짜(KST)와 링크에서 읽은 공연 기간. */
+    private String contextHeader(PerformancePreviewService.FetchedPage page) {
+        StringBuilder sb = new StringBuilder("[참고] 오늘(KST): ").append(LocalDate.now(clock));
+        if (page.periodStart() != null) {
+            sb.append(" / 링크에 적힌 공연 기간: ").append(page.periodStart()).append(" ~ ")
+                    .append(page.periodEnd() == null ? page.periodStart() : page.periodEnd());
+        }
+        return sb.toString();
     }
 
     private static String sha256Hex(byte[] bytes) {
@@ -1772,12 +1814,13 @@ public class DetailExtractionService {
                            boolean aiEnabled, boolean aiError, boolean truncated) {
         List<SessionDto> sessions;
         String source;
-        if (!rule.isEmpty()) {
-            sessions = rule;
-            source = "TEXT_RULE";
-        } else if (!ai.isEmpty()) {
+        // AI 가 본문 글자와 이미지의 맥락으로 읽은 회차를 먼저 쓰고, 규칙(정규식) 결과는 AI 가 못 줄 때만 쓴다(사용자 지시 2026-10-22)
+        if (!ai.isEmpty()) {
             sessions = ai;
             source = "AI";
+        } else if (!rule.isEmpty()) {
+            sessions = rule;
+            source = "TEXT_RULE";
         } else {
             sessions = List.of();
             source = "NONE";

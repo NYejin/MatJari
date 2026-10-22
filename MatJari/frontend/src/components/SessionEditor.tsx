@@ -9,7 +9,7 @@ import {
 } from "../api/dateTime";
 import { SESSION_CHANGES_MAX, type SessionChangeRequest } from "../api/editProposals";
 import type { PerformanceSession } from "../types/performance";
-import { button, input, ui } from "./ui";
+import { useTokens } from "./density";
 
 // 공연 수정 제안의 '회차 수정' 입력. 현재 회차는 값 변경(CHANGE)·삭제 토글(REMOVE), 새 줄은 ADD.
 // 사전 검사는 서버 규칙과 같다: 10분 단위, 지난 시각 불가, 같은 시각 중복 불가, 남는 회차 1개 이상, 빈 ADD 줄 무시.
@@ -117,6 +117,7 @@ interface Props {
 }
 
 export default function SessionEditor({ rows, onChange, rowErrors, formError, disabled, lockedIds, title, hint }: Props) {
+  const { button, input, ui } = useTokens();
   const baseId = useId();
   const update = (key: string, patch: Partial<SessionRow>) =>
     onChange(rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));

@@ -12,7 +12,7 @@ import {
 } from "../api/zones";
 import { polygonsBox } from "../api/zoomMath";
 import ZoomableSeatmap from "./ZoomableSeatmap";
-import { button, input, ui } from "./ui";
+import { useTokens } from "./density";
 
 // 공연 등록 2단계의 "구역 확인" — 이름 수정·삭제·직접 추가와 (모양이 있으면) 작은 SVG 미리보기.
 // 이름을 고쳐도 모양은 유지하고, 구역을 지우면 모양도 함께 사라진다. 반드시 모듈 최상위 컴포넌트로 쓴다.
@@ -30,6 +30,7 @@ export const ZONE_ADD_INPUT_ID = "perf-zone-add";
 export const zoneNameInputId = (id: number) => `perf-zone-${id}`;
 
 export default function ZoneEditor({ rows, aspect, onChange, disabled = false, serverError }: ZoneEditorProps) {
+  const { button, input, ui } = useTokens();
   const [draft, setDraft] = useState("");
   const [addError, setAddError] = useState<string>();
   const [active, setActive] = useState<number | null>(null);

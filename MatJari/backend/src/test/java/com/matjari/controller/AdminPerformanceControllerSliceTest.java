@@ -59,6 +59,8 @@ class AdminPerformanceControllerSliceTest {
     private CustomUserDetailsService userDetailsService;
     @MockBean
     private AdminPerformanceService service;
+    @MockBean
+    private com.matjari.service.aiextract.DetailExtractionService extractionService;
 
     @BeforeEach
     void setUp() {

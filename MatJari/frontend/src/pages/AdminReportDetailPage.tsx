@@ -227,7 +227,7 @@ function Evidence({ reportId }: { reportId: number }) {
               <p className={ui.muted}>
                 {m.senderNickname} · {formatKstDateTime(m.createdAt)}
               </p>
-              <p className="text-[0.9375rem]/[1.5] break-words whitespace-pre-wrap text-gray-900">{m.content}</p>
+              <p className="text-xs/[1.5] break-words whitespace-pre-wrap text-gray-900">{m.content}</p>
             </li>
           ))}
         </ul>
@@ -318,7 +318,7 @@ function ProcessForm({
             </p>
           </div>
 
-          <label className="flex min-h-11 items-center gap-2 text-[0.9375rem] text-gray-900">
+          <label className="flex min-h-7 items-center gap-2 text-xs text-gray-900">
             <input
               type="checkbox"
               className="size-5"
@@ -335,7 +335,7 @@ function ProcessForm({
                 <legend className={ui.label}>정지 기간</legend>
                 <div className="flex flex-wrap gap-4">
                   {DAYS_OPTIONS.map((d) => (
-                    <label key={d.value} className="flex min-h-11 items-center gap-2 text-[0.9375rem] text-gray-900">
+                    <label key={d.value} className="flex min-h-7 items-center gap-2 text-xs text-gray-900">
                       <input
                         type="radio"
                         name="sanction-days"

@@ -218,6 +218,51 @@ class DetailExtractionServiceTest {
         assertThat(r.zones()).extracting(DetailExtractionService.ZoneDto::name).containsExactly("A구역", "B구역");
     }
 
+    private DetailExtractionService serviceWithRealImageCheck() {
+        Clock clock = Clock.fixed(Instant.parse("2026-10-18T03:00:00Z"), ZoneId.of("Asia/Seoul"));
+        return new DetailExtractionService(new SourceKeyResolver(), preview, parser, new DetailImageFetcher(props), new ImageSlicer(props),
+                new ShapeSegmenter(), fake, new AiUsageLimiter(clock, props), props, clock);
+    }
+
+    @Test
+    void seatMapUploadReadsZonesCountsMonthlyAndCachesByImage() throws IOException {
+        DetailExtractionService svc = serviceWithRealImageCheck();
+        byte[] img = png(800, 600);
+        DetailExtractionService.Response r = svc.extractSeatMap(1L, img);
+        assertThat(r.sessions()).isEmpty();
+        assertThat(r.zones()).extracting(DetailExtractionService.ZoneDto::name).containsExactly("A구역", "B 구역");
+        assertThat(fake.firstParts.get(0).text()).contains("사용자가 올린 좌석표");
+        assertThat(svc.quota(1L).remaining()).isZero(); // [불러오기]와 같은 월 횟수
+        assertThat(svc.extractSeatMap(1L, img).cached()).isTrue(); // 같은 이미지는 다시 세지 않는다
+        assertThat(fake.firstCalls).isEqualTo(1);
+        assertThatThrownBy(() -> svc.extractSeatMap(1L, png(800, 601)))
+                .isInstanceOfSatisfying(DetailExtractionService.AiExtractException.class, e -> assertThat(e.getCode()).isEqualTo("AI_MONTHLY_LIMIT_REACHED"));
+    }
+
+    @Test
+    void seatMapUploadRejectsNonImageAndRefundsOnAiFailure() throws IOException {
+        DetailExtractionService svc = serviceWithRealImageCheck();
+        assertThatThrownBy(() -> svc.extractSeatMap(1L, "not an image".getBytes()))
+                .isInstanceOfSatisfying(DetailExtractionService.AiExtractException.class, e -> assertThat(e.getCode()).isEqualTo("IMAGE_UNSUPPORTED"));
+        assertThatThrownBy(() -> svc.extractSeatMap(1L, new byte[0]))
+                .isInstanceOfSatisfying(DetailExtractionService.AiExtractException.class, e -> assertThat(e.getCode()).isEqualTo("IMAGE_REQUIRED"));
+        fake.failFirst = true;
+        assertThatThrownBy(() -> svc.extractSeatMap(1L, png(800, 600)))
+                .isInstanceOfSatisfying(DetailExtractionService.AiExtractException.class, e -> assertThat(e.getStatus()).isEqualTo(503));
+        assertThat(svc.quota(1L).remaining()).isEqualTo(1);
+    }
+
+    @Test
+    void adminReextractIgnoresCacheAndMonthlyLimitAndSkipsVenueHint() throws IOException {
+        service.extract(1L, MELON); // 일반 사용자 결과가 보관됨, 월 1회 소진
+        DetailExtractionService.Response again = service.extractForAdmin(MELON);
+        assertThat(again.cached()).isFalse();
+        assertThat(fake.firstCalls).isEqualTo(2);
+        service.extractForAdmin(MELON2); // 관리자는 월 횟수와 무관
+        assertThat(fake.firstCalls).isEqualTo(3);
+        assertThat(serviceWithRealImageCheck().extractSeatMapForAdmin(png(500, 500)).cached()).isFalse();
+    }
+
     @Test
     void noHintMeansNoExtraPart() {
         service.extract(1L, MELON);

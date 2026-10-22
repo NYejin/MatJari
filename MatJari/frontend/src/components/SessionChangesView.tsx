@@ -1,6 +1,6 @@
 import type { SessionChange } from "../api/editProposals";
 import { formatKstDateTime } from "../api/dateTime";
-import { ui } from "./ui";
+import { useTokens } from "./density";
 
 // 수정 제안의 '회차 변경' 블록 (관리자 화면·내 수정 제안 공용). 변경이 없으면 아무것도 그리지 않는다.
 // 추가: 새 시각 / 변경: 기존 시각 → 새 시각 / 삭제: 기존 시각
@@ -8,6 +8,7 @@ import { ui } from "./ui";
 const when = (value: string | null) => (value ? formatKstDateTime(value) : "(알 수 없음)");
 
 export default function SessionChangesView({ changes }: { changes: SessionChange[] }) {
+  const { ui } = useTokens();
   if (changes.length === 0) return null;
   return (
     <div className="flex flex-col gap-1">

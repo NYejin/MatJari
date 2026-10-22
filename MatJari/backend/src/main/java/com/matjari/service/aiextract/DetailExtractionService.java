@@ -148,13 +148,26 @@ public class DetailExtractionService {
     }
 
     public Response extract(Long userId, String sourceUrl) {
+        return extract(userId, sourceUrl, false);
+    }
+
+    /**
+     * 관리자 다시 인식(공연 관리 → 구역 다시 불러오기): 보관 결과를 읽지 않고 새로 읽으며, 월 횟수는 세지 않는다.
+     * 성공하면 보관 결과를 새 결과로 덮는다(잘못 읽힌 결과가 다른 등록자에게 다시 나가지 않게). 같은 공연장 참고 이름은 쓰지 않는다
+     * (다시 읽는 공연 자신의 잘못된 구역이 참고로 들어갈 수 있다). 결과는 화면에서 확인한 뒤 구역 교체 API 로만 저장된다.
+     */
+    public Response extractForAdmin(String sourceUrl) {
+        return extract(null, sourceUrl, true);
+    }
+
+    private Response extract(Long userId, String sourceUrl, boolean admin) {
         String key = sourceKeyResolver.resolve(sourceUrl); // 형식 오류는 400(FieldValidationException)
         Matcher m = KEY.matcher(key);
         if (!m.matches()) {
             throw new AiExtractException(400, "UNSUPPORTED_SITE", "지원하지 않는 사이트예요. YES24·티켓링크·멜론티켓 링크만 읽을 수 있어요.", 0);
         }
         String site = m.group(1);
-        Response hit = cacheGet(key);
+        Response hit = admin ? null : cacheGet(key);
         if (hit != null) {
             return hit.asCached();
         }
@@ -214,7 +227,7 @@ public class DetailExtractionService {
         boolean truncated = sliced.stream().anyMatch(ImageSlicer.SliceResult::truncated);
         List<DetailExtractor.Part> parts = new ArrayList<>();
         // 구역이 많은 공연장: 같은 공연장에 등록된 공연의 구역 이름을 참고로 준다(배치가 다를 수 있어 이미지에 보이는 것만 적게 한다)
-        List<String> hint = venueHints == null ? List.of() : venueHints.namesFor(page.venue());
+        List<String> hint = admin || venueHints == null ? List.of() : venueHints.namesFor(page.venue());
         if (!hint.isEmpty()) {
             parts.add(DetailExtractor.Part.ofText("[참고] 같은 공연장에서 이전에 등록된 공연의 좌석 구역 이름: " + String.join(", ", hint)
                     + " / 공연마다 무대·좌석 배치가 다를 수 있으니 이 목록은 철자와 번호 체계 참고용이다. 이미지의 좌석표에 실제로 보이는 구역만 적어라."));
@@ -237,7 +250,7 @@ public class DetailExtractionService {
         int cropW = 0;
         int cropH = 0;
         boolean aiError = false;
-        AiUsageLimiter.Permit permit = limiter.acquire(userId, key);
+        AiUsageLimiter.Permit permit = admin ? limiter.acquireAdmin(key) : limiter.acquire(userId, key);
         try (permit) {
             DetailExtractor.FirstPass first = extractor.first(parts);
             aiSessions = cleanSessions(first.sessions(), page.periodStart(), page.periodEnd());
@@ -355,6 +368,115 @@ public class DetailExtractionService {
             cacheIfUseful(key, r);
         }
         return r;
+    }
+
+    /**
+     * 사용자가 올린 좌석표 이미지 한 장에서 구역 이름·모양을 읽는다(등록 2단계에서 구역 지도를 자동으로 얻지 못했을 때, 사용자 결정 2026-10-22).
+     * 이미지는 저장하지 않고 요청 처리 중 메모리에서만 쓴다(결과 보관 키는 이미지 SHA-256 이라 같은 이미지는 다시 세지 않는다).
+     * 횟수는 [불러오기]와 같은 월 3회에서 세고, AI 가 읽지 못하면 돌려준다. 회차는 읽지 않는다.
+     */
+    public Response extractSeatMap(Long userId, byte[] bytes) {
+        return extractSeatMap(userId, bytes, false);
+    }
+
+    /** 관리자 좌석표 이미지 인식(공연 관리): 월 횟수를 세지 않고 보관 결과를 읽지 않는다. */
+    public Response extractSeatMapForAdmin(byte[] bytes) {
+        return extractSeatMap(null, bytes, true);
+    }
+
+    private Response extractSeatMap(Long userId, byte[] bytes, boolean admin) {
+        if (bytes == null || bytes.length == 0) {
+            throw new AiExtractException(400, "IMAGE_REQUIRED", "좌석표 이미지를 골라 주세요.", 0);
+        }
+        if (bytes.length > properties.getMaxImageBytes()) {
+            throw new AiExtractException(400, "IMAGE_TOO_LARGE", "이미지가 너무 커요.", 0);
+        }
+        int[] size = imageFetcher.readSize(bytes); // JPEG·PNG 헤더만 읽는다(픽셀 수 상한 포함)
+        if (size == null) {
+            throw new AiExtractException(400, "IMAGE_UNSUPPORTED", "JPEG·PNG 이미지만 읽을 수 있어요.", 0);
+        }
+        if (!(properties.isEnabled() && extractor.available())) {
+            throw new AiExtractException(503, "AI_UNAVAILABLE", "지금은 AI로 읽을 수 없어요. 구역을 직접 입력해 주세요.", 0);
+        }
+        String key = "upload:" + sha256Hex(bytes);
+        Response hit = admin ? null : cacheGet(key);
+        if (hit != null) {
+            return hit.asCached();
+        }
+        ImageSlicer.SliceImage target;
+        try {
+            target = slicer.crop(bytes, 0, size[1]); // 폭을 줄이고 JPEG 로 다시 만든다(높이는 cropMaxHeight 까지)
+        } catch (RuntimeException e) {
+            throw new AiExtractException(400, "IMAGE_UNSUPPORTED", "JPEG·PNG 이미지만 읽을 수 있어요.", 0);
+        }
+
+        long started = System.nanoTime();
+        List<ZoneDto> zones = List.of();
+        Double aspect = null;
+        boolean aiError = false;
+        AiUsageLimiter.Permit permit = admin ? limiter.acquireAdmin(key) : limiter.acquire(userId, key);
+        try (permit) {
+            DetailExtractor.FirstPass first = extractor.first(List.of(
+                    DetailExtractor.Part.ofText("[이미지 1 · 조각 1/1] 사용자가 올린 좌석표 이미지"),
+                    DetailExtractor.Part.ofImage(target.jpeg())));
+            List<String> names = cleanNames(first.zones());
+            List<DetailExtractor.RawZone> shapes = List.of();
+            if (!names.isEmpty()) {
+                try {
+                    shapes = labelShapes(target, names);
+                    if (!shapes.isEmpty()) {
+                        names = extendNames(names, shapes);
+                    } else {
+                        shapes = extractor.second(target.jpeg(), names);
+                    }
+                    if (!shapeQualityOk(names, shapes)) {
+                        shapes = extractor.second(target.jpeg(), names);
+                        if (!shapeQualityOk(names, shapes)) {
+                            shapes = List.of();
+                        }
+                    }
+                    shapes = ShapeRegularizer.regularize(shapes);
+                    aspect = Math.round(target.width() * 1000.0 / target.height()) / 1000.0;
+                } catch (RuntimeException e) { // 모양 실패해도 이름은 유지
+                    log.info("좌석표 이미지 모양 읽기 실패, 이름만 유지: {}", e.getClass().getSimpleName());
+                    shapes = List.of();
+                    aspect = null;
+                }
+            }
+            zones = mergeZones(names, shapes);
+            if (aspect != null) {
+                FitResult fit = fitToBounds(zones, target.width(), target.height());
+                if (fit != null) {
+                    zones = fit.zones();
+                    aspect = fit.aspect();
+                }
+            }
+            if (aspect != null && zones.stream().noneMatch(z -> z.shapePolygons() != null)) {
+                aspect = null;
+            }
+        } catch (AiExtractException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            aiError = true;
+            log.info("좌석표 이미지 AI 읽기 실패: {}", e.getClass().getSimpleName());
+        }
+        log.info("좌석표 이미지 읽기 완료: {}ms, {}x{}, zones={}, aiError={}",
+                (System.nanoTime() - started) / 1_000_000, target.width(), target.height(), zones.size(), aiError);
+        if (aiError) {
+            permit.refund();
+            throw new AiExtractException(503, "AI_UNAVAILABLE", "AI로 좌석표를 읽지 못했어요. 잠시 후 다시 시도하거나 구역을 직접 입력해 주세요.", 0);
+        }
+        Response r = build(List.of(), List.of(), zones, aspect, true, false, false);
+        cacheIfUseful(key, r);
+        return r;
+    }
+
+    private static String sha256Hex(byte[] bytes) {
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     /**

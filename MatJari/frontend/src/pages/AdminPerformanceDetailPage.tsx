@@ -8,13 +8,18 @@ import {
   ADMIN_PERFORMANCE_CODE_MESSAGES,
   ADMIN_REASON_MAX,
   adminPerformancesApi,
+  type AdminExchangePage,
+  type AdminExchangeSide,
   type AdminPerformanceDetail,
+  type MatchStatus,
 } from "../api/adminPerformances";
 import { toPayloadZones, toZoneRows, validateZoneRows, type ZoneRow } from "../api/zones";
 import SessionEditor, { checkSessionChanges, initialSessionRows, type SessionRow } from "../components/SessionEditor";
 import TextField from "../components/TextField";
 import ZoneEditor from "../components/ZoneEditor";
-import { button, input, linkButton, liveRegionClass, ui } from "../components/adminUi";
+import SeatmapUpload from "../components/SeatmapUpload";
+import type { AiExtractResult } from "../types/performance";
+import { button, input, linkButton, liveRegionClass, tbl, tone, ui } from "../components/adminUi";
 
 // 관리자 공연 관리 상세 (/admin/performances/:id): 정보 수정·숨김·회차·구역. 모든 변경은 사유가 필요하다.
 
@@ -113,6 +118,7 @@ export default function AdminPerformanceDetailPage() {
           <SessionsCard detail={d} onUpdated={updated} />
           <ZonesCard detail={d} onUpdated={updated} />
         </div>
+        <ExchangesCard performanceId={d.id} />
       </>
     );
   }
@@ -512,6 +518,34 @@ function SessionsCard({ detail, onUpdated }: CardProps) {
 
 function ZonesCard({ detail, onUpdated }: CardProps) {
   const [rows, setRows] = useState<ZoneRow[]>(() => toZoneRows(detail.zones));
+  const [aspect, setAspect] = useState<number | null>(detail.seatmapAspect);
+  const [aiBusy, setAiBusy] = useState<"link" | "image" | null>(null);
+  const [aiNote, setAiNote] = useState("");
+
+  /** 다시 인식: 결과로 편집 목록을 통째로 바꾼다(저장은 아래 사유 + 구역 저장으로만). 월 횟수는 세지 않는다 */
+  const recognize = async (kind: "link" | "image", run: () => Promise<AiExtractResult>) => {
+    if (aiBusy || busyRef.current) return;
+    setAiBusy(kind);
+    setAiNote("");
+    setError(null);
+    setDone("");
+    try {
+      const r = await run();
+      const zones = r.zones ?? [];
+      if (zones.length === 0) {
+        setAiNote("구역을 읽지 못했어요. 기존 목록은 그대로예요.");
+        return;
+      }
+      setRows(toZoneRows(zones));
+      setAspect(typeof r.seatmapAspect === "number" && r.seatmapAspect > 0 ? r.seatmapAspect : null);
+      const shaped = zones.filter((z) => z.shapePolygons && z.shapePolygons.length > 0).length;
+      setAiNote(`구역 ${zones.length}개(모양 ${shaped}개)를 읽어 아래 목록을 바꿨어요. 아직 저장 전이에요 — 지도를 확인하고 사유를 적어 저장하세요.`);
+    } catch (err) {
+      setError(errorText(err, "구역을 다시 인식하지 못했습니다."));
+    } finally {
+      setAiBusy(null);
+    }
+  };
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -538,10 +572,12 @@ function ZonesCard({ detail, onUpdated }: CardProps) {
     try {
       const saved = await adminPerformancesApi.replaceZones(detail.id, {
         zones: toPayloadZones(rows),
-        seatmapAspect: detail.seatmapAspect,
+        seatmapAspect: aspect,
         reason: reason.trim(),
       });
       setRows(toZoneRows(saved.zones));
+      setAspect(saved.seatmapAspect);
+      setAiNote("");
       setReason("");
       setDone("구역을 저장했어요.");
       onUpdated(saved);
@@ -559,13 +595,182 @@ function ZonesCard({ detail, onUpdated }: CardProps) {
         <p className={ui.hint}>
           저장하면 구역 목록 전체가 지금 화면의 목록으로 바뀌어요. 이름을 고쳐도 모양은 유지되고, 구역을 지우면 모양도 사라져요. 모두 지우면 구역이 없는 공연이 돼요.
         </p>
-        <ZoneEditor rows={rows} aspect={detail.seatmapAspect} onChange={setRows} disabled={busy} />
+        <div className="flex flex-wrap items-start gap-2">
+          <button
+            type="button"
+            className={button.outline}
+            disabled={aiBusy !== null || busy}
+            aria-busy={aiBusy === "link"}
+            onClick={() => void recognize("link", () => adminPerformancesApi.reextractZones(detail.id))}
+          >
+            {aiBusy === "link" ? "링크에서 읽는 중..." : "링크에서 다시 인식"}
+          </button>
+          <SeatmapUpload
+            buttonClass={button.outline}
+            errorClass={ui.fieldError}
+            label="좌석표 이미지로 인식"
+            busy={aiBusy === "image"}
+            disabled={(aiBusy !== null && aiBusy !== "image") || busy}
+            onFile={(f) => void recognize("image", () => adminPerformancesApi.seatmapZones(detail.id, f))}
+          />
+          <p className={`${ui.hint} basis-full`}>
+            AI로 다시 읽어 아래 목록을 바꿔요(보관된 결과를 쓰지 않고 새로 읽음, 월 횟수 없음, 하루 전체 상한은 적용). 저장하기 전에는 공연에 반영되지 않아요.
+          </p>
+          {aiNote && (
+            <p className={`${ui.notice} basis-full`} role="status">
+              {aiNote}
+            </p>
+          )}
+        </div>
+        <ZoneEditor rows={rows} aspect={aspect} onChange={setRows} disabled={busy || aiBusy !== null} />
         <ReasonField id="admin-perf-zones-reason" value={reason} onChange={setReason} disabled={busy} error={reasonError} />
         <Feedback done={done} error={error} />
         <button type="submit" className={`${button.solid} self-start`} disabled={busy} aria-busy={busy}>
           {busy ? "저장 중..." : "구역 저장"}
         </button>
       </form>
+    </SectionCard>
+  );
+}
+
+// ---- ⑤ 교환 목록 ----
+
+const MATCH_STATUS_LABEL: Record<MatchStatus, string> = {
+  CHATTING: "채팅 중",
+  RESERVED: "예약 중",
+  COMPLETED: "교환 완료",
+  CANCELED: "종료",
+};
+const MATCH_STATUS_TONE: Record<MatchStatus, string> = {
+  CHATTING: tone.info,
+  RESERVED: tone.warn,
+  COMPLETED: tone.ok,
+  CANCELED: tone.mute,
+};
+const MATCH_FILTERS: (MatchStatus | "ALL")[] = ["ALL", "CHATTING", "RESERVED", "COMPLETED", "CANCELED"];
+
+function SideCell({ side }: { side: AdminExchangeSide }) {
+  return (
+    <>
+      <Link to={`/admin/users/${side.userId}`} className={ui.link}>
+        {side.nickname}
+      </Link>
+      <div className="whitespace-nowrap">
+        {side.zone} {side.row}열 {side.col}번
+      </div>
+      <div className={`${ui.muted} whitespace-nowrap`}>
+        {formatKstDateTime(side.sessionStartsAt)}
+        {side.completedAt && " · 수락함"}
+      </div>
+    </>
+  );
+}
+
+function ExchangesCard({ performanceId }: { performanceId: number }) {
+  const [status, setStatus] = useState<MatchStatus | "ALL">("ALL");
+  const [page, setPage] = useState(0);
+  const [data, setData] = useState<AdminExchangePage | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setError(null);
+    adminPerformancesApi
+      .exchanges(performanceId, { status, page }, controller.signal)
+      .then(setData)
+      .catch((err: unknown) => {
+        if (!controller.signal.aborted) setError(parseApiError(err, "교환 목록을 불러오지 못했습니다.").message);
+      });
+    return () => controller.abort();
+  }, [performanceId, status, page]);
+
+  const counts = data?.statusCounts;
+  const total = counts ? Object.values(counts).reduce((a, b) => a + b, 0) : 0;
+  const p = data?.page;
+
+  return (
+    <SectionCard titleId="admin-perf-exchanges" title={`교환 ${total}건`}>
+      <div className="flex flex-wrap items-center gap-1" role="group" aria-label="교환 상태 필터">
+        {MATCH_FILTERS.map((f) => (
+          <button
+            key={f}
+            type="button"
+            className={status === f ? button.solid : button.outline}
+            aria-pressed={status === f}
+            onClick={() => {
+              setStatus(f);
+              setPage(0);
+            }}
+          >
+            {f === "ALL" ? `전체 ${total}` : `${MATCH_STATUS_LABEL[f]} ${counts?.[f] ?? 0}`}
+          </button>
+        ))}
+        <span className={`${ui.hint} ml-1`}>최근 변경순 · 좌석은 교환 전 자리 · A는 채팅을 연 쪽</span>
+      </div>
+      {error && (
+        <p className={ui.errorBox} role="alert">
+          {error}
+        </p>
+      )}
+      {!data && !error && (
+        <p className={ui.status} role="status">
+          불러오는 중...
+        </p>
+      )}
+      {p && p.content.length === 0 && <p className={ui.muted}>교환 기록이 없어요.</p>}
+      {p && p.content.length > 0 && (
+        <div className={tbl.wrap}>
+          <table className={tbl.table}>
+            <thead>
+              <tr>
+                <th className={tbl.th}>#</th>
+                <th className={tbl.th}>상태</th>
+                <th className={tbl.th}>A</th>
+                <th className={tbl.th}>B</th>
+                <th className={tbl.th}>메시지</th>
+                <th className={tbl.th}>시작</th>
+                <th className={tbl.th}>예약</th>
+                <th className={tbl.th}>종료</th>
+                <th className={tbl.th}>최근 변경</th>
+              </tr>
+            </thead>
+            <tbody>
+              {p.content.map((m) => (
+                <tr key={m.matchId} className={tbl.tr}>
+                  <td className={tbl.num}>{m.matchId}</td>
+                  <td className={tbl.td}>
+                    <span className={MATCH_STATUS_TONE[m.status]}>{MATCH_STATUS_LABEL[m.status]}</span>
+                  </td>
+                  <td className={tbl.td}>
+                    <SideCell side={m.a} />
+                  </td>
+                  <td className={tbl.td}>
+                    <SideCell side={m.b} />
+                  </td>
+                  <td className={tbl.num}>{m.messageCount}</td>
+                  <td className={`${tbl.td} whitespace-nowrap`}>{formatKstDateTime(m.createdAt)}</td>
+                  <td className={`${tbl.td} whitespace-nowrap`}>{m.reservedAt ? formatKstDateTime(m.reservedAt) : "-"}</td>
+                  <td className={`${tbl.td} whitespace-nowrap`}>{m.canceledAt ? formatKstDateTime(m.canceledAt) : "-"}</td>
+                  <td className={`${tbl.td} whitespace-nowrap`}>{formatKstDateTime(m.updatedAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {p && p.totalPages > 1 && (
+        <div className="flex items-center gap-2">
+          <button type="button" className={button.outline} disabled={page <= 0} onClick={() => setPage((x) => x - 1)}>
+            이전
+          </button>
+          <span className={ui.muted}>
+            {page + 1} / {p.totalPages}
+          </span>
+          <button type="button" className={button.outline} disabled={page + 1 >= p.totalPages} onClick={() => setPage((x) => x + 1)}>
+            다음
+          </button>
+        </div>
+      )}
     </SectionCard>
   );
 }

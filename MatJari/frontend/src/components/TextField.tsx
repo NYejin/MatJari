@@ -1,6 +1,7 @@
 import type { InputHTMLAttributes } from "react";
 import { input, ui } from "./ui";
 import { input as denseInput, ui as denseUi } from "./adminUi";
+import { useDense } from "./density";
 
 // 공용 입력칸: 라벨 + 입력 + (안내) + 필드 오류를 접근성 속성과 함께 묶는다.
 // (로그인/회원가입에서 시작해 공연 등록 등 다른 폼에서도 쓰도록 일반화 — 구 AuthTextField)
@@ -18,7 +19,9 @@ interface TextFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "id
   dense?: boolean;
 }
 
-export default function TextField({ id, label, error, hint, liveError = false, dense = false, ...inputProps }: TextFieldProps) {
+export default function TextField({ id, label, error, hint, liveError = false, dense: denseProp, ...inputProps }: TextFieldProps) {
+  const densePage = useDense();
+  const dense = denseProp ?? densePage;
   const t = dense ? denseUi : ui;
   const inp = dense ? denseInput : input;
   const errorId = `${id}-error`;

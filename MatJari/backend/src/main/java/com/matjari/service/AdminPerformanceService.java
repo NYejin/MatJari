@@ -149,6 +149,77 @@ public class AdminPerformanceService {
         return toDetail(performance);
     }
 
+    /** 이 공연의 교환(매칭) 한 건. a = 채팅을 연 쪽. 좌석·회차는 항상 교환 전 자리. */
+    public record ExchangeSide(Long userId, String nickname, String zone, String row, String col,
+                               @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = DateTimeFormats.SECOND) LocalDateTime sessionStartsAt,
+                               @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = DateTimeFormats.SECOND) LocalDateTime completedAt) {}
+
+    public record ExchangeItem(Long matchId, String status, ExchangeSide a, ExchangeSide b, long messageCount,
+                               @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = DateTimeFormats.SECOND) LocalDateTime createdAt,
+                               @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = DateTimeFormats.SECOND) LocalDateTime reservedAt,
+                               @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = DateTimeFormats.SECOND) LocalDateTime canceledAt,
+                               @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = DateTimeFormats.SECOND) LocalDateTime updatedAt) {}
+
+    /** 교환 목록 + 상태별 개수(필터와 무관한 전체). */
+    public record ExchangePage(PageResponse<ExchangeItem> page, Map<String, Long> statusCounts) {}
+
+    private static final Set<String> MATCH_STATUSES = Set.of("CHATTING", "RESERVED", "COMPLETED", "CANCELED");
+    private static final String EXCHANGE_FROM = " FROM exchange_match m"
+            + " JOIN ticket ta ON ta.id = m.ticket_a_id JOIN performance_session sa ON sa.id = ta.performance_session_id"
+            + " WHERE sa.performance_id = ?";
+
+    /** 관리자 공연 상세의 교환 목록(읽기 전용, 잠금 없음). 최근 변경순, 50개씩. status 는 ALL 또는 매칭 상태 하나. */
+    public ExchangePage exchanges(Long id, String status, int page) {
+        if (!performanceRepository.existsById(id)) {
+            throw new NotFoundException(PerformanceService.NOT_FOUND_MESSAGE);
+        }
+        String st = status == null || status.isBlank() ? "ALL" : status.trim().toUpperCase(Locale.ROOT);
+        if (!"ALL".equals(st) && !MATCH_STATUSES.contains(st)) {
+            throw new FieldValidationException("status", "status는 ALL, CHATTING, RESERVED, COMPLETED, CANCELED 중 하나여야 합니다.");
+        }
+        if (page < 0) {
+            throw new FieldValidationException("page", "page는 0 이상이어야 합니다.");
+        }
+        int size = 50;
+        Map<String, Long> counts = new LinkedHashMap<>();
+        for (String s : List.of("CHATTING", "RESERVED", "COMPLETED", "CANCELED")) {
+            counts.put(s, 0L);
+        }
+        jdbc.query("SELECT m.status, COUNT(*)" + EXCHANGE_FROM + " GROUP BY m.status",
+                rs -> { counts.put(rs.getString(1), rs.getLong(2)); }, id);
+        long total = "ALL".equals(st) ? counts.values().stream().mapToLong(Long::longValue).sum() : counts.getOrDefault(st, 0L);
+        List<Object> args = new ArrayList<>(List.of(id));
+        String filter = "";
+        if (!"ALL".equals(st)) {
+            filter = " AND m.status = ?";
+            args.add(st);
+        }
+        args.add(size);
+        args.add((long) page * size);
+        List<ExchangeItem> items = jdbc.query("SELECT m.id, m.status, m.created_at, m.reserved_at, m.canceled_at, m.updated_at,"
+                        + " m.a_completed_at, m.b_completed_at,"
+                        + " ua.id, ua.nickname, ta.zone_label, ta.row_label, ta.col_label, sa.starts_at,"
+                        + " ub.id, ub.nickname, tb.zone_label, tb.row_label, tb.col_label, sb.starts_at,"
+                        + " (SELECT COUNT(*) FROM chat_message c WHERE c.match_id = m.id)"
+                        + EXCHANGE_FROM.replace(" WHERE ", " JOIN ticket tb ON tb.id = m.ticket_b_id"
+                        + " JOIN performance_session sb ON sb.id = tb.performance_session_id"
+                        + " JOIN users ua ON ua.id = m.user_a_id JOIN users ub ON ub.id = m.user_b_id WHERE ")
+                        + filter + " ORDER BY m.updated_at DESC, m.id DESC LIMIT ? OFFSET ?",
+                (rs, n) -> new ExchangeItem(rs.getLong(1), rs.getString(2),
+                        new ExchangeSide(rs.getLong(9), rs.getString(10), rs.getString(11), rs.getString(12), rs.getString(13),
+                                ldt(rs.getTimestamp(14)), ldt(rs.getTimestamp(7))),
+                        new ExchangeSide(rs.getLong(15), rs.getString(16), rs.getString(17), rs.getString(18), rs.getString(19),
+                                ldt(rs.getTimestamp(20)), ldt(rs.getTimestamp(8))),
+                        rs.getLong(21), ldt(rs.getTimestamp(3)), ldt(rs.getTimestamp(4)), ldt(rs.getTimestamp(5)), ldt(rs.getTimestamp(6))),
+                args.toArray());
+        int totalPages = (int) ((total + size - 1) / size);
+        return new ExchangePage(new PageResponse<>(items, page, size, total, totalPages), counts);
+    }
+
+    private static LocalDateTime ldt(java.sql.Timestamp ts) {
+        return ts == null ? null : ts.toLocalDateTime();
+    }
+
     // ------------------------------------------------------------------ 조치
 
     @Transactional

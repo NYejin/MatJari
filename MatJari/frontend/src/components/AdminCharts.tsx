@@ -64,9 +64,9 @@ export function LineChart({ labels, series, height = 140, title }: { labels: str
 }
 
 function LinePlot({ labels, series, W, H }: { labels: string[]; series: Series[]; W: number; H: number }) {
-  const L = 26;
-  const B = 16;
-  const T = 6;
+  const L = 30;
+  const B = 18;
+  const T = 12;
   const max = niceMax(Math.max(1, ...series.flatMap((s) => s.values)));
   const n = labels.length;
   const x = (i: number) => L + (n <= 1 ? 0 : (i * (W - L - 16)) / (n - 1));
@@ -76,14 +76,14 @@ function LinePlot({ labels, series, W, H }: { labels: string[]; series: Series[]
       {[0, 0.5, 1].map((f) => (
         <g key={f}>
           <line x1={L} x2={W - 4} y1={y(max * f)} y2={y(max * f)} stroke={GRID} />
-          <text x={L - 3} y={y(max * f) + 3} textAnchor="end" fontSize="9" fill={AXIS}>
+          <text x={L - 3} y={y(max * f) + 3} textAnchor="end" fontSize="11" fill={AXIS}>
             {Math.round(max * f)}
           </text>
         </g>
       ))}
       {labels.map((l, i) =>
         i % 2 === (n - 1) % 2 ? (
-          <text key={l} x={x(i)} y={H - 4} textAnchor="middle" fontSize="9" fill={AXIS}>
+          <text key={l} x={x(i)} y={H - 4} textAnchor="middle" fontSize="11" fill={AXIS}>
             {l}
           </text>
         ) : null,
@@ -108,9 +108,9 @@ export function BarChart({ labels, values, color, height = 110, title }: { label
 }
 
 function BarPlot({ labels, values, color, W, H }: { labels: string[]; values: number[]; color: string; W: number; H: number }) {
-  const L = 26;
-  const B = 16;
-  const T = 6;
+  const L = 30;
+  const B = 18;
+  const T = 12;
   const max = niceMax(Math.max(1, ...values));
   const n = values.length;
   const bw = (W - L - 6) / Math.max(1, n);
@@ -120,7 +120,7 @@ function BarPlot({ labels, values, color, W, H }: { labels: string[]; values: nu
       {[0, 0.5, 1].map((f) => (
         <g key={f}>
           <line x1={L} x2={W - 4} y1={y(max * f)} y2={y(max * f)} stroke={GRID} />
-          <text x={L - 3} y={y(max * f) + 3} textAnchor="end" fontSize="9" fill={AXIS}>
+          <text x={L - 3} y={y(max * f) + 3} textAnchor="end" fontSize="11" fill={AXIS}>
             {Math.round(max * f)}
           </text>
         </g>
@@ -131,12 +131,12 @@ function BarPlot({ labels, values, color, W, H }: { labels: string[]; values: nu
             <title>{`${labels[i]} ${v}`}</title>
           </rect>
           {v > 0 && (
-            <text x={L + i * bw + bw / 2} y={y(v) - 2} textAnchor="middle" fontSize="8" fill="#374151">
+            <text x={L + i * bw + bw / 2} y={y(v) - 2} textAnchor="middle" fontSize="11" fill="#374151">
               {v}
             </text>
           )}
           {i % 2 === (n - 1) % 2 && (
-            <text x={L + i * bw + bw / 2} y={H - 4} textAnchor="middle" fontSize="9" fill={AXIS}>
+            <text x={L + i * bw + bw / 2} y={H - 4} textAnchor="middle" fontSize="11" fill={AXIS}>
               {labels[i]}
             </text>
           )}
@@ -190,7 +190,7 @@ export function RemainGauge({ ratio, label, value }: { ratio: number; label: str
       <div className="flex items-baseline justify-between text-[11px]/[normal] text-gray-600">
         <span>{label}</span>
         <span>
-          <b className="text-sm tabular-nums text-gray-900">{value}</b> <b className="tabular-nums" style={{ color }}>{Math.round(r * 100)}%</b>
+          <b className="text-[13px] tabular-nums text-gray-900">{value}</b> <b className="tabular-nums" style={{ color }}>{Math.round(r * 100)}%</b>
         </span>
       </div>
       <div className="h-3 rounded-sm bg-gray-100" role="img" aria-label={`${label} ${Math.round(r * 100)}%`}>

@@ -6,12 +6,17 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.IOException;
 
 /**
  * 링크의 상세 정보에서 회차(날짜·시각)와 좌석 구역(이름·윤곽)을 읽는 AI 추출. 로그인 필요.
@@ -37,5 +42,15 @@ public class PerformanceAiExtractController {
     public DetailExtractionService.Response extract(@Valid @RequestBody AiExtractRequest request,
                                                     @AuthenticationPrincipal AuthUserPrincipal principal) {
         return extractionService.extract(principal.userId(), request.sourceUrl());
+    }
+
+    /**
+     * 좌석표 이미지(JPEG·PNG, 5MB 이하) 한 장에서 구역 이름·모양을 읽는다(구역 지도를 자동으로 얻지 못했을 때). 같은 월 3회에서 센다.
+     * 400 IMAGE_REQUIRED·IMAGE_UNSUPPORTED, 413 IMAGE_TOO_LARGE, 429, 503 AI_UNAVAILABLE. 이미지는 저장하지 않는다.
+     */
+    @PostMapping(value = "/ai-extract/seatmap", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public DetailExtractionService.Response seatmap(@RequestParam(required = false) MultipartFile image,
+                                                    @AuthenticationPrincipal AuthUserPrincipal principal) throws IOException {
+        return extractionService.extractSeatMap(principal.userId(), image == null ? null : image.getBytes());
     }
 }

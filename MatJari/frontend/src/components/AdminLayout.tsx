@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { adminDashboardApi } from "../api/adminDashboard";
 import { FOCUS_RING } from "./adminUi";
+import { DenseContext } from "./density";
 
 // 관리자 공통 틀: 왼쪽 메뉴(넓은 화면) / 위쪽 가로 메뉴(좁은 화면) + 넓은 본문. 처리 대기 수를 메뉴 옆에 보인다(1분마다 갱신).
 const MENUS: { to: string; label: string; badge?: "openReports" | "pendingClaims" | "pendingProposals" }[] = [
@@ -68,7 +69,10 @@ export default function AdminLayout() {
         })}
       </nav>
       <main className="min-w-0 flex-1 p-2 pb-[calc(8px+env(safe-area-inset-bottom))]">
-        <Outlet />
+        {/* 관리자 화면 안의 공용 컴포넌트(입력칸·구역/회차 편집기 등)도 촘촘한 토큰을 쓰게 한다 */}
+        <DenseContext.Provider value={true}>
+          <Outlet />
+        </DenseContext.Provider>
       </main>
     </div>
   );

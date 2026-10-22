@@ -149,7 +149,7 @@ public class PerformancePreviewService {
             if (!tryWindow(siteWindows, site, sitePerMinute)) { // 세마포어를 못 얻은 호출이 사이트 한도를 소모하지 않게 permit을 먼저 잡는다
                 return PerformancePreviewResponse.empty(STATUS_FETCH_FAILED, site);
             }
-            Document doc = pageFetcher.fetch(URI.create(template(site, id)));
+            Document doc = fetchFixed(site, id);
             LinkInfoParsers.ParsedInfo info = LinkInfoParsers.parse(site, doc);
             PerformancePreviewResponse response = info.title() == null
                     ? PerformancePreviewResponse.empty(STATUS_NO_INFO, site)
@@ -188,7 +188,7 @@ public class PerformancePreviewService {
             if (!tryWindow(siteWindows, site, sitePerMinute)) {
                 throw new PageFetcher.FetchFailedException("site rate limit");
             }
-            Document doc = pageFetcher.fetch(URI.create(template(site, id)));
+            Document doc = fetchFixed(site, id);
             LinkInfoParsers.ParsedInfo info;
             try {
                 info = LinkInfoParsers.parse(site, doc);
@@ -198,6 +198,21 @@ public class PerformancePreviewService {
             return new FetchedPage(doc, info.periodStart(), info.periodEnd(), info.venue());
         } finally {
             concurrency.release();
+        }
+    }
+
+    /**
+     * 고정 템플릿으로 받는다. YES24 는 상품마다 /Perf/{id} 와 /Special/{id} 중 한쪽만 200 이고 다른 쪽은 302 라서,
+     * 리다이렉트면 Location 을 따르지 않고 두 번째 고정 템플릿(/Special/{id})으로 한 번만 다시 받는다.
+     */
+    private Document fetchFixed(String site, String id) {
+        try {
+            return pageFetcher.fetch(URI.create(template(site, id)));
+        } catch (PageFetcher.RedirectedException e) {
+            if (!"yes24".equals(site)) {
+                throw e;
+            }
+            return pageFetcher.fetch(URI.create("https://ticket.yes24.com/Special/" + id));
         }
     }
 

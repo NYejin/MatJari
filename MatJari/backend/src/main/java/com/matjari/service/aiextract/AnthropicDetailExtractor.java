@@ -82,6 +82,13 @@ public class AnthropicDetailExtractor implements DetailExtractor {
             """;
 
     private final AiProperties properties;
+    /** 크레딧 부족 응답을 받으면 표시한다(이후 AI 를 끄고 직접 입력만). */
+    private AiCredit credit;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setCredit(AiCredit credit) {
+        this.credit = credit;
+    }
     private volatile AnthropicClient client;
 
     /** 호출별 토큰·예상 비용 기록(관리자 대시보드). 단위 시험처럼 없으면 기록하지 않는다. */
@@ -266,8 +273,11 @@ public class AnthropicDetailExtractor implements DetailExtractor {
         } catch (ExtractionFailedException e) {
             throw e;
         } catch (Exception e) {
-            // SDK 예외 메시지에 요청 정보가 들 수 있어 클래스 이름만 남긴다
+            // SDK 예외 메시지에 요청 정보가 들 수 있어 클래스 이름만 남긴다(크레딧 부족 여부만 확인한다)
             log.warn("AI 호출 실패 ({}): {}", stage, e.getClass().getSimpleName());
+            if (credit != null && String.valueOf(e.getMessage()).toLowerCase(java.util.Locale.ROOT).contains("credit balance")) {
+                credit.markRejected();
+            }
             throw new ExtractionFailedException("AI 호출에 실패했어요");
         }
     }

@@ -31,7 +31,21 @@ public class AiUsageLimiter {
     }
 
     /** 이번 달 사용 현황. resetsAt 은 다음 달 1일 0시(KST). */
-    public record Quota(int limit, int used, int remaining, LocalDateTime resetsAt) {}
+    /** aiAvailable: false 면 AI 를 쓸 수 없다(꺼짐·키 없음·크레딧 소진). 화면은 AI 관련 UI 없이 직접 입력만 보인다. */
+    /** unlimited: 관리자 — 월 횟수를 세지 않는다(전체 하루 상한만). */
+    public record Quota(int limit, int used, int remaining, LocalDateTime resetsAt, boolean aiAvailable, boolean unlimited) {
+        public Quota(int limit, int used, int remaining, LocalDateTime resetsAt) {
+            this(limit, used, remaining, resetsAt, true, false);
+        }
+
+        Quota withAiAvailable(boolean available) {
+            return new Quota(limit, used, remaining, resetsAt, available, unlimited);
+        }
+
+        Quota asUnlimited() {
+            return new Quota(limit, used, Math.max(remaining, limit), resetsAt, aiAvailable, true);
+        }
+    }
 
     private final Clock clock;
     private final AiProperties properties;

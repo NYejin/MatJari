@@ -85,6 +85,8 @@ function GuestIntro({ notice }: { notice: string | null }) {
 }
 
 function PerformanceList({ notice }: { notice: string | null }) {
+  const { profile } = useAuth();
+  const isAdmin = profile?.role === "ADMIN";
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebouncedValue(query.trim(), 300);
   const [state, setState] = useState<ListState>({ status: "loading" });
@@ -165,10 +167,17 @@ function PerformanceList({ notice }: { notice: string | null }) {
       <div className={ui.container}>
         <div className={cls.header}>
           <h1 className={ui.pageTitle}>공연 목록</h1>
-          {/* 공연은 티켓 등록 안에서만 등록한다(찾는 공연이 없을 때) */}
-          <Link to="/tickets/new" className={linkButton.solid}>
-            티켓 등록
-          </Link>
+          {/* 공연은 티켓 등록 안에서만 등록한다(찾는 공연이 없을 때). 관리자는 티켓 없이 공연만 등록할 수 있어 버튼을 하나 더 둔다 */}
+          <div className="flex flex-wrap gap-2">
+            {isAdmin && (
+              <Link to="/performances/new" className={linkButton.outline}>
+                공연 등록
+              </Link>
+            )}
+            <Link to="/tickets/new" className={linkButton.solid}>
+              티켓 등록
+            </Link>
+          </div>
         </div>
 
         <p className={liveRegionClass(notice, ui.notice)} role="status">

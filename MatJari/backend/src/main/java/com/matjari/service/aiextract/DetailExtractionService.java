@@ -106,6 +106,14 @@ public class DetailExtractionService {
     private final AiResultStore store;
     /** 같은 공연장의 등록된 구역 이름(구역이 많은 공연장만). null 이면 참고 없이 읽는다. */
     private final VenueZoneHints venueHints;
+    /** 크레딧 소진 판단. null 이면 보지 않는다(단위 시험). */
+    private AiCredit credit;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setCredit(AiCredit credit) {
+        this.credit = credit;
+    }
+
     /** 사람이 검수한 구역 정답(정답검수 탭). null 이면 쓰지 않는다. */
     private VerifiedZones verifiedZones;
 
@@ -157,7 +165,28 @@ public class DetailExtractionService {
 
     /** 이번 달 공연정보 불러오기 사용 현황(화면의 남은 횟수 표시용). */
     public AiUsageLimiter.Quota quota(Long userId) {
-        return limiter.quota(userId);
+        return limiter.quota(userId).withAiAvailable(aiUsable());
+    }
+
+    /** 관리자: 월 횟수 없음(사용자 지시 2026-10-22). */
+    public AiUsageLimiter.Quota quota(Long userId, boolean admin) {
+        AiUsageLimiter.Quota q = quota(userId);
+        return admin ? q.asUnlimited() : q;
+    }
+
+    /** 관리자의 공연 등록 중 [불러오기]: 보관 결과·공연장 참고는 그대로 쓰고 월 횟수만 세지 않는다. */
+    public Response extractUnlimited(String sourceUrl) {
+        return extract(null, sourceUrl, false, true);
+    }
+
+    /** 관리자의 등록 중 좌석표 이미지 올리기: 월 횟수를 세지 않는다. */
+    public Response extractSeatMapUnlimited(byte[] bytes) {
+        return extractSeatMap(null, bytes, true);
+    }
+
+    /** AI 를 지금 부를 수 있나: 켜짐 + 키 있음 + 크레딧이 남음(AiCredit). */
+    private boolean aiUsable() {
+        return properties.isEnabled() && extractor.available() && (credit == null || !credit.exhausted());
     }
 
     public Response extract(Long userId, String sourceUrl) {
@@ -170,10 +199,15 @@ public class DetailExtractionService {
      * (다시 읽는 공연 자신의 잘못된 구역이 참고로 들어갈 수 있다). 결과는 화면에서 확인한 뒤 구역 교체 API 로만 저장된다.
      */
     public Response extractForAdmin(String sourceUrl) {
-        return extract(null, sourceUrl, true);
+        return extract(null, sourceUrl, true, true);
     }
 
     private Response extract(Long userId, String sourceUrl, boolean admin) {
+        return extract(userId, sourceUrl, admin, admin);
+    }
+
+    /** admin: 보관 결과를 쓰지 않고 새로 읽음(다시 인식). unlimited: 월 횟수를 세지 않음(관리자). */
+    private Response extract(Long userId, String sourceUrl, boolean admin, boolean unlimited) {
         String key = sourceKeyResolver.resolve(sourceUrl); // 형식 오류는 400(FieldValidationException)
         Matcher m = KEY.matcher(key);
         if (!m.matches()) {
@@ -221,7 +255,7 @@ public class DetailExtractionService {
             }
         }
 
-        boolean aiOn = properties.isEnabled() && extractor.available();
+        boolean aiOn = aiUsable();
         if (!aiOn) {
             return build(ruleSessions, List.of(), List.of(), null, false, false, false);
         }
@@ -278,7 +312,7 @@ public class DetailExtractionService {
         int cropW = 0;
         int cropH = 0;
         boolean aiError = false;
-        AiUsageLimiter.Permit permit = admin ? limiter.acquireAdmin(key) : limiter.acquire(userId, key);
+        AiUsageLimiter.Permit permit = unlimited ? limiter.acquireAdmin(key) : limiter.acquire(userId, key);
         try (permit) {
             DetailExtractor.FirstPass first = extractor.first(parts);
             aiSessions = cleanSessions(first.sessions(), page.periodStart(), page.periodEnd());
@@ -423,7 +457,7 @@ public class DetailExtractionService {
         if (size == null) {
             throw new AiExtractException(400, "IMAGE_UNSUPPORTED", "JPEG·PNG 이미지만 읽을 수 있어요.", 0);
         }
-        if (!(properties.isEnabled() && extractor.available())) {
+        if (!aiUsable()) {
             throw new AiExtractException(503, "AI_UNAVAILABLE", "지금은 AI로 읽을 수 없어요. 구역을 직접 입력해 주세요.", 0);
         }
         String key = "upload:" + sha256Hex(bytes);

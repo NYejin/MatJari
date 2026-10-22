@@ -89,10 +89,14 @@ public class PerformanceController {
         return performanceService.get(id, principal.userId());
     }
 
-    /** 201 + 상세. 같은 링크의 공연이 있으면 409 {"message":"이미 등록된 공연입니다.","performanceId":N}. */
+    /** 201 + 상세. 같은 링크의 공연이 있으면 409 {"message":"이미 등록된 공연입니다.","performanceId":N}. ticket 없음은 관리자만 허용(아니면 400 ticket). */
     @PostMapping
     public ResponseEntity<PerformanceDetailResponse> create(@Valid @RequestBody PerformanceCreateRequest request,
                                                             @AuthenticationPrincipal AuthUserPrincipal principal) {
+        // 일반 사용자는 티켓과 함께만 공연을 등록한다. 관리자는 티켓 없이 등록할 수 있다(사용자 지시 2026-10-22)
+        if (request.ticket() == null && !principal.isAdmin()) {
+            throw new com.matjari.exception.FieldValidationException("ticket", "내 티켓 정보를 입력해주세요.");
+        }
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(performanceService.create(principal.userId(), request));
     }

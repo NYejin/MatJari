@@ -116,26 +116,6 @@ export default function PerformanceDetailPage() {
         <InfoSection detail={detail} />
         <ZoneMapSection detail={detail} />
         {!detail.hidden && <EditProposalSection detail={detail} />}
-        <section className={`${ui.card} flex flex-col gap-4`} aria-labelledby="perf-coming-title">
-          <h2 id="perf-coming-title" className={ui.sectionTitle}>
-            티켓
-          </h2>
-          <p className={ui.body}>
-            {detail.hidden
-              ? "내려간 공연이라 새 티켓을 등록할 수 없어요. 이미 등록한 티켓과 진행 중인 교환은 내 티켓·내 매칭에서 확인해 주세요."
-              : "이 공연의 티켓을 가지고 있다면 등록하고, 바꾸고 싶은 자리를 정해 상대를 찾아보세요."}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {!detail.hidden && (
-              <Link to={`/tickets/new?performanceId=${detail.id}`} className={linkButton.solid}>
-                이 공연 티켓 등록
-              </Link>
-            )}
-            <Link to="/tickets" className={linkButton.outline}>
-              내 티켓
-            </Link>
-          </div>
-        </section>
       </>
     );
   }
@@ -199,6 +179,24 @@ function InfoSection({ detail }: { detail: PerformanceDetail }) {
           <SessionList detail={detail} />
         </dd>
       </dl>
+      {/* 티켓 버튼은 찾기 쉽게 기본 정보 카드 안에 둔다(2026-10-22 사용자 지시) */}
+      <div className="flex flex-col gap-2">
+        <p className={ui.hint}>
+          {detail.hidden
+            ? "내려간 공연이라 새 티켓을 등록할 수 없어요. 이미 등록한 티켓과 진행 중인 교환은 내 티켓·내 매칭에서 확인해 주세요."
+            : "이 공연의 티켓을 가지고 있다면 등록하고, 바꾸고 싶은 자리를 정해 상대를 찾아보세요."}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {!detail.hidden && (
+            <Link to={`/tickets/new?performanceId=${detail.id}`} className={linkButton.solid}>
+              이 공연 티켓 등록
+            </Link>
+          )}
+          <Link to="/tickets" className={linkButton.outline}>
+            내 티켓
+          </Link>
+        </div>
+      </div>
       </div>
       <PosterImage key={posterUrl ?? "none"} url={posterUrl} title={detail.title} className="self-start" />
     </section>

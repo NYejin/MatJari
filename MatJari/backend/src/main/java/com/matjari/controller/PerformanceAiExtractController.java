@@ -35,13 +35,16 @@ public class PerformanceAiExtractController {
     /** 이번 달 사용 현황 {limit, used, remaining, resetsAt}. */
     @GetMapping("/ai-extract/quota")
     public com.matjari.service.aiextract.AiUsageLimiter.Quota quota(@AuthenticationPrincipal AuthUserPrincipal principal) {
-        return extractionService.quota(principal.userId());
+        return extractionService.quota(principal.userId(), principal.isAdmin());
     }
 
     @PostMapping("/ai-extract")
     public DetailExtractionService.Response extract(@Valid @RequestBody AiExtractRequest request,
                                                     @AuthenticationPrincipal AuthUserPrincipal principal) {
-        return extractionService.extract(principal.userId(), request.sourceUrl());
+        // 관리자는 월 횟수 없이(전체 하루 상한만) 읽는다(사용자 지시 2026-10-22)
+        return principal.isAdmin()
+                ? extractionService.extractUnlimited(request.sourceUrl())
+                : extractionService.extract(principal.userId(), request.sourceUrl());
     }
 
     /**
@@ -51,6 +54,7 @@ public class PerformanceAiExtractController {
     @PostMapping(value = "/ai-extract/seatmap", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public DetailExtractionService.Response seatmap(@RequestParam(required = false) MultipartFile image,
                                                     @AuthenticationPrincipal AuthUserPrincipal principal) throws IOException {
-        return extractionService.extractSeatMap(principal.userId(), image == null ? null : image.getBytes());
+        byte[] bytes = image == null ? null : image.getBytes();
+        return principal.isAdmin() ? extractionService.extractSeatMapUnlimited(bytes) : extractionService.extractSeatMap(principal.userId(), bytes);
     }
 }

@@ -56,6 +56,10 @@ export interface AiQuota {
   used: number;
   remaining: number;
   resetsAt: string;
+  /** false 면 AI 를 쓸 수 없다(크레딧 소진·키 없음·꺼짐): 등록 화면은 AI 관련 문구·버튼 없이 직접 입력만 보인다 */
+  aiAvailable?: boolean;
+  /** 관리자: 월 횟수 제한 없음 */
+  unlimited?: boolean;
 }
 
 export interface AiExtractResult {
@@ -119,7 +123,8 @@ export interface PerformanceCreateRequest {
   /** 지도 가로/세로 비율(선택) */
   seatmapAspect?: number | null;
   /** 등록자의 티켓(필수). 공연은 티켓 등록과 함께만 등록되고, 공연에는 이 티켓이 연결·표시되지 않는다 */
-  ticket: PerformanceTicketInput;
+  /** 일반 사용자는 필수, 관리자는 생략 가능(공연만 등록) */
+  ticket?: PerformanceTicketInput;
 }
 
 /** 공연 등록과 함께 만드는 내 티켓. sessionStartsAt 은 sessions 중 하나 */

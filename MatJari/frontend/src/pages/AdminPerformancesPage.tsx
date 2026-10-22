@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { formatKstDateTime } from "../api/dateTime";
 import { exchangeErrorMessage } from "../api/exchangeMessages";
 import { adminPerformancesApi, type AdminPerformanceItem, type HiddenFilter } from "../api/adminPerformances";
-import { button, input, ui } from "../components/adminUi";
+import { button, input, linkButton, ui } from "../components/adminUi";
 import { tbl, tone } from "../components/adminUi";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { usePagedList } from "../hooks/usePagedList";
@@ -28,7 +28,13 @@ export default function AdminPerformancesPage() {
   return (
     <div className={ui.page}>
       <div className={ui.container}>
-        <h1 className={ui.pageTitle}>공연 관리</h1>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h1 className={ui.pageTitle}>공연 관리</h1>
+          {/* 관리자는 티켓 없이 공연만 등록할 수 있다(등록 화면에서 내 티켓 단계를 건너뜀) */}
+          <Link to="/performances/new" className={linkButton.solid}>
+            공연 등록
+          </Link>
+        </div>
 
         <div className="flex flex-wrap items-end gap-2">
         <div className="flex min-w-48 flex-1 flex-col gap-0.5">

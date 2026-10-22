@@ -264,6 +264,21 @@ class DetailExtractionServiceTest {
     }
 
     @Test
+    void creditExhaustedTurnsAiOffWithoutCalling() throws IOException {
+        AiCredit credit = mock(AiCredit.class);
+        when(credit.exhausted()).thenReturn(true);
+        service.setCredit(credit);
+        assertThat(service.quota(1L).aiAvailable()).isFalse();
+        DetailExtractionService.Response r = service.extract(1L, MELON);
+        assertThat(r.aiEnabled()).isFalse();
+        assertThat(fake.firstCalls).isZero();
+        DetailExtractionService svc = serviceWithRealImageCheck();
+        svc.setCredit(credit);
+        assertThatThrownBy(() -> svc.extractSeatMap(1L, png(400, 300)))
+                .isInstanceOfSatisfying(DetailExtractionService.AiExtractException.class, e -> assertThat(e.getStatus()).isEqualTo(503));
+    }
+
+    @Test
     void noHintMeansNoExtraPart() {
         service.extract(1L, MELON);
         assertThat(fake.firstParts.get(0).text()).startsWith("[이미지 1");

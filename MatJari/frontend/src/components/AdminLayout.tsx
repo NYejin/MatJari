@@ -103,7 +103,7 @@ export default function AdminLayout() {
         aria-label="관리자 메뉴"
         className="flex shrink-0 gap-1 overflow-x-auto border-b border-gray-200 bg-white px-2 py-1.5 md:w-40 md:flex-col md:overflow-visible md:border-r md:border-b-0 md:py-2"
       >
-        <span className="hidden px-2 pb-1 text-[11px] font-bold tracking-wide text-gray-500 md:block">관리자</span>
+        {/* <span className="hidden px-2 pb-1 text-[11px] font-bold tracking-wide text-gray-500 md:block">관리자</span> */}
         {MENUS.map((m) => {
           const n = m.badge ? badges[m.badge] ?? 0 : 0;
           return (

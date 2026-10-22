@@ -232,6 +232,19 @@ class PerformanceControllerSliceTest {
     }
 
     @Test
+    void adminCanCreatePerformanceWithoutTicket() throws Exception {
+        when(tokenProvider.validateToken("admin")).thenReturn(true);
+        when(tokenProvider.isRefreshToken("admin")).thenReturn(false);
+        when(tokenProvider.getUserId("admin")).thenReturn(9L);
+        when(userDetailsService.loadUserById(9L)).thenReturn(AuthUserPrincipal.of(9L, "admin@b.com", com.matjari.domain.UserRole.ADMIN));
+        when(performanceService.create(any(), any())).thenReturn(detail(false));
+        mockMvc.perform(post("/api/performances").header("Authorization", "Bearer admin").contentType(MediaType.APPLICATION_JSON).content("""
+                        {"sourceUrl":"https://a.com","title":"t","venueName":"V","sessions":["2026-11-01T19:00"]}
+                        """))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
     void createValidation() throws Exception {
         mockMvc.perform(auth(post("/api/performances")).contentType(MediaType.APPLICATION_JSON).content("""
                         {"sourceUrl":"","title":" ","sessions":[]}
@@ -239,9 +252,14 @@ class PerformanceControllerSliceTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(content().json("""
                         {"sourceUrl":"티켓팅 링크를 입력해주세요.","title":"공연 제목을 입력해주세요.",
-                         "venueName":"공연장 이름을 입력해주세요.","sessions":"회차를 1개 이상 입력해주세요.",
-                         "ticket":"내 티켓 정보를 입력해주세요."}
+                         "venueName":"공연장 이름을 입력해주세요.","sessions":"회차를 1개 이상 입력해주세요."}
                         """, true));
+        // 일반 사용자는 티켓 없이 공연만 등록할 수 없다(관리자만 가능)
+        mockMvc.perform(auth(post("/api/performances")).contentType(MediaType.APPLICATION_JSON).content("""
+                        {"sourceUrl":"https://a.com","title":"t","venueName":"V","sessions":["2026-11-01T19:00"]}
+                        """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().json("{\"ticket\":\"내 티켓 정보를 입력해주세요.\"}", true));
         // 티켓 칸 검사: 중첩 필드는 ticket.* 키 (공연만 따로 등록하는 길은 없다)
         mockMvc.perform(auth(post("/api/performances")).contentType(MediaType.APPLICATION_JSON).content("""
                         {"sourceUrl":"https://a.com","title":"t","venueName":"V","sessions":["2026-11-01T19:00"],

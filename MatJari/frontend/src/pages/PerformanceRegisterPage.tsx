@@ -30,6 +30,7 @@ import ZoneEditor, { zoneNameInputId } from "../components/ZoneEditor";
 import ZoneMap, { hasShapedZone } from "../components/ZoneMap";
 import SeatmapUpload from "../components/SeatmapUpload";
 import { button, linkButton, liveRegionClass, ui } from "../components/ui";
+import { useAuth } from "../hooks/useAuth";
 
 // FR-02 공연 등록 (보호 라우트 /performances/new) — 단계형:
 // ① 티켓팅 링크(이미 등록됐는지 확인) ② 공연 정보(제목·공연장 이름·회차) ③ 내 티켓(회차·구역·열·번) ④ 확인 후 등록.
@@ -228,7 +229,12 @@ export default function PerformanceRegisterPage() {
   const [zoneError, setZoneError] = useState<string>();
   /** 회차·구역 입력 방식: 고르기 전(choose) → [불러오기](ai) 또는 [직접 입력](manual). 남은 횟수가 0이면 바로 manual */
   const [infoMode, setInfoMode] = useState<"choose" | "ai" | "manual">("choose");
+  const { profile } = useAuth();
+  /** 관리자는 티켓 없이 공연만 등록한다(내 티켓 단계 없음, 사용자 지시 2026-10-22) */
+  const isAdmin = profile?.role === "ADMIN";
   const [quota, setQuota] = useState<AiQuota | null>(null);
+  /** AI 를 쓸 수 없음(크레딧 소진 등): AI 관련 문구·버튼·박스 없이 바로 직접 입력 */
+  const aiOff = quota?.aiAvailable === false;
   // AI 읽기: [불러오기]를 눌렀을 때만 부른다 (실패해도 등록은 막히지 않는다)
   const [aiLoading, setAiLoading] = useState(false);
   /** 상태 줄 문구. tone=error이고 retry이면 '다시 읽기' 버튼을 보인다 */
@@ -373,13 +379,13 @@ export default function PerformanceRegisterPage() {
       const q = await performancesApi.aiQuota();
       if (unmounted.current) return;
       setQuota(q);
-      if (q.remaining <= 0) setInfoMode((m) => (m === "choose" ? "manual" : m));
+      if (q.remaining <= 0 || q.aiAvailable === false) setInfoMode((m) => (m === "choose" ? "manual" : m));
     } catch {
       if (!unmounted.current) setQuota(null);
     }
   };
   useEffect(() => {
-    if (step === 1 && infoMode === "choose") void loadQuota();
+    if (step <= 1 && infoMode === "choose") void loadQuota(); // 1단계부터 미리 읽어 AI 를 못 쓰면 2단계를 바로 직접 입력으로 연다
   }, [step]);
 
   /** [불러오기]: AI로 회차·구역 읽기(이번 달 횟수 1회, AI가 못 읽으면 반환). 사용자가 입력한 줄·칸은 덮어쓰지 않고 빈 곳만 채운다 */
@@ -644,7 +650,7 @@ export default function PerformanceRegisterPage() {
     if (tErr || vErr || sErr || zErr) return;
     // 회차를 바꿔 고른 회차가 사라졌으면 다시 고르게 한다
     if (ticketSession !== null && !sessions.some((r) => r.value === ticketSession)) setTicketSession(null);
-    goTo(2);
+    goTo(isAdmin ? 3 : 2); // 관리자는 내 티켓 단계 없이 확인으로
   };
 
   const clearTicket = (field: TicketField) =>
@@ -687,8 +693,14 @@ export default function PerformanceRegisterPage() {
         ...(zoneRows.length > 0
           ? { zones: toPayloadZones(zoneRows), seatmapAspect: hasAnyShape(zoneRows) ? seatmapAspect : null }
           : {}),
-        ticket: { sessionStartsAt: ticketSession ?? "", zone: ticketZone.trim(), row: ticketRow.trim(), col: ticketCol.trim() },
+        ...(isAdmin
+          ? {}
+          : { ticket: { sessionStartsAt: ticketSession ?? "", zone: ticketZone.trim(), row: ticketRow.trim(), col: ticketCol.trim() } }),
       });
+      if (isAdmin) {
+        navigate(`/admin/performances/${created.id}`, { replace: true });
+        return;
+      }
       navigate("/tickets", {
         replace: true,
         state: { notice: `'${created.title}' 공연과 내 티켓을 등록했어요. 교환 조건을 설정하면 바꿀 상대를 찾을 수 있어요.` },
@@ -841,7 +853,7 @@ export default function PerformanceRegisterPage() {
                 <span>공연정보 불러오기</span>
                 {quota !== null && (
                   <span className="text-xs/[normal] font-normal opacity-90">
-                    남은 횟수 {quota.remaining}/{quota.limit}회·월
+                    {quota.unlimited ? "관리자 · 횟수 제한 없음" : `남은 횟수 ${quota.remaining}/${quota.limit}회·월`}
                   </span>
                 )}
               </button>
@@ -854,7 +866,7 @@ export default function PerformanceRegisterPage() {
           <>
           {/* AI 읽기 상태 줄 — 읽는 동안에도 아래 입력칸은 그대로 쓸 수 있다 */}
           <div className="flex flex-col gap-2">
-            {infoMode === "manual" && !aiNote && quota !== null && quota.remaining <= 0 && (
+            {infoMode === "manual" && !aiNote && !aiOff && quota !== null && quota.remaining <= 0 && (
               <p className={ui.notice} role="status">
                 이번 달 공연정보 불러오기 횟수({quota.limit}회)를 모두 사용했어요. 다음 달 1일에 다시 채워져요. 직접 입력해 주세요.
               </p>
@@ -906,9 +918,11 @@ export default function PerformanceRegisterPage() {
             {autoFill?.periodStart && (
               <p className={ui.hint}>
                 링크에 적힌 공연 기간: {periodText(autoFill.periodStart, autoFill.periodEnd)} ·{" "}
-                {candidateDates.length > 0
-                  ? "날짜는 공연 기간에 맞춰, 시각은 링크 본문과 AI가 읽은 값으로 채워져요. 맞는지 확인하고 다르면 고쳐 주세요. 시각을 읽지 못했다면 직접 골라 주세요."
-                  : "회차는 링크에서 읽은 값으로 채워져요. 읽지 못했다면 직접 입력해 주세요."}
+                {aiOff
+                  ? "날짜를 고르고 시각을 골라 회차를 추가해 주세요."
+                  : candidateDates.length > 0
+                    ? "날짜는 공연 기간에 맞춰, 시각은 링크 본문과 AI가 읽은 값으로 채워져요. 맞는지 확인하고 다르면 고쳐 주세요. 시각을 읽지 못했다면 직접 골라 주세요."
+                    : "회차는 링크에서 읽은 값으로 채워져요. 읽지 못했다면 직접 입력해 주세요."}
               </p>
             )}
             {candidateDates.length > 1 && (
@@ -994,7 +1008,7 @@ export default function PerformanceRegisterPage() {
               티켓 등록·교환 조건에서 구역 지도를 눌러 구역을 고를 수 있게 해 줘요. 선택 사항이고, 비워도 등록할 수 있어요.
             </p>
             <ZoneEditor rows={zoneRows} aspect={seatmapAspect} onChange={(r) => { setZoneRows(r); setZoneError(undefined); }} serverError={zoneError} />
-            {!aiLoading && (smBusy || smNote || !hasShapedZone(toPayloadZones(zoneRows))) && (
+            {!aiLoading && !aiOff && (smBusy || smNote || !hasShapedZone(toPayloadZones(zoneRows))) && (
               <div className={`${ui.notice} flex flex-col gap-2`}>
                 <p>
                   원활한 교환을 위해 좌석표 이미지를 올려 주세요(선택). 티켓팅 사이트의 좌석 배치도를 캡처해 올리면 AI가 구역 지도를 만들어요.
@@ -1006,7 +1020,7 @@ export default function PerformanceRegisterPage() {
                   busy={smBusy}
                   disabled={quota !== null && quota.remaining <= 0}
                   onFile={(f) => void uploadSeatmap(f)}
-                  sub={quota !== null ? `남은 횟수 ${quota.remaining}/${quota.limit}회·월` : undefined}
+                  sub={quota !== null ? (quota.unlimited ? "관리자 · 횟수 제한 없음" : `남은 횟수 ${quota.remaining}/${quota.limit}회·월`) : undefined}
                 />
                 {smNote && (
                   <p className={smNote.tone === "error" ? ui.fieldError : ui.hint} role="status">
@@ -1171,12 +1185,16 @@ export default function PerformanceRegisterPage() {
               "없음"
             )}
           </dd>
-          <dt className={cls.summaryTerm}>내 티켓</dt>
-          <dd className={cls.summaryDesc}>
-            {ticketSession ? formatKstDateTime(ticketSession) : ""} · {ticketZone.trim()} {ticketRow.trim()}열 {ticketCol.trim()}번
-          </dd>
+          {!isAdmin && (
+            <>
+              <dt className={cls.summaryTerm}>내 티켓</dt>
+              <dd className={cls.summaryDesc}>
+                {ticketSession ? formatKstDateTime(ticketSession) : ""} · {ticketZone.trim()} {ticketRow.trim()}열 {ticketCol.trim()}번
+              </dd>
+            </>
+          )}
         </dl>
-        <p className={ui.hint}>공연과 내 티켓이 함께 등록돼요. 내 티켓은 공연 정보에 표시되지 않아요.</p>
+        <p className={ui.hint}>{isAdmin ? "관리자 등록: 티켓 없이 공연만 등록돼요." : "공연과 내 티켓이 함께 등록돼요. 내 티켓은 공연 정보에 표시되지 않아요."}</p>
         {hasShapedZone(toPayloadZones(zoneRows)) && (
           <div className="flex flex-col gap-1.5">
             <span className={ui.label}>구역 지도</span>
@@ -1202,11 +1220,11 @@ export default function PerformanceRegisterPage() {
         )}
 
         <div className={cls.actions}>
-          <button type="button" className={button.outline} onClick={() => goTo(2)} disabled={submitting}>
+          <button type="button" className={button.outline} onClick={() => goTo(isAdmin ? 1 : 2)} disabled={submitting}>
             이전
           </button>
           <button type="button" className={button.solid} onClick={submit} disabled={submitting} aria-busy={submitting}>
-            {submitting ? "등록 중..." : "공연과 티켓 등록"}
+            {submitting ? "등록 중..." : isAdmin ? "공연 등록" : "공연과 티켓 등록"}
           </button>
         </div>
       </div>
@@ -1216,25 +1234,27 @@ export default function PerformanceRegisterPage() {
   return (
     <div className={ui.page}>
       <div className={ui.container}>
-        <h1 className={ui.pageTitle}>새 공연과 내 티켓 등록</h1>
+        <h1 className={ui.pageTitle}>{isAdmin ? "새 공연 등록 (관리자)" : "새 공연과 내 티켓 등록"}</h1>
 
         <ol className={cls.steps} aria-label="등록 단계">
-          {STEPS.map((name, index) => (
-            <li key={name} className={stepClass(index, step)} aria-current={index === step ? "step" : undefined}>
-              {index < step && (
-                <>
-                  <span aria-hidden="true">✓ </span>
-                  <span className="sr-only">(완료) </span>
-                </>
-              )}
-              {index + 1}. {name}
-            </li>
-          ))}
+          {STEPS.map((name, index) =>
+            isAdmin && index === 2 ? null : (
+              <li key={name} className={stepClass(index, step)} aria-current={index === step ? "step" : undefined}>
+                {index < step && (
+                  <>
+                    <span aria-hidden="true">✓ </span>
+                    <span className="sr-only">(완료) </span>
+                  </>
+                )}
+                {isAdmin && index > 2 ? index : index + 1}. {name}
+              </li>
+            )
+          )}
         </ol>
 
         <section className={`${ui.card} flex flex-col gap-4`} aria-labelledby="perf-step-title">
           <h2 id="perf-step-title" ref={headingRef} tabIndex={-1} className={`${ui.sectionTitle} outline-none`}>
-            {step + 1}단계 · {STEPS[step]}
+            {isAdmin && step > 2 ? step : step + 1}단계 · {STEPS[step]}
           </h2>
           {body}
         </section>

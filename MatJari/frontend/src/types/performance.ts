@@ -69,6 +69,8 @@ export interface AiExtractResult {
   cached: boolean;
   /** 페이지가 길어 못 읽은 조각 수(0이면 전부 읽음) */
   truncatedSlices: number;
+  /** 구역이 사람이 검수한 정답에서 왔다(같은 상품·같은 좌석표 이미지, AI 결과 아님) */
+  verifiedZones?: boolean;
 }
 
 /** GET /api/performances/lookup — 없으면 performanceId가 null이거나 생략될 수 있다 */

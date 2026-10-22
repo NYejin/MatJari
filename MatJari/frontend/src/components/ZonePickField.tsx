@@ -54,7 +54,7 @@ export default function ZonePickField({ id, label, value, onValueChange, zoneDat
       )}
       <TextField
         id={id}
-        label={showMap ? `${label} (지도에서 선택, 직접 입력도 가능)` : label}
+        label={showMap ? `${label} (구역 지도가 정확하지 않을 수 있어요. 그럴 땐 구역 번호를 직접 입력해주세요.)` : label}
         value={value}
         onChange={(e) => onValueChange(e.target.value)}
         error={error}

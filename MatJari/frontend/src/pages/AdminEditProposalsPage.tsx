@@ -21,7 +21,7 @@ const PAGE_SIZE = 20;
 const TABS: EditProposalStatus[] = ["PENDING", "APPROVED", "REJECTED"];
 
 const tabClass = (active: boolean) =>
-  `inline-flex min-h-11 flex-1 items-center justify-center rounded-md border px-3 text-xs/[normal] font-semibold ${FOCUS_RING} ` +
+  `inline-flex min-h-8 flex-1 items-center justify-center rounded-md border px-3 text-xs/[normal] font-semibold ${FOCUS_RING} ` +
   (active
     ? "border-primary-600 bg-primary-600 text-white"
     : "border-gray-300 bg-white text-gray-900 active:bg-gray-100");

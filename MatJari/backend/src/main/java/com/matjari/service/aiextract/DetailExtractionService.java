@@ -76,10 +76,16 @@ public class DetailExtractionService {
 
     public record ZoneDto(String name, List<List<List<Integer>>> shapePolygons) {}
 
+    /** verifiedZones: 구역이 사람이 검수한 정답에서 왔다(AI 결과 아님, VerifiedZones). */
     public record Response(List<SessionDto> sessions, String sessionsSource, List<ZoneDto> zones, Double seatmapAspect,
-                           boolean aiEnabled, boolean aiError, boolean cached, boolean truncatedSlices) {
+                           boolean aiEnabled, boolean aiError, boolean cached, boolean truncatedSlices, boolean verifiedZones) {
+        public Response(List<SessionDto> sessions, String sessionsSource, List<ZoneDto> zones, Double seatmapAspect,
+                        boolean aiEnabled, boolean aiError, boolean cached, boolean truncatedSlices) {
+            this(sessions, sessionsSource, zones, seatmapAspect, aiEnabled, aiError, cached, truncatedSlices, false);
+        }
+
         Response asCached() {
-            return new Response(sessions, sessionsSource, zones, seatmapAspect, aiEnabled, aiError, true, truncatedSlices);
+            return new Response(sessions, sessionsSource, zones, seatmapAspect, aiEnabled, aiError, true, truncatedSlices, verifiedZones);
         }
     }
 
@@ -100,6 +106,13 @@ public class DetailExtractionService {
     private final AiResultStore store;
     /** 같은 공연장의 등록된 구역 이름(구역이 많은 공연장만). null 이면 참고 없이 읽는다. */
     private final VenueZoneHints venueHints;
+    /** 사람이 검수한 구역 정답(정답검수 탭). null 이면 쓰지 않는다. */
+    private VerifiedZones verifiedZones;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setVerifiedZones(VerifiedZones verifiedZones) {
+        this.verifiedZones = verifiedZones;
+    }
 
     public DetailExtractionService(SourceKeyResolver sourceKeyResolver, PerformancePreviewService previewService,
                                    SessionTextParser textParser, DetailImageFetcher imageFetcher, ImageSlicer slicer,
@@ -167,7 +180,9 @@ public class DetailExtractionService {
             throw new AiExtractException(400, "UNSUPPORTED_SITE", "지원하지 않는 사이트예요. YES24·티켓링크·멜론티켓 링크만 읽을 수 있어요.", 0);
         }
         String site = m.group(1);
-        Response hit = admin ? null : cacheGet(key);
+        // 검수 정답이 있는 상품은 예전 AI 보관 결과보다 검수 정답을 먼저 확인한다
+        boolean hasVerified = verifiedZones != null && verifiedZones.has(key);
+        Response hit = admin || hasVerified ? null : cacheGet(key);
         if (hit != null) {
             return hit.asCached();
         }
@@ -190,6 +205,19 @@ public class DetailExtractionService {
         for (ExtractedSession s : rules) {
             if (s.date() != null) {
                 ruleSessions.add(new SessionDto(DATE.format(s.date()), s.time() == null ? null : TIME.format(s.time())));
+            }
+        }
+
+        // 링크 상품 번호와 좌석표 이미지가 검수 정답과 같으면 사람이 검수한 구역을 그대로 쓰고 AI 는 부르지 않는다(횟수에 세지 않음)
+        if (verifiedZones != null) {
+            try {
+                java.util.Optional<VerifiedZones.Match> vm = verifiedZones.find(site, key, page.document());
+                if (vm.isPresent()) {
+                    Response b = build(ruleSessions, List.of(), vm.get().zones(), vm.get().aspect(), false, false, false);
+                    return new Response(b.sessions(), b.sessionsSource(), b.zones(), b.seatmapAspect(), b.aiEnabled(), false, false, false, true);
+                }
+            } catch (RuntimeException e) {
+                log.info("검수 정답 확인 실패: {}", e.getClass().getSimpleName());
             }
         }
 

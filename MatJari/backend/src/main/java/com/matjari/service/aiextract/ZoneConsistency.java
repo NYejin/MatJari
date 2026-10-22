@@ -70,7 +70,7 @@ final class ZoneConsistency {
             addSequenceGaps(zones, byId, jpeg, extractor);
             fixSeriesOutliers(zones, byId);
             snapTextBlocks(zones, byId, color, img, bg); // 글자에 쪼개진 블록 조각을 띠로 오인해 옆 구역에 옮기지 않게 먼저 블록으로 바꾼다
-            reassignStrips(zones, byId);
+            reassignStrips(zones, byId, reread);
             if (chips.size() >= 2) {
                 refillDented(zones, byId, color, chips, bg, img);
             }
@@ -909,7 +909,10 @@ final class ZoneConsistency {
             if (name == null || name.length() > 30 || DetailExtractionService.isStageName(name)) {
                 continue;
             }
-            if (gradeName(name)) {
+            // 범례 글자로 구역을 새로 만드는 것은 스탠딩·플로어 구역(화정체육관 VIP(Standing) 띠)만이다. 'VIP 석'이 'VIP 4'로, '지정석 A'가
+            // '지정석A'로 읽힌 등급 이름(KSPO·212476·208307, 2026-10-22)은 구역이 아니라 등급으로 본다
+            boolean standingArea = name.toUpperCase(java.util.Locale.ROOT).matches(".*(STANDING|FLOOR).*") || name.matches(".*(스탠딩|플로어).*");
+            if (gradeName(name) || name.contains("석") || !standingArea) {
                 // '시야제한석'·'VIP석' 같은 등급 이름은 구역 이름이 아니다: 그 색 도형은 맞닿은(3px 안) 구역의 조각으로 붙인다(화정체육관 J의 분홍 삼각형)
                 for (Integer id : found.get(c)) {
                     String near = nearestZone(byId.get(id), zones, byId, 3);
@@ -1009,7 +1012,7 @@ final class ZoneConsistency {
      * 구역 블록(맞닿은 덩어리 조각들의 상자)의 마주 보는 변을 가장 많이 덮는 구역을 고른다. 그 구역이 지금 구역보다 30%p 넘게 더 덮으면 묶음째 옮긴다
      * (화정체육관 J 옆 휠체어석 막대와 파란 띠가 서로를 근거로 F1에 붙어 있던 것).
      */
-    private static void reassignStrips(Map<String, List<Integer>> zones, Map<Integer, ShapeSegmenter.Segment> byId) {
+    private static void reassignStrips(Map<String, List<Integer>> zones, Map<Integer, ShapeSegmenter.Segment> byId, Map<Integer, String> reread) {
         Map<String, int[]> blocks = new LinkedHashMap<>();
         for (Map.Entry<String, List<Integer>> z : zones.entrySet()) {
             ShapeSegmenter.Segment main = z.getValue().stream().map(byId::get).filter(java.util.Objects::nonNull)
@@ -1037,7 +1040,9 @@ final class ZoneConsistency {
             }
             for (Integer id : z.getValue()) {
                 ShapeSegmenter.Segment q = byId.get(id);
-                if (q != null && thinStrip(q)) {
+                // 도형 자체의 확대 타일에서 지금 구역 이름이 글자로 읽혔으면 그 도형은 띠가 아니라 그 구역 블록이다(세로로 긴 A·G, 호 모양 D·F 블록,
+                // 멜론 211087, 2026-10-22). 이름 없이 붙은 조각만 옮긴다
+                if (q != null && thinStrip(q) && !sameName(reread == null ? null : reread.get(id), z.getKey())) {
                     ownerOf.put(id, z.getKey());
                 }
             }
@@ -1084,6 +1089,15 @@ final class ZoneConsistency {
                 }
             }
         }
+    }
+
+    private static boolean sameName(String read, String zone) {
+        if (read == null || zone == null) {
+            return false;
+        }
+        String a = read.replaceAll("\\s+", "").toUpperCase(java.util.Locale.ROOT);
+        String b = zone.replaceAll("\\s+", "").toUpperCase(java.util.Locale.ROOT);
+        return !a.isEmpty() && a.equals(b);
     }
 
     private static boolean thinStrip(ShapeSegmenter.Segment s) {

@@ -93,7 +93,7 @@ public class ShapeSegmenter {
         }
         int[] raw = img.getRGB(0, 0, w, h, null, 0, w);
         int[] rgb = medianFilter(raw, w, h); // 빗금·디더링 질감을 지워 같은 블록이 한 색이 되게 한다
-        int[] bg = dominantColor(rgb);
+        int[] bg = dominantColor(rgb, w, h);
         if (dropGray) {
             int bgRgb = 0xFF000000 | (bg[0] << 16) | (bg[1] << 8) | bg[2];
             for (int i = 0; i < rgb.length; i++) {
@@ -105,14 +105,14 @@ public class ShapeSegmenter {
                 }
             }
         }
-        List<Segment> found = pass(rgb, bg, w, h, BG_DISTANCE);
-        found.addAll(faintExtras(found, pass(rgb, bg, w, h, FAINT_DISTANCE), 0.5));
+        List<Segment> found = pass(rgb, raw, bg, w, h, BG_DISTANCE);
+        found.addAll(faintExtras(found, pass(rgb, raw, bg, w, h, FAINT_DISTANCE), 0.5));
         for (int dist : ANY_DISTANCES) { // 빛 번짐이 있는 지도(NCT 고척돔)는 번진 테두리가 블록을 이어서 더 높은 문턱에서만 블록이 갈라진다
             found.addAll(blockExtras(found, solidInside(anyColorPass(raw, bg, w, h, dist), found)));
         }
         // 블록을 거의 덮는 흰 번호 때문에 아예 못 찾은 블록(고척돔 311·312): 번호를 둘레 블록 색으로 지운 이미지로 한 번 더 나눠, 이미 찾은 도형과
         // 겹치지 않는 블록 크기 도형만 보탠다(더하기만 하므로 이미 잘 찾은 지도는 그대로다). AI 에 보내는 이미지는 원본 그대로다
-        found.addAll(insideBlocks(found, blockExtras(found, pass(eraseText(rgb, bg, w, h), bg, w, h, BG_DISTANCE))));
+        found.addAll(insideBlocks(found, blockExtras(found, pass(eraseText(rgb, bg, w, h), raw, bg, w, h, BG_DISTANCE))));
         // 큰 것부터 남기고, 더 큰 도형 안에 중심이 든 작은 도형(글자 조각 등)은 버린다
         found.sort(Comparator.comparingInt(Segment::area).reversed());
         List<Segment> kept = new ArrayList<>();
@@ -294,7 +294,7 @@ public class ShapeSegmenter {
         return mx >= 70 && (double) (mx - mn) / mx < GRAY_SAT;
     }
 
-    private List<Segment> pass(int[] rgb, int[] bg, int w, int h, int dist) {
+    private List<Segment> pass(int[] rgb, int[] raw, int[] bg, int w, int h, int dist) {
         boolean[] fg = new boolean[w * h];
         for (int i = 0; i < rgb.length; i++) {
             int r = (rgb[i] >> 16) & 255, g = (rgb[i] >> 8) & 255, b = rgb[i] & 255;
@@ -331,8 +331,17 @@ public class ShapeSegmenter {
                 }
             }
             if (satN > 0 && (satSum / satN >= 0.3 || valSum / satN < 70)) { // 색이 있거나 아주 어두운(검은) 블록
-                m = close(m, w, h);
+                boolean[] closed = close(m, w, h);
+                // 닫기는 블록 안 잡티(다른 색 질감 픽셀)만 메우고, 원래 배경색이던 픽셀은 되돌린다: 같은 색 블록 사이 1~2px 흰 틈이
+                // 메워져 블록 여러 개가 한 덩어리가 되던 문제(KSPO DOME 12~15·2~4, 2026-10-22). 블록 안 흰 숫자는 아래 구멍 메우기가 채운다.
+                for (int i = 0; i < closed.length; i++) {
+                    if (closed[i] && !m[i] && !fg[i]) {
+                        closed[i] = false;
+                    }
+                }
+                m = closed;
             }
+            m = cutLightLines(m, raw, w, h); // 중간값 필터가 지운 1px 흰 구분선으로 같은 색 블록을 다시 나눈다
             m = fillSmallHoles(m, w, h);
             collectRaw(m, w, h, rgb, owner, raws);
         }
@@ -591,6 +600,10 @@ public class ShapeSegmenter {
      * 흰 지도 판 전체를 도형으로 오인한다.
      */
     static int[] dominantColor(int[] rgb) {
+        return dominantColor(rgb, 0, 0);
+    }
+
+    static int[] dominantColor(int[] rgb, int w, int h) {
         int[] count = new int[4096];
         long[] sr = new long[4096], sg = new long[4096], sb = new long[4096];
         for (int v : rgb) {
@@ -607,8 +620,64 @@ public class ShapeSegmenter {
                 best = k;
             }
         }
+        // 가장 많은 색이 채도 높은 색이면(좌석 블록과 같은 색의 바깥 테두리, 멜론 212918 분홍) 좌석표가 흰 판 위에 있을 수 있다:
+        // 채도 낮은 색이 전체의 15% 이상이고 그 색의 60% 이상이 한 덩어리로 이어진 큰 판(이미지의 10% 이상)이면 그 색을 배경으로 본다.
+        // 흰 블록이 보라 바탕에 흩어진 지도(멜론 207177)는 흰색이 여러 덩어리라 바꾸지 않는다
+        if (w > 0 && saturation(best) >= 0.35) {
+            int lowBest = -1;
+            for (int k = 0; k < 4096; k++) {
+                if (saturation(k) < 0.15 && (lowBest < 0 || count[k] > count[lowBest])) {
+                    lowBest = k;
+                }
+            }
+            if (lowBest >= 0 && count[lowBest] >= rgb.length * 0.15) {
+                int panel = largestRegion(rgb, w, h, lowBest);
+                if (panel >= count[lowBest] * 0.6 && panel >= rgb.length * 0.10) {
+                    best = lowBest;
+                }
+            }
+        }
         int c = Math.max(1, count[best]);
         return new int[]{(int) (sr[best] / c), (int) (sg[best] / c), (int) (sb[best] / c)};
+    }
+
+    /** 색 키가 key 인 픽셀의 4방향 연결 덩어리 중 가장 큰 것의 픽셀 수. */
+    private static int largestRegion(int[] rgb, int w, int h, int key) {
+        boolean[] seen = new boolean[rgb.length];
+        int[] queue = new int[rgb.length];
+        int best = 0;
+        for (int start = 0; start < rgb.length; start++) {
+            if (seen[start] || colorKey(rgb[start]) != key) {
+                continue;
+            }
+            int head = 0, tail = 0;
+            queue[tail++] = start;
+            seen[start] = true;
+            while (head < tail) {
+                int p = queue[head++];
+                int x = p % w;
+                int[] nb = {x > 0 ? p - 1 : -1, x < w - 1 ? p + 1 : -1, p - w, p + w};
+                for (int q : nb) {
+                    if (q >= 0 && q < rgb.length && !seen[q] && colorKey(rgb[q]) == key) {
+                        seen[q] = true;
+                        queue[tail++] = q;
+                    }
+                }
+            }
+            best = Math.max(best, tail);
+        }
+        return best;
+    }
+
+    private static int colorKey(int v) {
+        return (((v >> 16) & 255) >> 4) * 256 + (((v >> 8) & 255) >> 4) * 16 + ((v & 255) >> 4);
+    }
+
+    /** 4096칸 색 키(각 채널 상위 4비트)의 채도(HSV). */
+    private static double saturation(int key) {
+        int r = (key >> 8) * 16 + 8, g = ((key >> 4) & 15) * 16 + 8, b = (key & 15) * 16 + 8;
+        int mx = Math.max(r, Math.max(g, b)), mn = Math.min(r, Math.min(g, b));
+        return mx == 0 ? 0 : (double) (mx - mn) / mx;
     }
 
     private static int[] borderMedian(int[] rgb, int w, int h) {
@@ -640,6 +709,122 @@ public class ShapeSegmenter {
     }
 
     /** 바깥(이미지 가장자리)과 이어지지 않은 작은 구멍(블록 안의 숫자·글자 자리)을 메운다. 구멍이 가장자리를 파고들어 외곽선이 우글거리는 것을 막는다. */
+    /**
+     * 같은 색 블록이 1px 안팎의 밝은 구분선으로만 나뉜 지도(KSPO DOME 1층 12~15·2~4, 2026-10-22)는 중간값 필터·닫기에서 선이 지워져 블록 여러 개가
+     * 한 덩어리가 된다. 덩어리마다 원본(필터 전) 픽셀에서 블록보다 훨씬 밝은 픽셀(구분선·흰 글자)을 빼 보고, 그것만으로 덩어리가 블록 크기의 조각
+     * 2~6개(조각마다 덩어리의 12% 이상, 짧은 변 12px 이상)로 갈라지면 갈라진 쪽을 쓴다. 흰 숫자는 블록을 가로지르지 않아 구멍으로 남고 뒤의
+     * 구멍 메우기가 채운다. 좌석 줄무늬처럼 가는 조각으로만 갈라지면 그대로 둔다.
+     */
+    static boolean[] cutLightLines(boolean[] m, int[] raw, int w, int h) {
+        boolean[] out = m.clone();
+        int[] label = new int[m.length];
+        int[] queue = new int[m.length];
+        int next = 0;
+        for (int start = 0; start < m.length; start++) {
+            if (!m[start] || label[start] != 0) {
+                continue;
+            }
+            next++;
+            int tail = 0, head = 0;
+            queue[tail++] = start;
+            label[start] = next;
+            while (head < tail) {
+                int p = queue[head++];
+                int x = p % w;
+                int[] nb = {x > 0 ? p - 1 : -1, x < w - 1 ? p + 1 : -1, p - w, p + w};
+                for (int q : nb) {
+                    if (q >= 0 && q < m.length && m[q] && label[q] == 0) {
+                        label[q] = next;
+                        queue[tail++] = q;
+                    }
+                }
+            }
+            if (tail < 400) {
+                continue;
+            }
+            int[] comp = java.util.Arrays.copyOf(queue, tail);
+            int[] vals = new int[tail];
+            for (int i = 0; i < tail; i++) {
+                vals[i] = maxChannel(raw[comp[i]]);
+            }
+            int[] sorted = vals.clone();
+            java.util.Arrays.sort(sorted);
+            int blockV = sorted[tail / 2];
+            if (blockV > 200) { // 밝은 블록은 흰 선과 구분이 안 된다
+                continue;
+            }
+            boolean[] cut = new boolean[m.length];
+            int cutCount = 0;
+            for (int i = 0; i < tail; i++) {
+                if (vals[i] >= 170 && vals[i] - blockV >= 50) {
+                    cut[comp[i]] = true;
+                    cutCount++;
+                }
+            }
+            if (cutCount == 0) {
+                continue;
+            }
+            // 자른 뒤 조각 나누기
+            int[] sub = new int[m.length];
+            List<int[]> parts = new ArrayList<>();
+            for (int i = 0; i < tail; i++) {
+                int s0 = comp[i];
+                if (cut[s0] || sub[s0] != 0) {
+                    continue;
+                }
+                int id = parts.size() + 1;
+                int h2 = 0, t2 = 0;
+                int[] q2 = new int[tail];
+                q2[t2++] = s0;
+                sub[s0] = id;
+                int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, maxX = 0, maxY = 0;
+                while (h2 < t2) {
+                    int p = q2[h2++];
+                    int x = p % w, y = p / w;
+                    minX = Math.min(minX, x);
+                    maxX = Math.max(maxX, x);
+                    minY = Math.min(minY, y);
+                    maxY = Math.max(maxY, y);
+                    int[] nb = {x > 0 ? p - 1 : -1, x < w - 1 ? p + 1 : -1, p - w, p + w};
+                    for (int q : nb) {
+                        if (q >= 0 && q < m.length && label[q] == next && !cut[q] && sub[q] == 0) {
+                            sub[q] = id;
+                            q2[t2++] = q;
+                        }
+                    }
+                }
+                parts.add(new int[]{id, t2, Math.min(maxX - minX + 1, maxY - minY + 1)});
+            }
+            int big = 0;
+            boolean thin = false;
+            for (int[] pt : parts) {
+                if (pt[1] >= tail * 0.12) {
+                    big++;
+                    thin |= pt[2] < 12;
+                }
+            }
+            if (big < 2 || big > 6 || thin) {
+                continue;
+            }
+            // 큰 조각만 남기고(작은 조각·선 픽셀은 빼고) 흰 글자 구멍은 뒤에서 메운다
+            java.util.Set<Integer> keep = new java.util.HashSet<>();
+            for (int[] pt : parts) {
+                if (pt[1] >= tail * 0.12) {
+                    keep.add(pt[0]);
+                }
+            }
+            for (int i = 0; i < tail; i++) {
+                int p = comp[i];
+                out[p] = !cut[p] && keep.contains(sub[p]);
+            }
+        }
+        return out;
+    }
+
+    private static int maxChannel(int c) {
+        return Math.max((c >> 16) & 255, Math.max((c >> 8) & 255, c & 255));
+    }
+
     static boolean[] fillSmallHoles(boolean[] m, int w, int h) {
         boolean[] out = m.clone();
         boolean[] seen = new boolean[m.length];

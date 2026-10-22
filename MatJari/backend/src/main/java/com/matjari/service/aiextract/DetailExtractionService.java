@@ -378,12 +378,13 @@ public class DetailExtractionService {
                     log.info("AI 좌석표 구간: 이미지 {}, 조각 {}~{}/{}, 합친 크기 {}x{}, 사용 크기 {}x{}", loc.imageIndex(), a, b, sl.size(),
                             merged.width(), merged.height(), target.width(), target.height());
                     shapes = labelShapes(target, names); // 실제 픽셀 윤곽(ShapeSegmenter) + AI가 타일에서 읽은 구역 이름
+                    boolean pixelShapes = !shapes.isEmpty(); // 실제 픽셀 도형이면 좌표 넓이 검사를 하지 않는다
                     if (!shapes.isEmpty()) {
                         names = extendNames(names, shapes); // 1차 이름 목록에서 빠졌지만 타일에서 읽힌 구역을 되살린다
                     } else {
                         shapes = extractor.second(target.jpeg(), names);
                     }
-                    if (!shapeQualityOk(names, shapes)) { // 좌표 기준이 어긋나거나 형식이 틀린 응답이 가끔 오므로 한 번만 다시 시도한다
+                    if (!shapeQualityOk(names, shapes, pixelShapes)) { // 좌표 기준이 어긋나거나 형식이 틀린 응답이 가끔 오므로 한 번만 다시 시도한다
                         log.info("AI 2차 모양 품질 미달, 한 번 다시 시도");
                         shapes = extractor.second(target.jpeg(), names);
                         if (!shapeQualityOk(names, shapes)) { // 믿을 수 없는 모양은 버리고 이름만 유지한다
@@ -420,6 +421,7 @@ public class DetailExtractionService {
             }
             zones = mergeZones(names, shapes);
             zones = dropHintOnly(zones, hint, shapes);
+            zones = dropUnshapedNumbers(zones);
             logExtent(zones, cropW, cropH);
             if (aspect != null && cropW > 0 && cropH > 0) { // 좌석표가 잘라 낸 이미지의 일부만 차지해도 미리보기가 꽉 차도록 모양 좌표를 좌석표 영역에 맞춘다
                 FitResult fit = fitToBounds(zones, cropW, cropH);
@@ -507,12 +509,13 @@ public class DetailExtractionService {
             if (!names.isEmpty()) {
                 try {
                     shapes = labelShapes(target, names);
+                    boolean pixelShapes = !shapes.isEmpty(); // 실제 픽셀 도형이면 좌표 넓이 검사를 하지 않는다
                     if (!shapes.isEmpty()) {
                         names = extendNames(names, shapes);
                     } else {
                         shapes = extractor.second(target.jpeg(), names);
                     }
-                    if (!shapeQualityOk(names, shapes)) {
+                    if (!shapeQualityOk(names, shapes, pixelShapes)) {
                         shapes = extractor.second(target.jpeg(), names);
                         if (!shapeQualityOk(names, shapes)) {
                             shapes = List.of();
@@ -610,6 +613,31 @@ public class DetailExtractionService {
         return out;
     }
 
+    /**
+     * 모양이 충분히 있는 지도(모양 있는 구역 5개 이상)에서 어느 도형에도 붙지 못한 '숫자 번호' 이름은 뺀다.
+     * 번호가 건너뛴 자리를 AI 가 순서로 채운 가짜 구역(KSPO DOME 16~23 등, 2026-10-22)을 사용자에게 보이지 않기 위해서다.
+     * 글자 이름(FLOOR·OP 등)은 모양이 없어도 남긴다.
+     */
+    static List<ZoneDto> dropUnshapedNumbers(List<ZoneDto> zones) {
+        long shaped = zones.stream().filter(z -> z.shapePolygons() != null).count();
+        if (shaped < 5) {
+            return zones;
+        }
+        List<ZoneDto> out = new ArrayList<>();
+        int dropped = 0;
+        for (ZoneDto z : zones) {
+            if (z.shapePolygons() == null && z.name() != null && z.name().trim().matches("[A-Za-z]{0,2}\\d{1,4}")) {
+                dropped++;
+                continue;
+            }
+            out.add(z);
+        }
+        if (dropped > 0) {
+            log.info("모양 있는 지도에서 도형이 없는 번호 구역 {}개 제외", dropped);
+        }
+        return out;
+    }
+
     private static String hintKey(String name) {
         try {
             return com.matjari.service.SeatKeyNormalizer.zoneKey(name);
@@ -635,13 +663,14 @@ public class DetailExtractionService {
         }
         boolean fallback = false;
         List<DetailExtractor.RawZone> shapes = labelShapes(target, names);
+        boolean pixelShapes = !shapes.isEmpty(); // 실제 픽셀 도형이면 좌표 넓이 검사를 하지 않는다
         if (!shapes.isEmpty()) {
             names = extendNames(names, shapes);
         } else {
             shapes = extractor.second(jpeg, names);
             fallback = true;
         }
-        if (!shapeQualityOk(names, shapes)) {
+        if (!shapeQualityOk(names, shapes, pixelShapes)) {
             shapes = extractor.second(jpeg, names);
             fallback = true;
             if (!shapeQualityOk(names, shapes)) {
@@ -677,9 +706,17 @@ public class DetailExtractionService {
                 }
             }
             // nonSeatSegments 는 점검용 기록이다(AI가 구역에 연결한 번호가 우선하며, 무대 같은 큰 구조물은 아래 넓이 검사가 거른다)
+            // 처음 짝짓기에서 범례 글자('R석'·'VIP 석')로 읽힌 도형: 확대 타일에서 '석'이 '4'로 읽혀(R4·VIP 4) 구역이 되지 않게 기억해 둔다(KSPO·212476)
+            java.util.Set<Integer> legendIds = new java.util.HashSet<>();
+            for (DetailExtractor.RawLabel l : result.zones()) {
+                String c = cleanName(l.name());
+                if (c != null && (isLegendName(c) || c.replaceAll("\\s+", "").matches(".*[가-힣]석")) && l.segmentIds() != null) {
+                    legendIds.addAll(l.segmentIds());
+                }
+            }
             List<DetailExtractor.RawLabel> labels = canonicalLabels(attachOrphans(result, seg), names);
             Map<Integer, String> reread = new LinkedHashMap<>();
-            labels = verifySuspects(labels, seg, target, names, reread);
+            labels = verifySuspects(labels, seg, target, names, reread, legendIds);
             ZoneConsistency.Checked checked = ZoneConsistency.check(labels, seg, target.jpeg(), names, reread, extractor); // 범례 색·좌우대칭으로 빠진 구역과 이상한 구역 점검
             labels = checked.labels();
             seg = checked.seg();
@@ -1238,7 +1275,8 @@ public class DetailExtractionService {
      * 블록의 번호 등)를 잘못 읽는 일이 있어서다. 다시 읽은 이름이 구역 코드답거나 1차 이름 목록에 있으면 그 이름을 쓰고, 비었거나 이상하면 처음 읽은 이름을 유지한다.
      */
     private List<DetailExtractor.RawLabel> verifySuspects(List<DetailExtractor.RawLabel> labels, ShapeSegmenter.Result seg,
-                                                          ImageSlicer.SliceImage target, List<String> names, Map<Integer, String> rereadOut) {
+                                                          ImageSlicer.SliceImage target, List<String> names, Map<Integer, String> rereadOut,
+                                                          java.util.Set<Integer> legendIds) {
         Map<Integer, ShapeSegmenter.Segment> byId = new LinkedHashMap<>();
         for (ShapeSegmenter.Segment sg : seg.segments()) {
             byId.put(sg.id(), sg);
@@ -1284,6 +1322,10 @@ public class DetailExtractionService {
                 String t = e.getValue() == null ? "" : e.getValue().trim();
                 if (t.isEmpty() || isStageName(t)) {
                     continue; // 비었거나 무대 표기면 처음 읽은 이름(또는 좌석 아님)을 유지
+                }
+                String before = owner.get(e.getKey());
+                if (legendIds.contains(e.getKey()) || (before != null && isLegendName(before))) {
+                    continue; // 처음에 'R석'·'VIP 석' 같은 범례 글자로 읽힌 도형은 확대 타일에서 '석'이 '4'로 읽혀도(R4·VIP 4) 구역으로 바꾸지 않는다(KSPO·212476)
                 }
                 String k = keyOf(t);
                 if (k != null && !k.isEmpty() && (known.contains(k) || looksLikeZoneCode(t)) && !t.equals(owner.get(e.getKey()))
@@ -1367,7 +1409,8 @@ public class DetailExtractionService {
     static boolean isLegendName(String name) {
         String n = name.replaceAll("\\s+", "").replaceAll("[)\\]}]+$", "");
         // '~석'으로 끝나는 이름(VIP석·시야제한석·'♿(VIP석)' 등)은 좌석 등급 범례 표기다(등급 인식은 하지 않는다, 사용자 결정 2026-10-19)
-        return n.matches("(B?\\d+층|\\d+F)?(스탠딩석|지정석|일반석|입석|좌석)") || n.endsWith("석");
+        // '지정석 A'·'일반석R'처럼 등급 이름 뒤에 등급 글자가 붙은 범례 표기도 등급이다(멜론 208307, 2026-10-22)
+        return n.matches("(B?\\d+층|\\d+F)?(스탠딩석|지정석|일반석|입석|좌석)") || n.endsWith("석") || n.matches(".*(지정석|일반석|입석|좌석).*");
     }
 
     /** 타일에서 새로 읽은 이름이 구역 코드답다: 4자 이하이고 숫자나 라틴 글자를 포함(한글만 있는 안내 글자 '좌석'·'안내'·'최신순' 등은 아니다). */
@@ -1940,6 +1983,18 @@ public class DetailExtractionService {
      * 모양이 쓸 만한지 본다: 유효한 모양을 가진 구역이 절반 이상이고, 잘라 낸 좌석표 이미지 안에서 모양들이 가로 45% 이상·세로 25% 이상을 덮는다
      * (좌표 기준이 어긋나 한쪽으로 몰리거나 찌그러진 응답을 걸러 낸다). 구역 이름이 없으면 true.
      */
+    /**
+     * pixelShapes: 모양이 ShapeSegmenter 의 실제 픽셀 윤곽에서 왔으면 이름 대비 모양 비율만 본다. 좌표 넓이 검사(가로 450·세로 250 이상)는
+     * AI 가 좌표를 직접 찍는 대체 방식의 좌표 기준 어긋남을 막는 것이라, 좌석표가 세로로 긴 이미지의 일부만 차지할 때 맞게 찾은 픽셀 도형까지
+     * 버리던 문제(멜론 207095, 2026-10-22)가 있었다.
+     */
+    static boolean shapeQualityOk(List<String> names, List<DetailExtractor.RawZone> shapes, boolean pixelShapes) {
+        if (pixelShapes) {
+            return names == null || names.isEmpty() || validShapeRatio(names, shapes) >= 0.5;
+        }
+        return shapeQualityOk(names, shapes);
+    }
+
     static boolean shapeQualityOk(List<String> names, List<DetailExtractor.RawZone> shapes) {
         if (names == null || names.isEmpty()) {
             return true;

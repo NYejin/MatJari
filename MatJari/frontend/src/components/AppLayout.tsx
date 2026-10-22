@@ -39,6 +39,7 @@ function useAdminLanding() {
 export default function AppLayout() {
   useAdminLanding();
   const isChat = useMatch("/exchange/matches/:matchId/chat") !== null;
+  const isAdminPage = useMatch("/admin/*") !== null;
   return (
     // 채팅 화면은 화면 높이에 고정하고(메시지 영역만 스크롤) 나머지 화면은 기존처럼 min-height
     <div className={isChat ? "flex h-[100vh] flex-col supports-[height:100dvh]:h-dvh" : "flex min-h-[100vh] flex-col supports-[min-height:100dvh]:min-h-dvh"}>
@@ -46,7 +47,7 @@ export default function AppLayout() {
       <main className={isChat ? "flex min-h-0 flex-1 flex-col" : "flex flex-[1_0_auto] flex-col"}>
         <Outlet />
       </main>
-      {!isChat && <Footer />}
+      {!isChat && <Footer wide={isAdminPage} />}
     </div>
   );
 }

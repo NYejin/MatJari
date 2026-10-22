@@ -909,7 +909,10 @@ final class ZoneConsistency {
             if (name == null || name.length() > 30 || DetailExtractionService.isStageName(name)) {
                 continue;
             }
-            if (gradeName(name)) {
+            // 범례 글자로 구역을 새로 만드는 것은 스탠딩·플로어 구역(화정체육관 VIP(Standing) 띠)만이다. 'VIP 석'이 'VIP 4'로, '지정석 A'가
+            // '지정석A'로 읽힌 등급 이름(KSPO·212476·208307, 2026-10-22)은 구역이 아니라 등급으로 본다
+            boolean standingArea = name.toUpperCase(java.util.Locale.ROOT).matches(".*(STANDING|FLOOR).*") || name.matches(".*(스탠딩|플로어).*");
+            if (gradeName(name) || name.contains("석") || !standingArea) {
                 // '시야제한석'·'VIP석' 같은 등급 이름은 구역 이름이 아니다: 그 색 도형은 맞닿은(3px 안) 구역의 조각으로 붙인다(화정체육관 J의 분홍 삼각형)
                 for (Integer id : found.get(c)) {
                     String near = nearestZone(byId.get(id), zones, byId, 3);

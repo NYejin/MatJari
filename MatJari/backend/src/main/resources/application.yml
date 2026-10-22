@@ -131,6 +131,7 @@ matjari:
     long-prompt-tokens: ${MATJARI_AI_LONG_PROMPT_TOKENS:100000}
     credit-baseline-usd: ${MATJARI_AI_CREDIT_BASELINE_USD:32.65}
     credit-baseline-at: ${MATJARI_AI_CREDIT_BASELINE_AT:2026-10-22T00:00}
+    credit-total-usd: ${MATJARI_AI_CREDIT_TOTAL_USD:100}
     daily-global: ${MATJARI_AI_DAILY_GLOBAL:40}
     max-concurrent: ${MATJARI_AI_MAX_CONCURRENT:2}
     debug-dir: ${MATJARI_AI_DEBUG_DIR:}

@@ -103,6 +103,8 @@ class AdminDashboardMysqlTest {
         assertThat(r.kpis().get("ai")).containsEntry("costTodayUsd", 0.0065).containsEntry("tokensToday", 53000L)
                 .containsEntry("creditBaselineUsd", 32.65);
         assertThat((Double) r.kpis().get("ai").get("creditRemainingUsd")).isCloseTo(32.6435, org.assertj.core.data.Offset.offset(1e-9));
+        assertThat(r.kpis().get("ai")).containsEntry("creditTotalUsd", 100.0);
+        assertThat((Double) r.kpis().get("ai").get("creditRemainingRatio")).isCloseTo(0.326435, org.assertj.core.data.Offset.offset(1e-9));
         assertThat(r.aiCostByStage()).containsKeys("first", "label");
         assertThat(r.daily().get(r.daily().size() - 1).aiCostUsd()).isEqualTo(0.0065);
         assertThat(r.daily()).hasSize(AdminDashboardService.DAYS);

@@ -79,7 +79,7 @@ function UserBody({ user: u, isSelf, onChanged }: { user: AdminUserDetail; isSel
     <div className="grid grid-cols-1 items-start gap-2 lg:grid-cols-2 2xl:grid-cols-3">
       <section className={`${ui.card} flex flex-col gap-2`} aria-label="기본 정보">
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-[13px]/[normal] font-bold break-all text-gray-900">{u.nickname}</h1>
+          <h1 className={`${ui.pageTitle} break-all`}>{u.nickname}</h1>
           {u.role === "ADMIN" && <span className={ui.badge}>관리자</span>}
           {u.suspended && <span className={ui.badge}>이용 정지 중 ({formatUntil(u.suspendedUntil)})</span>}
           {u.withdrawn && <span className={ui.badge}>탈퇴</span>}
@@ -240,7 +240,7 @@ function ActionPanel(p: ActionPanelProps) {
 
   return (
     <section className={`${ui.card} flex flex-col gap-1.5 ${p.danger ? "border border-red-200" : ""}`} aria-label={p.title}>
-      <h2 className={p.danger ? "text-lg/[normal] font-bold text-red-700" : ui.sectionTitle}>{p.title}</h2>
+      <h2 className={p.danger ? `${ui.sectionTitle} text-red-700!` : ui.sectionTitle}>{p.title}</h2>
       <p className={ui.body}>{p.description}</p>
       {p.disabledReason ? (
         <p className={ui.notice} role="status">

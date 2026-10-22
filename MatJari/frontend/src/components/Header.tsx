@@ -17,6 +17,10 @@ const cls = {
   logoImage: "h-11 w-auto",
   header: "sticky top-0 z-[100] border-b border-secondary-200 bg-white pt-[env(safe-area-inset-top)]",
   bar: "relative mx-auto flex min-h-14 max-w-[1080px] items-center gap-2 pr-2 pl-4 md:gap-4 md:px-4",
+  /** 관리자 화면: 폭 제한 없이 양 끝에 맞추고, 데스크톱에서는 메뉴·버튼 글자를 관리자 본문 크기(13px)에 맞춰 낮춘다(2026-10-22 사용자 지시) */
+  barAdmin:
+    "max-w-none! md:min-h-11! [&_img]:h-8! md:[&_a]:min-h-8! md:[&_a]:text-[13px]/[normal]! " +
+    "md:[&_button]:min-h-8! md:[&_button]:text-[13px]/[normal]! md:[&_.truncate]:text-xs/[normal]!",
   logo:
     "mr-auto inline-flex min-h-11 shrink-0 items-center text-xl/[normal] font-extrabold tracking-[-0.02em] " +
     "whitespace-nowrap text-primary-600 no-underline active:opacity-70 " +
@@ -228,7 +232,7 @@ export default function Header() {
 
   return (
     <header ref={headerRef} className={cls.header}>
-      <div className={wide ? `${cls.bar} max-w-none!` : cls.bar}>
+      <div className={wide ? `${cls.bar} ${cls.barAdmin}` : cls.bar}>
         <Link ref={logoRef} to="/" className={cls.logo} onClick={closeMenu}>
           <img src="/logo.png" alt="맞자리" className={cls.logoImage} />
         </Link>

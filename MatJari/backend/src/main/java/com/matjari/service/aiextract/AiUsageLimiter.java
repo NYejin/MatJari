@@ -62,6 +62,17 @@ public class AiUsageLimiter {
 
     /** 허락하면 Permit, 아니면 429(전체·동시 AI_RATE_LIMITED, 월 횟수 AI_MONTHLY_LIMIT_REACHED). */
     public Permit acquire(Long userId, String sourceKey) {
+        return acquire(userId, sourceKey, true);
+    }
+
+    /**
+     * 관리자 다시 인식(공연 관리): 월 횟수는 세지 않고 전체 하루 상한·동시 실행 상한만 적용한다(비용은 ai_call_log 에 그대로 남는다).
+     */
+    public Permit acquireAdmin(String sourceKey) {
+        return acquire(null, sourceKey, false);
+    }
+
+    private Permit acquire(Long userId, String sourceKey, boolean countMonthly) {
         if (!concurrency.tryAcquire()) {
             throw DetailExtractionService.rateLimited(10);
         }
@@ -82,7 +93,7 @@ public class AiUsageLimiter {
                 global++;
             }
             LocalDateTime monthStart = monthStart();
-            usageId = monthly.reserve(userId, sourceKey, properties.getMonthlyPerUser(), monthStart, now.toLocalDateTime());
+            usageId = countMonthly ? monthly.reserve(userId, sourceKey, properties.getMonthlyPerUser(), monthStart, now.toLocalDateTime()) : 0;
             if (usageId < 0) {
                 releaseGlobal();
                 long untilNextMonth = Math.max(1, Duration.between(now.toLocalDateTime(), monthStart.plusMonths(1)).toSeconds());
@@ -107,7 +118,9 @@ public class AiUsageLimiter {
             @Override
             public void refund() {
                 if (refunded.compareAndSet(false, true)) {
-                    monthly.refund(usageId, LocalDateTime.now(clock));
+                    if (countMonthly) {
+                        monthly.refund(usageId, LocalDateTime.now(clock));
+                    }
                     releaseGlobal();
                 }
             }

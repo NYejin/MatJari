@@ -767,6 +767,7 @@ keyset 조각의 내부: 저장소에 `size+1`건을 요청해 다음 조각 유
 ### API
 
 - `POST /api/performances/ai-extract` (로그인 필요). 요청 `{sourceUrl}`(필수, 2000자 이하).
+- `POST /api/performances/ai-extract/seatmap` (로그인 필요, multipart `image`, JPEG·PNG 5MB 이하): 좌석표 이미지 한 장에서 구역만 읽는다(같은 월 3회, 이미지는 저장하지 않음, 결과 보관 키 `upload:{SHA-256}`). 관리자는 `POST /api/admin/performances/{id}/zones/ai-extract`(링크에서 다시 인식, 보관 결과 무시)·`.../zones/seatmap`을 쓰며 월 횟수를 세지 않는다(전체 하루 상한은 적용). 결과는 저장하지 않고 구역 교체 API로만 반영한다.
 - 응답: `{sessions[{date, time}], sessionsSource, zones[{name, shapePolygons}], seatmapAspect, aiEnabled, aiError, cached, truncatedSlices}`.
   - `sessionsSource`: `TEXT_RULE`(본문 규칙으로 읽음, 우선) / `AI` / `NONE`.
   - `aiEnabled`: AI를 실제로 부를 수 있었는지. `aiError`: AI 호출이 실패해 규칙 결과만 돌려줬는지. `cached`: 캐시에서 준 결과인지. `truncatedSlices`: 조각 상한(`max-slices`) 때문에 뒤쪽 이미지를 읽지 못했는지.

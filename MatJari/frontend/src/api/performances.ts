@@ -59,6 +59,17 @@ export const performancesApi = {
     return data;
   },
 
+  /**
+   * POST /api/performances/ai-extract/seatmap (multipart image) — 사용자가 올린 좌석표 이미지에서 구역 이름·모양 읽기(회차 없음).
+   * 같은 월 횟수에서 센다. 400 IMAGE_REQUIRED·IMAGE_UNSUPPORTED, 413 IMAGE_TOO_LARGE, 429, 503 AI_UNAVAILABLE
+   */
+  async aiSeatmap(image: File, signal?: AbortSignal): Promise<AiExtractResult> {
+    const form = new FormData();
+    form.append("image", image);
+    const { data } = await apiClient.post<AiExtractResult>("/performances/ai-extract/seatmap", form, { signal });
+    return data;
+  },
+
   /** GET /api/performances/ai-extract/quota — 이번 달 공연정보 불러오기 사용 현황(매월 1일 초기화) */
   async aiQuota(signal?: AbortSignal): Promise<AiQuota> {
     const { data } = await apiClient.get<AiQuota>("/performances/ai-extract/quota", { signal });

@@ -160,7 +160,7 @@ function ClaimCard({ claim, onDone }: { claim: AdminSeatClaim; onDone: () => voi
       </p>
       {claim.memo && <p className={ui.body}>메모: {claim.memo}</p>}
 
-      <div className="rounded-md bg-gray-100 px-3.5 py-3 text-sm/[normal] text-gray-900">
+      <div className="rounded-md bg-gray-100 px-2 py-1 text-xs/[normal] text-gray-900">
         <span className="font-semibold">지금 이 좌석: </span>
         {claim.holder ? (
           <>

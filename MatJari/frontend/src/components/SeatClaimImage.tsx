@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { httpStatus, seatClaimsApi } from "../api/seatClaims";
-import { button, ui } from "./ui";
+import { useTokens } from "./density";
 
 // 인증 요청 사진 보기: 버튼을 누르면 blob으로 받아 object URL로 표시하고, 닫거나 사라질 때 해제한다.
 type State =
@@ -9,6 +9,7 @@ type State =
   | { status: "error"; message: string };
 
 export default function SeatClaimImage({ claimId, available }: { claimId: number; available: boolean }) {
+  const { button, ui } = useTokens();
   const [state, setState] = useState<State>({ status: "loading" });
   const [open, setOpen] = useState(false);
 

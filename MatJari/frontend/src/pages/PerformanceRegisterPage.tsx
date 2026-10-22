@@ -28,6 +28,7 @@ import TimeSelect from "../components/TimeSelect";
 import PosterImage from "../components/PosterImage";
 import ZoneEditor, { zoneNameInputId } from "../components/ZoneEditor";
 import ZoneMap, { hasShapedZone } from "../components/ZoneMap";
+import SeatmapUpload from "../components/SeatmapUpload";
 import { button, linkButton, liveRegionClass, ui } from "../components/ui";
 
 // FR-02 공연 등록 (보호 라우트 /performances/new) — 단계형:
@@ -232,6 +233,8 @@ export default function PerformanceRegisterPage() {
   const [aiLoading, setAiLoading] = useState(false);
   /** 상태 줄 문구. tone=error이고 retry이면 '다시 읽기' 버튼을 보인다 */
   const [aiNote, setAiNote] = useState<{ text: string; tone: "info" | "error"; retry: boolean } | null>(null);
+  const [smBusy, setSmBusy] = useState(false);
+  const [smNote, setSmNote] = useState<{ text: string; tone: "info" | "error" } | null>(null);
   /** 이미 AI 읽기를 시작한 링크 — 같은 링크로 돌아와도 다시 부르지 않는다 */
   const aiUrl = useRef<string | null>(null);
   /** AI가 읽은 결과가 화면에 있음(안내문 표시 조건) */
@@ -451,6 +454,45 @@ export default function PerformanceRegisterPage() {
         if (!unmounted.current) setAiLoading(false);
       }
       if (!unmounted.current) void loadQuota(); // 쓴 횟수(실패하면 반환된 횟수)를 다시 보여 준다
+    }
+  };
+
+  /** 좌석표 이미지 올리기: 구역 지도를 자동으로 얻지 못했을 때(선택). 같은 월 횟수에서 세고, 이름이 같은 줄은 건드리지 않고 모양만 채운다 */
+  const uploadSeatmap = async (file: File) => {
+    setSmBusy(true);
+    setSmNote(null);
+    try {
+      const r = await performancesApi.aiSeatmap(file);
+      if (unmounted.current) return;
+      const incoming = r.zones ?? [];
+      if (incoming.length === 0) {
+        setSmNote({ text: "좌석표에서 구역을 읽지 못했어요. 구역 이름을 직접 입력해 주세요.", tone: "error" });
+        return;
+      }
+      const z = mergeAiZones(zoneRowsRef.current, incoming);
+      setZoneRows(z.rows);
+      setZoneError(undefined);
+      if (typeof r.seatmapAspect === "number" && r.seatmapAspect > 0 && !hasShapedZone(toPayloadZones(zoneRowsRef.current))) {
+        setSeatmapAspect(r.seatmapAspect);
+      }
+      setAiZonesShown(true);
+      const shaped = incoming.filter((zz) => zz.shapePolygons && zz.shapePolygons.length > 0).length;
+      setSmNote({ text: `좌석표에서 구역 ${incoming.length}개를 읽었어요(지도 모양 ${shaped}개). 맞는지 확인하고 고쳐 주세요.`, tone: "info" });
+    } catch (err) {
+      if (unmounted.current) return;
+      const code = getErrorCode(err);
+      setSmNote({
+        text:
+          code === "IMAGE_UNSUPPORTED" ? "JPEG·PNG 이미지만 읽을 수 있어요."
+          : code === "IMAGE_TOO_LARGE" ? "이미지는 5MB 이하만 올릴 수 있어요."
+          : aiErrorText(err),
+        tone: "error",
+      });
+    } finally {
+      if (!unmounted.current) {
+        setSmBusy(false);
+        void loadQuota();
+      }
     }
   };
 
@@ -948,6 +990,27 @@ export default function PerformanceRegisterPage() {
               티켓 등록·교환 조건에서 구역 지도를 눌러 구역을 고를 수 있게 해 줘요. 선택 사항이고, 비워도 등록할 수 있어요.
             </p>
             <ZoneEditor rows={zoneRows} aspect={seatmapAspect} onChange={(r) => { setZoneRows(r); setZoneError(undefined); }} serverError={zoneError} />
+            {!aiLoading && (smBusy || smNote || !hasShapedZone(toPayloadZones(zoneRows))) && (
+              <div className={`${ui.notice} flex flex-col gap-2`}>
+                <p>
+                  원활한 교환을 위해 좌석표 이미지를 올려 주세요(선택). 티켓팅 사이트의 좌석 배치도를 캡처해 올리면 AI가 구역 지도를 만들어요.
+                  올리지 않아도 내 티켓 구역만 입력하면 등록돼요.
+                </p>
+                <p className={ui.hint}>예매번호·이름 같은 개인정보가 보이지 않게 좌석표 부분만 잘라 올려 주세요. 이미지는 저장하지 않아요.</p>
+                <SeatmapUpload
+                  label="좌석표 이미지 올리기"
+                  busy={smBusy}
+                  disabled={quota !== null && quota.remaining <= 0}
+                  onFile={(f) => void uploadSeatmap(f)}
+                  sub={quota !== null ? `남은 횟수 ${quota.remaining}/${quota.limit}회·월` : undefined}
+                />
+                {smNote && (
+                  <p className={smNote.tone === "error" ? ui.fieldError : ui.hint} role="status">
+                    {smNote.text}
+                  </p>
+                )}
+              </div>
+            )}
           </section>
           </>
         )}

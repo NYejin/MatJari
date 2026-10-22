@@ -420,6 +420,7 @@ public class DetailExtractionService {
             }
             zones = mergeZones(names, shapes);
             zones = dropHintOnly(zones, hint, shapes);
+            zones = dropUnshapedNumbers(zones);
             logExtent(zones, cropW, cropH);
             if (aspect != null && cropW > 0 && cropH > 0) { // 좌석표가 잘라 낸 이미지의 일부만 차지해도 미리보기가 꽉 차도록 모양 좌표를 좌석표 영역에 맞춘다
                 FitResult fit = fitToBounds(zones, cropW, cropH);
@@ -606,6 +607,31 @@ public class DetailExtractionService {
         }
         if (dropped > 0) {
             log.info("같은 공연장 참고 이름 중 지도에 없는 구역 {}개 제외", dropped);
+        }
+        return out;
+    }
+
+    /**
+     * 모양이 충분히 있는 지도(모양 있는 구역 5개 이상)에서 어느 도형에도 붙지 못한 '숫자 번호' 이름은 뺀다.
+     * 번호가 건너뛴 자리를 AI 가 순서로 채운 가짜 구역(KSPO DOME 16~23 등, 2026-10-22)을 사용자에게 보이지 않기 위해서다.
+     * 글자 이름(FLOOR·OP 등)은 모양이 없어도 남긴다.
+     */
+    static List<ZoneDto> dropUnshapedNumbers(List<ZoneDto> zones) {
+        long shaped = zones.stream().filter(z -> z.shapePolygons() != null).count();
+        if (shaped < 5) {
+            return zones;
+        }
+        List<ZoneDto> out = new ArrayList<>();
+        int dropped = 0;
+        for (ZoneDto z : zones) {
+            if (z.shapePolygons() == null && z.name() != null && z.name().trim().matches("[A-Za-z]{0,2}\\d{1,4}")) {
+                dropped++;
+                continue;
+            }
+            out.add(z);
+        }
+        if (dropped > 0) {
+            log.info("모양 있는 지도에서 도형이 없는 번호 구역 {}개 제외", dropped);
         }
         return out;
     }

@@ -300,6 +300,24 @@ class DetailExtractionServiceTest {
     }
 
     @Test
+    void unshapedNumberNamesAreDroppedOnShapedMapsOnly() {
+        List<List<List<Integer>>> sq = List.of(List.of(List.of(0, 0), List.of(10, 0), List.of(10, 10)));
+        List<DetailExtractionService.ZoneDto> shapedMap = new ArrayList<>();
+        for (String n : List.of("1", "2", "3", "4", "5")) {
+            shapedMap.add(new DetailExtractionService.ZoneDto(n, sq));
+        }
+        shapedMap.add(new DetailExtractionService.ZoneDto("16", null));   // 순서로 채운 가짜 번호
+        shapedMap.add(new DetailExtractionService.ZoneDto("T17", null));
+        shapedMap.add(new DetailExtractionService.ZoneDto("FLOOR", null)); // 글자 이름은 남긴다
+        assertThat(DetailExtractionService.dropUnshapedNumbers(shapedMap)).extracting(DetailExtractionService.ZoneDto::name)
+                .containsExactly("1", "2", "3", "4", "5", "FLOOR");
+        // 모양이 거의 없는 지도(이름 목록 위주)는 그대로
+        List<DetailExtractionService.ZoneDto> namesOnly = List.of(new DetailExtractionService.ZoneDto("1", sq),
+                new DetailExtractionService.ZoneDto("16", null));
+        assertThat(DetailExtractionService.dropUnshapedNumbers(namesOnly)).hasSize(2);
+    }
+
+    @Test
     void noHintMeansNoExtraPart() {
         service.extract(1L, MELON);
         assertThat(fake.firstParts.get(0).text()).startsWith("[참고] 오늘"); // 본문 글자 다음에 이미지 조각

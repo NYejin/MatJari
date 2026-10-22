@@ -436,7 +436,7 @@ function TicketForm({ performanceId, presetSessionId, canChangePerformance, onCh
             clear("zone");
           }}
           error={errors.zone}
-          hint="예: 1층, A구역, 스탠딩"
+          hint="예: A구역 → A | 33구역 → 33"
           maxLength={ZONE_MAX}
           autoComplete="off"
         />

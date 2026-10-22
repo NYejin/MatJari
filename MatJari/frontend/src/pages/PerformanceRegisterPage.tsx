@@ -430,15 +430,19 @@ export default function PerformanceRegisterPage() {
         setZoneRows(z.rows);
         setZoneError(undefined);
         if (typeof r.seatmapAspect === "number" && r.seatmapAspect > 0 && aspectRef.current === null) setSeatmapAspect(r.seatmapAspect);
-        setAiZonesShown(true);
-        parts.push(`구역 ${z.added}개 읽음${z.dropped > 0 ? ` (최대 개수를 넘어 ${z.dropped}개 제외)` : ""}`);
+        setAiZonesShown(!r.verifiedZones);
+        parts.push(
+          r.verifiedZones
+            ? `검수된 구역 지도 ${z.added}개를 불러왔어요`
+            : `구역 ${z.added}개 읽음${z.dropped > 0 ? ` (최대 개수를 넘어 ${z.dropped}개 제외)` : ""}`
+        );
       } else {
         parts.push("구역은 읽지 못했어요");
       }
       let text = `${parts.join(" · ")}.`;
       if (r.truncatedSlices > 0) text += " 페이지가 길어 일부는 읽지 못했을 수 있어요.";
       if (r.aiError) text += " AI가 일부를 읽지 못했어요.";
-      if (!r.aiEnabled) text += " AI 읽기는 지금 사용할 수 없어요. 직접 입력해 주세요.";
+      if (!r.aiEnabled && !r.verifiedZones) text += " AI 읽기는 지금 사용할 수 없어요. 직접 입력해 주세요.";
       setAiNote({ text, tone: "info", retry: false });
     } catch (err) {
       if (unmounted.current || aiAbort.current !== controller) return;
@@ -1089,7 +1093,7 @@ export default function PerformanceRegisterPage() {
               clearTicket("zone");
             }}
             error={ticketErrors.zone}
-            hint="예: 1층, A구역, 스탠딩"
+            hint="예: A구역 → A | 33구역 → 33"
             maxLength={ZONE_MAX}
             autoComplete="off"
           />

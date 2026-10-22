@@ -123,6 +123,8 @@ export default function Header() {
   const { forwardState } = useAuthRedirect();
   const location = useLocation();
   const isAdmin = profile?.role === "ADMIN";
+  // 관리자 화면은 본문이 화면 전체 폭이라 헤더도 폭 제한 없이 양 끝에 맞춘다
+  const wide = location.pathname.startsWith("/admin");
   const [menuOpen, setMenuOpen] = useState(false);
   const isDesktop = useIsDesktop();
   const menuId = useId();
@@ -226,7 +228,7 @@ export default function Header() {
 
   return (
     <header ref={headerRef} className={cls.header}>
-      <div className={cls.bar}>
+      <div className={wide ? `${cls.bar} max-w-none!` : cls.bar}>
         <Link ref={logoRef} to="/" className={cls.logo} onClick={closeMenu}>
           <img src="/logo.png" alt="맞자리" className={cls.logoImage} />
         </Link>

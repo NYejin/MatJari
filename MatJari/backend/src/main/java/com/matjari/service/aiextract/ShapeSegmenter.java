@@ -93,7 +93,7 @@ public class ShapeSegmenter {
         }
         int[] raw = img.getRGB(0, 0, w, h, null, 0, w);
         int[] rgb = medianFilter(raw, w, h); // 빗금·디더링 질감을 지워 같은 블록이 한 색이 되게 한다
-        int[] bg = dominantColor(rgb);
+        int[] bg = dominantColor(rgb, w, h);
         if (dropGray) {
             int bgRgb = 0xFF000000 | (bg[0] << 16) | (bg[1] << 8) | bg[2];
             for (int i = 0; i < rgb.length; i++) {
@@ -600,6 +600,10 @@ public class ShapeSegmenter {
      * 흰 지도 판 전체를 도형으로 오인한다.
      */
     static int[] dominantColor(int[] rgb) {
+        return dominantColor(rgb, 0, 0);
+    }
+
+    static int[] dominantColor(int[] rgb, int w, int h) {
         int[] count = new int[4096];
         long[] sr = new long[4096], sg = new long[4096], sb = new long[4096];
         for (int v : rgb) {
@@ -616,8 +620,64 @@ public class ShapeSegmenter {
                 best = k;
             }
         }
+        // 가장 많은 색이 채도 높은 색이면(좌석 블록과 같은 색의 바깥 테두리, 멜론 212918 분홍) 좌석표가 흰 판 위에 있을 수 있다:
+        // 채도 낮은 색이 전체의 15% 이상이고 그 색의 60% 이상이 한 덩어리로 이어진 큰 판(이미지의 10% 이상)이면 그 색을 배경으로 본다.
+        // 흰 블록이 보라 바탕에 흩어진 지도(멜론 207177)는 흰색이 여러 덩어리라 바꾸지 않는다
+        if (w > 0 && saturation(best) >= 0.35) {
+            int lowBest = -1;
+            for (int k = 0; k < 4096; k++) {
+                if (saturation(k) < 0.15 && (lowBest < 0 || count[k] > count[lowBest])) {
+                    lowBest = k;
+                }
+            }
+            if (lowBest >= 0 && count[lowBest] >= rgb.length * 0.15) {
+                int panel = largestRegion(rgb, w, h, lowBest);
+                if (panel >= count[lowBest] * 0.6 && panel >= rgb.length * 0.10) {
+                    best = lowBest;
+                }
+            }
+        }
         int c = Math.max(1, count[best]);
         return new int[]{(int) (sr[best] / c), (int) (sg[best] / c), (int) (sb[best] / c)};
+    }
+
+    /** 색 키가 key 인 픽셀의 4방향 연결 덩어리 중 가장 큰 것의 픽셀 수. */
+    private static int largestRegion(int[] rgb, int w, int h, int key) {
+        boolean[] seen = new boolean[rgb.length];
+        int[] queue = new int[rgb.length];
+        int best = 0;
+        for (int start = 0; start < rgb.length; start++) {
+            if (seen[start] || colorKey(rgb[start]) != key) {
+                continue;
+            }
+            int head = 0, tail = 0;
+            queue[tail++] = start;
+            seen[start] = true;
+            while (head < tail) {
+                int p = queue[head++];
+                int x = p % w;
+                int[] nb = {x > 0 ? p - 1 : -1, x < w - 1 ? p + 1 : -1, p - w, p + w};
+                for (int q : nb) {
+                    if (q >= 0 && q < rgb.length && !seen[q] && colorKey(rgb[q]) == key) {
+                        seen[q] = true;
+                        queue[tail++] = q;
+                    }
+                }
+            }
+            best = Math.max(best, tail);
+        }
+        return best;
+    }
+
+    private static int colorKey(int v) {
+        return (((v >> 16) & 255) >> 4) * 256 + (((v >> 8) & 255) >> 4) * 16 + ((v & 255) >> 4);
+    }
+
+    /** 4096칸 색 키(각 채널 상위 4비트)의 채도(HSV). */
+    private static double saturation(int key) {
+        int r = (key >> 8) * 16 + 8, g = ((key >> 4) & 15) * 16 + 8, b = (key & 15) * 16 + 8;
+        int mx = Math.max(r, Math.max(g, b)), mn = Math.min(r, Math.min(g, b));
+        return mx == 0 ? 0 : (double) (mx - mn) / mx;
     }
 
     private static int[] borderMedian(int[] rgb, int w, int h) {

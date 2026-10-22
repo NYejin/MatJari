@@ -378,12 +378,13 @@ public class DetailExtractionService {
                     log.info("AI 좌석표 구간: 이미지 {}, 조각 {}~{}/{}, 합친 크기 {}x{}, 사용 크기 {}x{}", loc.imageIndex(), a, b, sl.size(),
                             merged.width(), merged.height(), target.width(), target.height());
                     shapes = labelShapes(target, names); // 실제 픽셀 윤곽(ShapeSegmenter) + AI가 타일에서 읽은 구역 이름
+                    boolean pixelShapes = !shapes.isEmpty(); // 실제 픽셀 도형이면 좌표 넓이 검사를 하지 않는다
                     if (!shapes.isEmpty()) {
                         names = extendNames(names, shapes); // 1차 이름 목록에서 빠졌지만 타일에서 읽힌 구역을 되살린다
                     } else {
                         shapes = extractor.second(target.jpeg(), names);
                     }
-                    if (!shapeQualityOk(names, shapes)) { // 좌표 기준이 어긋나거나 형식이 틀린 응답이 가끔 오므로 한 번만 다시 시도한다
+                    if (!shapeQualityOk(names, shapes, pixelShapes)) { // 좌표 기준이 어긋나거나 형식이 틀린 응답이 가끔 오므로 한 번만 다시 시도한다
                         log.info("AI 2차 모양 품질 미달, 한 번 다시 시도");
                         shapes = extractor.second(target.jpeg(), names);
                         if (!shapeQualityOk(names, shapes)) { // 믿을 수 없는 모양은 버리고 이름만 유지한다
@@ -508,12 +509,13 @@ public class DetailExtractionService {
             if (!names.isEmpty()) {
                 try {
                     shapes = labelShapes(target, names);
+                    boolean pixelShapes = !shapes.isEmpty(); // 실제 픽셀 도형이면 좌표 넓이 검사를 하지 않는다
                     if (!shapes.isEmpty()) {
                         names = extendNames(names, shapes);
                     } else {
                         shapes = extractor.second(target.jpeg(), names);
                     }
-                    if (!shapeQualityOk(names, shapes)) {
+                    if (!shapeQualityOk(names, shapes, pixelShapes)) {
                         shapes = extractor.second(target.jpeg(), names);
                         if (!shapeQualityOk(names, shapes)) {
                             shapes = List.of();
@@ -661,13 +663,14 @@ public class DetailExtractionService {
         }
         boolean fallback = false;
         List<DetailExtractor.RawZone> shapes = labelShapes(target, names);
+        boolean pixelShapes = !shapes.isEmpty(); // 실제 픽셀 도형이면 좌표 넓이 검사를 하지 않는다
         if (!shapes.isEmpty()) {
             names = extendNames(names, shapes);
         } else {
             shapes = extractor.second(jpeg, names);
             fallback = true;
         }
-        if (!shapeQualityOk(names, shapes)) {
+        if (!shapeQualityOk(names, shapes, pixelShapes)) {
             shapes = extractor.second(jpeg, names);
             fallback = true;
             if (!shapeQualityOk(names, shapes)) {
@@ -1966,6 +1969,18 @@ public class DetailExtractionService {
      * 모양이 쓸 만한지 본다: 유효한 모양을 가진 구역이 절반 이상이고, 잘라 낸 좌석표 이미지 안에서 모양들이 가로 45% 이상·세로 25% 이상을 덮는다
      * (좌표 기준이 어긋나 한쪽으로 몰리거나 찌그러진 응답을 걸러 낸다). 구역 이름이 없으면 true.
      */
+    /**
+     * pixelShapes: 모양이 ShapeSegmenter 의 실제 픽셀 윤곽에서 왔으면 이름 대비 모양 비율만 본다. 좌표 넓이 검사(가로 450·세로 250 이상)는
+     * AI 가 좌표를 직접 찍는 대체 방식의 좌표 기준 어긋남을 막는 것이라, 좌석표가 세로로 긴 이미지의 일부만 차지할 때 맞게 찾은 픽셀 도형까지
+     * 버리던 문제(멜론 207095, 2026-10-22)가 있었다.
+     */
+    static boolean shapeQualityOk(List<String> names, List<DetailExtractor.RawZone> shapes, boolean pixelShapes) {
+        if (pixelShapes) {
+            return names == null || names.isEmpty() || validShapeRatio(names, shapes) >= 0.5;
+        }
+        return shapeQualityOk(names, shapes);
+    }
+
     static boolean shapeQualityOk(List<String> names, List<DetailExtractor.RawZone> shapes) {
         if (names == null || names.isEmpty()) {
             return true;

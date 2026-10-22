@@ -68,7 +68,7 @@
 
 공연 등록 1단계에서 링크를 넣으면 그 링크의 공개 페이지에서 제목·공연장·공연 기간을 읽어 2단계에 미리 채울 값을 돌려준다. **저장하지 않으며 자동 등록도 하지 않는다**(사용자가 확인·수정한 뒤 등록). DB 변경은 없다(V12 아님).
 
-- **대상 사이트**: YES24(`https://ticket.yes24.com/Perf/{id}`), 티켓링크(`https://www.ticketlink.co.kr/product/{id}`), 멜론(`https://ticket.melon.com/performance/index.htm?prodId={id}`). 인터파크는 robots.txt 때문에 제외(`UNSUPPORTED_SITE`). 로그인·캡차 우회, 내부 API(Ajax) 호출은 하지 않는다.
+- **대상 사이트**: YES24(`https://ticket.yes24.com/Perf/{id}`, 302면 고정 템플릿 `/Special/{id}`로 한 번 더), 티켓링크(`https://www.ticketlink.co.kr/product/{id}`), 멜론(`https://ticket.melon.com/performance/index.htm?prodId={id}`). 인터파크는 robots.txt 때문에 제외(`UNSUPPORTED_SITE`). 로그인·캡차 우회, 내부 API(Ajax) 호출은 하지 않는다.
 - **읽는 방법(실측, 2026-10-12, 실제 공개 페이지 raw HTML)**: YES24·티켓링크는 JSON-LD `Event`의 name, location.name, startDate/endDate(날짜만)를 읽는다. 멜론은 JSON-LD·og:title이 없어 본문 `.box_consert_txt p.tit`(제목), `dt.tit_info`가 공연장인 `dd`(비어 있는 상품도 있음), `#periodInfo`(기간)를 읽는다.
 - **회차 시각은 읽지 않는다**: 세 사이트 모두 회차 목록·시각이 공개 HTML에 없고 Ajax(예매 달력)로만 온다. 그래서 회차는 채우지 않고, 기간이 있으면 회차 입력 근처에 기간만 안내한다(시작=끝이면 날짜 하나).
 - **robots.txt 해석**: ticket.yes24.com·ticket.melon.com의 robots.txt는 규칙 대신 오류 페이지를 돌려줘 규칙이 없는 것으로 해석했다. 티켓링크는 상품 상세를 허용하고 `/reserve`·`/my`·`/ids`·`/facility`·`/search`는 금지한다.

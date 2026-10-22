@@ -30,6 +30,8 @@ class SourceKeyResolverTest {
             "https://m.ticket.yes24.com/Perf/Detail/PerfInfo.aspx?IdPerf=49876, yes24:49876",
             "https://m.ticket.yes24.com/Perf/49876, yes24:49876",
             "https://ticket.yes24.com/Perf/Detail/PerfInfo.aspx?IdPerf=49876, yes24:49876",
+            "https://ticket.yes24.com/Special/60595, yes24:60595",
+            "https://ticket.yes24.com/New/Perf/Detail/DetailSpecial.aspx?IdPerf=60595, yes24:60595",
             // 티켓링크
             "https://www.ticketlink.co.kr/product/45678, ticketlink:45678",
             "https://ticketlink.co.kr/product/45678, ticketlink:45678",
@@ -53,8 +55,8 @@ class SourceKeyResolverTest {
             // 멜론: 상품 경로가 아니거나 모바일 (경로 미확인) → 폴백
             "https://ticket.melon.com/search/index.htm?prodId=1, url:ticket.melon.com/search/index.htm?prodId=1",
             "https://m.ticket.melon.com/public/index.html?prodId=210813, url:m.ticket.melon.com/public/index.html?prodId=210813",
-            // YES24 /Special/{id}는 ID 체계 미확인 → 폴백
-            "https://ticket.yes24.com/Special/49876, url:ticket.yes24.com/Special/49876",
+            // YES24 상품 경로 밖
+            "https://ticket.yes24.com/Special/49876/Review, url:ticket.yes24.com/Special/49876/Review",
             "https://ticket.yes24.com/Perf/49876/Review, url:ticket.yes24.com/Perf/49876/Review",
             // 티켓링크 다른 경로
             "https://www.ticketlink.co.kr/sports/45678, url:ticketlink.co.kr/sports/45678",

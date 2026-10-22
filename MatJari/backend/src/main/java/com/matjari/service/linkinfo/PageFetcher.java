@@ -61,6 +61,13 @@ public class PageFetcher {
         }
     }
 
+    /** 3xx 응답(따라가지 않는다). 호출자는 Location 이 아니라 자기 고정 템플릿으로만 다시 시도할 수 있다. */
+    public static class RedirectedException extends FetchFailedException {
+        public RedirectedException(int status) {
+            super("status " + status);
+        }
+    }
+
     private final HttpClient client;
     private final Duration requestTimeout;
     private final long maxBytes;
@@ -113,6 +120,9 @@ public class PageFetcher {
             throw new FetchFailedException("interrupted", e);
         }
         try (InputStream body = response.body()) {
+            if (response.statusCode() >= 300 && response.statusCode() < 400) {
+                throw new RedirectedException(response.statusCode());
+            }
             if (response.statusCode() != 200) {
                 throw new FetchFailedException("status " + response.statusCode());
             }

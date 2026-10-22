@@ -18,7 +18,7 @@ import java.util.regex.Pattern;
  * 패턴 근거 (확신도 표기):
  * - [확인] = 실제 공개 링크 형식으로 알려진 것
  * - [추정] = 형식이 알려진 것과 유사해 포함했으나 실제 링크로 확인하지 못한 것
- * 같은 사이트 안에서 상품 ID 체계가 다를 수 있는 경로(예: YES24 /Special/{id})는 넣지 않았다.
+ * 같은 사이트 안에서 상품 ID 체계가 다를 수 있는 경로는 실제 링크로 같은 체계임을 확인한 뒤에만 넣는다(YES24 /Special/{id}는 확인됨).
  */
 enum TicketingSite {
 
@@ -72,9 +72,11 @@ enum TicketingSite {
      * [확인] http://ticket.yes24.com/Perf/49876
      * [확인] https://m.ticket.yes24.com/Perf/Detail/PerfInfo.aspx?IdPerf=49876 (모바일 — 이 경로일 때만 IdPerf 인정)
      * [확인] https://m.ticket.yes24.com/Perf/49876 (모바일 짧은 형식)
+     * [확인] https://ticket.yes24.com/Special/60595 (특별 상세 페이지 — /Perf/60595 가 이 주소로 302,
+     *        내부 주소도 DetailSpecial.aspx?IdPerf=60595 라 /Perf 와 같은 ID 체계, 2026-10-22 실측)
      */
     YES24("yes24", Set.of("ticket.yes24.com", "m.ticket.yes24.com")) {
-        private final Pattern perfPath = Pattern.compile("^/Perf/(\\d{1,20})/?$", Pattern.CASE_INSENSITIVE);
+        private final Pattern perfPath = Pattern.compile("^/(?:Perf|Special)/(\\d{1,20})/?$", Pattern.CASE_INSENSITIVE);
 
         @Override
         Optional<String> extractProductId(String host, String path, Map<String, String> query) {
@@ -82,7 +84,8 @@ enum TicketingSite {
             if (fromPath.isPresent()) {
                 return fromPath;
             }
-            if ("/Perf/Detail/PerfInfo.aspx".equalsIgnoreCase(path)) {
+            if ("/Perf/Detail/PerfInfo.aspx".equalsIgnoreCase(path)
+                    || "/New/Perf/Detail/DetailSpecial.aspx".equalsIgnoreCase(path)) {
                 return numericParam(query, "IdPerf");
             }
             return Optional.empty();

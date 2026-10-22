@@ -88,6 +88,23 @@ class PerformancePreviewServiceTest {
     }
 
     @Test
+    void yes24RedirectRetriesOnlyTheFixedSpecialTemplate() {
+        when(fetcher.fetch(URI.create("https://ticket.yes24.com/Perf/60595"))).thenThrow(new PageFetcher.RedirectedException(302));
+        PerformancePreviewResponse r = service(200, 100, 100, 4).preview(1L, "https://ticket.yes24.com/Special/60595");
+        assertEquals("OK", r.status());
+        ArgumentCaptor<URI> captor = ArgumentCaptor.forClass(URI.class);
+        verify(fetcher, times(2)).fetch(captor.capture());
+        assertEquals("https://ticket.yes24.com/Special/60595", captor.getAllValues().get(1).toString());
+    }
+
+    @Test
+    void redirectOnOtherSitesIsFetchFailedWithoutRetry() {
+        when(fetcher.fetch(any())).thenThrow(new PageFetcher.RedirectedException(302));
+        assertEquals("FETCH_FAILED", service(200, 100, 100, 4).preview(1L, "https://www.ticketlink.co.kr/product/1").status());
+        verify(fetcher, times(1)).fetch(any());
+    }
+
+    @Test
     void unsupportedSitesNeverFetch() {
         PerformancePreviewService s = service(200, 100, 100, 4);
         for (String url : new String[]{

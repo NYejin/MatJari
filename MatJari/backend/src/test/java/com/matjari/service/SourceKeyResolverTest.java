@@ -21,6 +21,7 @@ class SourceKeyResolverTest {
             "http://ticket.interpark.com/Ticket/Goods/GoodsInfo.asp?GoodsCode=24013928, interpark:24013928",
             "https://mobileticket.interpark.com/goods/24013928, interpark:24013928",
             "https://nol.interpark.com/ticket/goods/24013928, interpark:24013928",
+            "https://nol.yanolja.com/ticket/products/26014836, interpark:26014836",
             // 멜론 (데스크톱 상품 경로만)
             "https://ticket.melon.com/performance/index.htm?prodId=210813, melon:210813",
             "https://ticket.melon.com/performance/index.htm?prodId=0210813&utm_medium=x, melon:210813",

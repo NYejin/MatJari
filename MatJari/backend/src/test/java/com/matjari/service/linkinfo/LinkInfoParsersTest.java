@@ -20,6 +20,32 @@ class LinkInfoParsersTest {
         return "<html><head><script type=\"application/ld+json\">" + json + "</script></head><body></body></html>";
     }
 
+    // ---- 인터파크(NOL 상품 페이지, 2026-10-22 실측 구조를 줄임) ----
+
+    @Test
+    void interpark_nolProductPage_titleVenuePeriodSkippingMenuTab() {
+        ParsedInfo info = parse("interpark", "<html><head>"
+                + "<meta property=\"og:title\" content=\"2026 LOCO CONCERT: EASY! 콘서트 일정 및 예매 | NOL(야놀자)\">"
+                + "<script type=\"application/ld+json\">{\"@type\":\"Product\",\"name\":\"2026 LOCO CONCERT: EASY!\"}</script>"
+                + "</head><body><ul><li>공지사항</li><li>장소</li></ul><div><span>일반 예매</span></div>"
+                + "<dl><dt>장소</dt><dd>명화라이브홀</dd><dt>기간</dt><dd>2026.12.19 ~ 2026.12.20</dd></dl></body></html>");
+        assertEquals("2026 LOCO CONCERT: EASY!", info.title());
+        assertEquals("명화라이브홀", info.venue());
+        assertEquals(LocalDate.of(2026, 12, 19), info.periodStart());
+        assertEquals(LocalDate.of(2026, 12, 20), info.periodEnd());
+    }
+
+    @Test
+    void interpark_openRunHasNoEndDateAndOgTitleFallback() {
+        ParsedInfo info = parse("interpark", "<html><head>"
+                + "<meta property=\"og:title\" content=\"연극 한뼘사이 공연 일정 및 예매 | NOL(야놀자)\"></head><body>"
+                + "<dl><dt>장소</dt><dd>라온아트홀</dd><dt>기간</dt><dd>2025.05.01 ~ 오픈런</dd></dl></body></html>");
+        assertEquals("연극 한뼘사이", info.title());
+        assertEquals("라온아트홀", info.venue());
+        assertEquals(LocalDate.of(2025, 5, 1), info.periodStart());
+        assertNull(info.periodEnd());
+    }
+
     // ---- YES24 ----
 
     @Test

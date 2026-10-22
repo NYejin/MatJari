@@ -27,6 +27,8 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      renderer:
+        condition: service_started
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/matjari
       SPRING_DATASOURCE_USERNAME: matjari
@@ -55,8 +57,20 @@ services:
       SPRING_MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH: "true"
       SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE: "true"
+      # 티켓링크 상세 화면을 그리는 헤드리스 크롬(renderer). 비우면 티켓링크는 링크 HTML 글자만 읽는다
+      MATJARI_AI_RENDERER_URL: ${AI_RENDERER_URL:-http://renderer:9222}
     ports:
       - "8080:8080"
+    networks: [default, render]
+
+  # 티켓링크 상세(화면이 뜬 뒤 채워짐)를 그리는 헤드리스 Chromium(MatJari/renderer). 백엔드만 닿는 render 네트워크에 두고 포트를 열지 않는다(DB 네트워크와 분리).
+  renderer:
+    build: ./renderer
+    container_name: matjari-renderer
+    restart: unless-stopped
+    shm_size: 256m
+    mem_limit: 768m
+    networks: [render]
 
   frontend:
     build: ./frontend
@@ -67,6 +81,10 @@ services:
       VITE_API_BASE_URL: http://localhost:8080/api
     ports:
       - "5173:5173"
+
+networks:
+  default:
+  render:
 
 volumes:
   mysql_data:

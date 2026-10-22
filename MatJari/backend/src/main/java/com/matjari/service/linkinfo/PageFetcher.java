@@ -42,7 +42,7 @@ import java.util.regex.Pattern;
 @Component
 public class PageFetcher {
 
-    static final Set<String> ALLOWED_HOSTS = Set.of("ticket.yes24.com", "www.ticketlink.co.kr", "ticket.melon.com");
+    static final Set<String> ALLOWED_HOSTS = Set.of("ticket.yes24.com", "www.ticketlink.co.kr", "ticket.melon.com", "nol.yanolja.com");
     private static final String USER_AGENT = "MatJariBot/0.1 (+portfolio project; contact: kidjin1016@gmail.com)";
     private static final Pattern CHARSET = Pattern.compile("charset\\s*=\\s*\"?([A-Za-z0-9_.:-]+)", Pattern.CASE_INSENSITIVE);
     private static final ScheduledExecutorService WATCHDOG = Executors.newSingleThreadScheduledExecutor(r -> {

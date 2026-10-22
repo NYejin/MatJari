@@ -6,6 +6,7 @@ import { useState } from "react";
 /** 백엔드 LinkInfoParsers.POSTER_HOSTS 와 같은 목록 (방어용 이중 확인) */
 const POSTER_SOURCES: Record<string, string> = {
   "tkfile.yes24.com": "YES24",
+  "ticketimage.interpark.com": "인터파크(NOL)",
   "image.toast.com": "티켓링크",
   "cdnticket.melon.co.kr": "멜론티켓",
 };

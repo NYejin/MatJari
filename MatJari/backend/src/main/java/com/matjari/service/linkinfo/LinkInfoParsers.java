@@ -44,8 +44,97 @@ final class LinkInfoParsers {
             case "yes24" -> parseJsonLdSite(doc, true);
             case "ticketlink" -> parseJsonLdSite(doc, false);
             case "melon" -> parseMelon(doc);
+            case "interpark" -> parseInterpark(doc);
             default -> new ParsedInfo(null, null, null, null);
         };
+    }
+
+    // ---- 인터파크(NOL 야놀자 상품 페이지, 서버가 글자를 채워 보낸다) ----
+
+    /** 화면 글자를 줄 단위로(태그 경계 = 줄). "장소"·"기간" 같은 이름표 다음 줄이 값이다. */
+    static List<String> lines(Document doc) {
+        if (doc.body() == null) {
+            return List.of();
+        }
+        String html = doc.body().html().replaceAll("(?is)<script.*?</script>|<style.*?</style>", "");
+        List<String> out = new ArrayList<>();
+        for (String part : html.split("<[^>]+>")) {
+            String t = org.jsoup.parser.Parser.unescapeEntities(part, false).replace('\u00a0', ' ').trim();
+            if (!t.isEmpty()) {
+                out.add(t);
+            }
+        }
+        return out;
+    }
+
+    private static String after(List<String> lines, String label) {
+        for (int i = 0; i + 1 < lines.size(); i++) {
+            if (lines.get(i).equals(label)) {
+                return lines.get(i + 1);
+            }
+        }
+        return null;
+    }
+
+    private static ParsedInfo parseInterpark(Document doc) {
+        String title = null;
+        JsonNode product = null;
+        for (Element script : doc.select("script[type=application/ld+json]")) {
+            try {
+                List<JsonNode> nodes = new ArrayList<>();
+                collect(JSON.readTree(script.data()), nodes, 0);
+                for (JsonNode n : nodes) {
+                    if ("Product".equals(text(n.get("@type"))) && n.hasNonNull("name")) {
+                        product = n;
+                        break;
+                    }
+                }
+            } catch (Exception e) {
+                // 깨진 JSON 은 건너뛴다
+            }
+            if (product != null) {
+                break;
+            }
+        }
+        if (product != null) {
+            title = clean(text(product.get("name")), TITLE_MAX);
+        }
+        if (title == null) {
+            String og = meta(doc, "og:title");
+            if (og != null) {
+                title = clean(og.replaceAll("\\s*(공연|콘서트|뮤지컬|연극|전시|클래식)?\\s*일정 및 예매\\s*\\|.*$", "").replaceAll("\\s*\\|\\s*NOL.*$", ""), TITLE_MAX);
+            }
+        }
+        List<String> lines = lines(doc);
+        // "장소"는 메뉴 탭에도 있다. 요약 정보의 "장소 → 값 → 기간" 줄을 먼저 찾고, 없으면 마지막 "장소"(아래 공연장 안내)를 쓴다
+        String venue = null;
+        for (int i = 0; i + 2 < lines.size(); i++) {
+            if (lines.get(i).equals("장소") && lines.get(i + 2).equals("기간")) {
+                venue = lines.get(i + 1);
+                break;
+            }
+        }
+        if (venue == null) {
+            for (int i = lines.size() - 2; i >= 0; i--) {
+                if (lines.get(i).equals("장소")) {
+                    venue = lines.get(i + 1);
+                    break;
+                }
+            }
+        }
+        venue = clean(venue, VENUE_MAX);
+        LocalDate start = null;
+        LocalDate end = null;
+        String period = after(lines, "기간");
+        if (period != null) {
+            Matcher m = DOT_DATE.matcher(period);
+            if (m.find()) {
+                start = toDate(m.group(1), m.group(2), m.group(3));
+                // "2023.11.14 ~ 오픈런"처럼 끝 날짜가 없으면 끝은 비운다(하루 공연만 시작=끝)
+                end = m.find() ? toDate(m.group(1), m.group(2), m.group(3)) : period.contains("~") ? null : start;
+            }
+        }
+        return build(title, venue, start, end);
     }
 
     // ---- YES24 / 티켓링크 ----
@@ -222,7 +311,8 @@ final class LinkInfoParsers {
     private static final java.util.Map<String, java.util.Set<String>> POSTER_HOSTS = java.util.Map.of(
             "yes24", java.util.Set.of("tkfile.yes24.com"),
             "ticketlink", java.util.Set.of("image.toast.com"),
-            "melon", java.util.Set.of("cdnticket.melon.co.kr"));
+            "melon", java.util.Set.of("cdnticket.melon.co.kr"),
+            "interpark", java.util.Set.of("ticketimage.interpark.com"));
 
     /** og:image, 없으면 JSON-LD Event.image 첫 값. 허용 호스트의 https 이미지가 아니거나 'noimage' 자리표시 이미지면 null. */
     static String posterUrl(String site, Document doc) {

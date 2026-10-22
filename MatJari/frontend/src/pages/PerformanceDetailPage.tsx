@@ -22,7 +22,7 @@ import SessionEditor, { checkSessionChanges, initialSessionRows, type SessionRow
 // 티켓 영역: 이 공연 티켓 등록(/tickets/new?performanceId=) 진입.
 
 /** 백엔드 TicketingSite와 같은 알려진 예매처 호스트 (호스트가 이것이거나 그 하위 도메인) */
-const KNOWN_TICKETING_HOSTS = ["interpark.com", "ticket.melon.com", "ticket.yes24.com", "ticketlink.co.kr"];
+const KNOWN_TICKETING_HOSTS = ["interpark.com", "nol.yanolja.com", "ticket.melon.com", "ticket.yes24.com", "ticketlink.co.kr"];
 
 const cls = {
   infoList: "grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-2",

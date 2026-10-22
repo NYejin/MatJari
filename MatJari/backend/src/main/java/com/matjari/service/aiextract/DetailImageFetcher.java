@@ -51,7 +51,19 @@ public class DetailImageFetcher {
 
     private static final Logger log = LoggerFactory.getLogger(DetailImageFetcher.class);
     private static final String USER_AGENT = "MatJariBot/0.1 (+portfolio project; contact: kidjin1016@gmail.com)";
-    private static final String PRODUCT_PATH = "/upload/product/";
+    /** 사이트별 상세 이미지 호스트(정확히 일치, 설정 image-hosts 에도 있어야 한다)와 경로 앞부분. */
+    private record SiteRule(String host, String path, boolean contains) {
+        boolean pathOk(String p) {
+            return contains ? p.contains(path) : p.toLowerCase(Locale.ROOT).startsWith(path);
+        }
+    }
+
+    private static final java.util.Map<String, SiteRule> SITE_RULES = java.util.Map.of(
+            "melon", new SiteRule("cdnticket.melon.co.kr", "/upload/product/", true),
+            // 티켓링크 상세 이미지(renderer 로 그린 화면): https://image.toast.com/aaaaab/ticketlink/TKL_9/....jpg
+            "ticketlink", new SiteRule("image.toast.com", "/aaaaab/ticketlink/", false),
+            // 인터파크(NOL 상품 페이지 본문): https://ticketimage.interpark.com/Play/image/etc/26/26014836-02.jpg 등
+            "interpark", new SiteRule("ticketimage.interpark.com", "/", false));
     private static final int MAX_URL_LENGTH = 2048;
     private static final Pattern URL_IN_HTML = Pattern.compile("(?<=[\"'(])https?://[^\\s\"'<>()&\\\\]+(?=[\"')])");
     private static final ScheduledExecutorService WATCHDOG = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -89,10 +101,10 @@ public class DetailImageFetcher {
      * @return 상세 이미지 최대 maxDetailImages 장(페이지 순서)
      */
     public List<DetailImage> fetch(String site, Document page) {
-        if (!"melon".equals(site) || page == null) {
+        if (!SITE_RULES.containsKey(site) || page == null) {
             return List.of();
         }
-        List<URI> candidates = candidateUris(page);
+        List<URI> candidates = candidateUris(site, page);
         List<DetailImage> result = new ArrayList<>();
         int tried = 0;
         for (URI uri : candidates) {
@@ -114,6 +126,10 @@ public class DetailImageFetcher {
 
     /** 이미지 주소 후보(순서 유지·중복 제거, 포스터·noimage 제외). 네트워크 요청 없음. */
     List<URI> candidateUris(Document page) {
+        return candidateUris("melon", page);
+    }
+
+    List<URI> candidateUris(String site, Document page) {
         String posterKey = posterKey(page);
         Set<String> raws = new LinkedHashSet<>();
         for (Element el : page.select("img")) {
@@ -131,7 +147,7 @@ public class DetailImageFetcher {
         List<URI> out = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
         for (String raw : raws) {
-            URI uri = validate(raw);
+            URI uri = validate(site, raw);
             if (uri == null) {
                 continue;
             }
@@ -172,10 +188,18 @@ public class DetailImageFetcher {
 
     /** 규칙을 모두 통과한 주소만 돌려주고 아니면 null. */
     URI validate(String raw) {
-        if (raw == null || raw.isEmpty() || raw.length() > MAX_URL_LENGTH) {
+        return validate("melon", raw);
+    }
+
+    URI validate(String site, String raw) {
+        SiteRule rule = SITE_RULES.get(site);
+        if (rule == null || raw == null || raw.isEmpty() || raw.length() > MAX_URL_LENGTH) {
             return null;
         }
         String s = raw.startsWith("//") ? "https:" + raw : raw;
+        if (s.startsWith("http://ticketimage.interpark.com/")) { // 인터파크 본문은 http 주소로 적혀 있다(https 도 같은 파일)
+            s = "https://" + s.substring("http://".length());
+        }
         if (s.length() > MAX_URL_LENGTH) {
             return null;
         }
@@ -196,7 +220,8 @@ public class DetailImageFetcher {
             return null;
         }
         if (!relaxedForTest) {
-            if (!"https".equals(uri.getScheme()) || uri.getPort() != -1 || !properties.getImageHosts().contains(host)) {
+            if (!"https".equals(uri.getScheme()) || uri.getPort() != -1 || !rule.host().equals(host)
+                    || !properties.getImageHosts().contains(host)) {
                 return null;
             }
         } else if (!"http".equals(uri.getScheme()) && !"https".equals(uri.getScheme())) {
@@ -204,7 +229,7 @@ public class DetailImageFetcher {
         }
         String path = uri.getPath() == null ? "" : uri.getPath();
         String lowerPath = path.toLowerCase(Locale.ROOT);
-        if (!path.contains(PRODUCT_PATH) || lowerPath.contains("noimage")) {
+        if (!rule.pathOk(path) || lowerPath.contains("noimage")) {
             return null;
         }
         return uri;

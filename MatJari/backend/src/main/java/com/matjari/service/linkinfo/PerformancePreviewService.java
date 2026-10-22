@@ -25,7 +25,7 @@ import java.util.regex.Pattern;
  *
  * 사용자가 준 URL은 절대 요청하지 않는다. SourceKeyResolver 가 만든 키가 yes24/ticketlink/melon:{숫자 id} 일 때만
  * 진행하고, 요청 URL은 여기 고정된 템플릿 3종으로 새로 만든다(m. 모바일·http·쿼리 변형 링크도 같은 템플릿으로 수렴).
- * 인터파크와 일반 url: 키는 UNSUPPORTED_SITE 로 끝나며 어떤 요청도 하지 않는다.
+ * 인터파크는 NOL(야놀자) 상품 주소(robots 허용)로 읽는다. 일반 url: 키는 UNSUPPORTED_SITE 로 끝나며 어떤 요청도 하지 않는다.
  * 사이트 속도 제한·동시 실행 제한에 걸리면 대기하지 않고 즉시 FETCH_FAILED 를 돌려준다(429 는 사용자 제한만).
  * 캐시는 OK·NO_INFO 만, 키 "site:id", TTL·최대 개수 LRU. 서버 한 대 기준 메모리 구조이며 재시작하면 비워진다.
  */
@@ -39,7 +39,7 @@ public class PerformancePreviewService {
     static final String RATE_CODE = "PREVIEW_RATE_LIMITED";
     static final String RATE_MESSAGE = "링크 확인 요청이 너무 많아요. 잠시 후 다시 시도해주세요.";
     private static final long WINDOW_MILLIS = 60_000;
-    private static final Pattern KEY = Pattern.compile("^(yes24|ticketlink|melon):(\\d{1,20})$");
+    private static final Pattern KEY = Pattern.compile("^(yes24|ticketlink|melon|interpark):(\\d{1,20})$");
 
     /** 429 PREVIEW_RATE_LIMITED. 응답 본문·Retry-After 는 GlobalExceptionHandler 가 만든다. */
     public static class PreviewRateLimitedException extends MatJariException {
@@ -222,6 +222,8 @@ public class PerformancePreviewService {
             case "yes24" -> "https://ticket.yes24.com/Perf/" + id;
             case "ticketlink" -> "https://www.ticketlink.co.kr/product/" + id;
             case "melon" -> "https://ticket.melon.com/performance/index.htm?prodId=" + id;
+            // 인터파크 티켓은 NOL(야놀자)로 넘어갔다. 옛 도메인(robots 전부 금지)은 요청하지 않고 NOL 상품 주소만 쓴다(robots 허용)
+            case "interpark" -> "https://nol.yanolja.com/ticket/products/" + id;
             default -> throw new IllegalArgumentException("unknown site");
         };
     }

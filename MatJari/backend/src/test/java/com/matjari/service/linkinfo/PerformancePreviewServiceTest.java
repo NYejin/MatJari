@@ -108,7 +108,6 @@ class PerformancePreviewServiceTest {
     void unsupportedSitesNeverFetch() {
         PerformancePreviewService s = service(200, 100, 100, 4);
         for (String url : new String[]{
-                "https://tickets.interpark.com/goods/24013928",
                 "http://169.254.169.254/latest/meta-data",
                 "https://example.com/show/1",
                 "https://ticket.yes24.com/Perf/abc",

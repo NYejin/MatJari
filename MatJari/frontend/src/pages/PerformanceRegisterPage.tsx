@@ -805,7 +805,7 @@ export default function PerformanceRegisterPage() {
           {autoFill?.kind === "filled"
             ? "링크에서 읽은 정보예요. 맞는지 확인하고, 다르면 고쳐 주세요."
             : autoFill?.kind === "unsupported"
-              ? "이 링크는 자동 입력을 지원하지 않아요. YES24·티켓링크·멜론티켓의 공연 상세 주소만 읽을 수 있어요. 직접 입력해 주세요."
+              ? "이 링크는 자동 입력을 지원하지 않아요. YES24·티켓링크·멜론티켓·인터파크(NOL)의 공연 상세 주소만 읽을 수 있어요. 직접 입력해 주세요."
               : autoFill?.kind === "failed"
                 ? "링크에서 정보를 읽지 못했어요. 직접 입력해 주세요."
                 : "정보가 맞는지 확인하고 틀리면 고쳐 주세요."}

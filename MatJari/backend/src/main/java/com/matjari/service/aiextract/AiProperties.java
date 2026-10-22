@@ -58,6 +58,8 @@ public class AiProperties {
     /** 남은 크레딧 추정: 기준 시각(KST, yyyy-MM-ddTHH:mm)의 Console 잔액($). 충전하면 둘 다 새로 적는다. 0 이면 표시하지 않는다. */
     private double creditBaselineUsd = 32.65;
     private String creditBaselineAt = "2026-10-22T00:00";
+    /** 남은 비율의 분모: 전체 API 예산($, 지금까지 충전한 총액). 0 이하면 기준 잔액을 분모로 쓴다. */
+    private double creditTotalUsd = 100;
     private int dailyGlobal = 40;
     private int maxConcurrent = 2;
     private int cacheTtlHours = 168;

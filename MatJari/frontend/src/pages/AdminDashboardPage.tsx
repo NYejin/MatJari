@@ -279,9 +279,9 @@ function Dashboard({ d }: { d: AdminDashboard }) {
         <Panel title="AI 공연정보 불러오기">
           {ai.creditRemainingRatio !== undefined && (
             <>
-              <RemainGauge label="남은 크레딧(추정)" ratio={n(ai.creditRemainingRatio)} value={`${usd(ai.creditRemainingUsd)} / ${usd(ai.creditBaselineUsd)}`} />
+              <RemainGauge label="남은 크레딧(추정)" ratio={n(ai.creditRemainingRatio)} value={`${usd(ai.creditRemainingUsd)} / 전체 ${usd(ai.creditTotalUsd ?? ai.creditBaselineUsd)}`} />
               <p className="text-[10px]/[normal] text-gray-500">
-                {String(ai.creditBaselineAt).replace("T", " ")} Console 잔액에서 이 서버가 기록한 호출 비용({usd(ai.spentSinceBaselineUsd)})을 뺀 추정치예요. 평가·다른 앱 사용은 빠져 실제 잔액은 Console에서 확인하세요.
+                {String(ai.creditBaselineAt).replace("T", " ")} Console 잔액 {usd(ai.creditBaselineUsd)}에서 이 서버가 기록한 호출 비용({usd(ai.spentSinceBaselineUsd)})을 뺀 추정치이고, 비율은 전체 예산 대비예요. 평가·다른 앱 사용은 빠져 실제 잔액은 Console에서 확인하세요.
               </p>
             </>
           )}

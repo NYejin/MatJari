@@ -135,6 +135,9 @@ public class AdminDashboardService {
         double baseline = aiProperties.getCreditBaselineUsd();
         ai.put("creditBaselineUsd", baseline);
         ai.put("creditBaselineAt", aiProperties.getCreditBaselineAt());
+        // 비율의 분모는 전체 예산(충전 총액), 없으면 기준 잔액
+        double total = aiProperties.getCreditTotalUsd() > 0 ? Math.max(aiProperties.getCreditTotalUsd(), baseline) : baseline;
+        ai.put("creditTotalUsd", total);
         if (baseline > 0) {
             LocalDateTime from;
             try {
@@ -146,7 +149,7 @@ public class AdminDashboardService {
                     Timestamp.valueOf(from)));
             ai.put("spentSinceBaselineUsd", spent);
             ai.put("creditRemainingUsd", Math.max(0, baseline - spent));
-            ai.put("creditRemainingRatio", Math.max(0, baseline - spent) / baseline);
+            ai.put("creditRemainingRatio", Math.max(0, baseline - spent) / total);
         }
         k.put("ai", ai);
 

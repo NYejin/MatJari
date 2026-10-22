@@ -114,11 +114,6 @@ function aiErrorText(err: unknown): string {
 const dotShort = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
 
 const cls = {
-  steps: "flex flex-wrap gap-x-3 gap-y-1",
-  /** 단계 표시 — 현재/그 외 중 완성된 문자열 하나. surface 배경 위라 gray-500(4.47:1) 대신 gray-700.
-      완료 단계는 색이 아닌 체크 표시로 구분한다 */
-  stepCurrent: "text-sm/[normal] font-bold text-primary-700",
-  stepOther: "text-sm/[normal] text-gray-700",
   stepBody: "flex flex-col gap-4",
   actions: "flex flex-wrap justify-between gap-2",
   sessionList: "flex max-h-80 flex-col divide-y divide-gray-200 overflow-y-auto rounded-[10px] border border-gray-200 px-3",
@@ -129,7 +124,6 @@ const cls = {
   summaryDesc: "min-w-0 text-[0.9375rem]/[normal] break-all text-gray-900",
 } as const;
 
-const stepClass = (index: number, current: number) => (index === current ? cls.stepCurrent : cls.stepOther);
 
 /** http(s) 링크만 허용 */
 function validateSourceUrl(value: string): string | undefined {
@@ -842,23 +836,34 @@ export default function PerformanceRegisterPage() {
             <h3 id="perf-info-choose-title" className={ui.sectionTitle}>
               회차·구역 입력
             </h3>
-            <p className={ui.hint}>AI가 공연 상세 페이지에서 회차와 좌석 구역을 읽어 채워요. 직접 입력해도 돼요.</p>
-            <div className="flex flex-wrap gap-2">
+            {/* 자동 채우기 카드: 무엇을 해 주는지와 남은 횟수를 한 장에, 직접 입력은 가벼운 글자 버튼으로(2026-10-23 디자인 정리) */}
+            <div className="flex flex-col gap-4 rounded-2xl bg-gradient-to-br from-primary-50 to-white p-4 ring-1 ring-primary-100 sm:flex-row sm:items-center sm:p-5">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-white text-primary-600 shadow-sm ring-1 ring-primary-100" aria-hidden="true">
+                <svg viewBox="0 0 24 24" className="size-6" fill="currentColor">
+                  <path d="M12 2.5l1.9 5.6 5.6 1.9-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.9L12 2.5zM18.5 15l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9.9-2.6z" />
+                </svg>
+              </span>
+              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <p className="text-[0.9375rem]/[normal] font-semibold text-gray-900">공연정보 자동으로 채우기</p>
+                <p className="text-sm/[normal] text-gray-600">상세 페이지의 회차와 좌석 구역을 AI가 읽어 채워요. 채운 뒤 확인하고 고치면 돼요.</p>
+                {quota !== null && (
+                  <p className="text-[0.8125rem]/[normal] text-gray-500">
+                    {quota.unlimited ? "관리자 · 횟수 제한 없음" : `이번 달 ${quota.remaining}/${quota.limit}회 남음`}
+                  </p>
+                )}
+              </div>
               <button
                 type="button"
-                className={`${button.solid} flex-col gap-0`}
+                className={`${button.solid} shrink-0 sm:px-5`}
                 onClick={loadInfo}
                 disabled={quota !== null && quota.remaining <= 0}
               >
-                <span>공연정보 불러오기</span>
-                {quota !== null && (
-                  <span className="text-xs/[normal] font-normal opacity-90">
-                    {quota.unlimited ? "관리자 · 횟수 제한 없음" : `남은 횟수 ${quota.remaining}/${quota.limit}회·월`}
-                  </span>
-                )}
+                불러오기
               </button>
-              <button type="button" className={button.outline} onClick={() => setInfoMode("manual")}>
-                직접 입력
+            </div>
+            <div>
+              <button type="button" className={`${button.ghost} -ml-2 px-2 text-sm`} onClick={() => setInfoMode("manual")}>
+                직접 입력할게요
               </button>
             </div>
           </section>
@@ -1236,17 +1241,20 @@ export default function PerformanceRegisterPage() {
       <div className={ui.container}>
         <h1 className={ui.pageTitle}>{isAdmin ? "새 공연 등록 (관리자)" : "새 공연과 내 티켓 등록"}</h1>
 
-        <ol className={cls.steps} aria-label="등록 단계">
+        {/* 진행 막대: 단계마다 막대 하나, 지난 단계와 지금 단계는 보라, 남은 단계는 회색(2026-10-23 디자인 정리) */}
+        <ol className="flex gap-2" aria-label="등록 단계">
           {STEPS.map((name, index) =>
             isAdmin && index === 2 ? null : (
-              <li key={name} className={stepClass(index, step)} aria-current={index === step ? "step" : undefined}>
-                {index < step && (
-                  <>
-                    <span aria-hidden="true">✓ </span>
-                    <span className="sr-only">(완료) </span>
-                  </>
-                )}
-                {isAdmin && index > 2 ? index : index + 1}. {name}
+              <li key={name} className="flex min-w-0 flex-1 flex-col gap-1.5" aria-current={index === step ? "step" : undefined}>
+                <span className={`h-1 rounded-full ${index <= step ? "bg-primary-600" : "bg-gray-200"}`} aria-hidden="true" />
+                <span
+                  className={`truncate text-[0.8125rem]/[normal] ${
+                    index === step ? "font-semibold text-gray-900" : index < step ? "text-gray-700" : "text-gray-600"
+                  }`}
+                >
+                  {index < step && <span className="sr-only">(완료) </span>}
+                  {name}
+                </span>
               </li>
             )
           )}

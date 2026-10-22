@@ -17,8 +17,57 @@ const MENUS: { to: string; label: string; badge?: "openReports" | "pendingClaims
   { to: "/admin/logs", label: "조치 기록" },
 ];
 
+type AiUsage = Record<string, number | string>;
+
+const num = (v: number | string | undefined) => (typeof v === "number" ? v : Number(v ?? NaN));
+const usd = (v: number | string | undefined) => {
+  const n = num(v);
+  return Number.isFinite(n) ? `$${n < 1 ? n.toFixed(3) : n.toFixed(2)}` : "-";
+};
+
+/** 사이드바 아래 API 사용량(대시보드와 같은 값, 1분마다 갱신). 남은 크레딧은 이 서버가 기록한 비용으로 낸 추정치 */
+function ApiUsage({ ai }: { ai: AiUsage | null }) {
+  if (!ai) return null;
+  const ratio = num(ai.creditRemainingRatio);
+  const pct = Number.isFinite(ratio) ? Math.max(0, Math.min(100, Math.round(ratio * 100))) : null;
+  const bar = pct === null ? "" : pct < 10 ? "bg-red-600" : pct < 20 ? "bg-amber-500" : "bg-emerald-600";
+  return (
+    <section aria-label="API 사용량" className="hidden flex-col gap-1 border-t border-gray-200 px-2 pt-2 text-[11px]/[normal] text-gray-600 md:flex">
+      <span className="font-bold tracking-wide text-gray-500">API 사용량</span>
+      {pct !== null && (
+        <>
+          <div className="flex items-baseline justify-between gap-1">
+            <span>남은 크레딧</span>
+            <b className="tabular-nums text-gray-900">{pct}%</b>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded bg-gray-200" role="img" aria-label={`남은 크레딧 ${pct}%`}>
+            <div className={`h-full ${bar}`} style={{ width: `${pct}%` }} />
+          </div>
+          <span className="tabular-nums">
+            {usd(ai.creditRemainingUsd)} / {usd(ai.creditTotalUsd)}
+          </span>
+        </>
+      )}
+      <div className="flex justify-between gap-1">
+        <span>오늘</span>
+        <span className="tabular-nums text-gray-900">
+          {usd(ai.costTodayUsd)} · {num(ai.globalToday)}/{num(ai.dailyGlobalLimit)}회
+        </span>
+      </div>
+      <div className="flex justify-between gap-1">
+        <span>이번 달</span>
+        <span className="tabular-nums text-gray-900">
+          {usd(ai.costMonthUsd)} · 호출 {num(ai.callsMonth)}
+        </span>
+      </div>
+      <span className="text-gray-500">추정치(이 서버 기록 기준)</span>
+    </section>
+  );
+}
+
 export default function AdminLayout() {
   const [badges, setBadges] = useState<Record<string, number>>({});
+  const [ai, setAi] = useState<AiUsage | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -32,6 +81,7 @@ export default function AdminLayout() {
             pendingClaims: Number(q.pendingClaims ?? 0),
             pendingProposals: Number(q.pendingProposals ?? 0),
           });
+          setAi(d.kpis.ai ?? null);
         })
         .catch(() => {});
     void load();
@@ -67,6 +117,7 @@ export default function AdminLayout() {
             </NavLink>
           );
         })}
+        <ApiUsage ai={ai} />
       </nav>
       <main className="min-w-0 flex-1 p-2 pb-[calc(8px+env(safe-area-inset-bottom))]">
         {/* 관리자 화면 안의 공용 컴포넌트(입력칸·구역/회차 편집기 등)도 촘촘한 토큰을 쓰게 한다 */}

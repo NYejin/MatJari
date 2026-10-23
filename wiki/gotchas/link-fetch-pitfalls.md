@@ -3,7 +3,7 @@ title: 링크 가져오기 함정 (robots.txt 오류 페이지, HttpClient IP �
 type: gotcha
 tags: [링크입력, robots, httpclient, ssrf, 포스터, 핫링크]
 sources: [../decisions/link-autofill-design.md, ../decisions/poster-display-design.md, https://ticket.yes24.com/robots.txt, https://ticket.melon.com/robots.txt]
-updated: 2026-10-13
+updated: 2026-10-23
 confidence: medium
 status: draft
 ---
@@ -16,7 +16,7 @@ status: draft
 
 - 증상: 2026-10-12 실측에서 `ticket.yes24.com`·`ticket.melon.com`의 `/robots.txt`가 규칙 파일이 아니라 오류 페이지를 돌려준다.
 - 해석: 규칙이 없는 것으로 본다(robots 해석 관례). 이는 허용 근거로 쓸 수는 있으나 사이트가 나중에 바꿀 수 있다. 접근은 공개 페이지, 낮은 빈도, 식별 가능한 User-Agent로 제한하고 속도 제한·캐시를 둔다.
-- 티켓링크는 규칙이 있어 상품 상세는 허용, 예매·내 정보 등 일부 경로는 금지다. 인터파크는 robots.txt 때문에 제외했다.
+- 티켓링크는 규칙이 있어 상품 상세는 허용, 예매·내 정보 등 일부 경로는 금지다. 인터파크 옛 도메인은 robots.txt가 봇을 모두 막아 요청하지 않고, robots가 `/ticket/`을 허용하는 NOL 상품 주소로 읽는다(2026-10-22). YES24 `robots.txt`는 오류 페이지(규칙 없음)다.
 - 확인 방법: 대상 사이트를 늘릴 때마다 응답 본문이 규칙 형식(`User-agent:` 등)인지 직접 확인한다. 이 실측은 한 시점의 결과다.
 
 ## 2. Java HttpClient는 연결 IP를 고정할 수 없다

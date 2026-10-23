@@ -3,7 +3,7 @@ title: 티켓팅 사이트별 공연정보 읽는 법
 type: decision
 tags: [링크입력, AI, 크롤링, renderer, 인터파크, 티켓링크, YES24, 멜론]
 sources: [CLAUDE.md, link-autofill-design.md, ai-detail-extract-design.md, https://nol.yanolja.com/robots.txt, https://tickets.interpark.com/robots.txt, https://www.ticketlink.co.kr/robots.txt]
-updated: 2026-10-22
+updated: 2026-10-23
 confidence: medium
 status: draft
 ---
@@ -42,7 +42,10 @@ status: draft
 ### YES24
 - `/Perf/{id}` 와 `/Special/{id}` 는 같은 번호 체계이고 상품마다 한쪽만 200, 다른 쪽은 302 다(302면 고정 주소 `/Special/{id}` 로 한 번 더).
 - 상세 영역은 `/New/Perf/Detail/Ajax/axPerfContentsWeight.aspx?IdPerf={id}` 를 페이지 스크립트가 불러 채운다. 헤드리스 브라우저로 열면 봇 차단 서비스(STCLab)가 Access Denied 로 막는다(2026-10-22 시험, 처음 한 번은 열렸다가 곧 차단). 봇이라고 밝힌 단순 HTML 요청은 허용된다.
-- 남은 선택지: ① 위 상세 내용 주소를 고정 주소로 단순 요청(프로젝트 규칙 "내부 API 호출 안 함"을 바꿔야 해서 사용자 결정 대기) ② 사용자가 상세·좌석표 이미지를 올리기(구현됨: 좌석표 이미지 올리기).
+- 2026-10-23 추가 점검(봇임을 밝힌 단순 GET):
+  - 모바일 상품 페이지 `m.ticket.yes24.com/Perf/{id}` 는 서버 렌더링이라 '알립니다'·공연 시간 글자는 있지만 상세 이미지는 없다. 모바일 상세 페이지 `Perf/Detail/PerfContents.aspx?IdPerf={id}` 도 스크립트가 `Ajax/AxPerfContents.aspx` 로 채운다.
+  - PC 상세 내용 주소 `axPerfContentsWeight.aspx?IdPerf={id}` 는 단순 요청에도 200 JSON(`PerfNotice`·`PerfContent`(상세 이미지 `tkfile.yes24.com/Upload2/Board/...`)·`PerfOrganization`)을 준다. 1KB 남짓이고 로그인·토큰이 없다.
+- 남은 선택지(사용자 결정 대기): ① 공연예술통합전산망(KOPIS) 공공 API 로 같은 공연을 찾아 상세 이미지 목록(`styurls`)·공연 시간 안내(`dtguidance`)를 받기(무료 서비스 키 필요, 예매처 링크 `relates` 로 YES24 번호 대조) ② 위 상세 내용 주소를 고정 주소로 단순 요청(규칙 "내부 API 호출 안 함"을 바꿔야 함) ③ 사용자가 상세 이미지 주소를 붙여 넣기(`tkfile.yes24.com` 고정) ④ 좌석표 이미지 올리기(구현됨).
 
 ## AI 에 넘기는 것 (2026-10-22 바꿈)
 - **본문 글자 + 상세 이미지를 함께** 보낸다. 본문 앞에 `[참고] 오늘(KST)·링크에 적힌 공연 기간` 을 붙여 연도를 판단하게 한다. 본문은 공백을 줄여 최대 8,000자.

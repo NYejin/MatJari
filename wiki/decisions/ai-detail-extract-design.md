@@ -3,7 +3,7 @@ title: AI 회차·구역 읽기 설계 근거
 type: decision
 tags: [AI, 회차, 구역, 슬라이싱, 약관, 인공지능기본법, 설계]
 sources: [../../CLAUDE.md, link-autofill-design.md, poster-display-design.md, ../../MatJari/backend/src/main/java/com/matjari/service/aiextract/DetailExtractionService.java, ../../MatJari/backend/src/main/java/com/matjari/service/aiextract/ImageSlicer.java, ../../MatJari/backend/src/main/java/com/matjari/service/aiextract/AnthropicDetailExtractor.java, ../../MatJari/backend/src/main/java/com/matjari/service/aiextract/AiProperties.java, ../../MatJari/backend/src/main/java/com/matjari/controller/PerformanceAiExtractController.java, ../../MatJari/backend/src/main/java/com/matjari/service/PerformanceZoneSanitizer.java, ../../MatJari/backend/src/main/resources/db/migration/V21__performance_zone.sql]
-updated: 2026-10-18
+updated: 2026-10-23
 confidence: medium
 status: draft
 ---
@@ -90,7 +90,7 @@ status: draft
 
 ## 8. 알려진 한계
 
-1. 멜론 상세 이미지만 읽는다. YES24는 상세 영역이 Ajax라 후속, 티켓링크는 이미지 주소를 얻을 수 없어 제외.
+1. (2026-10-22 갱신) 멜론·인터파크(NOL)는 HTML의 상세 이미지, 티켓링크는 renderer(정식 Chromium)로 그린 화면의 글자·이미지를 읽는다. YES24는 봇 차단 때문에 링크 HTML 글자만 읽는다. 회차는 본문 글자+이미지 맥락으로 AI가 먼저 읽는다. 상세는 [ticketing-site-reading](ticketing-site-reading.md).
 2. 구역이 많은 복잡한 지도(원형 경기장 등)는 정확도가 떨어질 수 있다. 측정한 적은 없다.
 3. 모양 좌표는 근사다. 번호 구역은 특히 그렇다. 지금은 저장만 하고 화면 선택에는 쓰지 않는다.
 4. 호출 제한·캐시가 메모리라 재시작·다중 인스턴스에서 맞지 않는다.

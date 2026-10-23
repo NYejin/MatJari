@@ -3,7 +3,7 @@ title: 공연 포스터 표시 설계 근거
 type: decision
 tags: [포스터, 링크입력, 저작권, 인라인링크, 핫링크, 설계]
 sources: [../../CLAUDE.md, link-autofill-design.md, ../gotchas/link-fetch-pitfalls.md, ../../MatJari/backend/src/main/java/com/matjari/service/linkinfo/LinkInfoParsers.java, ../../MatJari/backend/src/main/java/com/matjari/service/linkinfo/PerformancePreviewService.java, ../../MatJari/frontend/src/components/PosterImage.tsx]
-updated: 2026-10-13
+updated: 2026-10-23
 confidence: medium
 status: draft
 ---
@@ -68,7 +68,7 @@ status: draft
 1. 인라인 링크의 저작권 판단에 확정 판례가 없고, 포스터 저작물성과 티켓 3사 이용약관은 확인하지 못했다. 공개 운영 전 약관 확인과 전문가 검토가 필요하다. 요청이 오면 스위치를 끈다.
 2. 허용 호스트는 2026-10-13 실측 기준이다. 사이트가 CDN을 바꾸면 포스터가 안 뜬다. 화면은 숨김으로 처리되어 깨지지 않는다.
 3. YES24는 포스터가 없는 공연이 많다.
-4. 인터파크는 robots.txt 때문에 지원하지 않는다.
+4. 인터파크는 옛 도메인 대신 NOL 상품 주소로 읽고 포스터 호스트 `ticketimage.interpark.com`을 허용한다(2026-10-22).
 5. 사이트가 핫링크를 막으면 포스터는 보이지 않는다.
 6. 삭제·표시 중단 요청은 방침 문의처로 받는데, 방침에는 아직 관련 문구가 없다.
 

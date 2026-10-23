@@ -82,3 +82,6 @@ llm-wiki 스킬, researcher·wiki-curator 에이전트, `scripts/lint-wiki.mjs`�
 
 ## [2026-10-18] ingest | AI 회차·구역 읽기 결정 정리
 AI 회차·구역 읽기(V21 `performance_zone`, `feature/ai-extract-backend`)의 근거를 결정 페이지 `ai-detail-extract-design.md`로 정리했다(처리 순서, 모델 선택과 무료 티어·구독 로그인 비채택 이유, 법·약관 조사 요약, 구역 규칙, 시험 결과, 한계·후속). 용어집에 'AI 읽기·구역' 절을 더하고 색인에 등록했다. 약관·법 해석과 정확도는 미확인·작은 표본이라 confidence는 medium이다.
+
+## [2026-10-23] ingest | 사이트별 읽는 법 반영과 인터파크·티켓링크 문구 정리
+인터파크(NOL)·티켓링크 renderer·본문 맥락 회차(PR #115)에 맞춰 `link-autofill-design.md`·`ai-detail-extract-design.md`·`poster-display-design.md`·`link-fetch-pitfalls.md`의 '인터파크 제외·티켓링크 이미지 불가' 문구를 고쳤다. `ticketing-site-reading.md` YES24 절에 모바일 페이지·상세 내용 주소 점검 결과와 남은 선택지(KOPIS 공공 API 등)를 더했다.

@@ -9,8 +9,11 @@
 
 ## 방법 A. Docker Compose로 한 번에 실행 (권장)
 
-전체 스택(mysql + backend + frontend)을 각각 격리된 컨테이너로
+전체 스택(mysql + backend + renderer + frontend)을 각각 격리된 컨테이너로
 띄웁니다. 로컬에 Java/Node를 설치할 필요가 없습니다.
+
+- `renderer`: 티켓링크 상세처럼 화면이 뜬 뒤 채워지는 글자·이미지를 읽는 헤드리스 Chromium(`renderer/Dockerfile`, Debian 정식 Chromium `--headless=new`). 백엔드와만 닿는 내부 네트워크 `render`에 있고 밖으로 포트를 열지 않는다. 백엔드는 `MATJARI_AI_RENDERER_URL`(기본 `http://renderer:9222`)로 붙고, 비우면 renderer를 쓰지 않는다(티켓링크 상세만 못 읽는다).
+- AI 상세정보 읽기를 쓰려면 `.env`에 `ANTHROPIC_API_KEY`를 넣는다(커밋 금지). 없으면 규칙 결과만 돌려준다.
 
 ### 사전 준비
 - Docker Desktop 설치 (https://www.docker.com/products/docker-desktop/)
@@ -90,6 +93,8 @@ MatJari/
 ├── docker-compose.yml   # 방법 A 진입점
 ├── .env.example
 ├── backend/             # Spring Boot (Dockerfile 포함)
+├── renderer/            # 헤드리스 Chromium (티켓링크 상세 읽기)
+├── deploy/              # 운영 PC 자동 갱신 스크립트
 └── frontend/             # React + Vite (Dockerfile 포함)
 ```
 
@@ -125,7 +130,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 | 이미지 | GitHub 서버 (`ci.yml`의 `publish`) | `ghcr.io/nyejin/matjari-backend`·`matjari-web`을 `latest`와 `sha-xxxxxxx` 태그로 푸시 | **master 푸시에서 테스트가 모두 통과했을 때만** (PR·포크는 안 올림) |
 | 갱신 | 내 PC (`MatJari/deploy/update.ps1`) | 이미지 pull → 바뀐 컨테이너만 교체 → 응답 확인 | 작업 스케줄러가 5분마다 |
 
-갱신은 `backend`·`web`만 다룬다. DB(`mysql`)·터널(`matjari-tunnel`)·`.env`는 그대로라 데이터와 접속 주소는 유지된다. 이미지가 그대로면 아무것도 재시작하지 않는다. 교체할 때는 백엔드가 몇 초에서 수십 초 끊긴다(시연 중 병합 주의). 병합부터 서버 반영까지는 CI 15~20분 + 이미지 빌드 몇 분 + 확인 주기(5분)만큼 걸린다.
+갱신은 `backend`·`web` 이미지만 pull한다. `renderer`는 CI가 이미지를 올리지 않아(GitHub 토큰에 workflow 권한이 없어 `ci.yml`에 넣지 못함) `update.ps1`이 `up -d backend web renderer`로 띄울 때 처음 한 번 소스에서 빌드한다(배포 clone을 최신으로 유지). DB(`mysql`)·터널(`matjari-tunnel`)·`.env`는 그대로라 데이터와 접속 주소는 유지된다. 이미지가 그대로면 아무것도 재시작하지 않는다. 교체할 때는 백엔드가 몇 초에서 수십 초 끊긴다(시연 중 병합 주의). 병합부터 서버 반영까지는 CI 15~20분 + 이미지 빌드 몇 분 + 확인 주기(5분)만큼 걸린다.
 
 ### 처음 한 번 설정
 1. **Actions 변수**(개인정보처리방침 화면에 굳는 값): Settings → Secrets and variables → Actions → Variables에 `VITE_PRIVACY_OPERATOR`, `VITE_PRIVACY_CONTACT_EMAIL`, `VITE_PRIVACY_EFFECTIVE_DATE`. 값을 바꾸면 다음 master 푸시의 CI가 새 이미지를 만들 때 반영된다.

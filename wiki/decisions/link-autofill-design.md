@@ -3,7 +3,7 @@ title: 링크 기반 공연정보 자동 입력 설계 근거
 type: decision
 tags: [링크입력, ssrf, 크롤링, 공연등록]
 sources: [CLAUDE.md, ../gotchas/link-fetch-pitfalls.md, https://ticket.yes24.com/robots.txt, https://www.ticketlink.co.kr/robots.txt, https://ticket.melon.com/robots.txt]
-updated: 2026-10-13
+updated: 2026-10-23
 confidence: medium
 status: draft
 ---
@@ -19,7 +19,7 @@ status: draft
 | YES24 | 서버 렌더된 JSON-LD `Event`(name, location.name, startDate/endDate 날짜만) | |
 | 티켓링크 | JSON-LD `Event` 동일 구조 | robots.txt가 상품 상세를 허용하고 예매·내 정보 등 일부 경로만 금지 |
 | 멜론 | JSON-LD·og:title 없음. 본문의 제목 요소, 공연장 항목, 기간 영역 | 공연장이 빈 상품이 있음 |
-| 인터파크 | 읽지 않음 | robots.txt 때문에 제외(`UNSUPPORTED_SITE`) |
+| 인터파크 | NOL 상품 주소 `nol.yanolja.com/ticket/products/{id}`(2026-10-22) | 옛 인터파크 도메인은 robots.txt가 봇을 모두 막아 요청하지 않고, 상품 주소가 301로 넘어가는 NOL(robots가 `/ticket/` 허용, 서버 렌더링)을 읽는다 |
 
 로그인·캡차 우회와 내부 API 호출은 하지 않았다. 실제 페이지 3개에 파서를 돌려 제목·공연장·기간이 맞게 나옴을 확인했다. 외부 접속 테스트는 만들지 않고 파서는 실측 구조를 줄인 fixture로 검증한다.
 
@@ -29,7 +29,7 @@ status: draft
 
 ## 3. 핵심 결정: 사용자 URL을 요청하지 않는다 (SSRF 구조적 차단)
 
-서버가 사용자가 준 주소로 요청을 보내면 내부망·메타데이터 주소 등으로의 SSRF 위험이 생긴다. 그래서 사용자 URL 자체는 요청하지 않는다. 기존 `SourceKeyResolver`가 링크에서 뽑은 키(`yes24:{숫자id}` 등)가 지원 사이트의 형식일 때만 진행하고, 요청 URL은 **코드에 고정된 템플릿 3종에 id만 끼워** 직접 만든다. 일반 `url:` 키, 인터파크, 잘못된 id는 요청 없이 `UNSUPPORTED_SITE`다.
+서버가 사용자가 준 주소로 요청을 보내면 내부망·메타데이터 주소 등으로의 SSRF 위험이 생긴다. 그래서 사용자 URL 자체는 요청하지 않는다. 기존 `SourceKeyResolver`가 링크에서 뽑은 키(`yes24:{숫자id}` 등)가 지원 사이트의 형식일 때만 진행하고, 요청 URL은 **코드에 고정된 템플릿에 id만 끼워** 직접 만든다(YES24·티켓링크·멜론, 2026-10-22부터 인터파크→NOL 포함 4종). 일반 `url:` 키, 잘못된 id는 요청 없이 `UNSUPPORTED_SITE`다.
 
 이 위에 방어를 겹쳤다. https만 허용, 리다이렉트 불추종(3xx는 실패), 응답 전 DNS 해석 결과가 전부 공인 IP인지 확인, 연결·전체 시간 제한, 본문 2 MiB 상한, `text/html`만 수락, 쿠키·인증 없음, 식별 가능한 User-Agent. 사용자당 분당 10회 제한, 사이트별 분당 30회·동시 4개 제한, 결과 10분 캐시(최대 200개)로 외부 사이트에 부담을 주지 않는다.
 

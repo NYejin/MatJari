@@ -11,39 +11,54 @@ export const FOCUS_RING =
 
 // ---- 버튼 ----
 // <button>은 enabled:active, 링크(<a>)는 :enabled가 없어 active만 쓴다 — 요소별로 완성된 문자열을 따로 둔다.
+// 2026-10-23 디자인 정리: 보라(primary)는 주요 동작과 현재 위치에만 쓰고, 보조 동작은 옅은 테두리, 위험 동작은 빨간 글자 버튼으로 무게를 낮춘다
 const BUTTON_LAYOUT =
-  "inline-flex min-h-11 cursor-pointer touch-manipulation items-center justify-center gap-1.5 rounded-[10px] " +
-  "px-4 text-[0.9375rem]/[normal] font-semibold whitespace-nowrap no-underline " +
+  "inline-flex min-h-11 cursor-pointer touch-manipulation items-center justify-center gap-1.5 rounded-xl " +
+  "px-4 text-[0.9375rem]/[normal] font-semibold whitespace-nowrap no-underline transition-colors " +
   "disabled:cursor-not-allowed disabled:opacity-60 " +
   FOCUS_RING;
 
 export const button = {
   /** 흰 글자 / primary-600 5.96:1 */
-  solid: `${BUTTON_LAYOUT} border border-primary-600 bg-primary-600 text-white enabled:active:bg-primary-700`,
-  /** gray-900 / 흰 배경 */
-  outline: `${BUTTON_LAYOUT} border border-gray-300 bg-white text-gray-900 enabled:active:bg-gray-100`,
+  solid: `${BUTTON_LAYOUT} border border-primary-600 bg-primary-600 text-white enabled:hover:bg-primary-700 enabled:active:bg-primary-800`,
+  /** gray-800 / 흰 배경 — 보조 동작(옅은 테두리) */
+  outline: `${BUTTON_LAYOUT} border border-gray-200 bg-white text-gray-800 enabled:hover:bg-gray-50 enabled:active:bg-gray-100`,
   /** 흰 글자 / red-600 4.83:1 */
   danger: `${BUTTON_LAYOUT} border border-red-600 bg-red-600 text-white enabled:active:bg-red-700`,
-  /** red-700 / 흰 배경 6.47:1 */
-  dangerOutline: `${BUTTON_LAYOUT} border border-red-600 bg-white text-red-700 enabled:active:bg-red-50`,
+  /** red-700 / 흰 배경 6.47:1 — 테두리 없는 빨간 글자 버튼(채팅 종료·삭제처럼 자주 누르지 않는 위험 동작) */
+  dangerOutline: `${BUTTON_LAYOUT} border border-transparent bg-transparent text-red-700 enabled:hover:bg-red-50 enabled:active:bg-red-100`,
+  /** gray-700 — 테두리 없는 글자 버튼(취소·더 보기 같은 가장 가벼운 동작) */
+  ghost: `${BUTTON_LAYOUT} border border-transparent bg-transparent text-gray-700 enabled:hover:bg-gray-100 enabled:active:bg-gray-200`,
+} as const;
+
+/** 세그먼트 탭(전체·보낸 제안·받은 제안 같은 구분): 회색 바탕 위 선택된 칸만 흰색 — 꽉 찬 보라 버튼 대신 시선을 덜 끈다 */
+const SEGMENT_ITEM =
+  "inline-flex min-h-10 flex-1 cursor-pointer touch-manipulation items-center justify-center rounded-lg px-3 " +
+  "text-sm/[normal] font-semibold whitespace-nowrap transition-colors " +
+  FOCUS_RING;
+
+export const segment = {
+  group: "flex w-full gap-1 rounded-xl bg-gray-100 p-1",
+  active: `${SEGMENT_ITEM} bg-white text-gray-900 shadow-[0_1px_2px_rgba(16,24,40,0.08)]`,
+  idle: `${SEGMENT_ITEM} text-gray-600 hover:text-gray-900`,
 } as const;
 
 /** 버튼 모양의 링크 (<Link>, <a>) */
 export const linkButton = {
-  solid: `${BUTTON_LAYOUT} border border-primary-600 bg-primary-600 text-white active:bg-primary-700`,
-  outline: `${BUTTON_LAYOUT} border border-gray-300 bg-white text-gray-900 active:bg-gray-100`,
+  solid: `${BUTTON_LAYOUT} border border-primary-600 bg-primary-600 text-white hover:bg-primary-700 active:bg-primary-800`,
+  outline: `${BUTTON_LAYOUT} border border-gray-200 bg-white text-gray-800 hover:bg-gray-50 active:bg-gray-100`,
 } as const;
 
 // ---- 입력칸 ----
 // text-base(16px): iOS Safari 입력 시 자동 확대 방지. 높이 48px 터치 영역.
 // outline-hidden: 기본 외곽선은 숨기되 강제 색상 모드(Windows 고대비)에서는 유지된다.
 const INPUT_BASE =
-  "min-h-12 w-full rounded-[10px] border bg-white px-3.5 text-base/[normal] text-gray-900 outline-hidden " +
+  "min-h-12 w-full rounded-xl border bg-white px-3.5 text-base/[normal] text-gray-900 outline-hidden " +
   "placeholder:text-gray-500 focus-visible:ring-3 disabled:bg-gray-100";
 
 /** 입력칸 클래스 — 오류 여부에 따라 테두리·포커스 링 색을 한쪽만 붙인다 */
 export const input = {
-  normal: `${INPUT_BASE} border-gray-300 focus-visible:border-primary-600 focus-visible:ring-primary-600/20`,
+  normal: `${INPUT_BASE} border-gray-200 hover:border-gray-300 focus-visible:border-primary-600 focus-visible:ring-primary-600/15`,
   invalid: `${INPUT_BASE} border-red-600 focus-visible:ring-red-600/20`,
 } as const;
 
@@ -52,9 +67,10 @@ export const ui = {
   /** AppLayout 콘텐츠 영역을 채우는 배경 (100dvh 대신 flex — 헤더 높이만큼 넘치지 않게) */
   page: "flex w-full flex-[1_0_auto] justify-center bg-surface px-4 pt-6 pb-[calc(24px+env(safe-area-inset-bottom))]",
   container: "flex w-full max-w-[720px] min-w-0 flex-col gap-4",
-  pageTitle: "text-2xl/[normal] font-bold text-gray-900",
-  card: "min-w-0 rounded-2xl bg-white p-5 shadow-[0_4px_24px_rgba(0,0,0,0.06)] sm:p-6",
-  sectionTitle: "text-lg/[normal] font-bold text-gray-900",
+  pageTitle: "text-[1.375rem]/[1.35] font-bold tracking-[-0.01em] text-gray-900",
+  /** 평평한 카드: 얇은 테두리 + 아주 옅은 그림자(카드끼리 같은 무게로 시선을 끌지 않게) */
+  card: "min-w-0 rounded-2xl bg-white p-5 shadow-[0_1px_2px_rgba(16,24,40,0.04)] ring-1 ring-gray-200/80 sm:p-6",
+  sectionTitle: "text-base/[normal] font-semibold text-gray-900",
   label: "text-sm/[normal] font-semibold text-gray-700",
   /** gray-700 / 흰 배경 10.31:1 */
   body: "text-[0.9375rem]/[normal] text-gray-700",
@@ -63,15 +79,16 @@ export const ui = {
   fieldError: "text-[0.8125rem]/[normal] text-red-600",
   hint: "text-[0.8125rem]/[normal] text-gray-500",
   /** primary-800 / primary-50 9.02:1 */
-  notice: "rounded-[10px] bg-primary-50 px-3.5 py-3 text-sm/[normal] text-primary-800",
+  /** 안내: 중립 회색(보라는 주요 동작에만). gray-700 / gray-50 */
+  notice: "rounded-xl bg-gray-50 px-4 py-3 text-sm/[normal] text-gray-700 ring-1 ring-gray-200/70",
   /** 경고(되돌릴 수 없는 동작 확인 등): gray-900 / accent-100 */
-  warning: "rounded-[10px] bg-accent-100 px-3.5 py-3 text-sm/[normal] text-gray-900",
+  warning: "rounded-xl bg-accent-100 px-4 py-3 text-sm/[normal] text-gray-900",
   /** red-700 / red-50 */
-  errorBox: "rounded-[10px] bg-red-50 px-3.5 py-3 text-sm/[normal] text-red-700",
+  errorBox: "rounded-xl bg-red-50 px-4 py-3 text-sm/[normal] text-red-700",
   /** gray-700 / gray-100 9.37:1 */
   badge: "inline-flex shrink-0 items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-[0.8125rem]/[normal] text-gray-700",
   /** 본문 속 링크: primary-700 / 흰 배경 7.67:1 */
-  link: "font-semibold text-primary-700 underline underline-offset-2 active:opacity-70 " + FOCUS_RING,
+  link: "font-semibold text-primary-700 underline decoration-primary-300 underline-offset-4 hover:decoration-primary-700 active:opacity-70 " + FOCUS_RING,
   /** 상태 라이브 영역 — 항상 렌더링하고 텍스트만 바꾼다 */
   status: "text-sm/[normal] text-gray-700",
 } as const;

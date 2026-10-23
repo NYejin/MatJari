@@ -4,7 +4,7 @@ import { exchangeApi } from "../api/exchange";
 import { exchangeErrorMessage, formatExtra } from "../api/exchangeMessages";
 import { formatKstDateTime } from "../api/dateTime";
 import { formatSeat } from "../api/seat";
-import { button, FOCUS_RING, linkButton, liveRegionClass, ui } from "../components/ui";
+import { button, FOCUS_RING, linkButton, liveRegionClass, ui, segment } from "../components/ui";
 import { usePagedList } from "../hooks/usePagedList";
 import type { ExchangeMatch, MatchRole, MatchStatus } from "../types/exchange";
 
@@ -125,12 +125,12 @@ export default function MatchesPage() {
           {notice ?? ""}
         </p>
 
-        <div role="group" aria-label="제안 구분" className="grid grid-cols-3 gap-2">
+        <div role="group" aria-label="제안 구분" className={segment.group}>
           {TABS.map((tab) => (
             <button
               key={tab.role}
               type="button"
-              className={role === tab.role ? button.solid : button.outline}
+              className={role === tab.role ? segment.active : segment.idle}
               aria-pressed={role === tab.role}
               onClick={() => {
                 setRole(tab.role);

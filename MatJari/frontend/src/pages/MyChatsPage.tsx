@@ -4,7 +4,7 @@ import { exchangeApi } from "../api/exchange";
 import { exchangeErrorMessage } from "../api/exchangeMessages";
 import { formatKstDateTime } from "../api/dateTime";
 import { formatSeat } from "../api/seat";
-import { button, FOCUS_RING, ui } from "../components/ui";
+import { button, FOCUS_RING, ui, segment } from "../components/ui";
 import { usePagedList } from "../hooks/usePagedList";
 import type { ExchangeMatch, MatchStatus } from "../types/exchange";
 
@@ -78,12 +78,12 @@ export default function MyChatsPage() {
 
         {state.status === "success" && (
           <>
-            <div role="group" aria-label="채팅 필터" className="grid grid-cols-2 gap-2">
+            <div role="group" aria-label="채팅 필터" className={segment.group}>
               {FILTERS.map((f) => (
                 <button
                   key={f.key}
                   type="button"
-                  className={filter === f.key ? button.solid : button.outline}
+                  className={filter === f.key ? segment.active : segment.idle}
                   aria-pressed={filter === f.key}
                   onClick={() => setFilter(f.key)}
                 >

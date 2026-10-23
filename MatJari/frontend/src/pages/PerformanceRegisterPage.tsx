@@ -836,7 +836,7 @@ export default function PerformanceRegisterPage() {
             <h3 id="perf-info-choose-title" className={ui.sectionTitle}>
               회차·구역 입력
             </h3>
-            {/* 자동 채우기 카드: 무엇을 해 주는지와 남은 횟수를 한 장에, 직접 입력은 가벼운 글자 버튼으로(2026-10-23 디자인 정리) */}
+            {/* 자동 채우기 카드: 무엇을 해 주는지와 남은 횟수를 한 장에, [직접 입력]은 [불러오기] 옆에 같은 크기로(2026-10-23 디자인 정리) */}
             <div className="flex flex-col gap-4 rounded-2xl bg-gradient-to-br from-primary-50 to-white p-4 ring-1 ring-primary-100 sm:flex-row sm:items-center sm:p-5">
               <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-white text-primary-600 shadow-sm ring-1 ring-primary-100" aria-hidden="true">
                 <svg viewBox="0 0 24 24" className="size-6" fill="currentColor">
@@ -852,19 +852,19 @@ export default function PerformanceRegisterPage() {
                   </p>
                 )}
               </div>
-              <button
-                type="button"
-                className={`${button.solid} shrink-0 sm:px-5`}
-                onClick={loadInfo}
-                disabled={quota !== null && quota.remaining <= 0}
-              >
-                불러오기
-              </button>
-            </div>
-            <div>
-              <button type="button" className={`${button.ghost} -ml-2 px-2 text-sm`} onClick={() => setInfoMode("manual")}>
-                직접 입력할게요
-              </button>
+              <div className="flex shrink-0 gap-2">
+                <button
+                  type="button"
+                  className={`${button.solid} flex-1 sm:flex-none sm:px-5`}
+                  onClick={loadInfo}
+                  disabled={quota !== null && quota.remaining <= 0}
+                >
+                  불러오기
+                </button>
+                <button type="button" className={`${button.outline} flex-1 bg-white sm:flex-none sm:px-5`} onClick={() => setInfoMode("manual")}>
+                  직접 입력
+                </button>
+              </div>
             </div>
           </section>
         ) : (

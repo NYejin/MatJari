@@ -43,7 +43,10 @@ class ZoneModelEvalTest {
         String model = System.getenv().getOrDefault("EVAL_MODEL", "claude-haiku-5-5");
         AiProperties props = new AiProperties();
         props.setModel(model);
-        DetailExtractor extractor = model.startsWith("gemini") ? new GeminiDetailExtractor(model) : new AnthropicDetailExtractor(props);
+        // ocr: Haiku 대신 로컬 무료 OCR 서버(EVAL_OCR_URL, 기본 http://127.0.0.1:8765)로 이름을 읽는다(비용 없음)
+        DetailExtractor extractor = model.startsWith("gemini") ? new GeminiDetailExtractor(model)
+                : model.startsWith("ocr") ? new OcrDetailExtractor(System.getenv().getOrDefault("EVAL_OCR_URL", "http://127.0.0.1:8765"))
+                : new AnthropicDetailExtractor(props);
         String cacheDir = System.getenv("EVAL_CACHE"); // 주면 AI 응답을 저장·재사용한다(EVAL_CACHE_ONLY=1 이면 저장본이 없을 때 API 를 부르지 않는다)
         CachingDetailExtractor cache = cacheDir == null || cacheDir.isBlank() ? null
                 : new CachingDetailExtractor(extractor, Path.of(cacheDir, model), "1".equals(System.getenv("EVAL_CACHE_ONLY")));
@@ -80,6 +83,27 @@ class ZoneModelEvalTest {
             try {
                 if ("locate".equals(mode)) {
                     locate(p, slicer, extractor, out);
+                } else if ("regularizeGt".equals(mode)) { // 정답 도형에 다듬기·병합만 적용해 그 단계의 모양 손실을 잰다(API 호출 없음)
+                    com.fasterxml.jackson.databind.JsonNode gt = JSON.readTree(p.resolve("gt.json").toFile());
+                    double gw = gt.get("width").asDouble(), gh = gt.get("height").asDouble();
+                    List<DetailExtractor.RawZone> raw = new ArrayList<>();
+                    List<String> names = new ArrayList<>();
+                    for (com.fasterxml.jackson.databind.JsonNode z : gt.get("zones")) {
+                        String name = z.get("name").asText().split("\\|")[0];
+                        List<List<List<Integer>>> polys = new ArrayList<>();
+                        for (com.fasterxml.jackson.databind.JsonNode poly : z.path("polygons")) {
+                            List<List<Integer>> pts = new ArrayList<>();
+                            poly.forEach(pt -> pts.add(List.of((int) Math.round(pt.get(0).asDouble() * 1000 / gw), (int) Math.round(pt.get(1).asDouble() * 1000 / gh))));
+                            polys.add(pts);
+                        }
+                        if (!polys.isEmpty()) {
+                            names.add(name);
+                            raw.add(new DetailExtractor.RawZone(name, polys));
+                        }
+                    }
+                    boolean skip = "1".equals(System.getenv("EVAL_NO_REG"));
+                    String steps = System.getenv("EVAL_REG_STEPS"); // 쉼표 목록 shape,sym,align: 다듬기 단계별 손실을 따로 잰다
+                    out.put("zones", DetailExtractionService.mergeZones(names, skip ? raw : steps != null ? regularizeSteps(raw, steps) : ShapeRegularizer.regularize(raw)));
                 } else if ("regularize".equals(mode)) { // 저장된 예측(EVAL_FROM 태그)에 도형 다듬기만 다시 적용한다(API 호출 없음)
                     Path from = p.resolve("pred").resolve(model + "@" + System.getenv("EVAL_FROM") + ".json");
                     if (!Files.exists(from)) {
@@ -104,7 +128,31 @@ class ZoneModelEvalTest {
                     props.setDebugDir(debug == null || debug.isBlank() ? "" : Path.of(debug, p.getFileName().toString()).toString());
                     byte[] jpeg = Files.readAllBytes(p.resolve("seatmap.jpg"));
                     BufferedImage img = ImageIO.read(new ByteArrayInputStream(jpeg));
-                    DetailExtractionService.SeatMapEval r = service.evalSeatMap(jpeg, img.getWidth(), img.getHeight());
+                    DetailExtractionService run = service;
+                    String segSrc = System.getenv("EVAL_SEG"); // gt: 정답 도형(상한 측정) / 그 밖: seg/{값}.json 의 도형(학습 모델 등)
+                    if (segSrc != null && !segSrc.isBlank()) {
+                        List<List<int[]>> polys = externalPolygons(p, segSrc);
+                        boolean fill = "1".equals(System.getenv("EVAL_SEG_FILL")); // 바깥 도형 먼저, 그것이 못 덮은 자리는 Java 도형으로 채운다
+                        ShapeSegmenter fixed = new ShapeSegmenter() {
+                            @Override
+                            public Result segment(byte[] j, boolean dropGray) {
+                                if (!fill) {
+                                    return fromPolygons(j, polys);
+                                }
+                                Result own = super.segment(j, dropGray);
+                                List<List<int[]>> merged = new ArrayList<>(polys);
+                                List<java.awt.Polygon> ext = polys.stream().map(ZoneModelEvalTest::awt).toList();
+                                for (Segment s : own == null ? List.<Segment>of() : own.segments()) {
+                                    if (ext.stream().noneMatch(e -> e.contains(s.cx(), s.cy()))) {
+                                        merged.add(s.pixels());
+                                    }
+                                }
+                                return fromPolygons(j, merged);
+                            }
+                        };
+                        run = new DetailExtractionService(null, null, null, null, slicer, fixed, extractor, null, props, Clock.systemUTC());
+                    }
+                    DetailExtractionService.SeatMapEval r = run.evalSeatMap(jpeg, img.getWidth(), img.getHeight());
                     out.put("firstNames", r.firstNames());
                     out.put("zones", r.zones());
                     out.put("usedFallback", r.usedFallback());
@@ -138,6 +186,65 @@ class ZoneModelEvalTest {
                     + (cache != null ? " cacheMisses=" + out.get("cacheMisses") : "")
                     + (out.containsKey("error") ? " error=" + out.get("error") : ""));
         }
+    }
+
+    private static java.awt.Polygon awt(List<int[]> pts) {
+        java.awt.Polygon p = new java.awt.Polygon();
+        pts.forEach(v -> p.addPoint(v[0], v[1]));
+        return p;
+    }
+
+    /** ShapeRegularizer.regularize 와 같은 순서로, 고른 단계만 적용한다. */
+    private static List<DetailExtractor.RawZone> regularizeSteps(List<DetailExtractor.RawZone> zones, String steps) {
+        List<String> on = List.of(steps.split(","));
+        List<int[][]> all = new ArrayList<>();
+        List<Integer> zoneOf = new ArrayList<>();
+        for (int zi = 0; zi < zones.size(); zi++) {
+            for (List<List<Integer>> poly : zones.get(zi).polygons()) {
+                int[][] a = poly.stream().map(pt -> new int[]{pt.get(0), pt.get(1)}).toArray(int[][]::new);
+                all.add(on.contains("shape") ? ShapeRegularizer.shape(a) : a);
+                zoneOf.add(zi);
+            }
+        }
+        if (on.contains("sym")) {
+            ShapeRegularizer.symmetrize(all, zoneOf);
+        }
+        if (on.contains("align")) {
+            ShapeRegularizer.alignNeighbors(all, zoneOf);
+        }
+        List<DetailExtractor.RawZone> out = new ArrayList<>();
+        int k = 0;
+        for (DetailExtractor.RawZone z : zones) {
+            List<List<List<Integer>>> polys = new ArrayList<>();
+            for (int i = 0; i < z.polygons().size(); i++) {
+                List<List<Integer>> pts = new ArrayList<>();
+                for (int[] v : all.get(k)) {
+                    pts.add(List.of(v[0], v[1]));
+                }
+                k++;
+                polys.add(pts);
+            }
+            out.add(new DetailExtractor.RawZone(z.name(), polys));
+        }
+        return out;
+    }
+
+    /** gt.json 의 구역 조각(gt) 또는 seg/{이름}.json 의 polygons([[[x,y],...],...], 원본 픽셀)를 읽는다. */
+    private static List<List<int[]>> externalPolygons(Path p, String src) throws Exception {
+        List<List<int[]>> out = new ArrayList<>();
+        com.fasterxml.jackson.databind.JsonNode root = JSON.readTree(("gt".equals(src) ? p.resolve("gt.json") : p.resolve("seg").resolve(src + ".json")).toFile());
+        List<com.fasterxml.jackson.databind.JsonNode> polys = new ArrayList<>();
+        if ("gt".equals(src)) {
+            root.get("zones").forEach(z -> z.path("polygons").forEach(polys::add));
+        } else {
+            root.get("polygons").forEach(polys::add);
+        }
+        for (com.fasterxml.jackson.databind.JsonNode poly : polys) {
+            List<int[]> pts = new ArrayList<>();
+            poly.forEach(pt -> pts.add(new int[]{pt.get(0).asInt(), pt.get(1).asInt()}));
+            out.add(pts);
+        }
+        return out;
     }
 
     /** 운영 extract()의 좌석표 찾기와 같은 순서: 1차 호출로 이미지·조각 범위 → 합치기 → 띠 단위로 다시 좁히기. */

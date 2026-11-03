@@ -37,12 +37,12 @@ final class ZoneConsistency {
     /** 범례 칩 하나: 경계 상자와 평균 색. */
     record Chip(int x0, int y0, int x1, int y1, int rgb) {}
 
-    /** 점검 결과: 고친 구역 연결과, 되살린 조각을 더한 도형 목록. */
-    record Checked(List<DetailExtractor.RawLabel> labels, ShapeSegmenter.Result seg) {}
+    /** 점검 결과: 고친 구역 연결과, 되살린 조각을 더한 도형 목록, 색이 범례 칩과 맞는 조각 번호(범례를 못 찾으면 비어 있다). */
+    record Checked(List<DetailExtractor.RawLabel> labels, ShapeSegmenter.Result seg, java.util.Set<Integer> legendPieces) {}
 
     static Checked check(List<DetailExtractor.RawLabel> labels, ShapeSegmenter.Result seg, byte[] jpeg,
                          List<String> names, Map<Integer, String> reread, DetailExtractor extractor) {
-        Checked unchanged = new Checked(labels, seg);
+        Checked unchanged = new Checked(labels, seg, java.util.Set.of());
         try {
             BufferedImage img = ImageIO.read(new ByteArrayInputStream(jpeg));
             if (img == null) {
@@ -61,7 +61,7 @@ final class ZoneConsistency {
             }
             List<Chip> chips = legendChips(img, owned);
             log.info("범례 칩 {}개", chips.size());
-            int bg = dominant(img.getRGB(0, 0, img.getWidth(), img.getHeight(), null, 0, img.getWidth()));
+            int bg = mapBackground(img, owned);
             if (chips.size() >= 2) {
                 dropOffLegend(zones, byId, color, chips, bg, reread, img);
                 addMissingLegendColors(zones, byId, color, chips, img, extractor);
@@ -82,7 +82,15 @@ final class ZoneConsistency {
                 }
             });
             ShapeSegmenter.Result grown = new ShapeSegmenter.Result(seg.width(), seg.height(), List.copyOf(byId.values()), seg.annotatedJpeg(), seg.tilesJpeg());
-            return new Checked(out, grown);
+            java.util.Set<Integer> legendPieces = new java.util.HashSet<>();
+            if (chips.size() >= 2) {
+                byId.keySet().forEach(id -> {
+                    if (color.containsKey(id) && inLegend(color.get(id), chips, bg)) {
+                        legendPieces.add(id);
+                    }
+                });
+            }
+            return new Checked(out, grown, legendPieces);
         } catch (IOException | RuntimeException e) {
             log.info("구역 점검 실패, 원래 결과 사용: {}", e.getClass().getSimpleName());
             return unchanged;
@@ -124,22 +132,27 @@ final class ZoneConsistency {
         return near == null ? 60 : tolerance(near, chips, bg, 60);
     }
 
-    /** 범례에 없는 색의 구역은 타일 재판독에서 그 구역 이름이 한 번도 읽히지 않았으면 뺀다(글자가 실제로 쓰여 있는 회색 블록은 남는다). */
+    /**
+     * 범례에 없는 색의 구역은 타일 재판독에서 그 구역 이름이 한 번도 읽히지 않았으면 뺀다. 이름이 다시 읽혀도 범례 칩이 모두 유채색인데 구역이 무채색(회색)이면
+     * 뺀다(2026-11-03 정답 기준: 판매하지 않는 회색 블록에 이름이 쓰여 있어도 좌석 구역이 아니다). 칩을 일부 놓친 지도에서 색 있는 구역을 잘못 빼지 않게 회색만 본다.
+     */
     private static void dropOffLegend(Map<String, List<Integer>> zones, Map<Integer, ShapeSegmenter.Segment> byId, Map<Integer, Integer> color,
                                       List<Chip> chips, int bg, Map<Integer, String> reread, BufferedImage img) {
+        boolean chromaticLegend = chips.stream().noneMatch(c -> gray(c.rgb()));
         for (Map.Entry<String, List<Integer>> z : zones.entrySet()) {
-            boolean inLegend = false, confirmed = false;
+            boolean inLegend = false, confirmed = false, allGray = true;
             String key = DetailExtractionService.keyOf(z.getKey());
             for (Integer id : z.getValue()) {
                 if (!byId.containsKey(id)) {
                     continue;
                 }
                 inLegend |= inLegend(color.get(id), chips, bg);
+                allGray &= gray(color.get(id));
                 String t = reread.get(id);
                 confirmed |= t != null && key != null && key.equals(DetailExtractionService.keyOf(t));
             }
-            if (!inLegend && !confirmed) {
-                log.info("범례에 없는 색이고 글자도 다시 읽히지 않은 구역 제외: {}", z.getKey());
+            if (!inLegend && (!confirmed || chromaticLegend && allGray)) {
+                log.info("범례에 없는 색의 구역 제외(다시 읽힘 {}): {}", confirmed, z.getKey());
                 z.getValue().clear();
             } else if (inLegend) {
                 // 범례 색 조각이 있는 구역에 섞인 범례 밖 색 조각(고척돔 회색 통로·단이 T15·T04에 붙음)은 뺀다
@@ -151,6 +164,10 @@ final class ZoneConsistency {
                     }
                     return off;
                 });
+                if (!removed.isEmpty()) {
+                    log.info("{}: 범례 밖 색 조각 제외 {} (색 {})", z.getKey(), removed,
+                            removed.stream().map(id -> Integer.toHexString(color.get(id))).toList());
+                }
                 // 뺀 덩어리 안에 그 구역 색 픽셀이 이어져 있으면(분할 때 블록 일부가 통로와 한 덩어리로 묶임) 그 픽셀만 모아 구역 조각으로 되살린다
                 ShapeSegmenter.Segment main = z.getValue().stream().map(byId::get).filter(java.util.Objects::nonNull)
                         .max(java.util.Comparator.comparingInt(ShapeSegmenter.Segment::area)).orElse(null);
@@ -1342,7 +1359,7 @@ final class ZoneConsistency {
             bottom = Math.max(bottom, b[3]);
         }
         int[] rgb = img.getRGB(0, 0, w, h, null, 0, w);
-        int bg = dominant(rgb);
+        int bg = mapBackground(img, owned);
         List<Chip> found = new ArrayList<>();
         List<int[]> blobs = new ArrayList<>();
         int band = (int) (h * 0.3);
@@ -1442,6 +1459,7 @@ final class ZoneConsistency {
         }
     }
 
+
     /** 범례 항목 이미지: 칩 왼쪽부터 다음 칩 앞(마지막 칩은 칩 높이의 14배)까지, 칩 높이의 2.5배 높이로 잘라 3배 키운다. */
     private static byte[] legendCrop(BufferedImage img, List<Chip> chips, int i) throws IOException {
         Chip c = chips.get(i);
@@ -1494,6 +1512,31 @@ final class ZoneConsistency {
         return 0xFF000000 | (int) (best[0] / best[3]) << 16 | (int) (best[1] / best[3]) << 8 | (int) (best[2] / best[3]);
     }
 
+    /**
+     * 지도 배경색: 구역 조각들의 가로 범위 안, 위아래로 이미지 높이 30%(범례를 찾는 띠)까지 넓힌 영역에서 가장 흔한 색. 이미지 전체로 재면 채도 높은
+     * 바깥 테두리(212918 자홍색 판)가 배경이 되어 같은 색 범례 칩이 배경에 묻힌다.
+     */
+    static int mapBackground(BufferedImage img, List<ShapeSegmenter.Segment> owned) {
+        int w = img.getWidth(), h = img.getHeight();
+        int x0 = w, x1 = 0, y0 = h, y1 = 0;
+        for (ShapeSegmenter.Segment s : owned) {
+            int[] b = box(s);
+            x0 = Math.min(x0, b[0]);
+            y0 = Math.min(y0, b[1]);
+            x1 = Math.max(x1, b[2]);
+            y1 = Math.max(y1, b[3]);
+        }
+        int band = (int) (h * 0.3);
+        x0 = Math.max(0, x0);
+        x1 = Math.min(w - 1, x1);
+        y0 = Math.max(0, y0 - band);
+        y1 = Math.min(h - 1, y1 + band);
+        if (x1 - x0 < 10 || y1 - y0 < 10) {
+            return dominant(img.getRGB(0, 0, w, h, null, 0, w));
+        }
+        return dominant(img.getRGB(x0, y0, x1 - x0 + 1, y1 - y0 + 1, null, 0, x1 - x0 + 1));
+    }
+
     private static int dominant(int[] rgb) {
         Map<Integer, Integer> count = new HashMap<>();
         int best = 0, bestN = -1;
@@ -1506,6 +1549,13 @@ final class ZoneConsistency {
             }
         }
         return best;
+    }
+
+    /** 무채색(최대·최소 채널 차가 최대값의 12% 미만, 검정 포함). */
+    static boolean gray(int c) {
+        int r = (c >> 16) & 255, g = (c >> 8) & 255, b = c & 255;
+        int mx = Math.max(r, Math.max(g, b)), mn = Math.min(r, Math.min(g, b));
+        return mx == 0 || (double) (mx - mn) / mx < 0.12;
     }
 
     /** 글자 뒤 숫자의 앞자리 0을 뗀 키(T04 → T4). */

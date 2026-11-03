@@ -124,13 +124,9 @@ class DetailExtractionServiceTest {
         assertThat(r.sessions()).containsExactly(new DetailExtractionService.SessionDto("2026-11-01", "19:00")); // 19:05 는 10분 단위 아님
         assertThat(r.zones()).hasSize(2);
         assertThat(r.zones().get(0).name()).isEqualTo("A구역");
-        // 좌석표 영역에 맞춰 좌표가 다시 계산되므로 조각 수·꼭짓점 수와 범위만 확인한다
-        assertThat(r.zones().get(0).shapePolygons()).hasSize(1);
-        assertThat(r.zones().get(0).shapePolygons().get(0)).hasSize(3);
-        assertThat(r.zones().get(0).shapePolygons().get(0)).allSatisfy(pt -> assertThat(pt).allSatisfy(v -> assertThat(v).isBetween(0, 1000)));
-        assertThat(r.zones().get(1).shapePolygons()).isNull();
-        assertThat(r.seatmapAspect()).isNotNull().isGreaterThan(0.0);
-        assertThat(fake.secondCalls).isEqualTo(1);
+        // 빈 이미지라 픽셀 도형이 없다: AI 좌표(2차 호출)로 대신하지 않고 이름만 남긴다
+        assertThat(r.zones()).allSatisfy(z -> assertThat(z.shapePolygons()).isNull());
+        assertThat(fake.secondCalls).isZero();
         assertThat(fake.lastPartCount % 2).isOne(); // 본문 글자 1 + 조각마다 텍스트+이미지
     }
 
@@ -226,15 +222,29 @@ class DetailExtractionServiceTest {
         // 1차가 참고 목록의 Z구역을 베꼈지만 지도에는 A구역 모양만 있다
         fake.firstResult = new DetailExtractor.FirstPass(List.of(new DetailExtractor.RawSession("2026-11-01", "19:00")),
                 List.of("A구역", "B구역", "Z구역"), new DetailExtractor.SeatMapLocation(true, 1, 1, 2));
-        fake.secondResult = List.of(
-                new DetailExtractor.RawZone("A구역", List.of(List.of(List.of(0, 0), List.of(1000, 0), List.of(0, 1000)))),
-                new DetailExtractor.RawZone("B구역", List.of(List.of(List.of(1000, 1000), List.of(1000, 0), List.of(0, 1000)))));
+        // 지도에는 픽셀 도형 셋(A·B 블록과 이름 없는 블록)이 있고, 짝짓기가 A구역·B구역에 하나씩 연결한다
+        FakeExtractor labeling = new FakeExtractor() {
+            @Override
+            public LabelResult label(byte[] o, byte[] n, byte[] t, List<String> names, int count) {
+                return new LabelResult(List.of(new RawLabel("A구역", List.of(1)), new RawLabel("B구역", List.of(2))), List.of(3));
+            }
+        };
+        labeling.firstResult = fake.firstResult;
+        ShapeSegmenter blocks = new ShapeSegmenter() {
+            @Override
+            public Result segment(byte[] jpeg, boolean dropGray) {
+                return fromPolygons(jpeg, List.of(
+                        List.of(new int[]{100, 100}, new int[]{300, 100}, new int[]{300, 300}, new int[]{100, 300}),
+                        List.of(new int[]{400, 100}, new int[]{600, 100}, new int[]{600, 300}, new int[]{400, 300}),
+                        List.of(new int[]{700, 100}, new int[]{900, 100}, new int[]{900, 300}, new int[]{700, 300})));
+            }
+        };
         Clock clock = Clock.fixed(Instant.parse("2026-10-18T03:00:00Z"), ZoneId.of("Asia/Seoul"));
         DetailExtractionService svc = new DetailExtractionService(new SourceKeyResolver(), preview, parser, fetcher,
-                new ImageSlicer(props), new ShapeSegmenter(), fake, new AiUsageLimiter(clock, props), props, clock, null, hints);
+                new ImageSlicer(props), blocks, labeling, new AiUsageLimiter(clock, props), props, clock, null, hints);
 
         DetailExtractionService.Response r = svc.extract(1L, MELON);
-        assertThat(fake.firstParts.get(0).text()).startsWith("[참고] 같은 공연장").contains("A구역, Z구역");
+        assertThat(labeling.firstParts.get(0).text()).startsWith("[참고] 같은 공연장").contains("A구역, Z구역");
         // 지도에서 모양이 붙은 A·B는 남고, 참고 목록에서 베꼈고 모양이 없는 Z구역만 빠진다
         assertThat(r.zones()).extracting(DetailExtractionService.ZoneDto::name).containsExactly("A구역", "B구역");
     }

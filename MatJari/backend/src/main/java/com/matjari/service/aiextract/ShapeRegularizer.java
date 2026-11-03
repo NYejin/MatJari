@@ -41,7 +41,7 @@ final class ShapeRegularizer {
             }
             out.add(new DetailExtractor.RawZone(z.name(), polys));
         }
-        symmetrize(all, zoneOf);
+        // 좌우대칭 맞추기(symmetrize)는 쓰지 않는다: 정답 도형에 적용만 해도 38장 중 71구역의 IoU 를 0.8 아래로 떨어뜨렸다(2026-11-04 평가)
         alignNeighbors(all, zoneOf);
         int k = 0;
         List<DetailExtractor.RawZone> done = new ArrayList<>();

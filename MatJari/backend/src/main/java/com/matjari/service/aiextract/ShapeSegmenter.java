@@ -143,6 +143,58 @@ public class ShapeSegmenter {
     }
 
     /**
+     * 바깥에서 얻은 도형(외곽 꼭짓점, 원본 픽셀 좌표)으로 segment()와 같은 모양의 결과를 만든다: 넓이·중심·평균 채도·밝기를 채우고 같은 순서로 번호를 매긴 뒤
+     * 번호 이미지·타일을 그린다. 다른 도형 분할(학습 모델 등)을 같은 이름 짝짓기·점검 경로에 넣어 비교할 때 쓴다.
+     */
+    public Result fromPolygons(byte[] jpeg, List<List<int[]>> polygons) {
+        BufferedImage img;
+        try {
+            img = ImageIO.read(new ByteArrayInputStream(jpeg));
+        } catch (IOException e) {
+            return null;
+        }
+        if (img == null) {
+            return null;
+        }
+        int w = img.getWidth(), h = img.getHeight();
+        int[] raw = img.getRGB(0, 0, w, h, null, 0, w);
+        List<Segment> segs = new ArrayList<>();
+        for (List<int[]> poly : polygons) {
+            if (poly.size() < 3) {
+                continue;
+            }
+            Polygon p = toPolygon(poly);
+            java.awt.Rectangle b = p.getBounds().intersection(new java.awt.Rectangle(0, 0, w, h));
+            long n = 0, sx = 0, sy = 0;
+            double satSum = 0, valSum = 0;
+            for (int y = b.y; y < b.y + b.height; y++) {
+                for (int x = b.x; x < b.x + b.width; x++) {
+                    if (!p.contains(x + 0.5, y + 0.5)) {
+                        continue;
+                    }
+                    int c = raw[y * w + x], r = (c >> 16) & 255, g = (c >> 8) & 255, bl = c & 255;
+                    int mx = Math.max(r, Math.max(g, bl)), mn = Math.min(r, Math.min(g, bl));
+                    satSum += mx == 0 ? 0 : (double) (mx - mn) / mx;
+                    valSum += mx;
+                    sx += x;
+                    sy += y;
+                    n++;
+                }
+            }
+            if (n > 0) {
+                segs.add(new Segment(0, poly, (int) n, (int) (sx / n), (int) (sy / n), satSum / n, valSum / n));
+            }
+        }
+        segs.sort(Comparator.comparingInt((Segment s) -> s.cy() / 40).thenComparingInt(Segment::cx));
+        List<Segment> numbered = new ArrayList<>();
+        for (int i = 0; i < segs.size() && i < MAX_SEGMENTS; i++) {
+            Segment s = segs.get(i);
+            numbered.add(new Segment(i + 1, s.pixels(), s.area(), s.cx(), s.cy(), s.sat(), s.val()));
+        }
+        return new Result(w, h, List.copyOf(numbered), annotate(img, numbered), tileSheet(img, numbered));
+    }
+
+    /**
      * 글자 지우기: 채널마다 5x5 열림(최솟값 뒤 최댓값)을 하면 폭 4px 이하의 밝은 획(블록 위 흰·연한 숫자와 글자)이 둘레 블록 색으로 바뀐다.
      * 배경색과 다르고(RGB 거리 60 초과) 원본보다 휘도가 40 넘게 떨어지는 픽셀이 8방향으로 이어진 덩어리 중 글자 크기(상자 긴 변 60 이하, 넓이 1,500 이하)만
      * 둘레의 검지 않은(휘도 50 이상) 픽셀 최빈색으로 칠한다. 검은 글자 획 사이 흰 틈은 둘레 흰 블록 색으로 칠해져 그대로다.

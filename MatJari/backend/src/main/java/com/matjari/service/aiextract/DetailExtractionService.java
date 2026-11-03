@@ -378,20 +378,11 @@ public class DetailExtractionService {
                     log.info("AI 좌석표 구간: 이미지 {}, 조각 {}~{}/{}, 합친 크기 {}x{}, 사용 크기 {}x{}", loc.imageIndex(), a, b, sl.size(),
                             merged.width(), merged.height(), target.width(), target.height());
                     shapes = labelShapes(target, names); // 실제 픽셀 윤곽(ShapeSegmenter) + AI가 타일에서 읽은 구역 이름
-                    boolean pixelShapes = !shapes.isEmpty(); // 실제 픽셀 도형이면 좌표 넓이 검사를 하지 않는다
                     if (!shapes.isEmpty()) {
                         names = extendNames(names, shapes); // 1차 이름 목록에서 빠졌지만 타일에서 읽힌 구역을 되살린다
-                    } else {
-                        shapes = extractor.second(target.jpeg(), names);
                     }
-                    if (!shapeQualityOk(names, shapes, pixelShapes)) { // 좌표 기준이 어긋나거나 형식이 틀린 응답이 가끔 오므로 한 번만 다시 시도한다
-                        log.info("AI 2차 모양 품질 미달, 한 번 다시 시도");
-                        shapes = extractor.second(target.jpeg(), names);
-                        if (!shapeQualityOk(names, shapes)) { // 믿을 수 없는 모양은 버리고 이름만 유지한다
-                            log.info("AI 2차 모양 품질 미달, 모양은 버리고 이름만 유지");
-                            shapes = List.of();
-                        }
-                    }
+                    // 픽셀 도형을 못 만들면(labelShapes 가 빈 목록) 모양 없이 이름만 둔다. AI가 낸 좌표(2차 호출)는 블록과 어긋나 틀린 지도를
+                    // 보여 주므로 쓰지 않고, 일부 구역만 연결된 픽셀 도형도 그 구역들의 모양은 맞으므로 그대로 둔다(2026-11-04)
                     shapes = ShapeRegularizer.regularize(shapes); // 꼭짓점 8개 이하·사각형 직각/평행 맞추기·좌우대칭
                     if (log.isInfoEnabled()) {
                         int polyCount = 0, badPolys = 0;
@@ -509,18 +500,10 @@ public class DetailExtractionService {
             if (!names.isEmpty()) {
                 try {
                     shapes = labelShapes(target, names);
-                    boolean pixelShapes = !shapes.isEmpty(); // 실제 픽셀 도형이면 좌표 넓이 검사를 하지 않는다
                     if (!shapes.isEmpty()) {
                         names = extendNames(names, shapes);
-                    } else {
-                        shapes = extractor.second(target.jpeg(), names);
                     }
-                    if (!shapeQualityOk(names, shapes, pixelShapes)) {
-                        shapes = extractor.second(target.jpeg(), names);
-                        if (!shapeQualityOk(names, shapes)) {
-                            shapes = List.of();
-                        }
-                    }
+                    // AI 좌표(2차 호출)로 대신하지 않는다(위 extract 와 같다)
                     shapes = ShapeRegularizer.regularize(shapes);
                     aspect = Math.round(target.width() * 1000.0 / target.height()) / 1000.0;
                 } catch (RuntimeException e) { // 모양 실패해도 이름은 유지
@@ -663,20 +646,10 @@ public class DetailExtractionService {
         }
         boolean fallback = false;
         List<DetailExtractor.RawZone> shapes = labelShapes(target, names);
-        boolean pixelShapes = !shapes.isEmpty(); // 실제 픽셀 도형이면 좌표 넓이 검사를 하지 않는다
         if (!shapes.isEmpty()) {
             names = extendNames(names, shapes);
-        } else {
-            shapes = extractor.second(jpeg, names);
-            fallback = true;
         }
-        if (!shapeQualityOk(names, shapes, pixelShapes)) {
-            shapes = extractor.second(jpeg, names);
-            fallback = true;
-            if (!shapeQualityOk(names, shapes)) {
-                shapes = List.of();
-            }
-        }
+        fallback = shapes.isEmpty(); // 평가 기록용: 픽셀 도형 없이 이름만 남은 경우
         return new SeatMapEval(firstNames, mergeZones(names, ShapeRegularizer.regularize(shapes)), fallback);
     }
 
@@ -721,7 +694,7 @@ public class DetailExtractionService {
             labels = checked.labels();
             seg = checked.seg();
             writeFinalDebug(seg, labels);
-            List<DetailExtractor.RawZone> zones = dropOutliers(shapesFromLabels(labels, seg));
+            List<DetailExtractor.RawZone> zones = dropOutliers(shapesFromLabels(labels, seg, checked.legendPieces()));
             log.info("AI 번호 방식: 도형 후보 {}개, 연결된 구역 {}개 / 이름 {}개", seg.segments().size(), zones.size(), names.size());
             if (validShapeRatio(extendNames(names, zones), zones) < 0.3) {
                 return List.of();
@@ -1328,6 +1301,11 @@ public class DetailExtractionService {
                     continue; // 처음에 'R석'·'VIP 석' 같은 범례 글자로 읽힌 도형은 확대 타일에서 '석'이 '4'로 읽혀도(R4·VIP 4) 구역으로 바꾸지 않는다(KSPO·212476)
                 }
                 String k = keyOf(t);
+                String alias = k == null || known.contains(k) ? null : ocrAlias(k, known);
+                if (alias != null) { // 확대 타일에서 O1 을 01 로 읽음(209316): 1차 목록에 있는 표기로 되돌린다
+                    k = alias;
+                    t = names.stream().filter(n -> alias.equals(keyOf(n))).findFirst().orElse(t);
+                }
                 if (k != null && !k.isEmpty() && (known.contains(k) || looksLikeZoneCode(t)) && !t.equals(owner.get(e.getKey()))
                         && !farFromZone(byId.get(e.getKey()), k, owner, byId)) {
                     owner.put(e.getKey(), t);
@@ -1346,6 +1324,16 @@ public class DetailExtractionService {
             raw.add(new DetailExtractor.RawLabel(e.getKey(), e.getValue()));
         }
         return canonicalLabels(raw, names);
+    }
+
+    /** 목록에 없는 이름 키에서 숫자 0 과 글자 O 를 서로 바꾼 키가 목록에 있으면 그 키(없으면 null). */
+    static String ocrAlias(String k, java.util.Set<String> known) {
+        for (String alt : List.of(k.replace('0', 'O'), k.replace('O', '0'))) {
+            if (!alt.equals(k) && known.contains(alt)) {
+                return alt;
+            }
+        }
+        return null;
     }
 
     /**
@@ -1585,6 +1573,11 @@ public class DetailExtractionService {
 
     /** 번호 -> 도형 윤곽(0~1000 정수 좌표)으로 바꾼다. 없는 번호·이미 쓴 번호는 무시하고 구역당 8조각까지만 쓴다. */
     static List<DetailExtractor.RawZone> shapesFromLabels(List<DetailExtractor.RawLabel> labels, ShapeSegmenter.Result seg) {
+        return shapesFromLabels(labels, seg, java.util.Set.of());
+    }
+
+    /** legendPieces: 색이 좌석 등급 범례 칩과 맞는 조각(연한 S석처럼 채도가 낮아도 회색 통로가 아니다). */
+    static List<DetailExtractor.RawZone> shapesFromLabels(List<DetailExtractor.RawLabel> labels, ShapeSegmenter.Result seg, java.util.Set<Integer> legendPieces) {
         Map<Integer, ShapeSegmenter.Segment> byId = new LinkedHashMap<>();
         for (ShapeSegmenter.Segment s : seg.segments()) {
             byId.put(s.id(), s);
@@ -1619,7 +1612,9 @@ public class DetailExtractionService {
                     continue;
                 }
                 // 색 있는 블록 구역에 떨어져 붙은 회색 덩어리(고척돔 회색 통로가 옆 글자로 'T12'로 읽힘)는 버린다. 블록 옆에 붙은 회색 띠는 남는다
-                if (main != null && s != main && s.sat() < 0.2 && !strip(s) && (gap(s, main) > 10 || s.area() > main.area())) {
+                // 범례 색 조각은 맞붙어 있으면 대표 조각보다 커도 남긴다(213188 앞줄 R석 띠 + 뒤 S석 블록이 한 구역)
+                if (main != null && s != main && s.sat() < 0.2 && !strip(s)
+                        && (gap(s, main) > 10 || s.area() > main.area() && !(legendPieces.contains(id) && gap(s, main) <= 3))) {
                     continue;
                 }
                 if (main == null && colorfulMap && s.sat() < 0.2 && s.area() > linkedMedian * 2) {
@@ -1717,15 +1712,38 @@ public class DetailExtractionService {
         if (union != null) {
             return List.of(union);
         }
-        // 합집합이 갈라지면(블록과 틈을 둔 앞줄 조각) 따로 두되, 상자가 서로 겹치는 조각들(숫자 원이 가른 블록)은 볼록 껍질로 합친다
+        // 합집합이 갈라지면(블록과 틈을 둔 앞줄 조각) 따로 두되, 실제로 3 이내로 붙은 조각들(숫자 원이 가른 블록)은 볼록 껍질로 합친다.
+        // 상자만 겹치고 넓은 흰 띠를 사이에 둔 대각선 조각(207407 B2 삼각형 둘)은 합치지 않는다
         for (int i = 0; i < polys.size(); i++) {
             for (int j = i + 1; j < polys.size(); j++) {
-                if (boxGap(polys.get(i), polys.get(j)) > 3) {
+                if (boxGap(polys.get(i), polys.get(j)) > 3 || !near(polys.get(i), polys.get(j), 3)) {
                     return polys;
                 }
             }
         }
         return List.of(toList(hull));
+    }
+
+    /** 두 조각의 가장 가까운 거리가 d(0~1000 좌표) 이하다: a 를 두께 2d 로 덧칠한 영역이 b 와 겹치는지로 본다. */
+    static boolean near(List<List<Integer>> a, List<List<Integer>> b, double d) {
+        java.awt.geom.Path2D.Double pa = path(a), pb = path(b);
+        java.awt.geom.Area grown = new java.awt.geom.Area(pa);
+        grown.add(new java.awt.geom.Area(new java.awt.BasicStroke((float) (2 * d), java.awt.BasicStroke.CAP_ROUND, java.awt.BasicStroke.JOIN_ROUND).createStrokedShape(pa)));
+        grown.intersect(new java.awt.geom.Area(pb));
+        return !grown.isEmpty();
+    }
+
+    private static java.awt.geom.Path2D.Double path(List<List<Integer>> p) {
+        java.awt.geom.Path2D.Double path = new java.awt.geom.Path2D.Double();
+        for (int i = 0; i < p.size(); i++) {
+            if (i == 0) {
+                path.moveTo(p.get(i).get(0), p.get(i).get(1));
+            } else {
+                path.lineTo(p.get(i).get(0), p.get(i).get(1));
+            }
+        }
+        path.closePath();
+        return path;
     }
 
     /**
@@ -1749,6 +1767,17 @@ public class DetailExtractionService {
             area.add(new java.awt.geom.Area(path));
             area.add(new java.awt.geom.Area(edge.createStrokedShape(path)));
             total += polygonArea(p);
+        }
+        // 덧칠은 틈을 메우려는 것이라, 원래 조각들의 볼록 껍질 밖으로 번진 테두리는 잘라 바깥 외곽선이 커지지 않게 한다(작은 블록에서 IoU 손실)
+        List<int[]> all = new ArrayList<>();
+        polys.forEach(p -> p.forEach(pt -> all.add(new int[]{pt.get(0), pt.get(1)})));
+        List<int[]> hull = ShapeSegmenter.convexHull(all);
+        if (hull.size() >= 3) {
+            java.awt.geom.Path2D.Double hp = new java.awt.geom.Path2D.Double();
+            hp.moveTo(hull.get(0)[0], hull.get(0)[1]);
+            hull.subList(1, hull.size()).forEach(pt -> hp.lineTo(pt[0], pt[1]));
+            hp.closePath();
+            area.intersect(new java.awt.geom.Area(hp));
         }
         List<List<int[]>> rings = new ArrayList<>();
         List<int[]> cur = new ArrayList<>();
@@ -1977,45 +2006,6 @@ public class DetailExtractionService {
             out.add(new ZoneDto(e.getValue(), ok ? List.copyOf(p.size() > MAX_POLYGONS ? p.subList(0, MAX_POLYGONS) : p) : null));
         }
         return out;
-    }
-
-    /**
-     * 모양이 쓸 만한지 본다: 유효한 모양을 가진 구역이 절반 이상이고, 잘라 낸 좌석표 이미지 안에서 모양들이 가로 45% 이상·세로 25% 이상을 덮는다
-     * (좌표 기준이 어긋나 한쪽으로 몰리거나 찌그러진 응답을 걸러 낸다). 구역 이름이 없으면 true.
-     */
-    /**
-     * pixelShapes: 모양이 ShapeSegmenter 의 실제 픽셀 윤곽에서 왔으면 이름 대비 모양 비율만 본다. 좌표 넓이 검사(가로 450·세로 250 이상)는
-     * AI 가 좌표를 직접 찍는 대체 방식의 좌표 기준 어긋남을 막는 것이라, 좌석표가 세로로 긴 이미지의 일부만 차지할 때 맞게 찾은 픽셀 도형까지
-     * 버리던 문제(멜론 207095, 2026-10-22)가 있었다.
-     */
-    static boolean shapeQualityOk(List<String> names, List<DetailExtractor.RawZone> shapes, boolean pixelShapes) {
-        if (pixelShapes) {
-            return names == null || names.isEmpty() || validShapeRatio(names, shapes) >= 0.5;
-        }
-        return shapeQualityOk(names, shapes);
-    }
-
-    static boolean shapeQualityOk(List<String> names, List<DetailExtractor.RawZone> shapes) {
-        if (names == null || names.isEmpty()) {
-            return true;
-        }
-        if (validShapeRatio(names, shapes) < 0.5) {
-            return false;
-        }
-        int minX = 1000, minY = 1000, maxX = 0, maxY = 0, n = 0;
-        for (DetailExtractor.RawZone z : shapes) {
-            for (List<List<Integer>> poly : z.polygons() == null ? List.<List<List<Integer>>>of() : z.polygons()) {
-                if (!validPolygon(poly)) {
-                    continue;
-                }
-                for (List<Integer> pt : poly) {
-                    minX = Math.min(minX, pt.get(0)); maxX = Math.max(maxX, pt.get(0));
-                    minY = Math.min(minY, pt.get(1)); maxY = Math.max(maxY, pt.get(1));
-                    n++;
-                }
-            }
-        }
-        return n > 0 && maxX - minX >= 450 && maxY - minY >= 250;
     }
 
     /** 구역 이름 목록 중 유효한 모양을 가진 구역의 비율. */

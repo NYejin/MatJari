@@ -1014,7 +1014,7 @@ public class ShapeSegmenter {
     }
 
     /**
-     * 좌석 블록 크기(넓이가 중앙값의 0.4~2.5배)인 도형들이 모인 영역을 지도로 보고, 그 영역(둘레 12% 여유) 밖에 있는 도형(지도 위 안내 글자·버튼)과
+     * 좌석 블록 크기(넓이가 중앙값의 0.4~2.5배)인 도형들이 모인 영역을 지도로 보고, 그 영역(둘레 12% 여유) 밖에 있는 도형(지도 위 안내 글자·버튼, 블록보다 큰 도형은 상자도 영역 밖일 때만)과
      * 영역의 60% 이상을 덮는 도형(지도를 둘러싼 흰 패널)을 뺀다.
      */
     static List<Segment> dropOutsideCluster(List<Segment> found) {
@@ -1051,7 +1051,9 @@ public class ShapeSegmenter {
                 sy1 = Math.max(sy1, p[1]);
             }
             boolean panel = (sx1 - sx0) >= bw * 0.6 && (sy1 - sy0) >= bh * 0.6;
-            if (inside && !panel) {
+            // 블록보다 큰 도형은 중심이 영역 밖이어도 상자가 영역에 걸치면 남긴다(207407 2층 C1~C3: 큰 블록이 지도 아래 끝에 있어 블록 크기 도형 영역보다 아래로 나간다)
+            boolean bigTouching = !inside && sg.area() > median * 2.5 && sx1 >= minX - mx && sx0 <= maxX + mx && sy1 >= minY - my && sy0 <= maxY + my;
+            if ((inside || bigTouching) && !panel) {
                 out.add(sg);
             }
         }

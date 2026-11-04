@@ -64,7 +64,10 @@ final class ZoneConsistency {
             int bg = mapBackground(img, owned);
             if (chips.size() >= 2) {
                 dropOffLegend(zones, byId, color, chips, bg, reread, img);
+                trimGrayPart(zones, byId, color, chips, bg, img);
                 addMissingLegendColors(zones, byId, color, chips, img, extractor);
+            } else {
+                dropFewGray(zones, color);
             }
             addMirrorZones(zones, byId, img, jpeg, names, extractor);
             addSequenceGaps(zones, byId, jpeg, extractor);
@@ -263,6 +266,101 @@ final class ZoneConsistency {
                     log.info("글자로 파인 조각을 같은 색으로 다시 채움: 조각 {} 넓이 {} → {}", id, (int) outline, filled.area());
                     byId.put(id, filled);
                     polys.put(id, poly(filled.pixels(), 0, false));
+                }
+            }
+        }
+    }
+
+    /**
+     * 범례 칩을 못 찾은 지도(212835·212918: 칩이 글자와 붙어 있거나 배경과 비슷함)에서 구역 대부분(85% 이상)이 유채색이고 회색 구역이 3개 이하·15% 이하이면,
+     * 그 회색 구역은 판매하지 않는 블록으로 보고 뺀다(회색 등급이 많은 지도(209252 R석)는 회색이 15%를 넘어 그대로다).
+     */
+    private static void dropFewGray(Map<String, List<Integer>> zones, Map<Integer, Integer> color) {
+        List<String> grayZones = new ArrayList<>();
+        int shaped = 0;
+        for (Map.Entry<String, List<Integer>> e : zones.entrySet()) {
+            List<Integer> ids = e.getValue().stream().filter(color::containsKey).toList();
+            if (ids.isEmpty()) {
+                continue;
+            }
+            shaped++;
+            if (ids.stream().allMatch(id -> gray(color.get(id)))) {
+                grayZones.add(e.getKey());
+            }
+        }
+        if (grayZones.isEmpty() || grayZones.size() > 3 || grayZones.size() > 0.15 * shaped || shaped < 8) {
+            return;
+        }
+        log.info("범례 칩 없음: 유채색 구역 사이 회색 구역 제외 {}", grayZones);
+        grayZones.forEach(z -> zones.get(z).clear());
+    }
+
+    /**
+     * 범례 칩이 모두 유채색인데 범례 색 조각 안에 회색 블록이 한 덩어리로 붙은 경우(209023·209252 2층 18·9: 회색 2F 블록과 청록 A석 띠가 한 도형):
+     * 조각 안 픽셀의 15% 이상이 중간 밝기 회색(무채색, 휘도 50~210, 배경과 거리 40 초과: 흰 번호·검은 테두리는 제외)이면 그 회색을 빼고
+     * 남은 가장 큰 덩어리로 외곽선을 다시 만든다(원래 넓이의 30% 이상 남을 때만).
+     */
+    private static void trimGrayPart(Map<String, List<Integer>> zones, Map<Integer, ShapeSegmenter.Segment> byId, Map<Integer, Integer> color,
+                                     List<Chip> chips, int bg, BufferedImage img) {
+        if (chips.stream().anyMatch(c -> gray(c.rgb()))) {
+            return;
+        }
+        // 한 구역에 회색 조각과 유채색 조각이 함께 있으면 회색 조각은 범례에 없는 블록(2층 회색 블록 + 청록 띠)이다
+        zones.forEach((name, ids) -> {
+            List<Integer> grayIds = ids.stream().filter(id -> color.containsKey(id) && gray(color.get(id))).toList();
+            if (!grayIds.isEmpty() && grayIds.size() < ids.size()) {
+                log.info("{}: 유채색 조각과 함께 있는 회색 조각 제외 {}", name, grayIds);
+                ids.removeAll(grayIds);
+            }
+        });
+        int w = img.getWidth(), h = img.getHeight();
+        for (List<Integer> ids : zones.values()) {
+            for (int id : ids) {
+                ShapeSegmenter.Segment s = byId.get(id);
+                if (s == null) {
+                    continue;
+                }
+                Polygon own = poly(s.pixels(), 0, false);
+                java.awt.Rectangle b = own.getBounds().intersection(new java.awt.Rectangle(0, 0, w, h));
+                if (b.isEmpty()) {
+                    continue;
+                }
+                boolean[] keep = new boolean[b.width * b.height];
+                int inside = 0, grayN = 0, colN = 0;
+                long sr = 0, sg = 0, sb = 0;
+                for (int y = 0; y < b.height; y++) {
+                    for (int x = 0; x < b.width; x++) {
+                        int gx = b.x + x, gy = b.y + y;
+                        if (!own.contains(gx, gy)) {
+                            continue;
+                        }
+                        inside++;
+                        int c = img.getRGB(gx, gy);
+                        int l = (int) (0.299 * ((c >> 16) & 255) + 0.587 * ((c >> 8) & 255) + 0.114 * (c & 255));
+                        if (gray(c) && l >= 50 && l <= 210 && dist(c, bg) > 40) {
+                            grayN++;
+                        } else {
+                            keep[y * b.width + x] = true;
+                            if (!gray(c)) {
+                                sr += (c >> 16) & 255;
+                                sg += (c >> 8) & 255;
+                                sb += c & 255;
+                                colN++;
+                            }
+                        }
+                    }
+                }
+                if (inside == 0 || grayN < 0.15 * inside || colN < 0.15 * inside) {
+                    continue;
+                }
+                int rest = (int) (sr / colN) << 16 | (int) (sg / colN) << 8 | (int) (sb / colN);
+                if (chips.stream().noneMatch(c -> dist(c.rgb(), rest) < 60)) { // 회색을 뺀 나머지가 범례 색이어야 한다
+                    continue;
+                }
+                ShapeSegmenter.Segment trimmed = outlineSegment(open1(keep, b.width, b.height), b, rest, id);
+                if (trimmed != null && trimmed.area() >= 0.3 * inside && trimmed.area() < 0.95 * inside) {
+                    log.info("범례 색 조각에 붙은 회색 덩어리 빼기: 조각 {} 넓이 {} → {}", id, inside, trimmed.area());
+                    byId.put(id, trimmed);
                 }
             }
         }

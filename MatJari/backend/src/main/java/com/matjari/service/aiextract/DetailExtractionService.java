@@ -14,7 +14,9 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.ResolverStyle;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -693,6 +695,8 @@ public class DetailExtractionService {
             ZoneConsistency.Checked checked = ZoneConsistency.check(labels, seg, target.jpeg(), names, reread, extractor); // 범례 색·좌우대칭으로 빠진 구역과 이상한 구역 점검
             labels = checked.labels();
             seg = checked.seg();
+            labels = columnHeaders(labels, seg);
+            labels = dropLegendRow(labels, seg);
             writeFinalDebug(seg, labels);
             List<DetailExtractor.RawZone> zones = dropOutliers(shapesFromLabels(labels, seg, checked.legendPieces()));
             log.info("AI 번호 방식: 도형 후보 {}개, 연결된 구역 {}개 / 이름 {}개", seg.segments().size(), zones.size(), names.size());
@@ -1230,6 +1234,140 @@ public class DetailExtractionService {
         int gx = Math.max(0, Math.max(bb[0] - ba[2], ba[0] - bb[2]));
         int gy = Math.max(0, Math.max(bb[1] - ba[3], ba[1] - bb[3]));
         return Math.max(gx, gy);
+    }
+
+    /**
+     * 열 머리 이름: 이름이 블록 안이 아니라 세로 열 위에 붙은 지도(209335 가~아)는 맨 위 블록만 이름을 받고 아래 블록은 이름이 없다.
+     * 이름 없는 블록 크기 도형이 이름 있는 블록의 40% 이상이면, 이름 없는 블록마다 바로 위로 이어진(가로 70% 이상 겹침, 틈이 블록 높이의
+     * 0.6배 이하) 블록 사슬을 따라 올라가 처음 만나는 이름 있는 블록의 구역에 붙인다. 블록 크기는 이름 있는 조각 넓이 중앙값의 0.4~2.5배.
+     */
+    static List<DetailExtractor.RawLabel> columnHeaders(List<DetailExtractor.RawLabel> labels, ShapeSegmenter.Result seg) {
+        Map<Integer, String> owner = new HashMap<>();
+        for (DetailExtractor.RawLabel l : labels) {
+            if (l.segmentIds() != null) {
+                l.segmentIds().forEach(id -> owner.put(id, l.name()));
+            }
+        }
+        List<Integer> namedAreas = new ArrayList<>();
+        for (ShapeSegmenter.Segment s : seg.segments()) {
+            if (owner.containsKey(s.id())) {
+                namedAreas.add(s.area());
+            }
+        }
+        if (namedAreas.size() < 3) {
+            return labels;
+        }
+        Collections.sort(namedAreas);
+        double med = namedAreas.get(namedAreas.size() / 2);
+        List<ShapeSegmenter.Segment> blocks = seg.segments().stream().filter(s -> s.area() >= 0.4 * med && s.area() <= 2.5 * med).toList();
+        long unnamed = blocks.stream().filter(s -> !owner.containsKey(s.id())).count();
+        long named = blocks.size() - unnamed;
+        if (unnamed == 0 || unnamed < named) {
+            return labels;
+        }
+        Map<Integer, int[]> boxes = new HashMap<>();
+        blocks.forEach(b -> boxes.put(b.id(), box(b)));
+        for (ShapeSegmenter.Segment n : blocks) { // 이름 있는 블록은 모두 자기 열의 맨 위여야 한다(위에 블록이 붙어 있으면 열 머리 지도가 아니다)
+            if (owner.containsKey(n.id()) && above(n, blocks, boxes) != null) {
+                return labels;
+            }
+        }
+        Map<String, List<Integer>> added = new LinkedHashMap<>();
+        for (ShapeSegmenter.Segment u : blocks) {
+            if (owner.containsKey(u.id())) {
+                continue;
+            }
+            ShapeSegmenter.Segment cur = u;
+            String found = null;
+            for (int step = 0; step < 6 && found == null && cur != null; step++) {
+                cur = above(cur, blocks, boxes);
+                if (cur != null) {
+                    found = owner.get(cur.id());
+                }
+            }
+            if (found != null) {
+                added.computeIfAbsent(found, k -> new ArrayList<>()).add(u.id());
+            }
+        }
+        if (added.isEmpty()) {
+            return labels;
+        }
+        log.info("열 머리 이름: 이름 없는 블록 {}개를 위쪽 이름 구역에 붙임 {}", added.values().stream().mapToInt(List::size).sum(), added.keySet());
+        List<DetailExtractor.RawLabel> out = new ArrayList<>();
+        for (DetailExtractor.RawLabel l : labels) {
+            List<Integer> more = added.remove(l.name());
+            if (more == null || l.segmentIds() == null) {
+                out.add(l);
+            } else {
+                List<Integer> ids = new ArrayList<>(l.segmentIds());
+                ids.addAll(more);
+                out.add(new DetailExtractor.RawLabel(l.name(), ids));
+            }
+        }
+        return out;
+    }
+
+    /**
+     * 범례 줄의 알약을 구역으로 읽은 경우(208619 'VIP' 범례): 조각 하나뿐인 구역이 다른 모든 구역 조각보다 완전히 아래(또는 위)에 있고, 같은 줄(세로 중심 차가
+     * 높이의 3배 이하, 범례가 여러 줄인 지도의 위쪽 '스탠딩 P' 칩 포함)에 높이가 비슷한(0.6~1.6배) 이름 없는 도형이 2개 이상 있으면 범례로 보고 뺀다.
+     */
+    static List<DetailExtractor.RawLabel> dropLegendRow(List<DetailExtractor.RawLabel> labels, ShapeSegmenter.Result seg) {
+        Map<Integer, ShapeSegmenter.Segment> byId = new HashMap<>();
+        seg.segments().forEach(x -> byId.put(x.id(), x));
+        java.util.Set<Integer> named = new java.util.HashSet<>();
+        labels.forEach(l -> {
+            if (l.segmentIds() != null) {
+                named.addAll(l.segmentIds());
+            }
+        });
+        List<DetailExtractor.RawLabel> out = new ArrayList<>();
+        for (DetailExtractor.RawLabel l : labels) {
+            if (l.segmentIds() == null || l.segmentIds().size() != 1 || !byId.containsKey(l.segmentIds().get(0)) || labels.size() < 5) {
+                out.add(l);
+                continue;
+            }
+            int[] b = box(byId.get(l.segmentIds().get(0)));
+            int h = Math.max(1, b[3] - b[1]);
+            boolean below = true, above = true;
+            for (int id : named) {
+                if (id == l.segmentIds().get(0) || !byId.containsKey(id)) {
+                    continue;
+                }
+                int[] o = box(byId.get(id));
+                below &= b[1] > o[3];
+                above &= b[3] < o[1];
+            }
+            long mates = seg.segments().stream().filter(x -> !named.contains(x.id())).filter(x -> {
+                int[] o = box(x);
+                int oh = o[3] - o[1];
+                return Math.abs((o[1] + o[3]) / 2 - (b[1] + b[3]) / 2) <= 3 * h && oh >= 0.6 * h && oh <= 1.6 * h;
+            }).count();
+            if ((below || above) && mates >= 2) {
+                log.info("범례 줄 알약으로 보고 구역 제외: {}", l.name());
+                continue;
+            }
+            out.add(l);
+        }
+        return out;
+    }
+
+    /** 바로 위 블록: 가로로 70% 이상 겹치고 위쪽 틈이 이 블록 높이의 0.6배 이하인 것 중 가장 가까운 것. */
+    private static ShapeSegmenter.Segment above(ShapeSegmenter.Segment cur, List<ShapeSegmenter.Segment> blocks, Map<Integer, int[]> boxes) {
+        int[] c = boxes.get(cur.id());
+        int h = c[3] - c[1];
+        ShapeSegmenter.Segment best = null;
+        int bestGap = Integer.MAX_VALUE;
+        for (ShapeSegmenter.Segment b : blocks) {
+            int[] o = boxes.get(b.id());
+            int gapY = c[1] - o[3];
+            int overlap = Math.min(c[2], o[2]) - Math.max(c[0], o[0]);
+            int minW = Math.min(c[2] - c[0], o[2] - o[0]);
+            if (b != cur && gapY >= -2 && gapY <= 0.6 * h && overlap >= 0.7 * minW && gapY < bestGap) {
+                best = b;
+                bestGap = gapY;
+            }
+        }
+        return best;
     }
 
     private static int[] box(ShapeSegmenter.Segment s) {

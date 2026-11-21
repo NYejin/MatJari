@@ -118,7 +118,8 @@ docker compose -f docker-compose.prod.yml up -d --build
 - 접속 주소가 localhost가 아니면 메일 모드 `log`는 기동이 거부된다. `MAIL_MODE=smtp`와 `MAIL_*`를 채운다(Gmail은 앱 비밀번호).
 - 공개 인터넷에 열 때: Cloudflare Zero Trust에서 터널을 만들고(서비스 `http://web:80`) `.env`에 `TUNNEL_TOKEN`, `SOCIAL_COOKIE_SECURE=true`를 넣은 뒤 `--profile tunnel`을 붙여 올린다. 공유기 포트포워딩은 필요 없다.
 - 데이터는 Docker 볼륨(`mysql_data`, `upload_data`)에 있다. `down -v`는 DB까지 지운다. 백업: `docker compose -f docker-compose.prod.yml exec mysql mysqldump -u root -p matjari > backup.sql`.
-- 한계: 백엔드가 프록시 뒤라 IP별 속도 제한(소셜·인증번호 발송)이 접속자 전체에 합쳐서 적용된다. 시연·소규모에서는 문제없지만 공개 운영 전에 신뢰 프록시 헤더 처리가 필요하다.
+- 터널로 공개할 때는 `.env`에 `WEB_BIND=127.0.0.1`을 넣어 공유기 안에서 http로 직접 들어오는 경로를 막는다(같은 공유기 안 기기로 시연할 때만 기본값 0.0.0.0).
+- 접속자 IP: nginx가 Cloudflare의 `CF-Connecting-IP`를 실제 접속자 IP로 바꿔(`set_real_ip_from` 도커 사설망) `X-Real-IP`로 넘기고, 백엔드는 신뢰 프록시(`MATJARI_TRUSTED_PROXIES`, 기본 사설망·루프백)에서 온 요청일 때만 그 헤더를 믿는다(`ClientIpResolver`). 속도 제한은 단일 인스턴스 메모리 기준이다.
 
 ## 자동 배포 (CI/CD, 로컬 PC)
 

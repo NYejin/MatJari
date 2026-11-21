@@ -53,6 +53,8 @@ matjari:
     # 클라이언트 IP(속도 제한 키)를 구할 때 X-Real-IP·X-Forwarded-For 를 믿어도 되는 직접 연결 주소(쉼표 구분 CIDR).
     # 기본은 루프백과 도커·사설망 대역(nginx 컨테이너가 여기 속한다). 공인 대역을 넣지 말 것(헤더 위조 가능)
     trusted-proxies: ${MATJARI_TRUSTED_PROXIES:127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
+    # IP당 1시간 가입 시도 상한(로그인 실패 제한 숫자는 AuthRateLimiter 상수)
+    signup-per-hour: ${MATJARI_SIGNUP_PER_HOUR:10}
   mail:
     # log(기본, 개발용: 메일 내용을 로그에 출력) | smtp(실제 발송: SPRING_MAIL_HOST/PORT/USERNAME/PASSWORD 필요). 운영에서는 smtp 여야 기동된다
     mode: ${MATJARI_MAIL_MODE:log}

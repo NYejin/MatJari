@@ -34,7 +34,7 @@ public class AuthRateLimiter {
     private static final long IP_WINDOW = 10 * 60_000L;
     private static final int IP_MAX_FAILURES = 30;
     private static final long SIGNUP_WINDOW = 60 * 60_000L;
-    private static final int SIGNUP_MAX = 10;
+    static final int DEFAULT_SIGNUP_MAX = 10;
 
     public static class AuthRateLimitedException extends MatJariException {
         private final String code;
@@ -71,12 +71,20 @@ public class AuthRateLimiter {
     }
 
     private final Clock clock;
+    private final int signupMax;
     private final Store accounts = new Store(ACCOUNT_WINDOW);
     private final Store loginIps = new Store(IP_WINDOW);
     private final Store signupIps = new Store(SIGNUP_WINDOW);
 
     public AuthRateLimiter(Clock clock) {
+        this(clock, DEFAULT_SIGNUP_MAX);
+    }
+
+    /** signupMax: IP당 1시간 가입 시도 상한(설정 {@code matjari.security.signup-per-hour}, 기본 10, 통합 테스트가 높인다). */
+    @org.springframework.beans.factory.annotation.Autowired
+    public AuthRateLimiter(Clock clock, @org.springframework.beans.factory.annotation.Value("${matjari.security.signup-per-hour:10}") int signupMax) {
         this.clock = clock;
+        this.signupMax = signupMax;
     }
 
     /** 로그인 시도 전에 호출한다. 잠겨 있으면 429. */
@@ -122,7 +130,7 @@ public class AuthRateLimiter {
         synchronized (signupIps.map) {
             Bucket b = touch(signupIps, ipKey(ip));
             trim(b, signupIps.window, now);
-            if (b.hits.size() >= SIGNUP_MAX) {
+            if (b.hits.size() >= signupMax) {
                 long wait = b.hits.peekFirst() + SIGNUP_WINDOW - now;
                 throw new AuthRateLimitedException(SIGNUP_CODE,
                         "가입 시도가 너무 많아요. 잠시 후 다시 시도해 주세요.", toSeconds(wait));

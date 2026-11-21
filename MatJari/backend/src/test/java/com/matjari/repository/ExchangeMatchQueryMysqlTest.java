@@ -214,6 +214,34 @@ class ExchangeMatchQueryMysqlTest {
     }
 
     @Test
+    void 마지막_채팅_메시지_요약이_호출자_기준으로_나오고_매칭_updated_at은_그대로다() {
+        // 메시지가 없으면 null / null / false
+        ExchangeMatchResponse none = service.findOne(u1, m1);
+        assertThat(none.lastMessagePreview()).isNull();
+        assertThat(none.lastMessageAt()).isNull();
+        assertThat(none.lastMessageMine()).isFalse();
+
+        String insert = "INSERT INTO chat_message (match_id, sender_id, content, client_message_id, created_at) VALUES (?,?,?,?,?)";
+        jdbc.update(insert, m1, u1, "첫 메시지", "c-1", "2026-10-09 10:00:00.000000");
+        jdbc.update(insert, m1, u2, "가".repeat(100) + "\n끝", "c-2", "2026-10-09 10:05:07.000000");
+
+        ExchangeMatchResponse mine = service.findOne(u1, m1);
+        assertThat(mine.lastMessagePreview()).isEqualTo("가".repeat(60) + "…");
+        assertThat(mine.lastMessageAt()).isEqualTo(LocalDateTime.of(2026, 10, 9, 10, 5, 7));
+        assertThat(mine.lastMessageMine()).isFalse();
+        assertThat(mine.updatedAt()).isEqualTo(LocalDateTime.of(2026, 10, 8, 10, 0, 0));
+
+        ExchangeMatchResponse theirs = service.findOne(u2, m1);
+        assertThat(theirs.lastMessageMine()).isTrue();
+
+        // 목록에서도 같은 값이고, 메시지 없는 다른 매칭은 null
+        PageResponse<ExchangeMatchResponse> page = service.findMine(u1, null, null, 0, 20);
+        assertThat(page.content().stream().filter(r -> r.id().equals(m1)).findFirst().orElseThrow().lastMessagePreview())
+                .isEqualTo("가".repeat(60) + "…");
+        assertThat(page.content().stream().filter(r -> !r.id().equals(m1)).allMatch(r -> r.lastMessagePreview() == null)).isTrue();
+    }
+
+    @Test
     void 비참여자와_없는_매칭은_똑같이_404() {
         assertThatThrownBy(() -> service.findOne(u1, m4)).isInstanceOf(NotFoundException.class)
                 .hasMessage("매칭을 찾을 수 없습니다.");
@@ -339,7 +367,10 @@ class ExchangeMatchQueryMysqlTest {
             // 안 읽은 채팅 수 서브쿼리의 chat_message(c)는 idx_chat_message_match 범위 스캔이어야 한다(전체 스캔 금지)
             plan.stream().filter(r -> "c".equals(r.get("table"))).forEach(r ->
                     assertThat(String.valueOf(r.get("type"))).as(role + " " + r).isIn("ref", "range"));
-            plan.stream().filter(r -> !"m".equals(r.get("table")) && !"c".equals(r.get("table"))).forEach(r ->
+            // 마지막 메시지 MAX(id) 서브쿼리(lc)도 idx_chat_message_match 로 읽고(최적화로 type 이 NULL 일 수 있다), lm 은 PK 점조회(eq_ref)
+            plan.stream().filter(r -> "lc".equals(r.get("table"))).forEach(r ->
+                    assertThat(String.valueOf(r.get("type"))).as(role + " " + r).isIn("ref", "range", "index", "null"));
+            plan.stream().filter(r -> !"m".equals(r.get("table")) && !"c".equals(r.get("table")) && !"lc".equals(r.get("table"))).forEach(r ->
                     assertThat(String.valueOf(r.get("type"))).as(role + " " + r).isIn("eq_ref", "const"));
         }
     }

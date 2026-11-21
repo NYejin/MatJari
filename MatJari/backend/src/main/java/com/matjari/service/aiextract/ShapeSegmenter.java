@@ -156,6 +156,29 @@ public class ShapeSegmenter {
         if (img == null) {
             return null;
         }
+        return number(img, measure(img, polygons));
+    }
+
+    /**
+     * 도형 분할 결과에 바깥 도형(학습 모델 등)을 덧붙인다. 원래 도형은 넓이·중심을 그대로 두고, 덧붙인 도형만 fromPolygons()와 같이 재서
+     * 같은 순서로 번호를 다시 매긴다. 평가 도구가 학습 모델 도형으로 빈 곳을 채울 때 쓴다.
+     */
+    public Result withExtra(byte[] jpeg, Result own, List<List<int[]>> extra) {
+        BufferedImage img;
+        try {
+            img = ImageIO.read(new ByteArrayInputStream(jpeg));
+        } catch (IOException e) {
+            return own;
+        }
+        if (img == null || own == null) {
+            return own;
+        }
+        List<Segment> segs = new ArrayList<>(own.segments());
+        segs.addAll(measure(img, extra));
+        return number(img, segs);
+    }
+
+    private static List<Segment> measure(BufferedImage img, List<List<int[]>> polygons) {
         int w = img.getWidth(), h = img.getHeight();
         int[] raw = img.getRGB(0, 0, w, h, null, 0, w);
         List<Segment> segs = new ArrayList<>();
@@ -185,6 +208,12 @@ public class ShapeSegmenter {
                 segs.add(new Segment(0, poly, (int) n, (int) (sx / n), (int) (sy / n), satSum / n, valSum / n));
             }
         }
+        return segs;
+    }
+
+    private Result number(BufferedImage img, List<Segment> segs) {
+        int w = img.getWidth(), h = img.getHeight();
+        segs = new ArrayList<>(segs);
         segs.sort(Comparator.comparingInt((Segment s) -> s.cy() / 40).thenComparingInt(Segment::cx));
         List<Segment> numbered = new ArrayList<>();
         for (int i = 0; i < segs.size() && i < MAX_SEGMENTS; i++) {

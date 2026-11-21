@@ -144,8 +144,41 @@ class RefreshTokenMysqlTest {
         assertThat(rows.get(0).get("replaced_by_id")).isEqualTo(rows.get(1).get("id"));
         assertThat(rows.get(1).get("revoked_at")).isNull();
         assertThat(rows.get(1).get("family_id")).isEqualTo(rows.get(0).get("family_id"));
+        assertThat(rows.get(1).get("family_started_at")).as("계열 시작 시각은 회전해도 그대로").isEqualTo(rows.get(0).get("family_started_at"));
         // 새 토큰으로 계속 회전된다
         assertThat(refresh(rt2).getResponse().getStatus()).isEqualTo(200);
+    }
+
+    /** 회전된 행의 폐기 시각을 유예 시간(20초) 밖으로 민다(created_at·family_started_at 도 함께 앞당겨 CHECK 를 지킨다). */
+    private void agePastGrace(long userId) {
+        jdbc.update("UPDATE refresh_token SET family_started_at = DATE_SUB(NOW(6), INTERVAL 10 MINUTE), created_at = DATE_SUB(NOW(6), INTERVAL 10 MINUTE), "
+                + "revoked_at = DATE_SUB(NOW(6), INTERVAL 5 MINUTE) WHERE user_id = ? AND revoke_reason = 'ROTATED'", userId);
+    }
+
+    @Test
+    void 유예_시간_안의_회전된_토큰_재요청은_401만_주고_계열은_유지된다() throws Exception {
+        long u = user("USER");
+        String rt1 = login(u);
+        String rt2 = refresh(rt1).getResponse().getCookie("mj_rt").getValue();
+
+        assertThat(refresh(rt1).getResponse().getStatus()).as("유예 안 재요청").isEqualTo(401);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM refresh_token WHERE user_id = ? AND revoke_reason = 'REUSE'", Long.class, u)).isZero();
+        assertThat(refresh(rt2).getResponse().getStatus()).as("새 토큰으로 재발급 성공").isEqualTo(200);
+    }
+
+    @Test
+    void 세션_최대_수명을_넘으면_재발급_401이고_만료는_계열_시작_기준으로_잘린다() throws Exception {
+        long u = user("USER");
+        String rt = login(u);
+        jdbc.update("UPDATE refresh_token SET family_started_at = DATE_SUB(NOW(6), INTERVAL 29 DAY), created_at = DATE_SUB(NOW(6), INTERVAL 29 DAY) WHERE user_id = ?", u);
+        MvcResult r = refresh(rt);
+        assertThat(r.getResponse().getStatus()).isEqualTo(200);
+        String rt2 = r.getResponse().getCookie("mj_rt").getValue();
+        Long daysLeft = jdbc.queryForObject("SELECT TIMESTAMPDIFF(HOUR, NOW(6), expires_at) FROM refresh_token WHERE user_id = ? AND revoked_at IS NULL", Long.class, u);
+        assertThat(daysLeft).as("14일이 아니라 계열 시작 + 30일까지(약 1일)").isBetween(20L, 25L);
+
+        jdbc.update("UPDATE refresh_token SET family_started_at = DATE_SUB(NOW(6), INTERVAL 31 DAY), created_at = DATE_SUB(NOW(6), INTERVAL 31 DAY) WHERE user_id = ?", u);
+        assertThat(refresh(rt2).getResponse().getStatus()).isEqualTo(401);
     }
 
     @Test
@@ -154,6 +187,7 @@ class RefreshTokenMysqlTest {
         String other = login(u);   // 다른 계열(다른 기기)은 영향을 받지 않는다
         String rt1 = login(u);
         String rt2 = refresh(rt1).getResponse().getCookie("mj_rt").getValue();
+        agePastGrace(u);           // 유예 시간(20초) 밖의 재사용
 
         assertThat(refresh(rt1).getResponse().getStatus()).as("재사용").isEqualTo(401);
         assertThat(refresh(rt2).getResponse().getStatus()).as("계열의 최신 토큰도 폐기").isEqualTo(401);
@@ -171,7 +205,7 @@ class RefreshTokenMysqlTest {
         assertThat(mockMvc.perform(post("/api/auth/refresh").header("X-Requested-With", AJAX)).andReturn().getResponse().getStatus()).isEqualTo(401);
 
         String rt = login(u);
-        jdbc.update("UPDATE refresh_token SET created_at = DATE_SUB(NOW(6), INTERVAL 20 DAY), expires_at = DATE_SUB(NOW(6), INTERVAL 1 DAY) WHERE user_id = ?", u);
+        jdbc.update("UPDATE refresh_token SET family_started_at = DATE_SUB(NOW(6), INTERVAL 20 DAY), created_at = DATE_SUB(NOW(6), INTERVAL 20 DAY), expires_at = DATE_SUB(NOW(6), INTERVAL 1 DAY) WHERE user_id = ?", u);
         assertThat(refresh(rt).getResponse().getStatus()).isEqualTo(401);
     }
 
@@ -276,8 +310,10 @@ class RefreshTokenMysqlTest {
                     statuses.add(f.get(30, TimeUnit.SECONDS));
                 }
                 assertThat(statuses).as("round " + round).containsExactlyInAnyOrder(200, 401);
-                // 재사용 판정이 먼저 일어난 순서(401 이 먼저)면 새 토큰이 생기지 않고, 성공이 먼저면 재사용 탐지로 계열이 폐기된다 — 둘 다 살아남은 토큰은 없다
+                // 진 쪽은 유예 시간 안의 회전된 토큰이라 401 만 받고 계열은 유지된다 — 이긴 쪽의 새 토큰 하나만 살아 있다
                 assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM refresh_token WHERE user_id = ? AND revoked_at IS NULL", Long.class, u))
+                        .as("round " + round).isEqualTo(1);
+                assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM refresh_token WHERE user_id = ? AND revoke_reason = 'REUSE'", Long.class, u))
                         .as("round " + round).isZero();
             }
         } finally {
@@ -290,16 +326,16 @@ class RefreshTokenMysqlTest {
         long u = user("USER");
         String rt = login(u);
         for (int i = 0; i < 3; i++) {
-            jdbc.update("INSERT INTO refresh_token (user_id, token_hash, family_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+            jdbc.update("INSERT INTO refresh_token (user_id, token_hash, family_id, family_started_at, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
                     u, String.format("%064x", i + 1), "00000000-0000-4000-8000-00000000000" + i,
-                    LocalDateTime.now().minusDays(30), LocalDateTime.now().minusDays(15));
+                    LocalDateTime.now().minusDays(30), LocalDateTime.now().minusDays(30), LocalDateTime.now().minusDays(15));
         }
         ((java.util.concurrent.atomic.AtomicReference<?>) ReflectionTestUtils.getField(refreshTokenService, "lastCleanup")).set(null);
         refreshTokenService.maybeCleanup();
 
         assertThat(rows(u)).as("만료 3개는 지워지고 살아 있는 1개만 남는다").hasSize(1);
-        jdbc.update("INSERT INTO refresh_token (user_id, token_hash, family_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
-                u, String.format("%064x", 99), "00000000-0000-4000-8000-000000000099", LocalDateTime.now().minusDays(30), LocalDateTime.now().minusDays(15));
+        jdbc.update("INSERT INTO refresh_token (user_id, token_hash, family_id, family_started_at, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
+                u, String.format("%064x", 99), "00000000-0000-4000-8000-000000000099", LocalDateTime.now().minusDays(30), LocalDateTime.now().minusDays(30), LocalDateTime.now().minusDays(15));
         refreshTokenService.maybeCleanup();
         assertThat(rows(u)).as("1시간 안에는 다시 정리하지 않는다").hasSize(2);
         assertThat(refresh(rt).getResponse().getStatus()).isEqualTo(200);

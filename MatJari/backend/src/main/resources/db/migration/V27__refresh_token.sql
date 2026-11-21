@@ -12,6 +12,7 @@
 --    replaced_by_id 는 ROTATED 일 때만, ROTATED 면 반드시 값(ck_refresh_token_replaced). 자기 자신 참조 금지는
 --    AUTO_INCREMENT 컬럼을 CHECK 에 쓸 수 없어(MySQL 제약) 서비스가 지킨다. replaced_by_id 는 FK 가 아니다
 --    (만료 행 정리가 계열 순서와 무관하게 지울 수 있도록).
+--  - family_started_at: 계열의 첫 로그인 시각. 회전할 때 새 행이 그대로 물려받고, 서비스가 새 토큰 expires_at 을 min(now + 수명, family_started_at + 세션 최대 수명)으로 정해 회전으로 세션이 무한 연장되지 않게 한다(ck_refresh_token_family_started: family_started_at <= created_at).
 --  - 이용자 정보는 user_id 하나뿐이다(기기·IP·User-Agent 는 저장하지 않는다, 최소 수집).
 --
 --  인덱스·잠금 검토
@@ -44,6 +45,7 @@ BEGIN
             user_id        BIGINT      NOT NULL,                                          -- 토큰 주인 -> users
             token_hash     CHAR(64)    CHARACTER SET ascii COLLATE ascii_bin NOT NULL,    -- SHA-256(토큰) 소문자 hex
             family_id      CHAR(36)    CHARACTER SET ascii COLLATE ascii_bin NOT NULL,    -- 회전 계열(UUID 소문자)
+            family_started_at DATETIME(6) NOT NULL,                                       -- 계열 시작 시각(첫 로그인, 회전 때 그대로 물려줌 — 세션 최대 수명 계산)
             created_at     DATETIME(6) NOT NULL,
             expires_at     DATETIME(6) NOT NULL,
             revoked_at     DATETIME(6) NULL,
@@ -59,6 +61,7 @@ BEGIN
             CONSTRAINT ck_refresh_token_family CHECK (
                 REGEXP_LIKE(family_id, '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', 'c')),
             CONSTRAINT ck_refresh_token_expires CHECK (expires_at > created_at),
+            CONSTRAINT ck_refresh_token_family_started CHECK (family_started_at <= created_at),
             CONSTRAINT ck_refresh_token_revoked CHECK (
                 (revoked_at IS NULL AND revoke_reason IS NULL)
                 OR (revoked_at IS NOT NULL AND revoke_reason IS NOT NULL AND revoked_at >= created_at)),

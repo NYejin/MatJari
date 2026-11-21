@@ -85,6 +85,7 @@ class AdminModerationServiceTest {
 
         target = user(20L, "대상", UserRole.USER);
         when(userRepository.findById(20L)).thenReturn(Optional.of(target));
+        when(userRepository.findByIdForUpdate(20L)).thenReturn(Optional.of(target));
         when(userRepository.findAllById(anyCollection())).thenAnswer(inv -> {
             List<User> users = new ArrayList<>();
             for (Object id : (Iterable<?>) inv.getArgument(0)) {

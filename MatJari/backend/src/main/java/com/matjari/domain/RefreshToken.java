@@ -34,8 +34,8 @@ import java.util.Objects;
  *       {@code revokeAllActiveByUserId(..., WITHDRAW)}를 호출한다.</b> 이 테이블은 티켓·요청·매칭 잠금 사슬과 겹치지 않으므로
  *       탈퇴의 기존 순서(인증 요청 → 티켓 → 매칭 → 요청 → users)에 users 다음으로 붙이면 된다. users 잠금 전에 호출하면
  *       그 사이 로그인이 새 행을 만들 수 있다(인증 단계가 탈퇴 계정을 거절하므로 위험은 없지만 정리가 빠진다).
- *       관리자 이용 정지·강제 탈퇴(ADMIN)도 대상 users 행을 FOR UPDATE 로 잡은 뒤 같은 메서드를 쓴다.</li>
- *   <li>로그아웃은 토큰 행(또는 계열)만 폐기하고 INSERT 하지 않으므로 users 를 잠그지 않아도 된다(토큰 행 하나만 잡고 끝난다).</li>
+ *       관리자 이용 정지(ADMIN)는 대상 users 행을 FOR UPDATE 로 잡은 뒤 같은 메서드를 쓰고, 관리자 강제 탈퇴는 탈퇴 코어를 그대로 써서 WITHDRAW 로 폐기한다.</li>
+ *   <li>로그아웃은 INSERT 하지 않지만 회전 중 새로 생기는 행을 놓치지 않도록 재발급과 같은 순서(users → 토큰 PK → 계열 폐기)로 잡는다.</li>
  *   <li>만료 행 배치 삭제({@code deleteExpiredBatch})는 users 잠금을 잡은 트랜잭션 밖에서 짧은 별도 트랜잭션으로 부른다.
  *       idx_refresh_token_expires 범위만 잠그며, 새 행의 expires_at 은 항상 미래라 로그인·재발급 INSERT 와 겹치지 않는다.</li>
  * </ul>
@@ -80,6 +80,10 @@ public class RefreshToken {
     @Column(name = "family_id", nullable = false, updatable = false, length = FAMILY_ID_LENGTH, columnDefinition = "char(36)")
     private String familyId;
 
+    /** 계열의 첫 로그인 시각(V27, 회전 때 그대로 물려준다). 세션 최대 수명 = 이 값 + 설정(matjari.auth.refresh-max-session-days). */
+    @Column(name = "family_started_at", nullable = false, updatable = false)
+    private LocalDateTime familyStartedAt;
+
     /** JPA Auditing 이 KST(Clock) 기준으로 채운다 — JpaAuditingConfig. */
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -105,11 +109,12 @@ public class RefreshToken {
      * 새 토큰 행. expiresAt 은 서비스가 Clock 기준 현재 시각 + 유효기간으로 계산해 넘긴다(created_at 은 저장 때 Auditing 이 채움).
      * 형식 검사(해시 64자 소문자 hex·UUID 소문자)는 DB CHECK 가 최후 방어선이다.
      */
-    public static RefreshToken issue(Long userId, String tokenHash, String familyId, LocalDateTime expiresAt) {
+    public static RefreshToken issue(Long userId, String tokenHash, String familyId, LocalDateTime familyStartedAt, LocalDateTime expiresAt) {
         RefreshToken t = new RefreshToken();
         t.userId = Objects.requireNonNull(userId, "userId");
         t.tokenHash = Objects.requireNonNull(tokenHash, "tokenHash");
         t.familyId = Objects.requireNonNull(familyId, "familyId");
+        t.familyStartedAt = Objects.requireNonNull(familyStartedAt, "familyStartedAt");
         t.expiresAt = Objects.requireNonNull(expiresAt, "expiresAt");
         return t;
     }

@@ -44,8 +44,8 @@ class RefreshTokenSchemaMysqlTest {
     private static final String HASH_B = "b".repeat(64);
     private static final String FAMILY_1 = "11111111-1111-4111-8111-111111111111";
     private static final String FAMILY_2 = "22222222-2222-4222-8222-222222222222";
-    private static final String INSERT = "INSERT INTO refresh_token (user_id, token_hash, family_id, created_at, expires_at, revoked_at, revoke_reason, replaced_by_id) "
-            + "VALUES (?,?,?,?,?,?,?,?)";
+    private static final String INSERT = "INSERT INTO refresh_token (user_id, token_hash, family_id, family_started_at, created_at, expires_at, revoked_at, revoke_reason, replaced_by_id) "
+            + "VALUES (?,?,?,?,?,?,?,?,?)";
 
     @DynamicPropertySource
     static void datasource(DynamicPropertyRegistry registry) {
@@ -127,7 +127,7 @@ class RefreshTokenSchemaMysqlTest {
 
     private int insertRaw(Object userId, String hash, String family, LocalDateTime created, LocalDateTime expires,
                           LocalDateTime revoked, String reason, Long replacedBy) {
-        return mig.update(INSERT, userId, hash, family, created, expires, revoked, reason, replacedBy);
+        return mig.update(INSERT, userId, hash, family, created, created, expires, revoked, reason, replacedBy);
     }
 
     private int inTx(java.util.function.IntSupplier work) {
@@ -155,7 +155,7 @@ class RefreshTokenSchemaMysqlTest {
 
         assertThat(mig.queryForList("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() "
                 + "AND TABLE_NAME = 'refresh_token' ORDER BY ORDINAL_POSITION", String.class))
-                .containsExactly("id", "user_id", "token_hash", "family_id", "created_at", "expires_at", "revoked_at", "revoke_reason", "replaced_by_id");
+                .containsExactly("id", "user_id", "token_hash", "family_id", "family_started_at", "created_at", "expires_at", "revoked_at", "revoke_reason", "replaced_by_id");
         assertThat(columnType("token_hash")).isEqualTo("char(64) ascii_bin NO");
         assertThat(columnType("family_id")).isEqualTo("char(36) ascii_bin NO");
         assertThat(columnType("created_at")).isEqualTo("datetime(6) - NO");
@@ -167,7 +167,7 @@ class RefreshTokenSchemaMysqlTest {
         assertThat(mig.queryForList("SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE() "
                 + "AND TABLE_NAME = 'refresh_token' AND CONSTRAINT_TYPE IN ('FOREIGN KEY','UNIQUE','CHECK')", String.class))
                 .containsExactlyInAnyOrder("uk_refresh_token_hash", "fk_refresh_token_user", "ck_refresh_token_hash", "ck_refresh_token_family",
-                        "ck_refresh_token_expires", "ck_refresh_token_revoked", "ck_refresh_token_reason", "ck_refresh_token_replaced");
+                        "ck_refresh_token_expires", "ck_refresh_token_family_started", "ck_refresh_token_revoked", "ck_refresh_token_reason", "ck_refresh_token_replaced");
         assertThat(indexColumns("uk_refresh_token_hash")).containsExactly("token_hash");
         assertThat(indexColumns("idx_refresh_token_user")).as("FK 인덱스는 단일 컬럼").containsExactly("user_id");
         assertThat(indexColumns("idx_refresh_token_family")).containsExactly("family_id");
@@ -194,6 +194,9 @@ class RefreshTokenSchemaMysqlTest {
         // 만료
         assertRejected("ck_refresh_token_expires", () -> insertRaw(1, HASH_A, FAMILY_1, t, t, null, null, null));
         assertRejected("ck_refresh_token_expires", () -> insertRaw(1, HASH_A, FAMILY_1, t, t.minusSeconds(1), null, null, null));
+        assertThat(mig.update(INSERT, 1, HASH_B, FAMILY_1, t.minusSeconds(1), t, exp, null, null, null)).as("계열 시작이 created_at 보다 이르면 허용").isEqualTo(1);
+        mig.update("DELETE FROM refresh_token WHERE token_hash = ?", HASH_B);
+        assertRejected("ck_refresh_token_family_started", () -> mig.update(INSERT, 1, HASH_A, FAMILY_1, t.plusSeconds(1), t, exp, null, null, null));
         // 폐기 시각·사유는 함께
         assertRejected("ck_refresh_token_revoked", () -> insertRaw(1, HASH_A, FAMILY_1, t, exp, t, null, null));
         assertRejected("ck_refresh_token_revoked", () -> insertRaw(1, HASH_A, FAMILY_1, t, exp, null, "LOGOUT", null));
@@ -226,7 +229,7 @@ class RefreshTokenSchemaMysqlTest {
         LocalDateTime now = LocalDateTime.now(clock);
         LocalDateTime exp = now.plusDays(14);
 
-        Long firstId = tx.execute(s -> repository.save(RefreshToken.issue(1L, HASH_A, FAMILY_1, exp)).getId());
+        Long firstId = tx.execute(s -> repository.save(RefreshToken.issue(1L, HASH_A, FAMILY_1, now, exp)).getId());
         assertThat(repository.findIdByTokenHash(HASH_A)).contains(firstId);
         assertThat(repository.findIdByTokenHash(HASH_B)).isEmpty();
 
@@ -235,7 +238,7 @@ class RefreshTokenSchemaMysqlTest {
             RefreshToken old = repository.findByIdForUpdate(firstId).orElseThrow();
             assertThat(old.isUsableAt(now)).isTrue();
             assertThat(old.getCreatedAt()).as("Auditing 이 created_at 을 채운다").isNotNull();
-            Long newId = repository.save(RefreshToken.issue(1L, HASH_B, FAMILY_1, exp)).getId();
+            Long newId = repository.save(RefreshToken.issue(1L, HASH_B, FAMILY_1, now, exp)).getId();
             old.rotateTo(newId, LocalDateTime.now(clock));
             return newId;
         });
@@ -248,8 +251,8 @@ class RefreshTokenSchemaMysqlTest {
         String hashC = "c".repeat(64);
         String hashD = "d".repeat(64);
         tx.executeWithoutResult(s -> {
-            repository.save(RefreshToken.issue(1L, hashC, FAMILY_2, exp));
-            repository.save(RefreshToken.issue(2L, hashD, "33333333-3333-4333-8333-333333333333", exp));
+            repository.save(RefreshToken.issue(1L, hashC, FAMILY_2, now, exp));
+            repository.save(RefreshToken.issue(2L, hashD, "33333333-3333-4333-8333-333333333333", now, exp));
         });
 
         // 재사용 탐지: 계열 1 의 살아 있는 행(second)만 REUSE, 이미 ROTATED 인 first 는 그대로
@@ -279,7 +282,7 @@ class RefreshTokenSchemaMysqlTest {
 
         // 만료 행 배치 삭제: 만료된 것만, limit 개씩, 오래된 것부터
         for (int i = 1; i <= 3; i++) {
-            jdbc.update(INSERT, 2, "e".repeat(63) + i, FAMILY_2, now.minusDays(30), now.minusDays(10 - i), null, null, null);
+            jdbc.update(INSERT, 2, "e".repeat(63) + i, FAMILY_2, now.minusDays(30), now.minusDays(30), now.minusDays(10 - i), null, null, null);
         }
         assertThat(inTx(() -> repository.deleteExpiredBatch(now, 2))).isEqualTo(2);
         assertThat(jdbc.queryForList("SELECT token_hash FROM refresh_token WHERE expires_at < ?", String.class, now))

@@ -425,7 +425,7 @@ digraph MatJariERD {
       <TR><TD>PK</TD><TD ALIGN="LEFT">id</TD></TR>
       <TR><TD>FK</TD><TD ALIGN="LEFT">user_id → users (NN, idx 단일 컬럼, ON DELETE 없음)</TD></TR>
       <TR><TD>UK</TD><TD ALIGN="LEFT">token_hash CHAR(64) ascii_bin NN (SHA-256 소문자 hex, 평문 미저장)</TD></TR>
-      <TR><TD> </TD><TD ALIGN="LEFT">family_id CHAR(36) ascii_bin NN (회전 계열 UUID, idx) / created_at / expires_at NN (idx, 만료 정리)</TD></TR>
+      <TR><TD> </TD><TD ALIGN="LEFT">family_id CHAR(36) ascii_bin NN (회전 계열 UUID, idx) / family_started_at NN (계열 시작, 세션 최대 수명) / created_at / expires_at NN (idx, 만료 정리)</TD></TR>
       <TR><TD> </TD><TD ALIGN="LEFT">revoked_at / revoke_reason (ROTATED·LOGOUT·REUSE·WITHDRAW·ADMIN, 함께 NULL 또는 함께 값) / replaced_by_id (FK 아님, ROTATED일 때만)</TD></TR>
     </TABLE>>];
   users -> refresh_token [label="1:N"];

@@ -95,3 +95,25 @@ export function getErrorNumber(error: unknown, key: string): number | null {
   const value: unknown = (data as Record<string, unknown>)[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
+
+const GENERIC_TOO_MANY = "요청이 많아요. 잠시 뒤 다시 시도해 주세요.";
+
+/**
+ * 로그인·가입 화면용 429 안내 (해당 없으면 null).
+ * LOGIN_RATE_LIMITED·SIGNUP_RATE_LIMITED({message, code, retryAfterSeconds})와,
+ * code 없이 오는 nginx 429(본문이 HTML일 수 있음)를 처리한다.
+ */
+export function authRateLimitMessage(error: unknown): string | null {
+  if (!axios.isAxiosError(error) || error.response?.status !== 429) return null;
+  const code = getErrorCode(error);
+  if (code === "LOGIN_RATE_LIMITED") {
+    const sec = getErrorNumber(error, "retryAfterSeconds");
+    const min = sec !== null && sec > 0 ? Math.ceil(sec / 60) : null;
+    return min
+      ? `로그인 시도가 너무 많아요. ${min}분 뒤 다시 시도해 주세요.`
+      : "로그인 시도가 너무 많아요. 잠시 뒤 다시 시도해 주세요.";
+  }
+  if (code === "SIGNUP_RATE_LIMITED") return "가입 요청이 너무 많아요. 잠시 뒤 다시 시도해 주세요.";
+  if (code === null) return GENERIC_TOO_MANY;
+  return null;
+}

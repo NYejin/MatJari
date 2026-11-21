@@ -99,6 +99,7 @@ class SocialLoginMysqlTest {
         STUB.reset();
         jdbc.update("DELETE FROM user_sanction");
         jdbc.update("DELETE FROM social_account");
+        jdbc.update("DELETE FROM refresh_token");
         jdbc.update("DELETE FROM users");
         STUB.on("/token", Reply.json("{\"access_token\":\"AT-1\"}"));
     }
@@ -245,6 +246,7 @@ class SocialLoginMysqlTest {
         int threads = 8;
         for (int round = 0; round < 10; round++) {
             jdbc.update("DELETE FROM social_account");
+            jdbc.update("DELETE FROM refresh_token");
             jdbc.update("DELETE FROM users");
             String json = SocialStubServer.userinfo(SocialProvider.GOOGLE, "race-" + round, round % 2 == 0 ? "race@example.com" : null, true, "경합사용자");
             STUB.on("/userinfo", Reply.json(json));
@@ -278,6 +280,7 @@ class SocialLoginMysqlTest {
         int threads = 6;
         for (int round = 0; round < 10; round++) {
             jdbc.update("DELETE FROM social_account");
+            jdbc.update("DELETE FROM refresh_token");
             jdbc.update("DELETE FROM users");
             ExecutorService pool = Executors.newFixedThreadPool(threads);
             CountDownLatch go = new CountDownLatch(1);

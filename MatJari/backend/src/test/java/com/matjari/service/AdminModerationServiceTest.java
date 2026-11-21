@@ -53,6 +53,7 @@ class AdminModerationServiceTest {
     private AbuseReportRepository reportRepository;
     private UserSanctionRepository sanctionRepository;
     private UserRepository userRepository;
+    private com.matjari.repository.RefreshTokenRepository refreshTokenRepository;
     private ChatMessageRepository chatRepository;
     private OpenMatchCanceller canceller;
     private AdminModerationService service;
@@ -65,12 +66,13 @@ class AdminModerationServiceTest {
         reportRepository = mock(AbuseReportRepository.class);
         sanctionRepository = mock(UserSanctionRepository.class);
         userRepository = mock(UserRepository.class);
+        refreshTokenRepository = mock(com.matjari.repository.RefreshTokenRepository.class);
         chatRepository = mock(ChatMessageRepository.class);
         canceller = mock(OpenMatchCanceller.class);
         ObjectProvider<OpenMatchCanceller> provider = mock(ObjectProvider.class);
         when(provider.getObject()).thenReturn(canceller);
         Clock clock = Clock.fixed(NOW.atZone(ZONE).toInstant(), ZONE);
-        service = new AdminModerationService(reportRepository, sanctionRepository, userRepository, mock(com.matjari.repository.RefreshTokenRepository.class), chatRepository, provider,
+        service = new AdminModerationService(reportRepository, sanctionRepository, userRepository, refreshTokenRepository, chatRepository, provider,
                 mock(EntityManager.class), clock, mock(com.matjari.websocket.WebSocketSessionRegistry.class));
 
         report = AbuseReport.create(10L, 20L, 50L, AbuseReport.Reason.ABUSE, "욕설");
@@ -116,8 +118,9 @@ class AdminModerationServiceTest {
         order.verify(userRepository).findById(20L);                                // 대상 읽기(잠금 없음)
         order.verify(sanctionRepository).findActiveForUpdate(20L, NOW);            // 활성 제재 중복(범위 잠금 읽기)
         order.verify(canceller).cancelAllOf(20L);                                  // 티켓 -> 요청 -> 매칭 잠금은 canceller 안
+        order.verify(userRepository).findByIdForUpdate(20L);                       // 리프레시 토큰 폐기를 위한 users 잠금은 canceller(티켓·매칭 잠금) 뒤
         order.verify(sanctionRepository).saveAndFlush(any(UserSanction.class));    // INSERT 는 canceller 뒤
-        verify(userRepository, never()).findByIdForUpdate(anyLong());              // users 행은 잠그지 않는다
+        verify(refreshTokenRepository).revokeAllActiveByUserId(eq(20L), eq(com.matjari.domain.RefreshToken.RevokeReason.ADMIN), any());
 
         ArgumentCaptor<UserSanction> sanction = ArgumentCaptor.forClass(UserSanction.class);
         verify(sanctionRepository).saveAndFlush(sanction.capture());

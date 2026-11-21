@@ -37,6 +37,8 @@ class AuthLongPasswordSliceTest {
 
     @org.springframework.boot.test.mock.mockito.MockBean
     private com.matjari.security.RefreshTokenCookie refreshTokenCookie;
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.matjari.service.RefreshTokenService refreshTokenService;
 
     @Autowired
     private MockMvc mockMvc;

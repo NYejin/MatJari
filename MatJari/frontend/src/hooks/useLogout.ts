@@ -12,6 +12,6 @@ export function useLogout(): () => void {
   const navigate = useNavigate();
   return useCallback(() => {
     navigate("/", { replace: true });
-    logout();
+    void logout();
   }, [navigate, logout]);
 }

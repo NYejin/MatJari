@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { authApi } from "../api/auth";
 import { refreshSession, type RefreshResult } from "../api/session";
+import { broadcastLogout, onLogoutSignal } from "../api/authSignal";
 import {
-  ACCESS_TOKEN_KEY,
-  REFRESH_TOKEN_KEY,
   getTokenExpiry,
   getUserFromAccessToken,
   isTokenExpired,
+  removeLegacyStoredTokens,
   tokenStorage,
 } from "../api/tokenStorage";
 import { parseApiError } from "../api/errors";
@@ -43,10 +43,8 @@ function readValidSession(): Session | null {
   return user ? { user, accessToken } : null;
 }
 
-function hasUsableRefreshToken(): boolean {
-  const refresh = tokenStorage.getRefreshToken();
-  return !!refresh && !isTokenExpired(refresh);
-}
+// 마이그레이션: 예전 버전이 localStorage에 남긴 액세스·리프레시 토큰을 앱 시작 때 한 번 지운다
+removeLegacyStoredTokens();
 
 /**
  * refreshSession 결과를 세션 상태로 변환.
@@ -65,14 +63,13 @@ function sessionFromRefreshResult(result: RefreshResult): Session | null {
 
 export default function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(readValidSession);
-  // access token은 만료됐지만 refresh token이 남아 있으면 재발급을 시도하는 동안 초기화 상태 유지
-  const [isInitializing, setIsInitializing] = useState<boolean>(
-    () => readValidSession() === null && hasUsableRefreshToken()
-  );
+  // 액세스 토큰은 메모리에만 있어 새로고침·새 탭에서는 비어 있다. 쿠키(mj_rt)로 재발급을 시도하는 동안 초기화 상태를 유지해
+  // 보호 라우트가 로그인 화면으로 튕기지 않게 한다 (쿠키가 없으면 401 → 비로그인).
+  const [isInitializing, setIsInitializing] = useState<boolean>(() => readValidSession() === null);
 
-  // 초기화: 만료된 access + 유효한 refresh → 재발급 시도.
+  // 초기화: 쿠키로 재발급 시도.
   // refreshSession이 single-flight라 StrictMode 이중 실행에서도 요청은 1회이고,
-  // 토큰 삭제 여부는 refreshSession이 응답 상태(400)로만 결정하므로 cancelled와 무관하다.
+  // 토큰 삭제 여부는 refreshSession이 응답 상태(401)로만 결정하므로 cancelled와 무관하다.
   useEffect(() => {
     if (!isInitializing) return;
     let cancelled = false;
@@ -119,16 +116,16 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [accessToken]);
 
-  // 다른 탭에서 로그인/로그아웃/재발급하면 상태 동기화 (accessToken이 바뀌면 위 타이머도 재설정됨)
-  useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === null || e.key === ACCESS_TOKEN_KEY || e.key === REFRESH_TOKEN_KEY) {
-        setSession(readValidSession());
-      }
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
+  // 다른 탭에서 로그아웃하면 이 탭도 로그아웃한다 (신호만 받고 토큰은 공유하지 않는다).
+  // 로그인·재발급은 탭마다 쿠키로 따로 처리한다.
+  useEffect(
+    () =>
+      onLogoutSignal(() => {
+        tokenStorage.clear();
+        setSession(null);
+      }),
+    []
+  );
 
   // 같은 탭에서 토큰이 바뀌면(401 인터셉터의 재발급/토큰 삭제 등) 상태 동기화.
   // 삭제되면 session이 null이 되어 ProtectedRoute가 state.from과 함께 /login으로 보낸다.
@@ -151,15 +148,21 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     const tokens = await authApi.login(payload);
     const user = getUserFromAccessToken(tokens.accessToken);
     if (!user) throw new Error("서버에서 받은 토큰 형식이 올바르지 않습니다.");
-    tokenStorage.save(tokens);
+    tokenStorage.save({ accessToken: tokens.accessToken });
     setSession({ user, accessToken: tokens.accessToken });
     return user;
   }, []);
 
-  const logout = useCallback(() => {
-    // 백엔드는 stateless refresh token이라 로그아웃 API 없음 — 클라이언트 토큰 삭제로 처리
+  const logout = useCallback(async (): Promise<void> => {
+    // 서버가 리프레시 토큰 계열을 폐기하고 쿠키를 지운다. 실패해도 로컬 상태는 지운다.
+    try {
+      await authApi.logout();
+    } catch {
+      // 네트워크 오류 등 — 로컬 로그아웃은 계속 진행
+    }
     tokenStorage.clear();
     setSession(null);
+    broadcastLogout();
   }, []);
 
   // ---- 내 정보(/api/users/me) — 표시용 프로필. 세션 user id 단위로 보관한다.

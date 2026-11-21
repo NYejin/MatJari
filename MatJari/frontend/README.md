@@ -7,6 +7,16 @@
 - types       — 백엔드 DTO에 대응하는 타입
 - hooks       — useAuth 등 커스텀 훅
 
+## 인증 저장 방식
+- **리프레시 토큰**은 백엔드가 심는 HttpOnly 쿠키 `mj_rt`(Path=/api/auth, SameSite=Strict)로만 오간다. 프런트 JS는 읽거나 저장하지 않는다(응답 본문의 `refreshToken`은 항상 null).
+- **액세스 토큰**은 `api/tokenStorage.ts`의 모듈 변수(메모리)에만 둔다. localStorage·sessionStorage에 쓰지 않으며, 앱 시작 때 예전 버전이 남긴 `accessToken`·`refreshToken` localStorage 키를 한 번 지운다.
+- 시작(새로고침·새 탭): `AuthProvider`가 `POST /api/auth/refresh`로 액세스 토큰을 받는다. 끝날 때까지 `isInitializing`이 true라 보호 라우트가 로그인 화면으로 보내지 않는다. 쿠키가 없으면 401 → 비로그인.
+- 재발급 단일화(`api/session.ts`): 한 탭 안의 동시 호출(시작·만료 60초 전 타이머·401 인터셉터·STOMP 재연결)은 진행 중인 요청 하나를 공유하고, 탭 사이는 `navigator.locks('matjari-refresh')`로 직렬화한다(미지원 브라우저는 탭 내 single-flight만). 같은 쿠키로 동시에 재발급하면 서버가 재사용으로 보고 로그인 계열을 폐기하므로 재발급은 반드시 `refreshSession()`만 거친다.
+- `/api/auth/*`는 `withCredentials`로 쿠키를 주고받고, refresh·logout은 `X-Requested-With: XMLHttpRequest` 헤더를 붙인다(`api/authClient.ts`).
+- 로그아웃: `POST /api/auth/logout`(실패해도 무시) → 메모리 토큰 삭제 → 다른 탭에 'logout' 신호만 전달(`api/authSignal.ts`, BroadcastChannel, 없으면 storage 이벤트. 토큰은 공유하지 않음).
+- **같은 출처 필수**: `VITE_API_BASE_URL` 기본값은 `/api`다. 개발은 `vite.config.ts`의 프록시가 `/api`·`/ws`를 `http://localhost:8080`(환경변수 `VITE_DEV_PROXY_TARGET`로 변경)으로 넘기고, 운영은 nginx가 같은 출처로 처리한다. 다른 출처 API를 쓰면 SameSite=Strict 쿠키가 가지 않아 로그인이 유지되지 않는다.
+- 소셜 로그인 콜백(`/auth/callback#code=` → exchange)과 정지 중 `withdrawToken` 흐름은 액세스 토큰을 메모리에 저장하는 것 외에는 그대로다(`withdrawToken`은 저장하지 않고 로그인 화면 상태로만 보관).
+
 ## 현재 상태
 - 구현됨: 로그인(`/login`)·회원가입(`/signup`), 공연 목록(`/`), 공연 등록(`/performances/new`), 공연 상세(`/performances/:id`), 마이페이지(`/me`). 로그인이 필요한 화면은 ProtectedRoute로 보호하고, api/client.ts에서 401 재발급 인터셉터를 처리한다.
 - 교환 화면(구현 완료; 좌석표는 쓰지 않고 구역·열·번 텍스트 입력, 구역 자동완성 없음):

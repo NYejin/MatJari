@@ -8,6 +8,10 @@ import com.matjari.dto.response.EmailCodeResponse;
 import com.matjari.dto.response.EmailVerificationStatusResponse;
 import com.matjari.dto.response.TokenResponse;
 import com.matjari.dto.response.UserResponse;
+import com.matjari.exception.AccountSuspendedException;
+import com.matjari.exception.MatJariException;
+import com.matjari.security.AuthRateLimiter;
+import com.matjari.security.ClientIpResolver;
 import com.matjari.service.AuthService;
 import com.matjari.service.EmailVerificationService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -23,9 +27,13 @@ public class AuthController {
 
     private final AuthService authService;
     private final EmailVerificationService emailVerificationService;
+    private final AuthRateLimiter rateLimiter;
+    private final ClientIpResolver clientIpResolver;
 
     @PostMapping("/signup")
-    public ResponseEntity<UserResponse> signup(@Valid @RequestBody SignupRequest request) {
+    public ResponseEntity<UserResponse> signup(@Valid @RequestBody SignupRequest request, HttpServletRequest http) {
+        // IP당 1시간 10회(시도마다 센다). 초과 429 SIGNUP_RATE_LIMITED
+        rateLimiter.acquireSignup(clientIpResolver.resolve(http));
         return ResponseEntity.ok(authService.signup(request));
     }
 
@@ -39,12 +47,26 @@ public class AuthController {
     @PostMapping("/signup/email-code")
     public ResponseEntity<EmailCodeResponse> sendEmailCode(@Valid @RequestBody EmailCodeRequest request,
                                                            HttpServletRequest http) {
-        return ResponseEntity.ok(emailVerificationService.sendCode(request.email(), http.getRemoteAddr()));
+        return ResponseEntity.ok(emailVerificationService.sendCode(request.email(), clientIpResolver.resolve(http)));
     }
 
     @PostMapping("/login")
-    public ResponseEntity<TokenResponse> login(@Valid @RequestBody LoginRequest request) {
-        return ResponseEntity.ok(authService.login(request));
+    public ResponseEntity<TokenResponse> login(@Valid @RequestBody LoginRequest request, HttpServletRequest http) {
+        // 계정별·IP별 실패 제한(없는 이메일도 똑같이 센다). 잠겨 있으면 429 LOGIN_RATE_LIMITED
+        String ip = clientIpResolver.resolve(http);
+        rateLimiter.checkLogin(request.email(), ip);
+        try {
+            TokenResponse tokens = authService.login(request);
+            rateLimiter.recordLoginSuccess(request.email());
+            return ResponseEntity.ok(tokens);
+        } catch (AccountSuspendedException e) {
+            // 비밀번호는 맞았다(403 + withdrawToken 흐름은 그대로) — 실패로 세지 않는다
+            rateLimiter.recordLoginSuccess(request.email());
+            throw e;
+        } catch (MatJariException e) {
+            rateLimiter.recordLoginFailure(request.email(), ip);
+            throw e;
+        }
     }
 
     @PostMapping("/refresh")

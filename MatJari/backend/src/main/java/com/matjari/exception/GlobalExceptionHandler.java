@@ -83,6 +83,18 @@ public class GlobalExceptionHandler {
                 .header("Retry-After", String.valueOf(e.getRetryAfterSeconds())).body(body);
     }
 
+    // 429 — 로그인 실패·가입 시도 제한: {"code":"LOGIN_RATE_LIMITED"|"SIGNUP_RATE_LIMITED","message":..,"retryAfterSeconds":n} + Retry-After 헤더
+    @ExceptionHandler(com.matjari.security.AuthRateLimiter.AuthRateLimitedException.class)
+    public ResponseEntity<Map<String, Object>> handleAuthRateLimited(
+            com.matjari.security.AuthRateLimiter.AuthRateLimitedException e) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("code", e.getCode());
+        body.put("message", e.getMessage());
+        body.put("retryAfterSeconds", e.getRetryAfterSeconds());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", String.valueOf(e.getRetryAfterSeconds())).body(body);
+    }
+
     // 429 — 이메일 인증번호 발송 제한(EMAIL_CODE_COOLDOWN/EMAIL_CODE_RATE_LIMITED, Retry-After 포함), 발송 실패는 503 EMAIL_SEND_FAILED
     @ExceptionHandler(com.matjari.service.EmailVerificationService.EmailCodeRateLimitedException.class)
     public ResponseEntity<Map<String, Object>> handleEmailCodeRateLimited(

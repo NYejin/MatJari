@@ -8,7 +8,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 소셜 로그인 authorize/exchange 의 IP당 속도 제한: 메모리 슬라이딩 윈도(60초에 N건, 기본 30). 서버 한 대 기준이며 재시작하면 초기화된다.
- * 키는 request.getRemoteAddr() 이다(X-Forwarded-For 는 위조할 수 있어 신뢰하지 않는다 — 프록시 뒤에서는 프록시 주소로 합쳐지는 한계).
+ * 키는 ClientIpResolver 가 구한 클라이언트 IP 다(신뢰 프록시 뒤에서만 X-Real-IP·X-Forwarded-For 를 읽는다).
  * 한도를 넘은 시도는 기록하지 않는다. 오래 쉰 키는 가끔 쓸어 낸다.
  */
 @Component

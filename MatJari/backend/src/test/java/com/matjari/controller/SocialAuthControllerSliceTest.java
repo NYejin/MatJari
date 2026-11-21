@@ -35,7 +35,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /** SocialAuthController + 실제 SecurityConfig/GlobalExceptionHandler. 서비스는 mock. */
 @WebMvcTest(controllers = SocialAuthController.class)
-@Import({SecurityConfig.class, JwtAuthenticationEntryPoint.class, JwtAccessDeniedHandler.class, SecurityErrorResponseWriter.class})
+@Import({SecurityConfig.class, JwtAuthenticationEntryPoint.class, JwtAccessDeniedHandler.class, SecurityErrorResponseWriter.class, com.matjari.security.ClientIpResolver.class})
 class SocialAuthControllerSliceTest {
 
     @Autowired
@@ -71,9 +71,12 @@ class SocialAuthControllerSliceTest {
                 .andExpect(header().string("Set-Cookie", org.hamcrest.Matchers.allOf(org.hamcrest.Matchers.startsWith("ss_oauth=V;"),
                         org.hamcrest.Matchers.containsString("HttpOnly"), org.hamcrest.Matchers.containsString("SameSite=Lax"))))
                 .andExpect(header().string("Cache-Control", "no-store"));
-        // IP 는 remoteAddr(MockMvc 기본 127.0.0.1)이고 X-Forwarded-For 는 쓰지 않는다
+        // 직접 연결이 신뢰 프록시(루프백)면 XFF 의 비신뢰 주소를, 신뢰되지 않은 주소면 헤더를 무시하고 remoteAddr 를 쓴다
         mockMvc.perform(get("/api/auth/social/google/authorize").header("X-Forwarded-For", "6.6.6.6"));
-        verify(socialAuthService, org.mockito.Mockito.times(2)).authorize("google", "127.0.0.1");
+        verify(socialAuthService).authorize("google", "6.6.6.6");
+        mockMvc.perform(get("/api/auth/social/google/authorize").header("X-Forwarded-For", "6.6.6.6")
+                .with(r -> { r.setRemoteAddr("198.51.100.9"); return r; }));
+        verify(socialAuthService).authorize("google", "198.51.100.9");
     }
 
     @Test

@@ -626,7 +626,17 @@ keyset 조각의 내부: 저장소에 `size+1`건을 요청해 다음 조각 유
 - `state-secret`(`MATJARI_SOCIAL_STATE_SECRET`, 32바이트 이상. 기본값은 개발용이라 운영에서는 거부), `cookie-secure`(`MATJARI_SOCIAL_COOKIE_SECURE`, 기본 false, 운영 true 요구).
 - client-id가 비어 있으면 그 제공자는 비활성이다. 모두 비면 소셜 기능과 기동 검증이 꺼진다.
 - `.env.example`·`docker-compose.yml`에 `SOCIAL_*` 변수를 추가했다(값이 비면 비활성).
-- 프록시 뒤에 배포하면 `server.forward-headers-strategy` 설정이 필요하다. 속도 제한은 `getRemoteAddr()`만 믿는다.
+- 소셜 속도 제한의 IP도 아래 '인증 보안·속도 제한' 절의 `ClientIpResolver`로 구한다(`server.forward-headers-strategy`는 쓰지 않는다).
+
+### 인증 보안·속도 제한 (로그인·가입, DB 변경 없음)
+- **클라이언트 IP**: `security/ClientIpResolver`가 속도 제한 키의 유일한 출처다(소셜 authorize·callback·exchange, 이메일 인증번호, 로그인·가입). 배포 구조는 (cloudflared 터널 또는 직접) → nginx(web 컨테이너) → backend라 `getRemoteAddr()`는 항상 nginx 주소다. 직접 연결한 주소가 신뢰 프록시일 때만 `X-Real-IP`를 믿고(없으면 `X-Forwarded-For`의 가장 오른쪽 신뢰되지 않은 주소), 아니면 `getRemoteAddr()`를 쓴다. 헤더 값이 IP 리터럴이 아니면 무시한다. Cloudflare 경유일 때는 nginx가 `CF-Connecting-IP`를 `X-Real-IP`로 넘겨야 한다(nginx 설정은 `MatJari/frontend/nginx.conf`).
+- 설정 `matjari.security.trusted-proxies`(환경변수 `MATJARI_TRUSTED_PROXIES`, 쉼표 구분 CIDR, 기본 `127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16`). 공인 대역을 넣지 말 것(헤더 위조 가능). 잘못된 값이면 기동 실패. 비우면 어떤 프록시도 신뢰하지 않는다.
+- **로그인 실패 제한** (`POST /api/auth/login`, `security/AuthRateLimiter`): 계정(정규화한 이메일)별 15분 창에서 실패 5회가 되면 마지막 실패로부터 15분 잠금(잠긴 동안의 시도는 세지 않음), 성공하면 그 계정 횟수 초기화. IP별 10분 창에서 실패 30회 초과면 가장 오래된 실패가 창을 벗어날 때까지 차단. 없는 이메일·탈퇴·소셜 전용 계정도 똑같이 센다. 비밀번호가 맞은 정지 계정(403 `ACCOUNT_SUSPENDED` + `withdrawToken`)은 실패로 세지 않고 흐름도 그대로다.
+- **가입 제한** (`POST /api/auth/signup`): IP당 1시간 10회(시도마다 센다).
+- **응답 형식(프런트가 받을 수 있는 새 오류)**: 429, 본문 `{"code":"LOGIN_RATE_LIMITED"|"SIGNUP_RATE_LIMITED","message":"...","retryAfterSeconds":n}` + `Retry-After: n` 헤더.
+- **응답 시간 균등화**: 로그인에서 없는 이메일·탈퇴 계정·비밀번호 로그인이 없는 소셜 전용 계정도 무작위 값의 더미 BCrypt 해시와 한 번 비교한 뒤 같은 실패 응답을 낸다.
+- **개발용 비밀값 기동 거부** (`InsecureSecretsGuard`): `matjari.social.backend-base-url`이 루프백이 아닌데 `jwt.secret`이 개발용 기본값 또는 `changeme-dev-secret`이면, 또는 이메일 인증이 켜져 있는데(`matjari.email-verification.enabled=true`) 인증번호 해시 키가 개발용 기본값이면 기동하지 않는다(소셜 state-secret 검사와 같은 방식).
+- **한계**: 로그인·가입·이메일·소셜 제한은 모두 단일 인스턴스 메모리라 재시작하면 초기화되고 여러 대면 합쳐지지 않는다. 맵 크기에 상한(키 2만 개)이 있고 꽉 차면 만료 키를 쓸어 낸 뒤 가장 오래된 키부터 버린다. 특정 이메일에 일부러 실패를 쌓아 그 계정 로그인을 15분 막을 수 있다(계정 잠금의 일반적 절충). IPv6는 주소 단위로 센다(/64 묶음 없음). 프록시가 헤더를 덮어쓰지 않거나 신뢰 대역을 넓게 잡으면 IP 제한이 무력해진다.
 
 ### 보안 요구와 구현
 - `Cache-Control: no-store`를 authorize·callback·exchange 응답에 붙인다.

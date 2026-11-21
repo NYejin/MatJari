@@ -118,10 +118,14 @@ public class AuthService {
             throw new MatJariException(LOGIN_FAIL_MESSAGE);
         }
 
-        User user = userRepository.findByEmail(AuthInputNormalizer.normalizeEmail(request.email()))
-                .orElseThrow(() -> new MatJariException(LOGIN_FAIL_MESSAGE));
+        User user = userRepository.findByEmail(AuthInputNormalizer.normalizeEmail(request.email())).orElse(null);
 
-        if (user.isWithdrawn() || !passwordEncoder.matches(password, user.getPassword())) {
+        // 없는 이메일·탈퇴·소셜 전용(password_login_enabled=0) 계정도 BCrypt 비교를 한 번 하도록 해 응답 시간으로 가입 여부를 알 수 없게 한다
+        if (user == null || user.isWithdrawn() || !user.isPasswordLoginEnabled()) {
+            passwordEncoder.matches(password, dummyHash());
+            throw new MatJariException(LOGIN_FAIL_MESSAGE);
+        }
+        if (!passwordEncoder.matches(password, user.getPassword())) {
             throw new MatJariException(LOGIN_FAIL_MESSAGE);
         }
         // 비밀번호가 맞은 뒤에만 정지 여부를 알려 준다(정지 여부로 계정 존재를 추측하지 못하게). 403 ACCOUNT_SUSPENDED
@@ -133,6 +137,20 @@ public class AuthService {
         }
 
         return issueTokens(user);
+    }
+
+    /** 계정이 없을 때 비교용 BCrypt 해시(처음 필요할 때 한 번 만든다). 어떤 비밀번호와도 맞지 않는 무작위 값의 해시다. */
+    private volatile String dummyHash;
+
+    private String dummyHash() {
+        String h = dummyHash;
+        if (h == null) {
+            byte[] random = new byte[32];
+            new java.security.SecureRandom().nextBytes(random);
+            h = passwordEncoder.encode(java.util.Base64.getEncoder().encodeToString(random));
+            dummyHash = h;
+        }
+        return h;
     }
 
     public TokenResponse refresh(RefreshRequest request) {

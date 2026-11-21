@@ -33,6 +33,10 @@ class AuthControllerEmailVerificationStatusSliceTest {
     @MockBean
     private EmailVerificationService emailVerificationService;
     @MockBean
+    private com.matjari.security.AuthRateLimiter authRateLimiter;
+    @MockBean
+    private com.matjari.security.ClientIpResolver clientIpResolver;
+    @MockBean
     private JwtTokenProvider tokenProvider;
     @MockBean
     private CustomUserDetailsService userDetailsService;

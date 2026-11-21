@@ -65,6 +65,10 @@ class ModerationControllerSliceTest {
     private AuthService authService;
     @MockBean
     private com.matjari.service.EmailVerificationService emailVerificationService;
+    @MockBean
+    private com.matjari.security.AuthRateLimiter authRateLimiter;
+    @MockBean
+    private com.matjari.security.ClientIpResolver clientIpResolver;
 
     @BeforeEach
     void setUp() {

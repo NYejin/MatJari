@@ -79,6 +79,7 @@ public class AdminModerationService {
     private final AbuseReportRepository reportRepository;
     private final UserSanctionRepository sanctionRepository;
     private final UserRepository userRepository;
+    private final com.matjari.repository.RefreshTokenRepository refreshTokenRepository;
     private final ChatMessageRepository chatMessageRepository;
     /** 구현체(BE-A)가 없는 환경에서도 컨텍스트가 뜨도록 호출 시점에 꺼낸다. */
     private final ObjectProvider<OpenMatchCanceller> cancellerProvider;
@@ -184,6 +185,9 @@ public class AdminModerationService {
         }
         // 열린 매칭 시스템 취소(티켓 -> 요청 -> 매칭 잠금)는 users 행 잠금 없이, user_sanction INSERT 보다 먼저.
         cancellerProvider.getObject().cancelAllOf(targetId);
+        // 리프레시 토큰 전부 폐기(ADMIN): users 행 FOR UPDATE 를 티켓·매칭 잠금 뒤(탈퇴와 같은 순서)에 잡고 폐기한다 — 진행 중인 재발급과 직렬화된다
+        userRepository.findByIdForUpdate(targetId);
+        refreshTokenRepository.revokeAllActiveByUserId(targetId, com.matjari.domain.RefreshToken.RevokeReason.ADMIN, now);
         UserSanction sanction = sanctionRepository.saveAndFlush(UserSanction.suspend(targetId, reportId, note, now, days, adminId));
         closeSocketsAfterCommit(targetId);
         return sanction.getId();

@@ -2,7 +2,6 @@ package com.matjari.service;
 
 import com.matjari.domain.User;
 import com.matjari.dto.request.LoginRequest;
-import com.matjari.dto.request.RefreshRequest;
 import com.matjari.exception.AccountSuspendedException;
 import com.matjari.exception.MatJariException;
 import com.matjari.repository.UserRepository;
@@ -32,6 +31,7 @@ class AuthServiceSuspensionTest {
     private JwtTokenProvider jwt;
     private AccountSuspensionChecker checker;
     private AuthService authService;
+    private final RefreshTokenService refreshTokens = mock(RefreshTokenService.class);
     private User user;
 
     @BeforeEach
@@ -40,7 +40,7 @@ class AuthServiceSuspensionTest {
         passwordEncoder = mock(PasswordEncoder.class);
         jwt = mock(JwtTokenProvider.class);
         checker = mock(AccountSuspensionChecker.class);
-        authService = new AuthService(userRepository, passwordEncoder, jwt, checker, mock(com.matjari.service.EmailVerificationService.class));
+        authService = new AuthService(userRepository, passwordEncoder, jwt, checker, mock(com.matjari.service.EmailVerificationService.class), refreshTokens);
         user = User.create("a@b.com", "encoded", "닉네임");
         ReflectionTestUtils.setField(user, "id", 5L);
         when(userRepository.findByEmail("a@b.com")).thenReturn(Optional.of(user));
@@ -87,12 +87,10 @@ class AuthServiceSuspensionTest {
 
     @Test
     void 정지_중이면_토큰_재발급도_거부한다() {
-        when(jwt.validateToken("r")).thenReturn(true);
-        when(jwt.isRefreshToken("r")).thenReturn(true);
-        when(jwt.getUserId("r")).thenReturn(5L);
-        doThrow(new AccountSuspendedException(null)).when(checker).assertNotSuspended(5L);
+        // 정지 검사는 RefreshTokenService.rotate 안(users 잠금 뒤)에서 한다 — 403 이 그대로 전파된다
+        when(refreshTokens.rotate("r")).thenThrow(new AccountSuspendedException(null));
 
-        assertThatThrownBy(() -> authService.refresh(new RefreshRequest("r"))).isInstanceOf(AccountSuspendedException.class);
+        assertThatThrownBy(() -> authService.refresh("r")).isInstanceOf(AccountSuspendedException.class);
         verify(jwt, never()).generateAccessToken(5L, "a@b.com");
     }
 }

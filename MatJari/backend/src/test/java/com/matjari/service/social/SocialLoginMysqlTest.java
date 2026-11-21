@@ -140,7 +140,7 @@ class SocialLoginMysqlTest {
     @Test
     void 신규_가입_이메일_있음_전체_흐름과_토큰() {
         String location = callback(SocialProvider.GOOGLE, SocialStubServer.userinfo(SocialProvider.GOOGLE, "sub-100", "New@Example.com", true, "새 사용자"));
-        TokenResponse tokens = socialAuthService.exchange(loginCode(location), "10.9.9.9");
+        com.matjari.service.AuthService.IssuedTokens tokens = socialAuthService.exchange(loginCode(location), "10.9.9.9");
 
         assertThat(count("users")).isEqualTo(1);
         assertThat(count("social_account")).isEqualTo(1);
@@ -175,7 +175,7 @@ class SocialLoginMysqlTest {
         callback(SocialProvider.GOOGLE, SocialStubServer.userinfo(SocialProvider.GOOGLE, "sub-1", "old@example.com", true, "닉네임이"));
         long id = jdbc.queryForObject("SELECT id FROM users", Long.class);
         String location = callback(SocialProvider.GOOGLE, SocialStubServer.userinfo(SocialProvider.GOOGLE, "sub-1", "changed@example.com", true, "다른닉"));
-        TokenResponse tokens = socialAuthService.exchange(loginCode(location), "10.9.9.9");
+        com.matjari.service.AuthService.IssuedTokens tokens = socialAuthService.exchange(loginCode(location), "10.9.9.9");
         assertThat(count("users")).isEqualTo(1);
         assertThat(count("social_account")).isEqualTo(1);
         assertThat(jwtTokenProvider.getUserId(tokens.accessToken())).isEqualTo(id);

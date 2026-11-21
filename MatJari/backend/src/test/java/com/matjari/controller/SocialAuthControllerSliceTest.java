@@ -35,8 +35,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /** SocialAuthController + 실제 SecurityConfig/GlobalExceptionHandler. 서비스는 mock. */
 @WebMvcTest(controllers = SocialAuthController.class)
-@Import({SecurityConfig.class, JwtAuthenticationEntryPoint.class, JwtAccessDeniedHandler.class, SecurityErrorResponseWriter.class, com.matjari.security.ClientIpResolver.class})
+@Import({SecurityConfig.class, JwtAuthenticationEntryPoint.class, JwtAccessDeniedHandler.class, SecurityErrorResponseWriter.class, com.matjari.security.ClientIpResolver.class, com.matjari.security.RefreshTokenCookie.class})
 class SocialAuthControllerSliceTest {
+
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.matjari.service.social.SocialProperties socialProperties;
 
     @Autowired
     private MockMvc mockMvc;
@@ -144,12 +147,13 @@ class SocialAuthControllerSliceTest {
 
     @Test
     void exchange는_토큰을_돌려주고_no_store() throws Exception {
-        when(socialAuthService.exchange(eq("CODE"), any())).thenReturn(TokenResponse.of("A", "R"));
+        when(socialAuthService.exchange(eq("CODE"), any())).thenReturn(new AuthService.IssuedTokens("A", "R"));
         mockMvc.perform(post("/api/auth/social/exchange").contentType(MediaType.APPLICATION_JSON).content("{\"code\":\"CODE\"}"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(jsonPath("$.accessToken").value("A"))
-                .andExpect(jsonPath("$.refreshToken").value("R"));
+                .andExpect(jsonPath("$.refreshToken").doesNotExist())
+                .andExpect(header().string("Set-Cookie", org.hamcrest.Matchers.startsWith("mj_rt=R; Path=/api/auth;")));
     }
 
     @Test

@@ -24,6 +24,10 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long
     @Query("select t.id from RefreshToken t where t.tokenHash = :tokenHash")
     Optional<Long> findIdByTokenHash(@Param("tokenHash") String tokenHash);
 
+    /** 토큰 주인 id 를 잠금 없이 읽는다(엔티티를 영속성 컨텍스트에 올리지 않아 이어지는 FOR UPDATE 조회가 낡은 값을 쓰지 않는다). */
+    @Query("select t.userId from RefreshToken t where t.id = :id")
+    Optional<Long> findUserIdById(@Param("id") Long id);
+
     /** 토큰 행 잠금(SELECT ... FOR UPDATE, PK). 토큰을 INSERT 할 경로라면 users 행 FOR UPDATE 를 먼저 잡는다. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select t from RefreshToken t where t.id = :id")

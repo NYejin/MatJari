@@ -18,7 +18,7 @@
   - `security/JwtAuthenticationFilter` — Authorization 헤더 검증 후 SecurityContext 설정
   - `security/CustomUserDetailsService` — 이메일 기준 사용자 조회. 요청마다 호출되며 `AccountSuspensionChecker`로 활성 제재를 확인해 정지 계정이면 403 `ACCOUNT_SUSPENDED`(V13, 아래 '차단·신고·이용 정지' 절)
   - `config/SecurityConfig` — JWT 필터 등록, CORS(개발용 localhost:5173 허용), `/api/auth/**` permitAll, `/api/admin/**`는 ADMIN 권한 (관리자 컨트롤러 2종은 2026-10-12 구현, 아래 '관리자 API' 절)
-  - `service/AuthService`, `controller/AuthController` — POST /api/auth/signup, /login, /refresh
+  - `service/AuthService`, `service/RefreshTokenService`, `controller/AuthController` — POST /api/auth/signup, /login, /refresh, /logout (리프레시 토큰은 서버 저장·회전·쿠키 전달, 아래 '리프레시 토큰' 절)
   - 요청 DTO는 `jakarta.validation`으로 기본 검증(이메일 형식, 비밀번호 8자 이상) 적용
 - **공연·회차 등록/조회(FR-02)는 구현 완료** (`PerformanceController`, `PerformanceService`). 공연은 회차와 함께 등록하며, 등록 후에는 아무도 제목·공연장·회차를 수정하거나 공연·회차를 삭제할 수 없다(수정은 관리자 수정 제안 승인으로만 바뀌며 2026-10-12 구현, 아래 '관리자 API' 절). 공연장은 공연의 텍스트 속성 `venueName`(필수, 1~100자)이다.
 - **소셜 로그인(2026-10-12, `feature/social-login`, V14)은 구현 완료**: 카카오·구글·네이버, `/api/auth/social/**`(`SocialAuthController`, `service/social/`). 자세한 규칙은 아래 '소셜 로그인 (V14)' 절.
@@ -43,12 +43,23 @@
 |---|---|---|
 | POST | /api/auth/signup/email-code | 가입 전 이메일 인증번호 발송 (email) → {expiresInSeconds, resendAfterSeconds}. 가입된 이메일 400, 너무 잦으면 429 |
 | POST | /api/auth/signup | 회원가입 (email, password, nickname, emailCode) → 생성된 사용자 정보 반환. emailCode는 인증이 켜져 있으면 필수 |
-| POST | /api/auth/login | 로그인 (email, password) → accessToken, refreshToken 반환 |
-| POST | /api/auth/refresh | refreshToken으로 accessToken 재발급 |
+| POST | /api/auth/login | 로그인 (email, password) → 본문 `{accessToken, refreshToken:null, tokenType}` + `Set-Cookie: mj_rt`(리프레시 토큰, 아래 '리프레시 토큰' 절) |
+| POST | /api/auth/refresh | 쿠키 `mj_rt`로 accessToken 재발급 + 리프레시 토큰 회전(새 쿠키). `X-Requested-With: XMLHttpRequest` 헤더 필수(없으면 403). 없음·만료·폐기·재사용·탈퇴 401, 정지 403 `ACCOUNT_SUSPENDED` |
+| POST | /api/auth/logout | 쿠키 토큰의 계열을 LOGOUT 으로 폐기하고 쿠키 삭제, 204(토큰이 없어도 멱등). `X-Requested-With` 헤더 필수 |
 | GET | /api/auth/social/providers | 활성 소셜 제공자 목록 `{providers:[...]}`(client-id가 설정된 제공자만, 인증 불필요) |
 | GET | /api/auth/social/{provider}/authorize | 제공자 인증 화면으로 302(provider = google·kakao·naver). state 쿠키 `ss_oauth` 발급. 비활성이면 404 `SOCIAL_PROVIDER_DISABLED`. `?link={ticket}`가 있으면 연결 모드('프로필 수정·소셜 계정 연결 (V16)' 절) |
 | GET | /api/auth/social/{provider}/callback | 제공자 콜백. 성공·실패 모두 302(성공 `{frontend}/auth/callback#code=`, 실패 `{frontend}/login?socialError=`. 연결 모드는 성공 `{frontend}/me#linkCode=`, 실패 `{frontend}/me?socialLinkError=`) |
-| POST | /api/auth/social/exchange | `{code}` → TokenResponse. 일회용 코드 60초, 틀리거나 만료되면 400 `INVALID_LOGIN_CODE`, 정지면 403 `ACCOUNT_SUSPENDED` |
+| POST | /api/auth/social/exchange | `{code}` → TokenResponse. 일회용 코드 60초, 틀리거나 만료되면 400 `INVALID_LOGIN_CODE`, 정지면 403 `ACCOUNT_SUSPENDED`. 성공하면 로그인과 같이 `mj_rt` 쿠키를 심는다 |
+
+### 리프레시 토큰 (V27, `feature/auth-session`)
+- **저장**: 로그인·소셜 exchange 성공마다 무작위 32바이트(base64url 43자) 불투명 토큰을 만들고 SHA-256 해시만 `refresh_token`에 새 계열(family)로 저장한다(수명 `jwt.refresh-token-validity-ms`, 14일). 액세스 토큰(JWT) 수명·형식은 그대로다. 가입은 토큰을 주지 않는다.
+- **전달**: 쿠키 `mj_rt` — HttpOnly, `Path=/api/auth`, `SameSite=Strict`, `Max-Age`=수명, `Secure`는 소셜 쿠키와 같은 설정 `matjari.social.cookie-secure`(운영 true 강제 규칙 그대로). 응답 본문 `TokenResponse.refreshToken`은 항상 null(필드는 호환용으로 남겼고 폐기 예정). 요청 본문으로 refreshToken 을 받던 방식은 제거했다.
+- **재발급 `/api/auth/refresh`**: 쿠키 토큰 해시로 id 조회(잠금 없음) → users FOR UPDATE → 토큰 PK FOR UPDATE → 상태 재판단 → 새 행 INSERT 후 옛 행 `ROTATED`. 새 액세스 토큰 + 새 리프레시 쿠키를 돌려준다. **이미 ROTATED 된 토큰이 다시 오면 재사용(도난 의심)으로 보고 그 계열 전체를 `REUSE`로 폐기하고 401**이다. 다른 계열(다른 기기)은 영향이 없다. 없음·만료·로그아웃/탈퇴/정지로 폐기된 토큰·탈퇴 사용자는 401, 폐기되지 않은 토큰이라도 정지 중이면 403 `ACCOUNT_SUSPENDED`(토큰은 그대로).
+- **폐기**: 로그아웃은 계열을 `LOGOUT`, 본인 탈퇴·관리자 강제 탈퇴는 사용자 전체를 `WITHDRAW`(`WithdrawService`, users 잠금 뒤), 신고 처리·관리자 직접 정지는 사용자 전체를 `ADMIN`(`AdminModerationService.createSanction`, 티켓·매칭 잠금 뒤 users 잠금)으로 폐기한다.
+- **CSRF**: `SameSite=Strict` + `Path=/api/auth` + `/refresh`·`/logout`은 `X-Requested-With: XMLHttpRequest` 헤더가 있을 때만 처리(없으면 403). CORS는 허용 Origin 목록 그대로 `allowCredentials(true)`(기존 설정).
+- **정리**: 로그인·재발급 뒤 마지막 정리로부터 1시간이 지났으면 별도 짧은 트랜잭션으로 만료 행을 1,000개씩(최대 20회) 지운다(스케줄러 없음, 폐기됐지만 만료 전인 행은 재사용 탐지를 위해 남긴다).
+- **영향 없음**: 정지 중 `withdrawToken` 흐름, 소셜 일회용 코드, STOMP 인증은 액세스(또는 탈퇴 전용) 토큰 기준이라 그대로다.
+- **알려진 한계**: 같은 토큰으로 거의 동시에 온 두 재발급(예: 탭 두 개가 동시에 만료를 만나 재발급)은 한쪽만 성공하고 다른 쪽은 재사용으로 처리돼 **계열이 폐기되어 다시 로그인해야 할 수 있다**(유예 시간을 두지 않은 단순한 규칙). 프런트는 탭 간 재발급을 하나로 묶는 것이 좋다. 쿠키는 `Path=/api/auth`라 프런트와 API 가 같은 사이트(nginx 프록시 등)여야 `SameSite=Strict`가 동작한다. 서버 시계가 크게 틀어지면 만료 판단이 어긋난다. 검증: `RefreshTokenMysqlTest`(회전·재사용·로그아웃·탈퇴·정지·동시 재발급·정리, 실제 MySQL IT), `SecuritySliceTest`(쿠키 속성·403·본문 null).
 
 ## 공연·공연장·회차·내 정보 API
 

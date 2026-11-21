@@ -50,6 +50,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import({SecurityConfig.class, JwtAuthenticationEntryPoint.class, JwtAccessDeniedHandler.class, SecurityErrorResponseWriter.class})
 class ModerationControllerSliceTest {
 
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.matjari.security.RefreshTokenCookie refreshTokenCookie;
+
     @Autowired
     private MockMvc mockMvc;
 

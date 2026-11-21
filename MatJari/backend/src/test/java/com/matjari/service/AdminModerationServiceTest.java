@@ -70,7 +70,7 @@ class AdminModerationServiceTest {
         ObjectProvider<OpenMatchCanceller> provider = mock(ObjectProvider.class);
         when(provider.getObject()).thenReturn(canceller);
         Clock clock = Clock.fixed(NOW.atZone(ZONE).toInstant(), ZONE);
-        service = new AdminModerationService(reportRepository, sanctionRepository, userRepository, chatRepository, provider,
+        service = new AdminModerationService(reportRepository, sanctionRepository, userRepository, mock(com.matjari.repository.RefreshTokenRepository.class), chatRepository, provider,
                 mock(EntityManager.class), clock, mock(com.matjari.websocket.WebSocketSessionRegistry.class));
 
         report = AbuseReport.create(10L, 20L, 50L, AbuseReport.Reason.ABUSE, "욕설");

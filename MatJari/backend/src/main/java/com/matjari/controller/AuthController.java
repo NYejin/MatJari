@@ -2,7 +2,6 @@ package com.matjari.controller;
 
 import com.matjari.dto.request.EmailCodeRequest;
 import com.matjari.dto.request.LoginRequest;
-import com.matjari.dto.request.RefreshRequest;
 import com.matjari.dto.request.SignupRequest;
 import com.matjari.dto.response.EmailCodeResponse;
 import com.matjari.dto.response.EmailVerificationStatusResponse;
@@ -12,11 +11,13 @@ import com.matjari.exception.AccountSuspendedException;
 import com.matjari.exception.MatJariException;
 import com.matjari.security.AuthRateLimiter;
 import com.matjari.security.ClientIpResolver;
+import com.matjari.security.RefreshTokenCookie;
 import com.matjari.service.AuthService;
 import com.matjari.service.EmailVerificationService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -29,6 +30,7 @@ public class AuthController {
     private final EmailVerificationService emailVerificationService;
     private final AuthRateLimiter rateLimiter;
     private final ClientIpResolver clientIpResolver;
+    private final RefreshTokenCookie refreshCookie;
 
     @PostMapping("/signup")
     public ResponseEntity<UserResponse> signup(@Valid @RequestBody SignupRequest request, HttpServletRequest http) {
@@ -56,9 +58,9 @@ public class AuthController {
         String ip = clientIpResolver.resolve(http);
         rateLimiter.checkLogin(request.email(), ip);
         try {
-            TokenResponse tokens = authService.login(request);
+            AuthService.IssuedTokens tokens = authService.login(request);
             rateLimiter.recordLoginSuccess(request.email());
-            return ResponseEntity.ok(tokens);
+            return tokenResponse(tokens);
         } catch (AccountSuspendedException e) {
             // 비밀번호는 맞았다(403 + withdrawToken 흐름은 그대로) — 실패로 세지 않는다
             rateLimiter.recordLoginSuccess(request.email());
@@ -69,17 +71,28 @@ public class AuthController {
         }
     }
 
+    /** 리프레시 쿠키(mj_rt)로 재발급·회전. X-Requested-With 헤더 필수(없으면 403). 새 리프레시 쿠키를 다시 내려 준다. */
     @PostMapping("/refresh")
-    public ResponseEntity<TokenResponse> refresh(@Valid @RequestBody RefreshRequest request) {
-        return ResponseEntity.ok(authService.refresh(request));
+    public ResponseEntity<TokenResponse> refresh(HttpServletRequest http) {
+        refreshCookie.requireAjaxHeader(http);
+        return tokenResponse(authService.refresh(refreshCookie.read(http)));
     }
 
     /**
-     * 로그아웃. JWT 는 무상태라 서버가 지울 것이 없고 클라이언트가 토큰을 버린다. 이용 정지 중인 사용자도 호출할 수 있도록(JwtAuthenticationFilter 가
-     * 이 경로만 정지 검사를 건너뛴다) 항상 204 로 응답하는 자리만 둔다.
+     * 로그아웃. 쿠키 토큰의 계열을 폐기하고 쿠키를 지운다. 토큰이 없거나 모르는 값이어도 204(멱등). X-Requested-With 헤더 필수(없으면 403).
+     * 액세스 토큰은 무상태라 클라이언트가 버린다. 이용 정지 중인 사용자도 호출할 수 있다(JwtAuthenticationFilter 가 이 경로의 정지 검사를 건너뛴다).
      */
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout() {
-        return ResponseEntity.noContent().build();
+    public ResponseEntity<Void> logout(HttpServletRequest http) {
+        refreshCookie.requireAjaxHeader(http);
+        authService.logout(refreshCookie.read(http));
+        return ResponseEntity.noContent().header(HttpHeaders.SET_COOKIE, refreshCookie.clear()).build();
+    }
+
+    private ResponseEntity<TokenResponse> tokenResponse(AuthService.IssuedTokens tokens) {
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, refreshCookie.create(tokens.refreshToken()))
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .body(tokens.body());
     }
 }

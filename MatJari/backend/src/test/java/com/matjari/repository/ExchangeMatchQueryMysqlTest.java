@@ -222,8 +222,8 @@ class ExchangeMatchQueryMysqlTest {
         assertThat(none.lastMessageMine()).isFalse();
 
         String insert = "INSERT INTO chat_message (match_id, sender_id, content, client_message_id, created_at) VALUES (?,?,?,?,?)";
-        jdbc.update(insert, m1, u1, "첫 메시지", "c-1", "2026-10-09 10:00:00.000000");
-        jdbc.update(insert, m1, u2, "가".repeat(100) + "\n끝", "c-2", "2026-10-09 10:05:07.000000");
+        jdbc.update(insert, m1, u1, "첫 메시지", "cmsg-0001", "2026-10-09 10:00:00.000000");
+        jdbc.update(insert, m1, u2, "가".repeat(100) + "\n끝", "cmsg-0002", "2026-10-09 10:05:07.000000");
 
         ExchangeMatchResponse mine = service.findOne(u1, m1);
         assertThat(mine.lastMessagePreview()).isEqualTo("가".repeat(60) + "…");
@@ -367,10 +367,11 @@ class ExchangeMatchQueryMysqlTest {
             // 안 읽은 채팅 수 서브쿼리의 chat_message(c)는 idx_chat_message_match 범위 스캔이어야 한다(전체 스캔 금지)
             plan.stream().filter(r -> "c".equals(r.get("table"))).forEach(r ->
                     assertThat(String.valueOf(r.get("type"))).as(role + " " + r).isIn("ref", "range"));
-            // 마지막 메시지 MAX(id) 서브쿼리(lc)도 idx_chat_message_match 로 읽고(최적화로 type 이 NULL 일 수 있다), lm 은 PK 점조회(eq_ref)
-            plan.stream().filter(r -> "lc".equals(r.get("table"))).forEach(r ->
-                    assertThat(String.valueOf(r.get("type"))).as(role + " " + r).isIn("ref", "range", "index", "null"));
-            plan.stream().filter(r -> !"m".equals(r.get("table")) && !"c".equals(r.get("table")) && !"lc".equals(r.get("table"))).forEach(r ->
+            // 마지막 메시지 서브쿼리(l1·l2·l3)도 idx_chat_message_match 범위로 한 행만 읽는다(전체 스캔·해시 조인 금지)
+            java.util.Set<String> last = java.util.Set.of("l1", "l2", "l3");
+            plan.stream().filter(r -> last.contains(String.valueOf(r.get("table")))).forEach(r ->
+                    assertThat(String.valueOf(r.get("type"))).as(role + " " + r).isIn("ref", "range"));
+            plan.stream().filter(r -> !"m".equals(r.get("table")) && !"c".equals(r.get("table")) && !last.contains(String.valueOf(r.get("table")))).forEach(r ->
                     assertThat(String.valueOf(r.get("type"))).as(role + " " + r).isIn("eq_ref", "const"));
         }
     }

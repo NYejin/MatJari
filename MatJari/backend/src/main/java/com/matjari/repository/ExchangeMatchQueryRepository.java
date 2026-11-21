@@ -21,7 +21,8 @@ import java.util.Optional;
  * STRAIGHT_JOIN: 소규모 테이블(회차 등)에서 옵티마이저가 작은 테이블부터 해시 조인으로 시작하는 것을 막고 매칭 행(사용자 인덱스)에서 시작하도록 고정한다.
  * unreadChatCount 는 호출자 기준 상관 서브쿼리다: 상대가 보낸(sender_id <> 나) 메시지 중 내 읽음 포인터(chat_read_state, 없으면 0)보다 큰 id 의 수.
  * 매칭 상태와 무관하게(닫힌 매칭 포함) 센다. chat_message 는 idx_chat_message_match(match_id, id)로 범위 스캔, 포인터는 PK 점조회다. SELECT 절의 자리표시자 2개(나, 나)가 WHERE 보다 먼저 바인딩된다.
- * 마지막 메시지(lastMessage*)는 LEFT JOIN chat_message lm ON lm.id = (SELECT MAX(lc.id) ... FORCE INDEX (idx_chat_message_match) WHERE lc.match_id = m.id) 로 매칭당 한 행만 읽는다(PK 점조회).
+ * 마지막 메시지(lastMessage*)는 상관 서브쿼리 3개(l1·l2·l3)로 읽는다: idx_chat_message_match(match_id, id)를 역방향으로 한 행만 읽는다(ORDER BY id DESC LIMIT 1).
+ * LEFT JOIN ... ON lm.id = (SELECT MAX ...) 형태는 MySQL 이 상관 서브쿼리를 조인 키로 못 써 chat_message 전체를 해시 조인으로 읽어서 쓰지 않는다(실DB EXPLAIN 확인).
  * 본문은 SQL 에서 LEFT(content, 61)로 자르고 60 코드 포인트 처리는 {@link #preview}가 마무리한다. 새 메시지는 매칭 updated_at 을 바꾸지 않으므로 정렬은 그대로다.
  * 정렬은 updated_at DESC, id DESC (사용자당 매칭 수는 작아 filesort 로 충분하며 전용 인덱스는 만들지 않았다. README EXPLAIN 참고).
  */
@@ -47,7 +48,9 @@ public class ExchangeMatchQueryRepository {
                    ua.nickname AS a_nickname, ub.nickname AS b_nickname,
                    (SELECT COUNT(*) FROM chat_message c WHERE c.match_id = m.id AND c.sender_id <> ?
                        AND c.id > COALESCE((SELECT r.last_read_message_id FROM chat_read_state r WHERE r.match_id = m.id AND r.user_id = ?), 0)) AS unread_chat_count,
-                   LEFT(lm.content, 61) AS last_message_head, lm.created_at AS last_message_at, lm.sender_id AS last_message_sender_id
+                   (SELECT LEFT(l1.content, 61) FROM chat_message l1 FORCE INDEX (idx_chat_message_match) WHERE l1.match_id = m.id ORDER BY l1.id DESC LIMIT 1) AS last_message_head,
+                   (SELECT l2.created_at FROM chat_message l2 FORCE INDEX (idx_chat_message_match) WHERE l2.match_id = m.id ORDER BY l2.id DESC LIMIT 1) AS last_message_at,
+                   (SELECT l3.sender_id FROM chat_message l3 FORCE INDEX (idx_chat_message_match) WHERE l3.match_id = m.id ORDER BY l3.id DESC LIMIT 1) AS last_message_sender_id
             FROM exchange_match m
             JOIN ticket ta               ON ta.id = m.ticket_a_id
             JOIN performance_session psa ON psa.id = ta.performance_session_id
@@ -57,7 +60,6 @@ public class ExchangeMatchQueryRepository {
             JOIN exchange_request rb     ON rb.id = m.request_b_id
             JOIN users ua                ON ua.id = m.user_a_id
             JOIN users ub                ON ub.id = m.user_b_id
-            LEFT JOIN chat_message lm    ON lm.id = (SELECT MAX(lc.id) FROM chat_message lc FORCE INDEX (idx_chat_message_match) WHERE lc.match_id = m.id)
             """;
 
     private static final String ORDER = " ORDER BY m.updated_at DESC, m.id DESC LIMIT ? OFFSET ?";

@@ -98,6 +98,12 @@ public class JwtTokenProvider {
         return parseClaims(token).getExpiration().toInstant();
     }
 
+    /** 토큰 발급 시각(iat, 초 단위). 검증된 토큰에만 호출한다. */
+    public java.time.Instant getIssuedAt(String token) {
+        Date iat = parseClaims(token).getIssuedAt();
+        return iat == null ? null : iat.toInstant();
+    }
+
     public String getEmail(String token) {
         return parseClaims(token).get(CLAIM_EMAIL, String.class);
     }

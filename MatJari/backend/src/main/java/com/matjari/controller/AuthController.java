@@ -122,18 +122,18 @@ public class AuthController {
     /**
      * 로그인 상태의 비밀번호 변경(쿠키 인식 버전). 리프레시 쿠키 mj_rt 는 Path=/api/auth 라서 {@code PATCH /api/users/me/password} 에는 실려 오지 않는다.
      * 이 경로로 부르면 현재 기기의 쿠키 계열은 유지하고 나머지 기기의 로그인을 끊는다. 규칙·오류는 /api/users/me/password 와 같다.
-     * 액세스 토큰 필수(없으면 401).
+     * 액세스 토큰 필수(없으면 401). 성공 200 + 새 액세스 토큰({@link TokenResponse}): 비밀번호를 바꾸면 이전에 발급된 액세스 토큰은 거부되므로 프런트는 응답 토큰으로 바꾼다.
      */
     @PatchMapping("/password")
-    public ResponseEntity<Void> changePassword(@AuthenticationPrincipal AuthUserPrincipal principal,
+    public ResponseEntity<TokenResponse> changePassword(@AuthenticationPrincipal AuthUserPrincipal principal,
                                                @Valid @RequestBody PasswordRequests.ChangeRequest request,
                                                HttpServletRequest http) {
         if (principal == null) {
             throw new InsufficientAuthenticationException("로그인이 필요합니다.");
         }
-        passwordResetService.changePassword(principal.userId(), principal.email(), clientIpResolver.resolve(http),
+        TokenResponse token = passwordResetService.changePassword(principal.userId(), principal.email(), clientIpResolver.resolve(http),
                 request.currentPassword(), request.newPassword(), refreshCookie.read(http));
-        return ResponseEntity.noContent().build();
+        return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store").body(token);
     }
 
     private ResponseEntity<TokenResponse> tokenResponse(AuthService.IssuedTokens tokens) {

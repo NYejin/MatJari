@@ -77,4 +77,24 @@ class CustomUserDetailsServiceTest {
         // 필터가 이 예외만 잡아 미인증(→401)으로 처리한다
         assertThatThrownBy(() -> service.loadUserById(99L)).isInstanceOf(UsernameNotFoundException.class);
     }
+
+    @Test
+    void 비밀번호_변경_시각은_KST로_해석해_주체에_담는다() {
+        User user = User.create("a@b.com", "encoded", "닉네임");
+        ReflectionTestUtils.setField(user, "id", 7L);
+        user.changePassword("newEncoded", java.time.LocalDateTime.of(2026, 11, 22, 9, 0, 0));
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user));
+
+        AuthUserPrincipal principal = service.loadUserById(7L);
+
+        assertThat(principal.credentialsChangedAt()).isEqualTo(java.time.Instant.parse("2026-11-22T00:00:00Z"));
+        assertThat(principal.isIssuedBeforeCredentialChange(java.time.Instant.parse("2026-11-21T23:59:59Z"))).isTrue();
+        assertThat(principal.isIssuedBeforeCredentialChange(java.time.Instant.parse("2026-11-22T00:00:00Z"))).isFalse();
+
+        User fresh = User.create("b@b.com", "encoded", "닉네임");
+        ReflectionTestUtils.setField(fresh, "id", 8L);
+        when(userRepository.findById(8L)).thenReturn(Optional.of(fresh));
+        assertThat(service.loadUserById(8L).credentialsChangedAt()).isNull();
+        assertThat(service.loadUserById(8L).isIssuedBeforeCredentialChange(java.time.Instant.EPOCH)).isFalse();
+    }
 }

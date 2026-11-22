@@ -74,6 +74,8 @@ class PasswordResetControllerSliceTest {
     @BeforeEach
     void setUp() {
         when(clientIpResolver.resolve(any())).thenReturn("9.9.9.9");
+        when(passwordResetService.changePassword(any(), any(), any(), any(), any(), any()))
+                .thenReturn(com.matjari.dto.response.TokenResponse.of("new-access"));
         when(tokenProvider.validateToken("good")).thenReturn(true);
         when(tokenProvider.isRefreshToken("good")).thenReturn(false);
         when(tokenProvider.getUserId("good")).thenReturn(1L);
@@ -180,14 +182,15 @@ class PasswordResetControllerSliceTest {
         mockMvc.perform(patch("/api/users/me/password").header("Authorization", "Bearer good")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json("{\"currentPassword\":\"oldpassword1\",\"newPassword\":\"newpassword1\"}")))
-                .andExpect(status().isNoContent());
+                .andExpect(status().isOk()).andExpect(jsonPath("$.accessToken").value("new-access"))
+                .andExpect(header().string("Cache-Control", "no-store"));
         verify(passwordResetService).changePassword(1L, "a@b.com", "9.9.9.9", "oldpassword1", "newpassword1", null);
 
         when(refreshCookie.read(any())).thenReturn("cookie-token");
         mockMvc.perform(patch("/api/auth/password").header("Authorization", "Bearer good").cookie(new Cookie("mj_rt", "cookie-token"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json("{\"currentPassword\":\"oldpassword1\",\"newPassword\":\"newpassword1\"}")))
-                .andExpect(status().isNoContent());
+                .andExpect(status().isOk()).andExpect(jsonPath("$.accessToken").value("new-access"));
         verify(passwordResetService).changePassword(1L, "a@b.com", "9.9.9.9", "oldpassword1", "newpassword1", "cookie-token");
     }
 
@@ -222,5 +225,16 @@ class PasswordResetControllerSliceTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json("{\"currentPassword\":\"lockedpassword\",\"newPassword\":\"newpassword1\"}")))
                 .andExpect(status().isTooManyRequests()).andExpect(jsonPath("$.code").value("LOGIN_RATE_LIMITED"));
+    }
+
+    @Test
+    void 메일을_보낼_수_없는_설정이면_재설정_요청은_503_PASSWORD_RESET_UNAVAILABLE() throws Exception {
+        doThrow(new PasswordResetService.PasswordResetUnavailableException())
+                .when(passwordResetService).requestReset(anyString(), anyString());
+        mockMvc.perform(post("/api/auth/password-reset/request").contentType(MediaType.APPLICATION_JSON)
+                        .content(json("{\"email\":\"a@b.com\"}")))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("PASSWORD_RESET_UNAVAILABLE"))
+                .andExpect(jsonPath("$.message").value("지금은 비밀번호 재설정 메일을 보낼 수 없어요. 잠시 후 다시 시도하거나 문의해 주세요."));
     }
 }

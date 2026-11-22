@@ -124,6 +124,11 @@ class PasswordResetTokenSchemaMysqlTest {
         mig.update(RT_INSERT, 1, "f".repeat(64), FAMILY, t, t, t.plusDays(14), t, "ADMIN");
         assertRejected("ck_refresh_token_reason", () -> mig.update(RT_INSERT, 1, "e".repeat(64), FAMILY, t, t, t.plusDays(14), t, "PASSWORD_RESET"));
         assertThat(migFlyway("28").migrate().migrationsExecuted).as("V28").isEqualTo(1);
+        // users.credentials_changed_at: DATETIME(6) NULL, 기존 행은 NULL(제한 없음)
+        assertThat(mig.queryForObject("SELECT CONCAT(COLUMN_TYPE, ' ', IS_NULLABLE) FROM information_schema.COLUMNS "
+                + "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'credentials_changed_at'", String.class))
+                .isEqualTo("datetime(6) YES");
+        assertThat(mig.queryForObject("SELECT COUNT(*) FROM users WHERE credentials_changed_at IS NOT NULL", Integer.class)).isZero();
     }
 
     private List<String> indexColumns(String index) {

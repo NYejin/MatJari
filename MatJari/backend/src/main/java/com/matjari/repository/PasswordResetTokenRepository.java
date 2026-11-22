@@ -41,10 +41,25 @@ public interface PasswordResetTokenRepository extends JpaRepository<PasswordRese
             + "where t.userId = :userId and t.usedAt is null and t.invalidatedAt is null")
     int invalidateAllActiveByUserId(@Param("userId") Long userId, @Param("now") LocalDateTime now);
 
-    /** 탈퇴: 사용자의 행을 모두 지운다(request_ip 개인정보 파기). users 행 FOR UPDATE 를 잡은 트랜잭션 안에서 부른다. */
+    /** 사용자의 행 id 를 (expires_at, id) 순으로 잠금 없이 읽는다. 만료 정리(expires_at 순)와 같은 방향으로 지워 반대 순서 잠금을 피한다. */
+    @Query("select t.id from PasswordResetToken t where t.userId = :userId order by t.expiresAt, t.id")
+    java.util.List<Long> findIdsByUserIdOrdered(@Param("userId") Long userId);
+
     @Modifying(flushAutomatically = true)
-    @Query("delete from PasswordResetToken t where t.userId = :userId")
-    int deleteAllByUserId(@Param("userId") Long userId);
+    @Query("delete from PasswordResetToken t where t.id = :id")
+    int deleteRowById(@Param("id") Long id);
+
+    /**
+     * 탈퇴: 사용자의 행을 모두 지운다(request_ip 개인정보 파기). users 행 FOR UPDATE 를 잡은 트랜잭션 안에서 부른다(그 사이 새 행이 생기지 않는다).
+     * 한 문장 DELETE 대신 (expires_at, id) 순으로 한 행씩 지워, 같은 방향(expires_at 순)으로 잠그는 만료 정리 배치와 교착하지 않게 한다.
+     */
+    default int deleteAllByUserId(Long userId) {
+        int n = 0;
+        for (Long id : findIdsByUserIdOrdered(userId)) {
+            n += deleteRowById(id);
+        }
+        return n;
+    }
 
     /**
      * 만료 행 배치 삭제(사용·무효 여부와 무관, expires_at &lt; cutoff). idx_password_reset_token_expires 범위로 오래된 것부터 최대 limit 개를

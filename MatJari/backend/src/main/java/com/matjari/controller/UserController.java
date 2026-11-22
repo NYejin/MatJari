@@ -54,17 +54,17 @@ public class UserController {
 
     /**
      * 비밀번호 변경(로그인 상태). 비밀번호 로그인 계정만(소셜 전용은 409 PASSWORD_LOGIN_DISABLED), 현재 비밀번호가 틀리면 400 currentPassword
-     * (로그인 실패 제한에 센다, 잠기면 429 LOGIN_RATE_LIMITED), 새 비밀번호가 같으면 400 newPassword. 성공 204.
+     * (로그인 실패 제한에 센다, 잠기면 429 LOGIN_RATE_LIMITED), 새 비밀번호가 같으면 400 newPassword. 성공 200 + 새 액세스 토큰(TokenResponse, 이전 액세스 토큰은 거부된다).
      * 리프레시 쿠키(Path=/api/auth)는 이 경로에 오지 않아 어느 기기가 현재인지 알 수 없으므로 모든 로그인 유지 토큰을 폐기한다.
      * 현재 기기를 유지하려면 쿠키가 실리는 {@code PATCH /api/auth/password} 를 쓴다.
      */
     @PatchMapping("/me/password")
-    public ResponseEntity<Void> changePassword(@AuthenticationPrincipal AuthUserPrincipal principal,
+    public ResponseEntity<com.matjari.dto.response.TokenResponse> changePassword(@AuthenticationPrincipal AuthUserPrincipal principal,
                                                @Valid @RequestBody PasswordRequests.ChangeRequest body,
                                                HttpServletRequest http) {
-        passwordResetService.changePassword(principal.userId(), principal.email(), clientIpResolver.resolve(http),
-                body.currentPassword(), body.newPassword(), null);
-        return ResponseEntity.noContent().build();
+        com.matjari.dto.response.TokenResponse token = passwordResetService.changePassword(principal.userId(), principal.email(),
+                clientIpResolver.resolve(http), body.currentPassword(), body.newPassword(), null);
+        return ResponseEntity.ok().header(org.springframework.http.HttpHeaders.CACHE_CONTROL, "no-store").body(token);
     }
 
     /** 닉네임 수정(FR-01). 같은 값이면 멱등 200. */

@@ -50,6 +50,7 @@ digraph MatJariERD {
       <TR><TD> </TD><TD ALIGN="LEFT">created_at</TD></TR>
       <TR><TD> </TD><TD ALIGN="LEFT">role (USER/ADMIN, NN, 기본 USER, utf8mb4_bin + CHECK)</TD></TR>
       <TR><TD> </TD><TD ALIGN="LEFT">withdrawn_at DATETIME(6) NULL (V17, NULL=활성 / 값=탈퇴·익명화)</TD></TR>
+      <TR><TD> </TD><TD ALIGN="LEFT">credentials_changed_at DATETIME(6) NULL (V28, 비밀번호 재설정·변경 시각 / 이전에 발급된 액세스 토큰 거부 기준)</TD></TR>
     </TABLE>>];
 
   // ---------- 소셜 로그인 계정 (V14, 2026-10-12) ----------

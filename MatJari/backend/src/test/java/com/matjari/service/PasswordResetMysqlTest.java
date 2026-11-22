@@ -425,7 +425,7 @@ class PasswordResetMysqlTest {
         String[] b = login(u);   // 다른 기기
         String[] c = login(u);   // 또 다른 기기
 
-        assertThat(change("/api/auth/password", a[0], a[1], PASSWORD, NEW_PASSWORD).getResponse().getStatus()).isEqualTo(204);
+        assertThat(change("/api/auth/password", a[0], a[1], PASSWORD, NEW_PASSWORD).getResponse().getStatus()).isEqualTo(200);
 
         assertThat(count("SELECT COUNT(*) FROM refresh_token WHERE user_id = ? AND revoke_reason = 'PASSWORD_RESET'", u)).isEqualTo(2);
         assertThat(refreshStatus(a[1])).as("현재 기기는 유지").isEqualTo(200);
@@ -440,7 +440,7 @@ class PasswordResetMysqlTest {
         long u = user();
         String[] a = login(u);
         String[] b = login(u);
-        assertThat(change("/api/users/me/password", a[0], null, PASSWORD, NEW_PASSWORD).getResponse().getStatus()).isEqualTo(204);
+        assertThat(change("/api/users/me/password", a[0], null, PASSWORD, NEW_PASSWORD).getResponse().getStatus()).isEqualTo(200);
         assertThat(refreshStatus(a[1])).isEqualTo(401);
         assertThat(refreshStatus(b[1])).isEqualTo(401);
     }
@@ -451,7 +451,7 @@ class PasswordResetMysqlTest {
         long other = user();
         String[] a = login(u);
         String[] o = login(other);
-        assertThat(change("/api/auth/password", a[0], o[1], PASSWORD, NEW_PASSWORD).getResponse().getStatus()).isEqualTo(204);
+        assertThat(change("/api/auth/password", a[0], o[1], PASSWORD, NEW_PASSWORD).getResponse().getStatus()).isEqualTo(200);
         assertThat(refreshStatus(a[1])).isEqualTo(401);
         assertThat(refreshStatus(o[1])).as("남의 계열은 건드리지 않는다").isEqualTo(200);
     }
@@ -462,7 +462,7 @@ class PasswordResetMysqlTest {
         String[] a = login(u);
         requestReset(email(u));
         String token = tokenFromMail(1);
-        assertThat(change("/api/users/me/password", a[0], null, PASSWORD, NEW_PASSWORD).getResponse().getStatus()).isEqualTo(204);
+        assertThat(change("/api/users/me/password", a[0], null, PASSWORD, NEW_PASSWORD).getResponse().getStatus()).isEqualTo(200);
         assertThat(confirmRaw(token, "linkPassword99").getResponse().getStatus()).isEqualTo(400);
         assertThat(loginStatus(email(u), NEW_PASSWORD)).isEqualTo(200);
     }
@@ -569,4 +569,71 @@ class PasswordResetMysqlTest {
 
     @Autowired
     private PasswordResetService passwordResetService;
+
+    // ------------------------------------------------------------------ 옛 액세스 토큰 거부 (credentials_changed_at)
+
+    private int meStatus(String access) throws Exception {
+        return mockMvc.perform(withIp(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/users/me"))
+                .header("Authorization", "Bearer " + access)).andReturn().getResponse().getStatus();
+    }
+
+    /** 토큰 iat(초)와 변경 시각(초)이 같은 초가 되지 않도록 다음 초까지 기다린다. */
+    private void nextSecond() throws Exception {
+        Thread.sleep(1100);
+    }
+
+    @Test
+    void 재설정_확정_뒤_이전에_받은_액세스_토큰은_401이고_새로_로그인한_토큰은_200() throws Exception {
+        long u = user();
+        String[] old = login(u);
+        assertThat(meStatus(old[0])).isEqualTo(200);
+        assertThat(jdbc.queryForObject("SELECT credentials_changed_at FROM users WHERE id = ?", Object.class, u)).isNull();
+        nextSecond();
+        requestReset(email(u));
+        assertThat(confirmRaw(tokenFromMail(1), NEW_PASSWORD).getResponse().getStatus()).isEqualTo(204);
+
+        assertThat(jdbc.queryForObject("SELECT credentials_changed_at FROM users WHERE id = ?", Object.class, u)).isNotNull();
+        assertThat(meStatus(old[0])).isEqualTo(401);
+        MvcResult fresh = mockMvc.perform(withIp(post("/api/auth/login")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"" + email(u) + "\",\"password\":\"" + NEW_PASSWORD + "\"}")).andReturn();
+        Matcher m = Pattern.compile("\"accessToken\":\"([^\"]+)\"").matcher(fresh.getResponse().getContentAsString());
+        assertThat(m.find()).isTrue();
+        assertThat(meStatus(m.group(1))).isEqualTo(200);
+    }
+
+    @Test
+    void 변경_뒤_이전_액세스_토큰은_401이고_응답으로_받은_새_토큰은_200이며_쿠키로_재발급도_된다() throws Exception {
+        long u = user();
+        long other = user();
+        String[] a = login(u);
+        String[] o = login(other);
+        nextSecond();
+        MvcResult r = change("/api/auth/password", a[0], a[1], PASSWORD, NEW_PASSWORD);
+        assertThat(r.getResponse().getStatus()).isEqualTo(200);
+        assertThat(r.getResponse().getHeader("Cache-Control")).isEqualTo("no-store");
+        Matcher m = Pattern.compile("\"accessToken\":\"([^\"]+)\"").matcher(r.getResponse().getContentAsString());
+        assertThat(m.find()).isTrue();
+
+        assertThat(meStatus(a[0])).as("옛 토큰").isEqualTo(401);
+        assertThat(meStatus(m.group(1))).as("응답으로 받은 새 토큰").isEqualTo(200);
+        assertThat(refreshStatus(a[1])).as("현재 기기는 쿠키로 재발급").isEqualTo(200);
+        assertThat(meStatus(o[0])).as("다른 사용자는 영향 없음").isEqualTo(200);
+    }
+
+    @Test
+    void 변경_때_쿠키_토큰이_방금_회전돼_유예_안이면_그_계열을_유지한다() throws Exception {
+        long u = user();
+        String[] a = login(u);
+        String[] other = login(u);
+        MvcResult rotated = mockMvc.perform(withIp(post("/api/auth/refresh")).header("X-Requested-With", AJAX)
+                .cookie(new Cookie("mj_rt", a[1]))).andReturn();
+        assertThat(rotated.getResponse().getStatus()).isEqualTo(200);
+        String newCookie = rotated.getResponse().getCookie("mj_rt").getValue();
+
+        // 브라우저가 아직 옛 쿠키(a[1], ROTATED)를 들고 변경을 요청한 경우
+        assertThat(change("/api/auth/password", a[0], a[1], PASSWORD, NEW_PASSWORD).getResponse().getStatus()).isEqualTo(200);
+
+        assertThat(refreshStatus(newCookie)).as("현재 기기 계열 유지").isEqualTo(200);
+        assertThat(refreshStatus(other[1])).as("다른 기기는 폐기").isEqualTo(401);
+    }
 }

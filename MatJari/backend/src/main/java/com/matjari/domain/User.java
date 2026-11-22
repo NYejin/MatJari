@@ -46,6 +46,10 @@ public class User {
     @Column(name = "withdrawn_at")
     private LocalDateTime withdrawnAt;
 
+    /** 비밀번호를 재설정·변경한 시각(V28, KST). NULL 이면 제한 없음. 이 시각(초 단위 내림)보다 먼저 발급된 액세스 토큰은 거부한다. */
+    @Column(name = "credentials_changed_at")
+    private LocalDateTime credentialsChangedAt;
+
     /** 저장 시 JPA Auditing이 KST(Clock) 기준으로 채운다 — JpaAuditingConfig. */
     @CreatedDate
     @Column(updatable = false)
@@ -102,9 +106,13 @@ public class User {
         this.role = role;
     }
 
-    /** 비밀번호 변경. 인코딩(BCrypt)은 호출 쪽이 끝낸 값만 넘긴다. 일반 가입(passwordLoginEnabled) 계정만 호출한다. */
-    public void changePassword(String encodedPassword) {
+    /**
+     * 비밀번호 변경. 인코딩(BCrypt)은 호출 쪽이 끝낸 값만 넘긴다. 일반 가입(passwordLoginEnabled) 계정만 호출한다.
+     * now 를 credentialsChangedAt 에 기록해 이 시각(초) 이전에 발급된 액세스 토큰을 거부하게 한다.
+     */
+    public void changePassword(String encodedPassword, LocalDateTime now) {
         this.password = java.util.Objects.requireNonNull(encodedPassword, "encodedPassword");
+        this.credentialsChangedAt = java.util.Objects.requireNonNull(now, "now");
     }
 
     /** 닉네임 변경. 검증·정규화는 호출 쪽(UserService)이 한다. */

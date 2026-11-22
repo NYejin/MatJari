@@ -29,6 +29,9 @@
 -- 기존 데이터 변경 없음, 파괴적 단계 없음(CHECK 교체만).
 -- 되돌리기(롤포워드): 새 V 파일에서 password_reset_token 삭제, PASSWORD_RESET 행이 없을 때 refresh_token CHECK 를 5종으로 되돌림.
 --
+--  - users.credentials_changed_at DATETIME(6) NULL(2026-11-22 추가, V28 은 배포 전): 비밀번호를 재설정·변경한 시각. 인증 필터와 STOMP CONNECT 가
+--    토큰 iat(초)가 이 값(초로 내림)보다 작으면 거부해 옛 액세스 토큰을 무효로 만든다. 기존 행은 NULL(= 제한 없음). 인덱스·FK 없음.
+--
 -- 규칙: V1~V27 은 수정하지 않는다. 요구 버전 MySQL 8.0.16 이상. 다음 마이그레이션은 V29.
 -- =====================================================================
 
@@ -76,6 +79,11 @@ BEGIN
         END IF;
         ALTER TABLE refresh_token ADD CONSTRAINT ck_refresh_token_reason CHECK (
             revoke_reason IS NULL OR revoke_reason IN ('ROTATED', 'LOGOUT', 'REUSE', 'WITHDRAW', 'ADMIN', 'PASSWORD_RESET'));
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS
+                   WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'credentials_changed_at') THEN
+        ALTER TABLE users ADD COLUMN credentials_changed_at DATETIME(6) NULL;
     END IF;
 END//
 DELIMITER ;

@@ -5,6 +5,7 @@ import com.matjari.domain.RefreshToken;
 import com.matjari.domain.RefreshToken.RevokeReason;
 import com.matjari.domain.User;
 import com.matjari.dto.request.AuthInputNormalizer;
+import com.matjari.dto.response.TokenResponse;
 import com.matjari.exception.ConflictException;
 import com.matjari.exception.FieldValidationException;
 import com.matjari.exception.MatJariException;
@@ -12,9 +13,11 @@ import com.matjari.repository.PasswordResetTokenRepository;
 import com.matjari.repository.RefreshTokenRepository;
 import com.matjari.repository.UserRepository;
 import com.matjari.security.AuthRateLimiter;
+import com.matjari.security.JwtTokenProvider;
 import com.matjari.service.mail.EmailSender;
 import com.matjari.service.mail.EmailSenderConfig;
 import com.matjari.service.social.SocialProperties;
+import com.matjari.websocket.WebSocketSessionRegistry;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -23,6 +26,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.nio.charset.StandardCharsets;
@@ -56,8 +61,11 @@ import java.util.regex.Pattern;
  * </ul>
  * 모든 트랜잭션은 READ_COMMITTED(갭 잠금 방지, 리프레시 토큰·탈퇴와 같다). BCrypt 인코딩은 잠금 밖에서 한다.
  *
+ * <p>메일을 보낼 수 없는 설정(log 모드 + 비루프백 백엔드)이면 요청은 계정 조회 전에 모두 503 PASSWORD_RESET_UNAVAILABLE 이다.
+ * 비밀번호가 바뀌면 users.credentials_changed_at 을 기록해 그 전에 발급된 액세스 토큰을 필터·STOMP 가 거부하고 기존 STOMP 연결은 커밋 뒤 끊는다.
+ *
  * <p>한계: 요청 응답 시간은 계정이 있을 때(DB 쓰기 몇 번)가 없을 때보다 수 ms 길다. 속도 제한은 메모리·단일 인스턴스 기준이다.
- * log 메일 모드에서 백엔드 주소가 루프백이 아니면(운영) 링크가 로그에 남지 않도록 발송 자체를 건너뛰고 경고만 남긴다.
+ * 같은 초에 발급된 옛 액세스 토큰은 변경 직후 새 토큰과 구분할 수 없어 허용한다(최대 1초 창).
  */
 @Slf4j
 @Service
@@ -80,6 +88,13 @@ public class PasswordResetService {
         }
     }
 
+    /** 503 PASSWORD_RESET_UNAVAILABLE. 메일을 실제로 보낼 수 없는 설정(log 모드 + 비루프백 백엔드)이라 모든 요청을 똑같이 거절한다. */
+    public static class PasswordResetUnavailableException extends MatJariException {
+        public PasswordResetUnavailableException() {
+            super("지금은 비밀번호 재설정 메일을 보낼 수 없어요. 잠시 후 다시 시도하거나 문의해 주세요.");
+        }
+    }
+
     private final UserRepository userRepository;
     private final PasswordResetTokenRepository tokenRepository;
     private final RefreshTokenRepository refreshTokenRepository;
@@ -87,6 +102,9 @@ public class PasswordResetService {
     private final EmailSender emailSender;
     private final SocialProperties socialProperties;
     private final AuthRateLimiter rateLimiter;
+    private final JwtTokenProvider jwtTokenProvider;
+    private final WebSocketSessionRegistry sessionRegistry;
+    private final Duration reuseGrace;
     private final Clock clock;
     private final TransactionTemplate tx;
     private final Duration ttl;
@@ -103,7 +121,9 @@ public class PasswordResetService {
     public PasswordResetService(UserRepository userRepository, PasswordResetTokenRepository tokenRepository,
                                 RefreshTokenRepository refreshTokenRepository, PasswordEncoder passwordEncoder,
                                 EmailSender emailSender, SocialProperties socialProperties, AuthRateLimiter rateLimiter,
+                                JwtTokenProvider jwtTokenProvider, WebSocketSessionRegistry sessionRegistry,
                                 Clock clock, PlatformTransactionManager transactionManager,
+                                @Value("${matjari.auth.refresh-reuse-grace-seconds:20}") long reuseGraceSeconds,
                                 @Value("${matjari.password-reset.ttl-minutes:30}") long ttlMinutes,
                                 @Value("${matjari.mail.mode:log}") String mailMode) {
         this.userRepository = userRepository;
@@ -113,6 +133,9 @@ public class PasswordResetService {
         this.emailSender = emailSender;
         this.socialProperties = socialProperties;
         this.rateLimiter = rateLimiter;
+        this.jwtTokenProvider = jwtTokenProvider;
+        this.sessionRegistry = sessionRegistry;
+        this.reuseGrace = Duration.ofSeconds(reuseGraceSeconds);
         this.clock = clock;
         this.ttl = Duration.ofMinutes(ttlMinutes);
         this.tx = new TransactionTemplate(transactionManager);
@@ -130,6 +153,10 @@ public class PasswordResetService {
 
     /** 재설정 링크 요청. 항상 조용히 끝난다(가입 여부를 드러내지 않는다). 속도 제한은 이 안에서 센다(초과 429). */
     public void requestReset(String rawEmail, String ip) {
+        if (linkLoggingForbidden) {
+            // 계정 조회 전에 모든 요청을 똑같이 거절한다(가입 여부를 드러내지 않고, 보낼 수 없는데 성공처럼 보이지 않게)
+            throw new PasswordResetUnavailableException();
+        }
         String email = AuthInputNormalizer.normalizeEmail(rawEmail);
         if (email == null || email.isEmpty()) {
             return;
@@ -164,10 +191,6 @@ public class PasswordResetService {
     }
 
     private void sendAfterCommit(String email, String rawToken) {
-        if (linkLoggingForbidden) {
-            log.warn("비밀번호 재설정 메일을 보내지 않았습니다: 메일 모드가 log 인데 백엔드 주소가 루프백이 아닙니다(MATJARI_MAIL_MODE=smtp 필요).");
-            return;
-        }
         String body = mailBody(rawToken);
         try {
             mailExecutor.execute(() -> {
@@ -222,11 +245,12 @@ public class PasswordResetService {
             if (token == null || !userId.equals(token.getUserId()) || !token.isUsableAt(now)) {
                 return null;
             }
-            user.changePassword(encoded);
+            user.changePassword(encoded, now);
             userRepository.saveAndFlush(user);
             token.markUsed(now);
             tokenRepository.saveAndFlush(token);
             refreshTokenRepository.revokeAllActiveByUserId(userId, RevokeReason.PASSWORD_RESET, now);
+            closeSocketsAfterCommit(userId);
             return user.getEmail();
         });
         if (email == null) {
@@ -244,8 +268,8 @@ public class PasswordResetService {
      * @throws ConflictException        409 PASSWORD_LOGIN_DISABLED (소셜 전용 계정)
      * @throws FieldValidationException 400 currentPassword(틀림) / newPassword(현재와 같음·너무 김)
      */
-    public void changePassword(Long userId, String email, String ip, String currentPassword, String newPassword,
-                               String currentRefreshToken) {
+    public TokenResponse changePassword(Long userId, String email, String ip, String currentPassword, String newPassword,
+                                        String currentRefreshToken) {
         rateLimiter.checkLogin(email, ip);
         if (exceedsBcryptLimit(newPassword)) {
             throw new FieldValidationException("newPassword", PASSWORD_BYTES_MESSAGE);
@@ -260,6 +284,8 @@ public class PasswordResetService {
             throw e;
         }
         rateLimiter.recordLoginSuccess(email);
+        // 변경 시각(초)과 같거나 늦은 iat 로 새 액세스 토큰을 준다(옛 토큰은 필터가 거부한다)
+        return TokenResponse.of(jwtTokenProvider.generateAccessToken(userId, email));
     }
 
     private void doChange(Long userId, String currentPassword, String newPassword, String encoded, String refreshRaw) {
@@ -277,7 +303,7 @@ public class PasswordResetService {
             throw new FieldValidationException("newPassword", "현재 비밀번호와 다른 비밀번호를 입력해주세요.");
         }
         LocalDateTime now = LocalDateTime.now(clock);
-        user.changePassword(encoded);
+        user.changePassword(encoded, now);
         userRepository.saveAndFlush(user);
         tokenRepository.invalidateAllActiveByUserId(userId, now);   // 이미 메일로 나간 재설정 링크를 못 쓰게 한다
         String keepFamily = familyOf(userId, refreshRaw);
@@ -286,6 +312,24 @@ public class PasswordResetService {
         } else {
             refreshTokenRepository.revokeAllActiveByUserIdExceptFamily(userId, keepFamily, RevokeReason.PASSWORD_RESET, now);
         }
+        closeSocketsAfterCommit(userId);
+    }
+
+    /** 커밋 뒤 그 사용자의 기존 STOMP 연결을 끊는다(탈퇴와 같은 방식, 실패는 삼킨다 — 토큰은 이미 거부된다). */
+    private void closeSocketsAfterCommit(Long userId) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    sessionRegistry.closeAllOf(userId);
+                } catch (RuntimeException e) {
+                    log.warn("Closing STOMP sessions after password change failed: {}", e.getClass().getSimpleName());
+                }
+            }
+        });
     }
 
     /** 쿠키 토큰이 이 사용자의 살아 있는 계열이면 계열 id, 아니면 null. users 잠금 안에서 잠금 없이 읽는다. */
@@ -299,8 +343,20 @@ public class PasswordResetService {
         }
         LocalDateTime now = LocalDateTime.now(clock);
         return refreshTokenRepository.findById(tokenId)
-                .filter(t -> userId.equals(t.getUserId()) && t.isUsableAt(now))
+                .filter(t -> userId.equals(t.getUserId()) && (t.isUsableAt(now) || rotatedWithinGrace(t, now)))
                 .map(RefreshToken::getFamilyId).orElse(null);
+    }
+
+    /**
+     * 방금 회전돼 ROTATED 가 된 쿠키 토큰(재발급이 막 끝나 브라우저가 새 쿠키를 아직 못 받은 경우)이 재사용 유예 안이고 대체 토큰이 살아 있으면
+     * 같은 계열로 본다(현재 기기 로그아웃 방지, RefreshTokenService.withinReuseGrace 와 같은 기준).
+     */
+    private boolean rotatedWithinGrace(RefreshToken t, LocalDateTime now) {
+        if (t.getRevokeReason() != RevokeReason.ROTATED || t.getRevokedAt() == null || t.getReplacedById() == null
+                || now.isAfter(t.getRevokedAt().plus(reuseGrace))) {
+            return false;
+        }
+        return refreshTokenRepository.findById(t.getReplacedById()).map(next -> next.isUsableAt(now)).orElse(false);
     }
 
     // ------------------------------------------------------------------ 정리·도우미

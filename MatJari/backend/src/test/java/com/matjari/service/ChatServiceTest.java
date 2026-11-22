@@ -52,6 +52,8 @@ class ChatServiceTest {
     private ChatReadStateRepository readStateRepository;
     private ChatPushPublisher publisher;
     private ChatRateLimiter rateLimiter;
+    private ChatImageRateLimiter imageRateLimiter;
+    private ChatImageStore imageStore;
     private NotificationService notificationService;
     private ChatService service;
     private ExchangeMatch match;
@@ -64,11 +66,13 @@ class ChatServiceTest {
         readStateRepository = mock(ChatReadStateRepository.class);
         publisher = mock(ChatPushPublisher.class);
         rateLimiter = mock(ChatRateLimiter.class);
+        imageRateLimiter = mock(ChatImageRateLimiter.class);
+        imageStore = mock(ChatImageStore.class);
         notificationService = mock(NotificationService.class);
         ObjectProvider<ChatPushPublisher> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable(any(Supplier.class))).thenReturn(publisher);
         Clock clock = Clock.fixed(Instant.parse("2026-10-11T03:00:00Z"), ZoneId.of("Asia/Seoul"));
-        service = new ChatService(matchRepository, messageRepository, readStateRepository, rateLimiter, notificationService, provider, clock,
+        service = new ChatService(matchRepository, messageRepository, readStateRepository, rateLimiter, imageRateLimiter, imageStore, notificationService, provider, clock,
                 PerformanceFixtures.noopTransactionManager());
 
         match = new ExchangeMatch();

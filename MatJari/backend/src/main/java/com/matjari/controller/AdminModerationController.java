@@ -10,6 +10,7 @@ import com.matjari.dto.response.PageResponse;
 import com.matjari.security.AuthUserPrincipal;
 import com.matjari.service.AdminModerationService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -46,6 +47,12 @@ public class AdminModerationController {
                                            @RequestParam(required = false) Long before,
                                            @RequestParam(required = false) Integer size) {
         return service.messages(id, before, size);
+    }
+
+    /** 채팅 근거의 사진(V30). 그 신고 매칭의 메시지만, 지워졌으면 410 IMAGE_EXPIRED. */
+    @GetMapping("/reports/{reportId}/messages/{messageId}/image")
+    public ResponseEntity<byte[]> messageImage(@PathVariable Long reportId, @PathVariable Long messageId) {
+        return ChatController.imageResponse(service.messageImage(reportId, messageId));
     }
 
     /** 조치. sanction 이 있으면 같은 트랜잭션에서 이용 정지 + 열린 매칭 시스템 취소. 409 REPORT_ALREADY_HANDLED / CANNOT_SANCTION_ADMIN / SANCTION_ALREADY_ACTIVE. */

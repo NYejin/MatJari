@@ -71,6 +71,23 @@ public class GlobalExceptionHandler {
                 .header("Retry-After", String.valueOf(e.getRetryAfterSeconds())).body(body);
     }
 
+    // 429 — 채팅 사진 하루 상한(V30): {"code":"CHAT_IMAGE_RATE_LIMITED","message":..,"retryAfterSeconds":n} + Retry-After 헤더
+    @ExceptionHandler(com.matjari.service.ChatImageRateLimiter.ChatImageRateLimitedException.class)
+    public ResponseEntity<Map<String, Object>> handleChatImageRateLimited(com.matjari.service.ChatImageRateLimiter.ChatImageRateLimitedException e) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("code", e.getCode());
+        body.put("message", e.getMessage());
+        body.put("retryAfterSeconds", e.getRetryAfterSeconds());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", String.valueOf(e.getRetryAfterSeconds())).body(body);
+    }
+
+    // 410 — 보관 기간이 지나 지워진 채팅 사진(V30): {"code":"IMAGE_EXPIRED","message":..}
+    @ExceptionHandler(com.matjari.service.ChatImageStore.ImageExpiredException.class)
+    public ResponseEntity<Map<String, String>> handleChatImageExpired(com.matjari.service.ChatImageStore.ImageExpiredException e) {
+        return ResponseEntity.status(HttpStatus.GONE).body(Map.of("code", e.getCode(), "message", e.getMessage()));
+    }
+
     // 429 — 회원 탈퇴 시도 제한: {"code":"WITHDRAW_RATE_LIMITED","message":..,"retryAfterSeconds":n} + Retry-After 헤더
     @ExceptionHandler(com.matjari.service.WithdrawService.WithdrawRateLimitedException.class)
     public ResponseEntity<Map<String, Object>> handleWithdrawRateLimited(

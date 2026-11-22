@@ -64,7 +64,9 @@ public final class ModerationDtos {
             Long senderId,
             String senderNickname,
             String content,
-            @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = DateTimeFormats.SECOND) LocalDateTime createdAt
+            @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = DateTimeFormats.SECOND) LocalDateTime createdAt,
+            boolean hasImage,
+            boolean imageExpired
     ) {}
 
     /** 최신부터 위로(id 내림차순). hasMore = 더 오래된 메시지가 있음. */

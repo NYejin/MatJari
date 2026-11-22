@@ -82,6 +82,17 @@ matjari:
   password-reset:
     # 비밀번호 재설정 링크 유효 시간(분). 링크는 {matjari.social.frontend-base-url}/reset-password#token=... 이고 메일은 matjari.mail.mode 를 따른다
     ttl-minutes: ${MATJARI_PASSWORD_RESET_TTL_MINUTES:30}
+  chat:
+    # 채팅 사진(V30): 파일은 matjari.upload.dir/chat/ 에 저장. 매칭이 COMPLETED·CANCELED 로 닫힌 뒤 이 일수가 지나면 지운다(처리 전 신고가 있으면 보관)
+    image-retention-days: ${MATJARI_CHAT_IMAGE_RETENTION_DAYS:30}
+    # 사용자당 KST 하루 사진 전송 상한(초과 429 CHAT_IMAGE_RATE_LIMITED)
+    image-daily-limit: ${MATJARI_CHAT_IMAGE_DAILY_LIMIT:30}
+    image-cleanup:
+      enabled: ${MATJARI_CHAT_IMAGE_CLEANUP_ENABLED:true}
+      interval-ms: ${MATJARI_CHAT_IMAGE_CLEANUP_INTERVAL_MS:3600000}
+      initial-delay-ms: ${MATJARI_CHAT_IMAGE_CLEANUP_INITIAL_DELAY_MS:300000}
+      grace-minutes: ${MATJARI_CHAT_IMAGE_CLEANUP_GRACE_MINUTES:60}
+      batch: ${MATJARI_CHAT_IMAGE_CLEANUP_BATCH:200}
   upload:
     # 좌석 소유 인증 사진 저장 디렉터리(웹에서 직접 서빙하지 않는 경로). UUID 이름으로만 저장한다. 처리 후 파일은 삭제된다
     dir: ${MATJARI_UPLOAD_DIR:./data/seat-claims}

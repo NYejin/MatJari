@@ -34,6 +34,37 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
     /** 멱등 재전송 확인: 같은 (clientMessageId, 보낸 사람)의 기존 메시지. */
     Optional<ChatMessage> findByClientMessageIdAndSenderId(String clientMessageId, Long senderId);
 
+    /** 정리 대상 사진 한 건(id, 파일 키). */
+    interface ExpiredImage {
+        Long getId();
+
+        String getImageKey();
+    }
+
+    /**
+     * 보관 기간이 지난 사진(V30). 매칭이 닫힌 시각은 CANCELED 는 canceled_at, COMPLETED 는 두 사람의 교환 수락 시각 중 늦은 것
+     * (ck_exchange_match_completed 가 COMPLETED 에서 둘 다 NOT NULL 을 보장)이고, 그 시각이 cutoff 보다 이전이어야 한다.
+     * 그 매칭에 처리되지 않은(OPEN) 신고가 있으면 제외한다(처리될 때까지 보관). 잠금 없는 일관 읽기이고 id 순으로 limit 건.
+     */
+    @Query(value = "SELECT c.id AS id, c.image_key AS imageKey FROM chat_message c JOIN exchange_match m ON m.id = c.match_id "
+            + "WHERE c.image_key IS NOT NULL AND c.image_deleted_at IS NULL "
+            + "AND ((m.status = 'CANCELED' AND m.canceled_at < :cutoff) "
+            + "  OR (m.status = 'COMPLETED' AND GREATEST(m.a_completed_at, m.b_completed_at) < :cutoff)) "
+            + "AND NOT EXISTS (SELECT 1 FROM abuse_report r WHERE r.match_id = m.id AND r.status = 'OPEN') "
+            + "ORDER BY c.id LIMIT :limit", nativeQuery = true)
+    List<ExpiredImage> findImagesPastRetention(@Param("cutoff") java.time.LocalDateTime cutoff, @Param("limit") int limit);
+
+    /** 정리 작업이 PK 로 지운 시각을 기록한다(NULL -> 시각 한 번만). 매칭·티켓은 잠그지 않는다. 바뀐 행 수를 돌려준다. */
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.transaction.annotation.Transactional
+    @Query(value = "UPDATE chat_message SET image_deleted_at = :at WHERE id = :id AND image_key IS NOT NULL AND image_deleted_at IS NULL",
+            nativeQuery = true)
+    int markImageDeleted(@Param("id") Long id, @Param("at") java.time.LocalDateTime at);
+
+    /** 주어진 키 중 아직 살아 있는(지운 시각이 없는) 사진 메시지가 가리키는 키. 고아 파일 판정에 쓴다. */
+    @Query("select m.imageKey from ChatMessage m where m.imageKey in :keys and m.imageDeletedAt is null")
+    List<String> findLiveImageKeys(@Param("keys") java.util.Collection<String> keys);
+
     /** 읽음 포인터 절단: 요청 id 이하의 이 매칭 메시지 중 가장 큰 id (없으면 null). */
     @Query("select max(m.id) from ChatMessage m where m.matchId = :matchId and m.id <= :id")
     Long findMaxIdUpTo(@Param("matchId") Long matchId, @Param("id") Long id);

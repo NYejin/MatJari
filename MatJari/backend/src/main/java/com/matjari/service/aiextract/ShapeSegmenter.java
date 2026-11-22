@@ -831,13 +831,17 @@ public class ShapeSegmenter {
             int[] sorted = vals.clone();
             java.util.Arrays.sort(sorted);
             int blockV = sorted[tail / 2];
-            if (blockV > 200) { // 밝은 블록은 흰 선과 구분이 안 된다
+            // 밝은 블록(200 초과)은 흰 선과 구분이 안 되므로 어두운 선만 본다
+            boolean light = blockV <= 200;
+            // 어두운 구분선(205557 KBS아레나 보라 플로어 1~4 사이 검은 선): 블록이 충분히 밝을 때만, 블록보다 훨씬 어두운 픽셀도 선으로 본다
+            boolean dark = blockV >= 110;
+            if (!light && !dark) {
                 continue;
             }
             boolean[] cut = new boolean[m.length];
             int cutCount = 0;
             for (int i = 0; i < tail; i++) {
-                if (vals[i] >= 170 && vals[i] - blockV >= 50) {
+                if ((light && vals[i] >= 170 && vals[i] - blockV >= 50) || (dark && blockV - vals[i] >= 70)) {
                     cut[comp[i]] = true;
                     cutCount++;
                 }

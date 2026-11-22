@@ -69,6 +69,7 @@ class ExchangeRequestServiceTest {
     private PerformanceSessionRepository sessionRepository;
     private ExchangeMatchRepository matchRepository;
     private ExchangeRequestService service;
+    private org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     private final User me = user(1L, "나");
     private final User other = user(2L, "상대");
@@ -92,9 +93,10 @@ class ExchangeRequestServiceTest {
         ticketRepository = mock(TicketRepository.class);
         sessionRepository = mock(PerformanceSessionRepository.class);
         matchRepository = mock(ExchangeMatchRepository.class);
+        eventPublisher = mock(org.springframework.context.ApplicationEventPublisher.class);
         service = new ExchangeRequestService(requestRepository, rangeRepository, wantSessionRepository,
                 seatRepository, ticketRepository, sessionRepository, matchRepository, PerformanceFixtures.noopTransactionManager(),
-                PerformanceFixtures.timePolicy(), 5000, 50, 999, 999);
+                PerformanceFixtures.timePolicy(), 5000, 50, 999, 999, eventPublisher);
 
         myTicket = ticket(500L, me, mySession, TicketStatus.ACTIVE);
         when(ticketRepository.findByIdForUpdate(500L)).thenReturn(Optional.of(myTicket));
@@ -197,6 +199,18 @@ class ExchangeRequestServiceTest {
         assertThatThrownBy(() -> service.create(2L, create(ONE_SESSION, range("B", "1", "1", "1", "1"))))
                 .isInstanceOf(ForbiddenException.class);
         verify(requestRepository, never()).saveAndFlush(any());
+        verify(eventPublisher, never()).publishEvent(any(Object.class));   // 실패한 등록은 새 후보 이벤트를 내지 않는다
+    }
+
+    @Test
+    void 등록과_수정은_새_후보_확인_이벤트를_발행한다() {
+        service.create(1L, create(ONE_SESSION, range("B", "1", "2", "1", "2")));
+        verify(eventPublisher).publishEvent(new NewCandidateCheckEvent(900L));
+
+        org.mockito.Mockito.clearInvocations(eventPublisher);
+        stubExisting();
+        service.update(1L, 900L, update(List.of(new WantSessionInput(8L, 1)), range("B", "1", "2", "1", "2", "POS", 3000)));
+        verify(eventPublisher).publishEvent(new NewCandidateCheckEvent(900L));
     }
 
     @Test

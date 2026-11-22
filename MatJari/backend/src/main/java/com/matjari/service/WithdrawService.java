@@ -94,6 +94,7 @@ public class WithdrawService {
     private final com.matjari.repository.RefreshTokenRepository refreshTokenRepository;
     private final com.matjari.repository.PasswordResetTokenRepository passwordResetTokenRepository;
     private final NotificationRepository notificationRepository;
+    private final com.matjari.repository.UserNotificationSettingRepository notificationSettingRepository;
     private final OpenMatchCanceller matchCanceller;
     private final SeatClaimService seatClaimService;
     private final SocialLinkConfirmStore reauthStore;
@@ -112,6 +113,7 @@ public class WithdrawService {
                            com.matjari.repository.RefreshTokenRepository refreshTokenRepository,
                            com.matjari.repository.PasswordResetTokenRepository passwordResetTokenRepository,
                            NotificationRepository notificationRepository,
+                           com.matjari.repository.UserNotificationSettingRepository notificationSettingRepository,
                            OpenMatchCanceller matchCanceller, SeatClaimService seatClaimService,
                            SocialLinkConfirmStore reauthStore, SocialProperties socialProperties,
                            WebSocketSessionRegistry sessionRegistry, PasswordEncoder passwordEncoder,
@@ -123,6 +125,7 @@ public class WithdrawService {
         this.refreshTokenRepository = refreshTokenRepository;
         this.passwordResetTokenRepository = passwordResetTokenRepository;
         this.notificationRepository = notificationRepository;
+        this.notificationSettingRepository = notificationSettingRepository;
         this.matchCanceller = matchCanceller;
         this.seatClaimService = seatClaimService;
         this.reauthStore = reauthStore;
@@ -201,6 +204,7 @@ public class WithdrawService {
             userRepository.saveAndFlush(user);
 
             deleteNotificationsOf(userId);   // 알림 삭제
+            notificationSettingRepository.deleteByUserIdNative(userId);   // 알림 설정(메일 켜짐 여부·마지막 메일 시각) 삭제
             closeSocketsAfterCommit(userId);
             if (atEnd != null) {
                 atEnd.run();   // 맨 끝: 조치 기록

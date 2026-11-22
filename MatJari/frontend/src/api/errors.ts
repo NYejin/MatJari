@@ -117,3 +117,21 @@ export function authRateLimitMessage(error: unknown): string | null {
   if (code === null) return GENERIC_TOO_MANY;
   return null;
 }
+
+/**
+ * 비밀번호 재설정 요청·확인 화면용 429 안내 (해당 없으면 null).
+ * PASSWORD_RESET_RATE_LIMITED({code, message, retryAfterSeconds})와 code 없는 nginx 429를 처리한다.
+ */
+export function passwordResetRateLimitMessage(error: unknown): string | null {
+  if (!axios.isAxiosError(error) || error.response?.status !== 429) return null;
+  const code = getErrorCode(error);
+  if (code === "PASSWORD_RESET_RATE_LIMITED") {
+    const sec = getErrorNumber(error, "retryAfterSeconds");
+    const min = sec !== null && sec > 0 ? Math.ceil(sec / 60) : null;
+    return min
+      ? `요청이 너무 많아요. ${min}분 뒤 다시 시도해 주세요.`
+      : "요청이 너무 많아요. 잠시 뒤 다시 시도해 주세요.";
+  }
+  if (code === null) return GENERIC_TOO_MANY;
+  return null;
+}

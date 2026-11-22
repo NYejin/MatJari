@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import { requestLogout } from "./authClient";
+import { authClient, CSRF_HEADERS, requestLogout } from "./authClient";
 import type { User } from "../types/user";
 import type { EmailCodeResponse, EmailVerificationStatus, LoginRequest, SignupRequest, TokenResponse } from "../types/auth";
 
@@ -26,6 +26,24 @@ export const authApi = {
   async sendEmailCode(email: string): Promise<EmailCodeResponse> {
     const { data } = await apiClient.post<EmailCodeResponse>("/auth/signup/email-code", { email });
     return data;
+  },
+
+  /** POST /api/auth/password-reset/request — 가입 여부와 무관하게 항상 204. 400 {email}(형식), 429 PASSWORD_RESET_RATE_LIMITED */
+  async requestPasswordReset(email: string): Promise<void> {
+    await authClient.post("/auth/password-reset/request", { email }, { headers: CSRF_HEADERS });
+  },
+
+  /** POST /api/auth/password-reset/confirm — 204. 400 INVALID_RESET_TOKEN·{newPassword}, 429. 모든 기기가 로그아웃된다 */
+  async confirmPasswordReset(token: string, newPassword: string): Promise<void> {
+    await authClient.post("/auth/password-reset/confirm", { token, newPassword }, { headers: CSRF_HEADERS });
+  },
+
+  /**
+   * PATCH /api/auth/password — 로그인 상태에서 비밀번호 변경. 현재 기기는 로그인 유지, 다른 기기는 로그아웃.
+   * 400 {currentPassword}·{newPassword}, 409 PASSWORD_LOGIN_DISABLED, 429 LOGIN_RATE_LIMITED. (/users/me/password는 현재 기기도 끊어 쓰지 않는다)
+   */
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    await apiClient.patch("/auth/password", { currentPassword, newPassword }, { headers: CSRF_HEADERS });
   },
 
   /** POST /api/auth/logout — 서버가 리프레시 토큰 계열을 폐기하고 쿠키를 지운다. 인터셉터 없는 authClient 사용 */

@@ -182,6 +182,12 @@ export default function LoginPage() {
             error={fieldErrors.password}
           />
 
+          <div className="-mt-2 flex justify-end">
+            <Link to="/forgot-password" className={ui.link}>
+              비밀번호를 잊었어요
+            </Link>
+          </div>
+
           {formError && (
             <p className={ui.formError} role="alert">
               {formError}

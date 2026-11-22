@@ -19,6 +19,7 @@
 
 ## 현재 상태
 - 구현됨: 로그인(`/login`)·회원가입(`/signup`), 공연 목록(`/`), 공연 등록(`/performances/new`), 공연 상세(`/performances/:id`), 마이페이지(`/me`). 로그인이 필요한 화면은 ProtectedRoute로 보호하고, api/client.ts에서 401 재발급 인터셉터를 처리한다.
+- 비밀번호 찾기·재설정·변경(백엔드 연동): 로그인 화면의 '비밀번호를 잊었어요' → `/forgot-password`(공개, 이메일 입력, 가입 여부와 무관하게 같은 안내, 429는 남은 시간 안내), `/reset-password`(공개, 링크의 `#token=`을 읽자마자 `history.replaceState`로 주소에서 지우고 메모리에 보관, 새 비밀번호 두 칸, 성공하면 모든 기기 로그아웃 안내와 로그인 버튼, 이 탭이 로그인 상태면 로컬 로그아웃), 마이페이지 '비밀번호 변경' 카드(`components/PasswordChangeCard.tsx`, `passwordLoginEnabled`인 계정에만, `PATCH /api/auth/password`로 현재 기기 로그인은 유지). 브라우저 점검 전, 빌드 통과.
 - 교환 화면(구현 완료; 좌석표는 쓰지 않고 구역·열·번 텍스트 입력, 구역 자동완성 없음):
   - `/tickets/new` 티켓 등록(FR-03) · `/tickets` 내 티켓(내리기, 교환 조건 진입)
   - `/tickets/:ticketId/exchange` 교환 희망 조건 폼 — 범위 카드(구역·열·번 범위 + **카드마다 추가금 4유형 라디오**, 카드 복제, 겹치는 범위의 추가금이 다르면 클라이언트 경고·서버 422 `WANT_EXTRA_CONFLICT`), 요청 단위 희망 회차 우선순위, 총 N석 합집합 미리보기와 5,000석·50범위 경고

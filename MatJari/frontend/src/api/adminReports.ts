@@ -49,6 +49,8 @@ export interface ReportMessage {
   senderNickname: string;
   content: string;
   createdAt: string;
+  hasImage?: boolean;
+  imageExpired?: boolean;
 }
 
 export interface ReportMessagesResponse {
@@ -111,6 +113,12 @@ export const adminReportsApi = {
       params: { before, size: 50 },
       signal,
     });
+    return data;
+  },
+
+  /** 신고 근거 사진(관리자 전용 경로) */
+  async messageImage(reportId: number, messageId: number, signal?: AbortSignal): Promise<Blob> {
+    const { data } = await apiClient.get<Blob>(`/admin/reports/${reportId}/messages/${messageId}/image`, { responseType: "blob", signal });
     return data;
   },
 

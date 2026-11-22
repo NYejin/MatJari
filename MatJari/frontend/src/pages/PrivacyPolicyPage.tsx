@@ -83,6 +83,9 @@ export default function PrivacyPolicyPage() {
                 기록
               </li>
               <li>
+                <strong>채팅 사진을 보낼 때:</strong> 채팅으로 보낸 사진(이용자가 직접 올린 예매내역 등). 열람할 수 있는 사람은 채팅 참여자 두 명과, 신고 처리 목적의 관리자입니다.
+              </li>
+              <li>
                 <strong>좌석 인증 요청 시:</strong> 예매내역 사진(처리가 끝나면 삭제합니다)
               </li>
             </ul>
@@ -143,6 +146,14 @@ export default function PrivacyPolicyPage() {
                   </tr>
                   <tr>
                     <th scope="row" className={`${cls.td} text-left font-semibold`}>
+                      채팅으로 보낸 사진
+                    </th>
+                    <td className={cls.td}>
+                      채팅 매칭이 끝난 뒤 30일이 지나면 삭제합니다. 처리 중인 신고가 있으면 처리가 끝날 때까지 보관합니다.
+                    </td>
+                  </tr>
+                  <tr>
+                    <th scope="row" className={`${cls.td} text-left font-semibold`}>
                       채팅 메시지, 교환 이력, 차단·신고·제재 기록
                     </th>
                     <td className={cls.td}>
@@ -159,6 +170,7 @@ export default function PrivacyPolicyPage() {
             <ul className={cls.list}>
               <li>회원이 탈퇴하면 계정 정보를 삭제하거나 익명화하고, 소셜 연결 정보와 받은 알림을 삭제합니다.</li>
               <li>예매내역 사진은 요청 처리가 끝나면 서버에서 삭제합니다.</li>
+              <li>채팅으로 보낸 사진은 채팅 매칭이 끝난 뒤 30일이 지나면 서버에서 삭제합니다(처리 중인 신고가 있으면 처리가 끝날 때까지 보관합니다).</li>
             </ul>
           </Section>
 
@@ -242,6 +254,7 @@ export default function PrivacyPolicyPage() {
             <ul className={cls.list}>
               <li>비밀번호는 복호화할 수 없는 BCrypt 해시로만 저장합니다.</li>
               <li>예매내역 사진은 처리 후 삭제하며, 본인과 관리자만 볼 수 있습니다.</li>
+              <li>채팅으로 보낸 사진은 채팅 참여자 두 명과, 신고 처리 목적의 관리자만 볼 수 있습니다.</li>
               <li>채팅 내용은 신고 처리에 필요할 때 관리자만 열람하고, 처리 목적 외에는 사용하지 않습니다.</li>
             </ul>
           </Section>

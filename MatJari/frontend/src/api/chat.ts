@@ -25,6 +25,25 @@ export const chatApi = {
     return data;
   },
 
+  /** 사진 보내기(multipart). 응답은 텍스트 전송과 같은 메시지 객체 */
+  async sendImage(matchId: number, image: Blob, clientMessageId: string, signal?: AbortSignal): Promise<ChatMessage> {
+    const form = new FormData();
+    form.append("image", image, "photo.jpg");
+    form.append("clientMessageId", clientMessageId);
+    const { data } = await apiClient.post<ChatMessage>(`/exchange/matches/${matchId}/messages/image`, form, {
+      signal,
+      // axios가 multipart 경계를 직접 붙이게 한다
+      headers: { "Content-Type": undefined },
+    });
+    return data;
+  },
+
+  /** 사진 받기: Authorization 헤더가 필요해 blob으로 받는다. 보기용 URL은 호출한 쪽이 revoke한다 */
+  async fetchImage(matchId: number, messageId: number, signal?: AbortSignal): Promise<Blob> {
+    const { data } = await apiClient.get<Blob>(`/exchange/matches/${matchId}/messages/${messageId}/image`, { responseType: "blob", signal });
+    return data;
+  },
+
   /** 최신부터 위로 커서(before) 또는 재연결 후 빈 구간(after). 둘 다 없으면 최신 size건 */
   async list(
     matchId: number,

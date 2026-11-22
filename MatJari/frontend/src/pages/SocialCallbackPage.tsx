@@ -32,7 +32,7 @@ async function runExchange(code: string | null): Promise<CallbackResult> {
     const tokens = await exchangeSocialCode(code);
     if (!getUserFromAccessToken(tokens.accessToken)) return { to: FAIL_PATH };
     // 일반 로그인과 같은 저장소 — AuthProvider가 구독해 세션을 동기화한다
-    tokenStorage.save(tokens);
+    tokenStorage.save({ accessToken: tokens.accessToken });
     return { to: "/" };
   } catch (err) {
     const suspension = parseSuspension(err);

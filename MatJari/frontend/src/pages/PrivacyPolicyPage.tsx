@@ -201,7 +201,10 @@ export default function PrivacyPolicyPage() {
                 소셜 로그인 과정에서만 한시적인 쿠키(<code>ss_oauth</code>, 10분 이내)를 사용하며, 로그인 절차가 끝나면
                 삭제합니다.
               </li>
-              <li>로그인 토큰은 쿠키가 아니라 이용자 브라우저의 localStorage에 저장됩니다. 로그아웃하면 삭제됩니다.</li>
+              <li>
+                로그인 유지를 위한 인증 쿠키(<code>mj_rt</code>, HttpOnly)를 사용하며 로그아웃하면 삭제됩니다. 짧은
+                수명의 접근 토큰은 브라우저 메모리에만 두고 저장소에 기록하지 않습니다.
+              </li>
             </ul>
           </Section>
 

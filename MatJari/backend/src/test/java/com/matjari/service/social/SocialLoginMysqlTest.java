@@ -99,6 +99,7 @@ class SocialLoginMysqlTest {
         STUB.reset();
         jdbc.update("DELETE FROM user_sanction");
         jdbc.update("DELETE FROM social_account");
+        jdbc.update("DELETE FROM refresh_token");
         jdbc.update("DELETE FROM users");
         STUB.on("/token", Reply.json("{\"access_token\":\"AT-1\"}"));
     }
@@ -140,7 +141,7 @@ class SocialLoginMysqlTest {
     @Test
     void 신규_가입_이메일_있음_전체_흐름과_토큰() {
         String location = callback(SocialProvider.GOOGLE, SocialStubServer.userinfo(SocialProvider.GOOGLE, "sub-100", "New@Example.com", true, "새 사용자"));
-        TokenResponse tokens = socialAuthService.exchange(loginCode(location), "10.9.9.9");
+        com.matjari.service.AuthService.IssuedTokens tokens = socialAuthService.exchange(loginCode(location), "10.9.9.9");
 
         assertThat(count("users")).isEqualTo(1);
         assertThat(count("social_account")).isEqualTo(1);
@@ -175,7 +176,7 @@ class SocialLoginMysqlTest {
         callback(SocialProvider.GOOGLE, SocialStubServer.userinfo(SocialProvider.GOOGLE, "sub-1", "old@example.com", true, "닉네임이"));
         long id = jdbc.queryForObject("SELECT id FROM users", Long.class);
         String location = callback(SocialProvider.GOOGLE, SocialStubServer.userinfo(SocialProvider.GOOGLE, "sub-1", "changed@example.com", true, "다른닉"));
-        TokenResponse tokens = socialAuthService.exchange(loginCode(location), "10.9.9.9");
+        com.matjari.service.AuthService.IssuedTokens tokens = socialAuthService.exchange(loginCode(location), "10.9.9.9");
         assertThat(count("users")).isEqualTo(1);
         assertThat(count("social_account")).isEqualTo(1);
         assertThat(jwtTokenProvider.getUserId(tokens.accessToken())).isEqualTo(id);
@@ -245,6 +246,7 @@ class SocialLoginMysqlTest {
         int threads = 8;
         for (int round = 0; round < 10; round++) {
             jdbc.update("DELETE FROM social_account");
+            jdbc.update("DELETE FROM refresh_token");
             jdbc.update("DELETE FROM users");
             String json = SocialStubServer.userinfo(SocialProvider.GOOGLE, "race-" + round, round % 2 == 0 ? "race@example.com" : null, true, "경합사용자");
             STUB.on("/userinfo", Reply.json(json));
@@ -278,6 +280,7 @@ class SocialLoginMysqlTest {
         int threads = 6;
         for (int round = 0; round < 10; round++) {
             jdbc.update("DELETE FROM social_account");
+            jdbc.update("DELETE FROM refresh_token");
             jdbc.update("DELETE FROM users");
             ExecutorService pool = Executors.newFixedThreadPool(threads);
             CountDownLatch go = new CountDownLatch(1);

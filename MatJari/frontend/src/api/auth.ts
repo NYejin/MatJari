@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import { requestTokenRefresh } from "./authClient";
+import { requestLogout } from "./authClient";
 import type { User } from "../types/user";
 import type { EmailCodeResponse, EmailVerificationStatus, LoginRequest, SignupRequest, TokenResponse } from "../types/auth";
 
@@ -28,9 +28,9 @@ export const authApi = {
     return data;
   },
 
-  /** 인터셉터 없는 authClient 사용 (authClient.ts 참고) */
-  refreshToken(refreshToken: string): Promise<TokenResponse> {
-    return requestTokenRefresh(refreshToken);
+  /** POST /api/auth/logout — 서버가 리프레시 토큰 계열을 폐기하고 쿠키를 지운다. 인터셉터 없는 authClient 사용 */
+  logout(): Promise<void> {
+    return requestLogout();
   },
 };
 

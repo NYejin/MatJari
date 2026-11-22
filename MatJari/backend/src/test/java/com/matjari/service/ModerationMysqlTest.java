@@ -398,7 +398,9 @@ class ModerationMysqlTest {
         long m = match(alice, bob);
         long reportId = report(alice, m);
         String bobToken = bearer(bob);
-        String bobRefresh = "Bearer " + jwt.generateRefreshToken(bob, email(bob));
+        String bobRefresh = mockMvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"" + email(bob) + "\",\"password\":\"password123\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getCookie("mj_rt").getValue();
         mockMvc.perform(get("/api/reports/me").header("Authorization", bobToken)).andExpect(status().isOk());
 
         adminService.resolve(admin, reportId, suspend(7));
@@ -422,12 +424,11 @@ class ModerationMysqlTest {
                         .content("{\"email\":\"" + email(bob) + "\",\"password\":\"wrong-password\"}"))
                 .andExpect(status().isBadRequest());
         // 토큰 재발급
-        mockMvc.perform(post("/api/auth/refresh").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"refreshToken\":\"" + bobRefresh.substring("Bearer ".length()) + "\"}"))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("ACCOUNT_SUSPENDED"));
+        // 정지 처리가 리프레시 토큰을 모두 폐기(ADMIN)하므로 정지 전에 받은 토큰은 401(폐기되지 않은 토큰의 403 은 RefreshTokenMysqlTest)
+        mockMvc.perform(post("/api/auth/refresh").header("X-Requested-With", "XMLHttpRequest").cookie(new jakarta.servlet.http.Cookie("mj_rt", bobRefresh)))
+                .andExpect(status().isUnauthorized());
         // 정지 중에도 로그아웃은 가능
-        mockMvc.perform(post("/api/auth/logout").header("Authorization", bobToken)).andExpect(status().isNoContent());
+        mockMvc.perform(post("/api/auth/logout").header("X-Requested-With", "XMLHttpRequest").header("Authorization", bobToken)).andExpect(status().isNoContent());
         // 다른 사용자는 영향 없음
         mockMvc.perform(get("/api/reports/me").header("Authorization", bearer(alice))).andExpect(status().isOk());
 

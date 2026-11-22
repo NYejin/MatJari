@@ -12,10 +12,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.Date;
 
 /**
- * JWT access/refresh 토큰 발급 및 검증.
- * access/refresh는 "type" 클레임으로 구분한다 (별도 테이블로 refresh token을 관리하지 않는
- * stateless 방식 — 포트폴리오 범위에서는 충분하며, 추후 로그아웃 시 즉시 폐기가 필요해지면
- * refresh token을 DB/Redis에 저장하는 방식으로 교체 가능).
+ * JWT access/withdraw 토큰 발급 및 검증. (리프레시 토큰은 V27부터 불투명 토큰 + 서버 저장이라 RefreshTokenService 가 맡는다. 아래 generateRefreshToken 은 더 이상 발급에 쓰지 않으며 필터가 옛 refresh 형식 JWT 를 거절하는 테스트용으로만 남아 있다.)
+ * access/withdraw 는 "type" 클레임으로 구분하는 무상태 JWT 다(서버에 저장하지 않는다). 즉시 폐기가 필요한 리프레시 토큰은 이 클래스가 아니라
+ * 서버에 해시로 저장·회전하는 {@code RefreshTokenService}(V27)가 다룬다.
  */
 @Component
 public class JwtTokenProvider {

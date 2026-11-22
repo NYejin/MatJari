@@ -47,7 +47,7 @@ import java.util.Set;
  *
  * <h3>잠금·순서</h3>
  * <ul>
- *   <li>직접 정지: {@link AdminModerationService#createSanction} 공용 코어(대상 users 행은 잠그지 않는다, READ_COMMITTED, 티켓 id↑ -> 요청 -> 매칭 id↑ 취소 뒤
+ *   <li>직접 정지: {@link AdminModerationService#createSanction} 공용 코어(대상 users 행은 취소 뒤에 FOR UPDATE 로 잡아 토큰을 폐기한다, READ_COMMITTED, 티켓 id↑ -> 요청 -> 매칭 id↑ 취소 뒤
  *   user_sanction INSERT) 다음에 조치 기록. 신고가 없어 같은 대상 신고 행 직렬화가 없으므로 두 관리자가 정확히 동시에 같은 대상을 정지하면 활성 제재가 둘 생길 수 있다
  *   (해제는 활성 제재를 모두 해제하므로 무해하다).</li>
  *   <li>역할 변경: 탈퇴하지 않은 ADMIN 전부를 id 순으로 FOR UPDATE -> 대상 users 행 FOR UPDATE. 모든 역할 변경이 같은 순서라 교착하지 않고,

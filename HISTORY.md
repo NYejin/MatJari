@@ -16,6 +16,7 @@
 ## 이력
 
 ### 2026-11-22
+- [구현] 리프레시 토큰 회전·재사용 탐지·폐기(V27 `refresh_token`, HttpOnly 쿠키 `mj_rt`, 동시 재발급 유예 20초·로그인 계열 최대 30일, 탈퇴·정지 시 전체 폐기), 프런트 액세스 토큰 메모리 보관·재발급 단일화·탭 간 락, vite 개발 프록시. 코드 리뷰(보안·동시성) 지적 반영 — `feature/auth-session`
 - [구현] 공개 배포 전 보안 보강(DB 변경 없음): 로그인 실패·가입 속도 제한, 신뢰 프록시 기반 접속자 IP(`ClientIpResolver`, nginx realip), 없는 계정 BCrypt 균등화, 개발용 비밀값 운영 기동 거부, nginx 보안 헤더 상속 누락 수정·CSP·HSTS·인증 경로 limit_req, `WEB_BIND` — `fix/deploy-security`
 - [구현] 내 채팅 목록 마지막 메시지 미리보기·최근 대화순 정렬(DB 변경 없음, 매칭 응답 `lastMessage*` 3필드, 인덱스 역방향 한 행 서브쿼리를 실DB EXPLAIN으로 확인) — `feature/chat-list-preview-all`
 - [구현] 자주 쓰는 공연장 구역 보정(블록 바깥쪽 떨어진 띠 제외, 세로 범례 칩, 어두운 구분선 자르기): 38장 IoU≥0.8 81.9→83.4%(올림픽홀 76.2→80.4%, 잠실실내 85.1→89.6%), 나빠진 지도 없음 — `fix/zone-strip-side`

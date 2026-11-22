@@ -2,7 +2,6 @@ package com.matjari.service.social;
 
 import com.matjari.domain.SocialProvider;
 import com.matjari.domain.User;
-import com.matjari.dto.response.TokenResponse;
 import com.matjari.exception.AccountSuspendedException;
 import com.matjari.repository.UserRepository;
 import com.matjari.security.AccountSuspensionChecker;
@@ -222,7 +221,7 @@ public class SocialAuthService {
     }
 
     /** 3단계: 일회용 코드를 토큰으로 바꾼다. 틀리거나 만료·사용된 코드는 400 INVALID_LOGIN_CODE, 정지는 403. */
-    public TokenResponse exchange(String loginCode, String clientIp) {
+    public AuthService.IssuedTokens exchange(String loginCode, String clientIp) {
         rateLimiter.acquire("x:" + clientIp);
         Long userId = codeStore.consume(loginCode).orElseThrow(SocialAuthException::invalidLoginCode);
         suspensionChecker.assertNotSuspended(userId); // 코드 발급 뒤에 정지됐을 수 있어 다시 검사한다

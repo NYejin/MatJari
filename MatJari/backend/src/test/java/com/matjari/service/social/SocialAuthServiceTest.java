@@ -458,7 +458,7 @@ class SocialAuthServiceTest {
     void exchange는_코드를_한_번만_토큰으로_바꾼다() {
         User user = User.create("a@b.com", "pw", "닉네임");
         when(userRepository.findById(42L)).thenReturn(Optional.of(user));
-        TokenResponse tokens = TokenResponse.of("A", "R");
+        AuthService.IssuedTokens tokens = new AuthService.IssuedTokens("A", "R");
         when(authService.issueTokens(user)).thenReturn(tokens);
         String code = codeStore.issue(42L);
 

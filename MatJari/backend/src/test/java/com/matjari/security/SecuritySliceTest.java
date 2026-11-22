@@ -40,8 +40,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @WebMvcTest(controllers = {AuthController.class, SecuritySliceTest.ProbeController.class})
 @Import({SecurityConfig.class, JwtAuthenticationEntryPoint.class, JwtAccessDeniedHandler.class,
-        SecurityErrorResponseWriter.class, SecuritySliceTest.ProbeController.class})
+        SecurityErrorResponseWriter.class, SecuritySliceTest.ProbeController.class, com.matjari.security.RefreshTokenCookie.class})
 class SecuritySliceTest {
+
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.matjari.service.social.SocialProperties socialProperties;
 
     private static final String ORIGIN = "http://localhost:5173";
     private static final String UNAUTHORIZED_JSON = "{\"message\":\"로그인이 필요합니다.\"}";
@@ -141,16 +144,58 @@ class SecuritySliceTest {
 
     @Test
     void refreshEndpointIgnoresBadAuthorizationHeader() throws Exception {
-        when(authService.refresh(any())).thenReturn(TokenResponse.of("new-access", "new-refresh"));
+        when(authService.refresh("r")).thenReturn(new AuthService.IssuedTokens("new-access", "new-refresh"));
 
         for (String token : List.of("expired", "ghost", "garbage")) {
             mockMvc.perform(post("/api/auth/refresh")
                             .header("Authorization", "Bearer " + token)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"refreshToken\":\"r\"}"))
+                            .header("X-Requested-With", "XMLHttpRequest")
+                            .cookie(new jakarta.servlet.http.Cookie("mj_rt", "r")))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.accessToken").value("new-access"));
+                    .andExpect(jsonPath("$.accessToken").value("new-access"))
+                    .andExpect(jsonPath("$.refreshToken").doesNotExist());
         }
+    }
+
+    @Test
+    void refreshSetsHardenedCookie() throws Exception {
+        when(authService.refresh("r")).thenReturn(new AuthService.IssuedTokens("a", "new-refresh"));
+
+        mockMvc.perform(post("/api/auth/refresh")
+                        .header("X-Requested-With", "XMLHttpRequest")
+                        .cookie(new jakarta.servlet.http.Cookie("mj_rt", "r")))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Set-Cookie", org.hamcrest.Matchers.allOf(org.hamcrest.Matchers.startsWith("mj_rt=new-refresh; Path=/api/auth; Max-Age=1209600;"), org.hamcrest.Matchers.containsString("HttpOnly"), org.hamcrest.Matchers.containsString("SameSite=Strict"), org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("Secure")))))
+                .andExpect(header().string("Cache-Control", "no-store"));
+    }
+
+    @Test
+    void refreshAndLogoutWithoutAjaxHeaderAre403() throws Exception {
+        mockMvc.perform(post("/api/auth/refresh").cookie(new jakarta.servlet.http.Cookie("mj_rt", "r")))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/auth/logout").cookie(new jakarta.servlet.http.Cookie("mj_rt", "r")))
+                .andExpect(status().isForbidden());
+        verify(authService, org.mockito.Mockito.never()).refresh(any());
+        verify(authService, org.mockito.Mockito.never()).logout(any());
+    }
+
+    @Test
+    void logoutClearsCookieAndIs204EvenWithoutToken() throws Exception {
+        mockMvc.perform(post("/api/auth/logout").header("X-Requested-With", "XMLHttpRequest"))
+                .andExpect(status().isNoContent())
+                .andExpect(header().string("Set-Cookie", org.hamcrest.Matchers.allOf(org.hamcrest.Matchers.startsWith("mj_rt=; Path=/api/auth; Max-Age=0;"), org.hamcrest.Matchers.containsString("HttpOnly"))));
+    }
+
+    @Test
+    void loginBodyHasNullRefreshTokenAndCookie() throws Exception {
+        when(authService.login(any())).thenReturn(new AuthService.IssuedTokens("acc", "rt1"));
+
+        mockMvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"a@b.com\",\"password\":\"password1!\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").value("acc"))
+                .andExpect(jsonPath("$.refreshToken").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(header().string("Set-Cookie", org.hamcrest.Matchers.startsWith("mj_rt=rt1;")));
     }
 
     @Test
@@ -166,11 +211,10 @@ class SecuritySliceTest {
     }
 
     @Test
-    void blankRefreshTokenHasKoreanMessage() throws Exception {
-        mockMvc.perform(post("/api/auth/refresh")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(content().json("{\"refreshToken\":\"refresh token이 필요합니다.\"}", true));
+    void refreshWithoutCookieIs401() throws Exception {
+        when(authService.refresh(any())).thenThrow(new org.springframework.security.authentication.InsufficientAuthenticationException("x"));
+
+        mockMvc.perform(post("/api/auth/refresh").header("X-Requested-With", "XMLHttpRequest"))
+                .andExpect(status().isUnauthorized());
     }
 }

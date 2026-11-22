@@ -29,6 +29,7 @@ public class SocialAuthController {
 
     private final SocialAuthService socialAuthService;
     private final com.matjari.security.ClientIpResolver clientIpResolver;
+    private final com.matjari.security.RefreshTokenCookie refreshCookie;
 
     /** 활성 제공자 목록(프런트가 버튼 표시에 사용). 인증 불필요. */
     @GetMapping("/providers")
@@ -74,8 +75,10 @@ public class SocialAuthController {
 
     @PostMapping("/exchange")
     public ResponseEntity<TokenResponse> exchange(@Valid @RequestBody SocialExchangeRequest body, HttpServletRequest request) {
+        com.matjari.service.AuthService.IssuedTokens tokens = socialAuthService.exchange(body.code(), clientIpResolver.resolve(request));
         return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, NO_STORE)
-                .body(socialAuthService.exchange(body.code(), clientIpResolver.resolve(request)));
+                .header(HttpHeaders.SET_COOKIE, refreshCookie.create(tokens.refreshToken()))
+                .body(tokens.body());
     }
 
     private static String cookieValue(HttpServletRequest request) {

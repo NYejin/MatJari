@@ -24,4 +24,6 @@ export interface NotificationSettings {
   emailEnabled: boolean;
   /** false면 메일을 받을 수 없는 계정(소셜 가입으로 이메일 없음) */
   emailAvailable: boolean;
+  /** 알림 메일을 받을 이메일을 확인했는가. 확인 전에는 서버가 알림 메일을 보내지 않는다 */
+  emailVerified: boolean;
 }

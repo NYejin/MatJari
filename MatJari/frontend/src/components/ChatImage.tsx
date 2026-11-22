@@ -91,12 +91,16 @@ function Lightbox({ url, alt, onClose }: { url: string; alt: string; onClose: ()
       if (e.key === "Escape") {
         e.stopPropagation();
         close();
+      } else if (e.key === "Tab") {
+        // 포커스 가두기: 닫기 버튼이 유일한 포커스 대상이다
+        e.preventDefault();
+        closeRef.current?.focus();
       }
     };
     document.addEventListener("keydown", onKey, true);
     return () => {
       document.removeEventListener("keydown", onKey, true);
-      opener?.focus?.();
+      if (opener && opener.isConnected) opener.focus?.();
     };
   }, [close]);
 

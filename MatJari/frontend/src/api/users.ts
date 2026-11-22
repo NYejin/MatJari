@@ -43,4 +43,15 @@ export const usersApi = {
     const { data } = await apiClient.patch<NotificationSettings>("/users/me/notification-settings", { emailEnabled });
     return data;
   },
+
+  /** POST /api/users/me/email-verification/code — 인증번호 메일 발송(204). 409 EMAIL_ALREADY_VERIFIED, 429, 503 */
+  async sendEmailVerificationCode(): Promise<void> {
+    await apiClient.post("/users/me/email-verification/code");
+  },
+
+  /** POST /api/users/me/email-verification/confirm {code} — 200 설정 응답. 400 code(틀림·만료) */
+  async confirmEmailVerification(code: string): Promise<NotificationSettings> {
+    const { data } = await apiClient.post<NotificationSettings>("/users/me/email-verification/confirm", { code });
+    return data;
+  },
 };

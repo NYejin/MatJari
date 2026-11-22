@@ -167,6 +167,17 @@ export default function ChatPage() {
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoNotice, setPhotoNotice] = useState<string | null>(null);
   const photoIdRef = useRef<string>("");
+  const photoKeyRef = useRef<string | null>(null);
+  const photoBtnRef = useRef<HTMLButtonElement>(null);
+  const hadPhotoRef = useRef(false);
+  // 가리기 대화상자가 닫히면 사진 버튼으로 포커스를 돌려 준다
+  useEffect(() => {
+    if (photoFile) hadPhotoRef.current = true;
+    else if (hadPhotoRef.current) {
+      hadPhotoRef.current = false;
+      photoBtnRef.current?.focus();
+    }
+  }, [photoFile]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [atBottom, setAtBottom] = useState(true);
   const [newBelow, setNewBelow] = useState(0);
@@ -579,12 +590,16 @@ export default function ChatPage() {
       setPhotoNotice("JPEG 또는 PNG 사진만 보낼 수 있어요.");
       return;
     }
-    photoIdRef.current = generateClientMessageId(); // 같은 시도의 재시도는 같은 id(서버 멱등)
+    photoIdRef.current = generateClientMessageId(); // 같은 사진·같은 가림의 재시도만 같은 id(서버 멱등)
+    photoKeyRef.current = null;
     setPhotoFile(file);
   };
 
-  const sendPhoto = async (blob: Blob, signal: AbortSignal) => {
+  const sendPhoto = async (blob: Blob, signal: AbortSignal, contentKey: string) => {
     if (matchId === null) throw new Error("매칭을 찾을 수 없어요.");
+    // 가림 사각형이 바뀌면 다른 내용이므로 새 id (같은 id로 다른 사진을 보내면 서버가 먼저 온 것만 남긴다)
+    if (photoKeyRef.current !== null && photoKeyRef.current !== contentKey) photoIdRef.current = generateClientMessageId();
+    photoKeyRef.current = contentKey;
     try {
       const saved = await chatApi.sendImage(matchId, blob, photoIdRef.current, signal);
       commit(mergeMessages(messagesRef.current, [saved]));
@@ -950,6 +965,7 @@ export default function ChatPage() {
                   <>
                     <input ref={fileInputRef} type="file" accept="image/jpeg,image/png" className="hidden" onChange={onPickPhoto} tabIndex={-1} aria-hidden="true" />
                     <button
+                      ref={photoBtnRef}
                       type="button"
                       aria-label="사진 보내기"
                       className={`-ml-3 inline-flex size-11 shrink-0 cursor-pointer touch-manipulation items-center justify-center rounded-full text-gray-600 enabled:active:bg-gray-100 ${FOCUS_RING}`}

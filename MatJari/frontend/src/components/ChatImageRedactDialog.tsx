@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { button, FOCUS_RING, ui } from "./ui";
 
 // 채팅 사진 보내기 전 가리기 단계(하단 시트/대화상자).
@@ -61,9 +61,12 @@ async function renderRedacted(bitmap: ImageBitmap, rects: Rect[]): Promise<Blob>
 interface Props {
   file: File;
   /** 가린 JPEG를 올린다. 실패하면 사용자에게 보일 문구를 담은 Error를 throw한다 */
-  onSend: (blob: Blob, signal: AbortSignal) => Promise<void>;
+  onSend: (blob: Blob, signal: AbortSignal, contentKey: string) => Promise<void>;
   onClose: () => void;
 }
+
+const PREVIEW_MAX_SIDE = 1600;
+const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export default function ChatImageRedactDialog({ file, onSend, onClose }: Props) {
   const [bitmap, setBitmap] = useState<ImageBitmap | null>(null);
@@ -72,19 +75,18 @@ export default function ChatImageRedactDialog({ file, onSend, onClose }: Props) 
   const [draft, setDraft] = useState<Rect | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cancelWarn, setCancelWarn] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const startRef = useRef<{ x: number; y: number } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const cancelRef = useRef<() => void>(() => {});
-  const url = useMemo(() => URL.createObjectURL(file), [file]);
-
-  useEffect(() => () => URL.revokeObjectURL(url), [url]);
-
   useEffect(() => {
     let cancelled = false;
-    // 기본값(imageOrientation: from-image)이라 EXIF 회전이 반영된 크기·픽셀이 나온다 (미리보기 <img>와 같다)
-    createImageBitmap(file)
+    // 미리보기와 칠하기가 같은 bitmap을 쓴다. EXIF 회전을 bitmap 단계에서 확정해(from-image) 브라우저마다 다르지 않게 한다
+    createImageBitmap(file, { imageOrientation: "from-image" })
       .then((b) => {
         if (cancelled) b.close();
         else setBitmap(b);
@@ -99,21 +101,66 @@ export default function ChatImageRedactDialog({ file, onSend, onClose }: Props) 
 
   useEffect(() => () => bitmap?.close(), [bitmap]);
 
+  // 미리보기: 칠하기에 쓰는 같은 bitmap을 canvas에 그린다 (화면에 보이는 것 = 보내는 것)
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !bitmap) return;
+    const s = Math.min(1, PREVIEW_MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+    canvas.width = Math.max(1, Math.round(bitmap.width * s));
+    canvas.height = Math.max(1, Math.round(bitmap.height * s));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  }, [bitmap]);
+
   cancelRef.current = () => {
+    // 올리는 중에 닫으면 이미 서버에 도착한 사진이 보내질 수 있어 한 번 더 확인한다
+    if (busy && !cancelWarn) {
+      setCancelWarn(true);
+      return;
+    }
     abortRef.current?.abort();
     onClose();
   };
 
   useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
     titleRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
         cancelRef.current();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const root = dialogRef.current;
+      if (!root) return;
+      const items = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE));
+      if (items.length === 0) {
+        e.preventDefault();
+        return;
+      }
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+      if (!root.contains(active) || active === titleRef.current) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+      } else if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
       }
     };
     document.addEventListener("keydown", onKey, true);
-    return () => document.removeEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("keydown", onKey, true);
+      if (opener && opener.isConnected) opener.focus?.();
+    };
   }, []);
 
   const point = (e: PointerEvent) => {
@@ -151,11 +198,14 @@ export default function ChatImageRedactDialog({ file, onSend, onClose }: Props) 
     if (!bitmap || busy) return;
     setBusy(true);
     setError(null);
+    setCancelWarn(false);
     const controller = new AbortController();
     abortRef.current = controller;
+    // 사진·가림 사각형이 같으면 같은 키 → 재시도는 같은 clientMessageId(서버 멱등), 바뀌면 새 id
+    const contentKey = JSON.stringify(rects.map((r) => [Math.round(r.x), Math.round(r.y), Math.round(r.w), Math.round(r.h)]));
     try {
       const blob = await renderRedacted(bitmap, rects);
-      await onSend(blob, controller.signal);
+      await onSend(blob, controller.signal, contentKey);
     } catch (err) {
       if (controller.signal.aborted) return;
       const code = err instanceof Error ? err.message : "";
@@ -175,12 +225,14 @@ export default function ChatImageRedactDialog({ file, onSend, onClose }: Props) 
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 sm:items-center" role="presentation">
-      <div role="dialog" aria-modal="true" aria-labelledby="redact-title" className="flex max-h-[95dvh] w-full max-w-lg flex-col gap-3 overflow-y-auto rounded-t-2xl bg-white p-4 pb-[calc(16px+env(safe-area-inset-bottom))] sm:rounded-2xl">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="redact-title" className="flex max-h-[95dvh] w-full max-w-lg flex-col gap-3 overflow-y-auto rounded-t-2xl bg-white p-4 pb-[calc(16px+env(safe-area-inset-bottom))] sm:rounded-2xl">
         <h2 id="redact-title" ref={titleRef} tabIndex={-1} className="text-base font-semibold text-gray-900 outline-none">
           사진 보내기
         </h2>
         <p className={ui.hint}>이름·연락처·결제 정보·예매번호 일부는 가려 주세요. 공연명·회차·구역·열·번은 보이게 해 주세요.</p>
-        <p className={ui.hint}>사진 위를 손가락이나 마우스로 끌어서 검은 사각형으로 가릴 수 있어요.</p>
+        <p className={ui.hint}>
+          사진 위를 손가락이나 마우스로 끌어서 검은 사각형으로 가릴 수 있어요. 키보드만 쓰는 경우 사진을 미리 편집해 올려 주세요.
+        </p>
 
         {loadError && (
           <p className={ui.errorBox} role="alert">
@@ -198,7 +250,7 @@ export default function ChatImageRedactDialog({ file, onSend, onClose }: Props) 
               onPointerUp={onUp}
               onPointerCancel={onUp}
             >
-              <img src={url} alt="보낼 사진 미리보기" draggable={false} className="pointer-events-none block h-full w-full object-contain" />
+              <canvas ref={canvasRef} role="img" aria-label="보낼 사진 미리보기" className="pointer-events-none block h-full w-full" />
               {bitmap &&
                 shown.map((r, i) => (
                   <div key={i} aria-hidden="true" className="pointer-events-none absolute bg-black" style={{ left: pct(r.x, bitmap.width), top: pct(r.y, bitmap.height), width: pct(r.w, bitmap.width), height: pct(r.h, bitmap.height) }} />
@@ -230,9 +282,15 @@ export default function ChatImageRedactDialog({ file, onSend, onClose }: Props) 
           </p>
         )}
 
+        {cancelWarn && (
+          <p className={ui.warning} role="alert">
+            이미 서버에 도착했으면 사진이 보내질 수 있어요. 그래도 취소할까요?
+          </p>
+        )}
+
         <div className="flex justify-end gap-2">
           <button type="button" className={`${button.outline} ${FOCUS_RING}`} onClick={() => cancelRef.current()}>
-            취소
+            {cancelWarn ? "그래도 취소" : "취소"}
           </button>
           <button type="button" className={button.solid} disabled={busy || !bitmap} aria-busy={busy} onClick={() => void send()}>
             {error ? "다시 보내기" : "보내기"}

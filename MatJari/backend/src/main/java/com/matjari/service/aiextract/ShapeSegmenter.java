@@ -156,6 +156,29 @@ public class ShapeSegmenter {
         if (img == null) {
             return null;
         }
+        return number(img, measure(img, polygons));
+    }
+
+    /**
+     * 도형 분할 결과에 바깥 도형(학습 모델 등)을 덧붙인다. 원래 도형은 넓이·중심을 그대로 두고, 덧붙인 도형만 fromPolygons()와 같이 재서
+     * 같은 순서로 번호를 다시 매긴다. 평가 도구가 학습 모델 도형으로 빈 곳을 채울 때 쓴다.
+     */
+    public Result withExtra(byte[] jpeg, Result own, List<List<int[]>> extra) {
+        BufferedImage img;
+        try {
+            img = ImageIO.read(new ByteArrayInputStream(jpeg));
+        } catch (IOException e) {
+            return own;
+        }
+        if (img == null || own == null) {
+            return own;
+        }
+        List<Segment> segs = new ArrayList<>(own.segments());
+        segs.addAll(measure(img, extra));
+        return number(img, segs);
+    }
+
+    private static List<Segment> measure(BufferedImage img, List<List<int[]>> polygons) {
         int w = img.getWidth(), h = img.getHeight();
         int[] raw = img.getRGB(0, 0, w, h, null, 0, w);
         List<Segment> segs = new ArrayList<>();
@@ -185,6 +208,12 @@ public class ShapeSegmenter {
                 segs.add(new Segment(0, poly, (int) n, (int) (sx / n), (int) (sy / n), satSum / n, valSum / n));
             }
         }
+        return segs;
+    }
+
+    private Result number(BufferedImage img, List<Segment> segs) {
+        int w = img.getWidth(), h = img.getHeight();
+        segs = new ArrayList<>(segs);
         segs.sort(Comparator.comparingInt((Segment s) -> s.cy() / 40).thenComparingInt(Segment::cx));
         List<Segment> numbered = new ArrayList<>();
         for (int i = 0; i < segs.size() && i < MAX_SEGMENTS; i++) {
@@ -802,13 +831,17 @@ public class ShapeSegmenter {
             int[] sorted = vals.clone();
             java.util.Arrays.sort(sorted);
             int blockV = sorted[tail / 2];
-            if (blockV > 200) { // 밝은 블록은 흰 선과 구분이 안 된다
+            // 밝은 블록(200 초과)은 흰 선과 구분이 안 되므로 어두운 선만 본다
+            boolean light = blockV <= 200;
+            // 어두운 구분선(205557 KBS아레나 보라 플로어 1~4 사이 검은 선): 블록이 충분히 밝을 때만, 블록보다 훨씬 어두운 픽셀도 선으로 본다
+            boolean dark = blockV >= 110;
+            if (!light && !dark) {
                 continue;
             }
             boolean[] cut = new boolean[m.length];
             int cutCount = 0;
             for (int i = 0; i < tail; i++) {
-                if (vals[i] >= 170 && vals[i] - blockV >= 50) {
+                if ((light && vals[i] >= 170 && vals[i] - blockV >= 50) || (dark && blockV - vals[i] >= 70)) {
                     cut[comp[i]] = true;
                     cutCount++;
                 }

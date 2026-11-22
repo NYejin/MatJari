@@ -899,7 +899,7 @@ AND NOT EXISTS (SELECT 1 FROM exchange_ticket_lock l WHERE l.ticket_id = tb.id)
 - 서비스: `ChatService`(전송·목록·읽음 규칙), `ChatRateLimiter`(사용자별 메모리 슬라이딩 윈도), `ChatPushPublisher`(인터페이스)·`ChatPushPublisherImpl`(STOMP 전파).
 - 컨트롤러 `ChatController`(`/api/exchange/matches/{id}/messages`), DTO `dto/response/ChatDtos`.
 - STOMP: `config/WebSocketConfig`(`/ws`, 순수 WebSocket, 사용자 큐만 있는 simple broker), `security/StompAuthChannelInterceptor`(CONNECT 인증·구독 제한·SEND 거부), `websocket/WebSocketSessionRegistry`(세션·구독·사용자당 연결 수·만료 정리).
-- 응답 필드: 매칭 응답의 `unreadChatCount`(상대가 보낸 메시지 중 내 읽음 포인터보다 큰 id의 수, 보낸 사람 제외, CANCELED·COMPLETED 매칭도 센다).
+- 응답 필드: 매칭 응답의 `unreadChatCount`(상대가 보낸 메시지 중 내 읽음 포인터보다 큰 id의 수, 보낸 사람 제외, CANCELED·COMPLETED 매칭도 센다). 마지막 메시지 요약 `lastMessagePreview`(본문 앞 60 코드 포인트, 넘으면 `…`, 줄바꿈은 공백)·`lastMessageAt`(초 단위)·`lastMessageMine`(호출자가 보냈는지)은 매칭 조회 SQL이 `FORCE INDEX (idx_chat_message_match)`로 가장 큰 id 한 행만 붙여 읽으며(메시지가 없으면 null/null/false) 매칭 `updated_at`·정렬은 바뀌지 않는다.
 
 ### REST API
 

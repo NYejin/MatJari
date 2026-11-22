@@ -999,6 +999,7 @@ public class DetailExtractionService {
             }
         }
         Map<String, List<Integer>> extra = new LinkedHashMap<>();
+        double[] center = mapCenter(byId, owner.keySet());
         for (Integer orphanId : result.nonSeatSegments() == null ? List.<Integer>of() : result.nonSeatSegments()) {
             ShapeSegmenter.Segment o = byId.get(orphanId);
             // 색이 있는 글자 없는 도형, 또는 회색이라도 블록 옆에 붙은 좁은 띠(화정체육관 2층 블록 옆 띠, 사용자 검수 2026-10-19)만 이웃에 붙인다
@@ -1011,6 +1012,9 @@ public class DetailExtractionService {
                 ShapeSegmenter.Segment q = byId.get(e.getKey());
                 // 띠는 자기 폭의 60%까지 떨어져 있어도 붙인다(화정체육관 띠-블록 간격 11px, 띠 폭 23px)
                 if (q == null || gap(o, q) > (strip(o) ? Math.max(10, 0.6 * shortSide(o)) : 8) || o.area() > q.area() * 1.2) { // 붙일 도형은 이웃보다 작아야 한다(큰 쓰레기 덩어리를 붙이지 않는다)
+                    continue;
+                }
+                if (strip(o) && gap(o, q) > 2 && outerStrip(box(o), box(q), center)) {
                     continue;
                 }
                 List<int[]> pts = new ArrayList<>(o.pixels());
@@ -1026,7 +1030,7 @@ public class DetailExtractionService {
                 extra.computeIfAbsent(bestZone, k -> new ArrayList<>()).add(orphanId);
             }
         }
-        attachFrontStrips(byId, owner, extra);
+        attachFrontStrips(byId, owner, extra, center);
         List<DetailExtractor.RawLabel> out = new ArrayList<>();
         for (DetailExtractor.RawLabel l : result.zones()) {
             List<Integer> ids = new ArrayList<>(l.segmentIds() == null ? List.<Integer>of() : l.segmentIds());
@@ -1041,7 +1045,7 @@ public class DetailExtractionService {
      * 띠의 긴 변 80% 이상이 블록의 마주 보는 변과 겹치고 간격이 띠 폭 또는 블록 짧은 변의 30% 이하면, 간격이 가장 작은 블록에 붙인다.
      * 붙은 띠도 다음 띠의 이웃이 된다(휠체어석 막대 너머의 띠). 글자가 없어 AI가 언급하지 않은 도형도 대상이다.
      */
-    private static void attachFrontStrips(Map<Integer, ShapeSegmenter.Segment> byId, Map<Integer, String> owner, Map<String, List<Integer>> extra) {
+    private static void attachFrontStrips(Map<Integer, ShapeSegmenter.Segment> byId, Map<Integer, String> owner, Map<String, List<Integer>> extra, double[] center) {
         Map<Integer, String> taken = new LinkedHashMap<>(owner);
         extra.forEach((zone, ids) -> ids.forEach(id -> taken.put(id, zone)));
         boolean changed = true;
@@ -1087,6 +1091,9 @@ public class DetailExtractionService {
                     if ((vertical ? gy : gx) > 0 || overlap < (isStrip ? 0.8 : 0.95) * along) {
                         continue;
                     }
+                    if (isStrip && g > 2 && outerStrip(a, b, center)) {
+                        continue;
+                    }
                     if (!isStrip && (o.area() > q.area() * 0.5 || Math.abs(o.sat() - q.sat()) > 0.25)) {
                         continue; // 앞줄 조각은 블록보다 훨씬 작고 같은 색 계열이어야 한다
                     }
@@ -1110,6 +1117,41 @@ public class DetailExtractionService {
                 }
             }
         }
+    }
+
+    /**
+     * 구역 조각들의 경계 상자 가운데(지도 중심, 무대·플로어 쪽). 조각이 없으면 null.
+     */
+    private static double[] mapCenter(Map<Integer, ShapeSegmenter.Segment> byId, java.util.Collection<Integer> ids) {
+        int x0 = Integer.MAX_VALUE, y0 = Integer.MAX_VALUE, x1 = Integer.MIN_VALUE, y1 = Integer.MIN_VALUE;
+        for (Integer id : ids) {
+            ShapeSegmenter.Segment s = byId.get(id);
+            if (s == null) {
+                continue;
+            }
+            int[] b = box(s);
+            x0 = Math.min(x0, b[0]); y0 = Math.min(y0, b[1]); x1 = Math.max(x1, b[2]); y1 = Math.max(y1, b[3]);
+        }
+        return x0 > x1 ? null : new double[]{(x0 + x1) / 2.0, (y0 + y1) / 2.0, x1 - x0 + 1, y1 - y0 + 1};
+    }
+
+    /**
+     * 띠가 블록의 바깥쪽(지도 중심 반대편)에 있다. 앞쪽 띠는 무대를 향한 쪽에 선다(화정체육관 J·E 안쪽 띠). 올림픽홀 A·E 블록 바깥의 가는 띠는
+     * 좌석 구역이 아니다(사용자 검수 정답 207922·208702, 2026-11-22). 블록이 지도 중심선 근처(지도 폭·높이의 10% 안)면 방향을 판단하지 않는다.
+     * 틈 없이 맞붙은 띠(208619 플로어 D 옆 일반석 조각)는 블록의 다른 색 부분이라 호출하는 쪽에서 이 검사를 하지 않는다.
+     */
+    static boolean outerStrip(int[] strip, int[] block, double[] center) {
+        if (center == null) {
+            return false;
+        }
+        boolean vertical = strip[3] - strip[1] >= strip[2] - strip[0];
+        int axis = vertical ? 0 : 1;
+        double sc = (strip[axis] + strip[axis + 2]) / 2.0, bc = (block[axis] + block[axis + 2]) / 2.0;
+        double toCenter = center[axis] - bc;
+        if (Math.abs(toCenter) < 0.1 * center[axis + 2]) {
+            return false;
+        }
+        return (sc - bc) * toCenter < 0;
     }
 
     /** 띠를 붙일 이웃 후보: 구역 이름, 경계 상자, 넓이, 채도. */

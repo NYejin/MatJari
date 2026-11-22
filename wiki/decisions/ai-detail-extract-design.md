@@ -109,4 +109,5 @@ status: draft
 
 - [링크 기반 공연정보 자동 입력 설계 근거](link-autofill-design.md): SSRF 방어와 'AI 출처를 붙일 자리'(6절).
 - [공연 포스터 표시 설계 근거](poster-display-design.md): 제3자 이미지에 대한 같은 종류의 저작권 미확인.
+- [구역 모양 학습 v2 결과](../research/zone-shape-training-v2.md)와 [학습 도형 빈자리 채우기](learned-shape-gap-fill.md): 학습 모델 도형을 섞는 안의 평가.
 - 확정 규칙: [CLAUDE.md](../../CLAUDE.md) 'AI 회차·구역 읽기' 절. 용어는 [용어집](../glossary.md).

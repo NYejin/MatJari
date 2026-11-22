@@ -18,7 +18,7 @@ import java.util.Objects;
  * 만료 행은 서비스가 가끔 배치로 지운다(스케줄러 없음). 폐기됐지만 만료 전인 행은 재사용 탐지를 위해 남긴다.
  *
  * <p>DB 제약: 해시 64자 소문자 hex·계열 UUID 형식, expires_at &gt; created_at, revoked_at·revoke_reason 은 함께 NULL 이거나 함께 값
- * (revoked_at &gt;= created_at), revoke_reason 5종, replaced_by_id 는 ROTATED 일 때만이며 ROTATED 면 필수.
+ * (revoked_at &gt;= created_at), revoke_reason 6종(V28 에서 PASSWORD_RESET 추가), replaced_by_id 는 ROTATED 일 때만이며 ROTATED 면 필수.
  * replaced_by_id ≠ id 는 AUTO_INCREMENT 컬럼을 CHECK 에 쓸 수 없어 이 클래스({@link #rotateTo})가 지킨다.
  *
  * <h2>잠금 규칙 (서비스 구현 시 지킬 것)</h2>
@@ -47,7 +47,7 @@ import java.util.Objects;
 @NoArgsConstructor
 public class RefreshToken {
 
-    /** 폐기 사유. DB CHECK(ck_refresh_token_reason)와 같은 5종. */
+    /** 폐기 사유. DB CHECK(ck_refresh_token_reason)와 같은 6종(PASSWORD_RESET 은 V28). */
     public enum RevokeReason {
         /** 재발급으로 새 토큰으로 바뀜(replacedById 필수). */
         ROTATED,
@@ -58,7 +58,9 @@ public class RefreshToken {
         /** 회원 탈퇴. */
         WITHDRAW,
         /** 관리자 조치(이용 정지·강제 탈퇴 등). */
-        ADMIN
+        ADMIN,
+        /** 비밀번호 재설정으로 그 사용자의 세션을 모두 끊음(V28). */
+        PASSWORD_RESET
     }
 
     public static final int TOKEN_HASH_LENGTH = 64;

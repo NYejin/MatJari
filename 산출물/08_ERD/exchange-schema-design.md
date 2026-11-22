@@ -1294,3 +1294,16 @@ CHECK 3개 (V8 `ck_exchange_match_reserved`와 같은 안전망 성격, NULL 통
 - 잠금(상세는 `RefreshToken` Javadoc): 재발급은 해시로 id만 잠금 없이 읽고 PK로 FOR UPDATE 한 뒤 상태를 다시 판단한다(보조 유니크 인덱스 FOR UPDATE 금지). 토큰 INSERT의 FK 검사가 users 행에 공유 잠금을 걸므로, INSERT 하는 경로(로그인·재발급·소셜 exchange)는 users 행을 먼저 FOR UPDATE로 잡는다(재발급 [토큰 X → users S]와 탈퇴 [users X → 토큰 X]의 교착 방지). 탈퇴·관리자 조치는 users 행 FOR UPDATE 뒤에 사용자 전체 일괄 폐기를 한다. 이 테이블은 티켓·요청·매칭 잠금 사슬과 겹치지 않는다. 폐기 UPDATE는 FK 인덱스 값(user_id)을 바꾸지 않아 부모 행 공유 잠금이 생기지 않는다.
 - 재실행 가능한 프로시저 패턴, 파괴적 단계 없음. 되돌리기는 롤포워드(테이블 삭제). 테이블 수 26 -> 27. ERD: `erd.dot`에 `refresh_token` 노드와 `users -> refresh_token`(1:N)을 추가했다(ERD.png는 재생성하지 않음).
 - 다음 마이그레이션은 V28이다.
+
+## 26. V28: 비밀번호 재설정 토큰 (2026-11-22, `V28__password_reset_token.sql`, `feature/password-reset`)
+
+- 목적: "비밀번호를 잊었어요"에서 이메일로 받은 일회용 링크로 새 비밀번호를 정한다. 링크 토큰은 무작위 32바이트이고 DB에는 SHA-256 해시만 둔다.
+- 테이블 `password_reset_token`: `id` PK, `user_id` BIGINT NN(FK → users, `idx_password_reset_token_user` 단일 컬럼, ON DELETE/UPDATE 동작 없음), `token_hash` CHAR(64) ascii_bin NN(`uk_password_reset_token_hash`), `created_at`·`expires_at` DATETIME(6) NN(`idx_password_reset_token_expires`), `used_at` DATETIME(6) NULL(이 링크로 비밀번호를 바꾼 시각), `invalidated_at` DATETIME(6) NULL(쓰이지 않고 무효가 된 시각: 새 요청으로 대체, 다른 경로의 비밀번호 변경), `request_ip` VARCHAR(45) ascii_bin NULL(요청 IP, 감사용, 인덱스 없음), 생성 컬럼 `live_user_id` = used_at·invalidated_at이 모두 NULL일 때만 user_id(STORED, FK 아님, `uk_password_reset_token_live`).
+- CHECK: `ck_password_reset_token_hash`(64자 소문자 hex), `ck_password_reset_token_expires`(expires_at > created_at), `ck_password_reset_token_state`(used_at·invalidated_at은 동시에 값일 수 없고 각각 >= created_at), `ck_password_reset_token_ip`(NULL이거나 2~45자 `[0-9A-Fa-f:.]`, IPv6 영역 표기 `%eth0`는 거부하므로 서비스가 떼거나 NULL로 둔다).
+- 같은 마이그레이션에서 `refresh_token.ck_refresh_token_reason`에 `PASSWORD_RESET`을 더한다(기존 5종 유지, 가드: CHECK 정의에 없을 때만 교체). 재설정을 확정하면 그 사용자의 리프레시 토큰을 모두 이 사유로 폐기해 도난된 세션을 끊는다.
+- 제안안에서 바꾼 점: ①무효화는 `used_at`에 섞지 않고 `invalidated_at`을 따로 둔다('이 링크로 바꿨다'와 '대체돼서 못 쓴다'를 감사·안내에서 구분, 둘의 배타는 CHECK) ②사용자당 살아 있는 행 1개를 생성 컬럼 + UNIQUE로 DB에서도 막는다(V12·V13의 PENDING/OPEN만 유니크와 같은 방식, 무효화를 빠뜨린 동시 요청의 최후 방어선). 만료됐어도 무효화하지 않으면 살아 있는 행이라 새 요청은 INSERT 전에 항상 일괄 무효화한다 ③탈퇴 때는 무효화가 아니라 그 사용자 행을 삭제한다(request_ip가 개인정보이고 탈퇴 뒤 쓸 일이 없다) ④`request_ip`는 인덱스를 두지 않는다(IP 속도 제한은 지금처럼 메모리) ⑤리프레시 토큰 폐기 사유 `PASSWORD_RESET` 추가.
+- 만료 정리: `expires_at` 인덱스를 둔다. 스케줄러 없이 서비스가 가끔 `DELETE … WHERE expires_at < ? ORDER BY expires_at LIMIT n`으로 지운다(사용·무효 여부 무관). 인덱스가 없으면 DELETE가 전체를 훑으며 살아 있는 행까지 잠근다. 새 행의 expires_at은 항상 미래라 범위 잠금과 겹치지 않는다.
+- 잠금(상세는 `PasswordResetToken` Javadoc): 요청은 users FOR UPDATE → `invalidateAllActiveByUserId` → INSERT(INSERT의 FK 검사가 users에 공유 잠금을 걸므로 users를 먼저 X로). 확정은 해시로 id를 잠금 없이 읽고 → users FOR UPDATE → 토큰 PK FOR UPDATE → 상태 재판단(미사용·미무효·만료 전, 토큰 user_id = 잠근 users, 탈퇴 아님) → 비밀번호 변경·`used_at`·리프레시 토큰 `PASSWORD_RESET` 일괄 폐기. 보조 유니크 인덱스에 FOR UPDATE를 걸지 않는다. 탈퇴는 users FOR UPDATE 뒤 `deleteAllByUserId`. 이 테이블은 티켓·요청·매칭 잠금 사슬과 겹치지 않고, 상태 UPDATE는 FK 인덱스 값을 바꾸지 않는다.
+- 주의: MySQL은 DATETIME(6)에 넣을 때 소수 7자리 이하를 반올림한다. 서비스는 만료 시각을 마이크로초로 잘라 넘기고, 만료 비교는 저장된 값(엔티티를 다시 읽은 값) 기준으로 한다.
+- 재실행 가능한 프로시저 패턴, 파괴적 단계 없음. 되돌리기는 롤포워드(테이블 삭제, PASSWORD_RESET 행이 없을 때 CHECK 되돌림). 테이블 수 27 -> 28. ERD: `erd.dot`에 `password_reset_token` 노드와 `users -> password_reset_token`(1:N)을 추가했다(ERD.png는 재생성하지 않음).
+- 다음 마이그레이션은 V29이다.

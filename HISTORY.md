@@ -18,6 +18,18 @@
 ### 2026-11-22
 - [구현] 리프레시 토큰 회전·재사용 탐지·폐기(V27 `refresh_token`, HttpOnly 쿠키 `mj_rt`, 동시 재발급 유예 20초·로그인 계열 최대 30일, 탈퇴·정지 시 전체 폐기), 프런트 액세스 토큰 메모리 보관·재발급 단일화·탭 간 락, vite 개발 프록시. 코드 리뷰(보안·동시성) 지적 반영 — `feature/auth-session`
 - [구현] 공개 배포 전 보안 보강(DB 변경 없음): 로그인 실패·가입 속도 제한, 신뢰 프록시 기반 접속자 IP(`ClientIpResolver`, nginx realip), 없는 계정 BCrypt 균등화, 개발용 비밀값 운영 기동 거부, nginx 보안 헤더 상속 누락 수정·CSP·HSTS·인증 경로 limit_req, `WEB_BIND` — `fix/deploy-security`
+- [구현] 내 채팅 목록 마지막 메시지 미리보기·최근 대화순 정렬(DB 변경 없음, 매칭 응답 `lastMessage*` 3필드, 인덱스 역방향 한 행 서브쿼리를 실DB EXPLAIN으로 확인) — `feature/chat-list-preview-all`
+- [구현] 자주 쓰는 공연장 구역 보정(블록 바깥쪽 떨어진 띠 제외, 세로 범례 칩, 어두운 구분선 자르기): 38장 IoU≥0.8 81.9→83.4%(올림픽홀 76.2→80.4%, 잠실실내 85.1→89.6%), 나빠진 지도 없음 — `fix/zone-strip-side`
+- [이슈] 평가용 Anthropic API 키가 인증 실패(Unauthorized)를 내 새 AI 응답 평가는 못 함, 저장 응답 재채점·도형 단계 평가만 — `fix/zone-strip-side`
+- [결정] 같은 공연장 검수 지도를 견본으로 옮겨 그리는 방식은 미채택(공연마다 지도를 새로 그려 정확도 81.6→75.7%) — `eval-data/tools/venue_template.py`
+
+### 2026-11-06
+- [결정] 학습 모델 도형으로 빈자리 채우기는 지금 운영에 넣지 않음(반영 여부는 사용자 결정 대기, 권고는 미반영): 재현율 +1.6%p 중 대부분이 한 장(213216)에서 나왔고 서버에 모델 실행 환경이 하나 더 필요함. 평가 도구에만 남김 — 작업일지 2026-11-06, `wiki/decisions/learned-shape-gap-fill.md`
+- [구현] 구역 모양 학습 v2(RF-DETR Seg Nano, 자동 라벨 245장 사전학습 + 정답 5겹 미세조정, GTX 960)와 같은 조건 평가(정답 38장·741구역, 새 AI 응답 3표본): 재현율 93.6%→95.2%, 정밀도 97.0%→97.3%, IoU≥0.8 81.9%→83.6%, 표본 간 폭 3.6%p→0.3%p. 평가셋 누출 점검(해시·pHash·ORB+RANSAC)과 정답 공연장 단위 제외(123장). 평가 도구에 학습 도형 빈자리 채우기·분할만 내보내기 모드 추가(`ShapeSegmenter.withExtra`, `ZoneModelEvalTest`) — 작업일지 2026-11-06, `wiki/research/zone-shape-training-v2.md`
+- [이슈] 미세조정 대기열 두 개가 같은 폴더에 동시에 학습해 0~3번 겹을 다시 학습(섞인 폴더는 평가 제외) — `wiki/gotchas/training-run-pitfalls.md`
+
+### 2026-11-04
+- [구현] 구역 인식 정밀도 개선(범례 회색 제외·외곽선 볼록 껍질 자르기·AI 좌표 대체와 좌우대칭 제거, 열 머리 이름·범례 알약·회색 조각 빼기 등): 38장 IoU≥0.8 75.8%→79.2%, 정밀도 90.8%→95.6%, 새 AI 응답 3표본 정밀도 94.5~94.8%→97.1~97.5% — PR #122, #123
 
 ### 2026-10-25
 - [결정] 무료 인식(RF-DETR Seg Nano + Java 도형 + RapidOCR) 사용자 검수 38장: 지금 규칙이 낫다 22·비슷 8·무료가 낫다 8 → 운영은 지금 규칙(Haiku) 유지, 무료 방식은 평가에만 — 작업일지 2026-10-25
@@ -90,13 +102,11 @@
 ### 2026-10-13
 - [결정] 후속 기능으로 **[빠른 교환]**(채팅 없이 교환)을 나중에 만들기로 함. 지금은 메모만 하고 설계·구현하지 않는다 — CLAUDE.md '후속 작업 목록'
 - [결정] 서비스 이름을 SeatSwap에서 **맞자리**(영문 MatJari)로 변경: 해외에 같은 이름의 서비스가 있어서. 소스 폴더 `SeatSwap/`→`MatJari/`, 자바 패키지 `com.seatswap`→`com.matjari`, 설정·환경변수 접두어 `seatswap.*`/`SEATSWAP_*`→`matjari.*`/`MATJARI_*`, DB 이름·사용자 `seatswap`→`matjari`, 헤더 로고·파비콘·화면 문구 교체. 이 이름 변경 이전의 기록(작업일지·이 문서의 과거 항목·위키 로그)은 옛 이름 그대로 둔다 — `feature/rename-matjari`
-
 - [구현] 정지 중 제한 로그인(`feature/suspended-withdraw-login`, DB 변경 없음): 비밀번호가 맞는 정지 로그인의 403 본문에 탈퇴 전용 10분 토큰 `withdrawToken`을 더하고(JWT `type=withdraw`), `JwtAuthenticationFilter`가 `DELETE /api/users/me`에서만 인증으로 인정한다. 로그인 화면이 "이 계정 탈퇴하기"로 탈퇴 모달을 연다. 소셜 전용 정지 계정은 제외 — 브라우저 점검·API 점검 통과
 - [구현] 소셜 전용 계정 탈퇴 재인증(`feature/social-withdraw-reauth`, 정지 중 제한 로그인 위에 쌓임): 연결된 소셜 계정으로 다시 인증한 `reauthCode`가 있어야 탈퇴한다. `POST /api/users/me/social/{provider}/reauth`, 연결 모드 재사용, 연결된 제공자가 모두 꺼져 있으면 확인 문구만. 카카오 스텁으로 브라우저 점검 통과
 - [구현] 좌석 인증 사진 정리 작업(`feature/claim-image-cleanup`, DB 변경 없음): 처리됐는데 사진이 남은 요청과 요청 행이 없는 고아 파일을 주기적으로 지운다(60분 유예, PENDING 사진 보존). 컨테이너에서 작동 점검 통과
 - [구현] 후보 keyset 조각 조회(`feature/candidates-keyset`, DB 변경 없음): `GET /api/exchange/requests/{id}/candidates/scroll`(전체 개수·offset 없음), 후보 화면 "더 보기"가 커서로 이어 읽는다. 기존 `page` 엔드포인트는 호환용으로 유지. 후보 27명 시드로 API·화면 점검 통과
 - [운영] 전체 백엔드 테스트(임시 MySQL IT 포함) 1054건 통과(네 브랜치를 합친 임시 통합 브랜치에서 실행). 이 문서 브랜치는 네 기능이 건드리지 않은 공유 줄(한계·후속 목록, 이력)만 갱신한다
-
 - [결정] 네이버 로그인 이메일은 검증 여부를 알 수 없어 쓰지 않는다(항상 자리표시 이메일, EMAIL_EXISTS 판정 안 함). `SocialProfileParser`가 네이버 email을 버린다. 실제 키 응답으로 검증 표시를 확인하면 되돌릴 수 있다.
 - [구현] 신뢰도 점수 제거 V18: 폐기된 `users.trust_score` 컬럼을 DROP하는 `V18__drop_user_trust_score.sql`(컬럼이 있을 때만 드롭하는 재실행 가능한 프로시저, 테이블 20개 그대로), 엔티티 `User.trustScore`·`/api/users/me` 응답의 `trustScore`·마이페이지 '신뢰도 점수' 표시·프런트 `User` 타입 필드 삭제, 백엔드 테스트 수정(응답 JSON에서 trustScore 제거, 통합 테스트 INSERT에서 trust_score 제거) — `feature/remove-trust-score`, 미커밋, 작업일지 2026-10-13 '신뢰도 점수 제거'
 - [구현] 가입 전 이메일 인증번호 V19: `email_verification`(PK email, HMAC-SHA256 해시, 시도 횟수·만료), `POST /api/auth/signup/email-code`와 가입 요청의 `emailCode` 검증(다른 검증을 모두 마친 뒤 마지막에 확인, 시도 횟수는 REQUIRES_NEW로 먼저 올리고 성공 시 같은 트랜잭션에서 소비), 유효 10분·재발송 60초·입력 5회·IP/이메일/전체 발송 제한, 메일 발송은 `EmailSender`(log 개발·smtp 운영, 운영에서 log 모드면 기동 거부), 프런트 가입 화면 인증번호 받기·입력, 개인정보처리방침 문구 — `feature/email-verification`, 위키 email-verification-design
@@ -116,7 +126,6 @@
 - [문서] 회원탈퇴 반영: CLAUDE.md(V17 절·개발 규칙), 위키 `decisions/withdraw-privacy-design.md`(보관 기간 조사 요약, 한계 8개), 백엔드·프런트·루트 README, project-knowledge 스킬, 04 후속요구사항(탈퇴 절·개정 이력), 08 ERD(V17 절)
 - [결정] 소셜 계정 연결은 자동으로 하지 않고, 로그인한 본인이 마이페이지에서 명시적으로 할 때만 한다. 콜백은 저장하지 않고 로그인 세션이 연결을 확정한다(강제 연결 로그인 CSRF 방지, Fable 검증 H-1) — 313e7ad (`feature/profile-edit`, 병합됨)
 - [구현] 마이페이지 닉네임 수정(`PATCH /api/users/me`)과 소셜 계정 연결·해제(`/api/users/me/social/**`, 연결 확정 코드), V16 `users.password_login_enabled`·`social_account` (user_id, provider) 유니크 — 9c1c098, d6fe3b4, 313e7ad (`feature/profile-edit`, 병합됨, 작업일지 2026-10-13)
-
 - [결정] 예약 방식 변경(사용자 지시 10-12): 한 명이 예약하면 즉시 RESERVED이던 방식을 뒤집어, '예약 제안 → 상대 예약 수락'으로만 RESERVED가 된다. 예약 취소 때 CHATTING 복귀는 그대로 — 사용자 지시(10-12), 07_작업일지/2026-10-13.md
 - [결정] 예약하기 버튼은 채팅 화면에서만 보인다. 내 매칭 카드는 제안 여부 문구와 '채팅' 버튼만 둔다 — 사용자 지시(10-12)
 - [결정] 채팅 새 메시지도 헤더 알림 벨에 표시한다(이전 '채팅 알림 행 없음' 결정을 뒤집음). 헤더 메시지 아이콘은 두지 않고, 알림 행은 (수신자, 매칭)당 1행을 재사용한다 — 사용자 지시(10-12)
@@ -128,25 +137,20 @@
 - [문서] 예약 제안·채팅 알림 반영: CLAUDE.md, project-knowledge 스킬, 백엔드·루트 README, 04 후속요구사항(15차, §3A.8, Q-22), 작업일지 2026-10-13. STATS.md는 훅이 갱신하므로 건드리지 않음
 
 ### 2026-10-12
-
 - [구현] 소셜 로그인: V14 `social_account`, 카카오·구글·네이버 Authorization Code 직접 구현(구글·카카오 PKCE, 네이버는 state 쿠키), 일회용 로그인 코드(60초, `#code=` 프래그먼트 전달), state 쿠키 `ss_oauth`, 정지·차단 규칙 동일, 제공자 엔드포인트 설정 고정, `/auth/callback`·로그인 화면 버튼·socialError 안내, 설정 `seatswap.social.*`(`SOCIAL_*` 변수, 값이 비면 비활성) — `feature/social-login`(master 60dac86 위, 병합됨), MySQL IT 포함 소셜 관련 테스트 통과, 브라우저 스텁 제공자 점검
 - [결정] 소셜 로그인에서 같은 검증된 이메일의 기존 계정은 자동 연결하지 않고 가입을 막는다(`EMAIL_EXISTS`, 기존 방식 로그인 안내). 이메일이 없거나 미검증이면 `.invalid` 자리표시 이메일로 가입한다 — 사용자 결정(10-12)
 - [구현] 링크 자동 입력 URL 형식 보강: YES24 모바일(`m.ticket.yes24.com/Perf/{id}`)과 `PerfInfo.aspx?IdPerf=` 형식 인식, 지원 사이트 안내 문구 강화(인터파크 미지원, 멜론 모바일 404라 미지원) — `feature/social-login`에 포함, DB 변경 없음
 - [결정] 예약 방식 변경 요청: 예약 버튼은 채팅 화면에서만 보이고, 예약도 '예약 제안 → 상대 수락'이어야 RESERVED가 된다(V15 필요) — 사용자 요청(10-12), 10-13 구현 완료(아래 10-13 항목). CLAUDE.md '예약' 절은 구현 때 갱신
 - [구현] 차단·신고·이용 정지와 관리자 관리: V13 `user_block`·`abuse_report`·`user_sanction`, 차단(양방향 효과·열린 매칭 시스템 취소·후보 제외), 신고(5개 사유), 관리자 신고 처리·채팅 근거 열람·이용 정지(7일/30일/무기한)·제재 해제·차단 현황, 정지 계정 403 강제 — `feature/block-report`, 백엔드 781건 통과(MySQL IT 포함)
 - [결정] Q-21 확정: 사용자 요청("차단/신고와 동시에 관리자 기능도")으로 신고 관리 범위를 목록·상세(채팅 근거)·처리·이용 정지·차단 현황까지로 확정, 자동 제재 없음, 정지 강제는 loadUserById 한 곳 — 사용자 요청(10-12)
-
 - [구현] 교환 이력 조회: `GET /api/exchange/history`(본인 행만, 최신순, 스냅샷), 마이페이지 '교환 이력' 화면(`/exchange/history`, 채팅 기록 보기 링크) — `feature/exchange-history`, DB 변경 없음(V13 그대로 차단용), 신규 테스트 5건
-
 - [구현] 관리자 페이지: V12 `performance_edit_proposal`·`seat_claim`, 공연 수정 제안(제목·공연장, 관리자 승인으로만 공연 수정), 내 티켓 인증(예매내역 사진 업로드→관리자 승인 시 기존 티켓 내림, 처리 후 사진 삭제), `/admin` 화면 3개와 사용자 화면 — `feature/admin`, 백엔드 708건 통과(MySQL IT 포함)
 - [결정] 질문 "관리자 범위" 답 "다"를 수정 제안+티켓 인증 둘 다로 해석, 수정 대상은 "상관없음"이라 제목·공연장만으로 확정(회차 수정은 티켓·교환 요청과 얽혀 위험) — 추천안 확정(10-12), 마이그레이션이 V12를 써서 차단 `user_block`은 V13
 - [이슈] 좌석 키 보조 유니크 인덱스로 티켓을 FOR UPDATE하면 PK부터 잠그는 `deactivate`와 교착 → id를 잠금 없이 읽고 PK로 잠근 뒤 재확인으로 해결
-
 - [구현] 링크 기반 공연정보 자동 입력: `GET /api/performances/preview`, YES24·티켓링크(JSON-LD)·멜론(본문 HTML) 파서, 사용자 URL을 요청하지 않고 고정 템플릿 URL만 요청(SSRF 방어), 리다이렉트 불가·공인 IP·2 MiB·10초·사용자당 분당 10회·10분 캐시, 등록 화면 2단계 미리 채움 — `feature/link-autofill`, 백엔드 632건 통과, DB 변경 없음
 - [결정] 회차 시각은 자동 입력하지 않는다(세 사이트 모두 Ajax로만 제공, 실제 공개 페이지 raw HTML로 확인). 공연 기간만 안내하고 회차는 직접 입력 — 추천안 확정(10-12)
 
 ### 2026-10-11
-
 - [구현] 실시간 알림 푸시: 알림 INSERT 뒤 `afterCommit`에서 `/user/queue/notifications`로 "새 알림" 신호만 전파(문구·상대 정보 미포함, 실패는 삼킴), STOMP 구독 허용 목적지 2개·목적지당 1개, 프론트는 앱 공용 연결(`realtimeHub`)로 벨 개수 즉시 갱신·연결 중 폴링 5분으로 완화, 알림 페이지는 "새 알림이 있어요" 버튼 — `feature/notifications-realtime`, 백엔드 617건 통과, DB 변경 없음(V12 불필요)
 - [결정] 알림 푸시는 신호만 보내고 화면이 REST로 다시 읽는다(푸시에 개인정보를 싣지 않고 기존 조회 권한 검사를 그대로 쓰기 위해). 토스트는 만들지 않음 — 추천안 확정(10-11)
 - [구현] 채팅 구현: V11 `chat_message`·`chat_read_state`, 전송·조회·읽음 REST(멱등 `clientMessageId`, 매칭 잠금 후 커밋 뒤 전파), STOMP 인증·사용자 큐 푸시, 채팅 화면 `/exchange/matches/:matchId/chat`, 매칭 카드 '채팅' 링크와 안 읽은 뱃지 — 48d5e17, 6f566f7, 3bb70b5, 9f56d59, feature/chat(병합됨)

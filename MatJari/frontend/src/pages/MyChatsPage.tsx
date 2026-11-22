@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { exchangeApi } from "../api/exchange";
 import { exchangeErrorMessage } from "../api/exchangeMessages";
-import { formatKstDateTime } from "../api/dateTime";
+import { kstMinuteString } from "../api/dateTime";
 import { formatSeat } from "../api/seat";
 import { button, FOCUS_RING, ui } from "../components/ui";
 import { usePagedList } from "../hooks/usePagedList";
@@ -10,7 +10,7 @@ import type { ExchangeMatch, MatchStatus } from "../types/exchange";
 
 // 내 채팅 (보호 라우트 /my/chats): 채팅 목록만 모아 보는 화면. 새 API 없이 내 매칭 목록(listMatches)으로 만든다.
 // 채팅은 매칭 상태와 무관하게 열리므로 CHATTING·RESERVED·COMPLETED·CANCELED 모두 넣고, 종료는 연한 '종료' 라벨로 구분한다.
-// 매칭 응답에 마지막 메시지가 없어 미리보기 대신 '내 자리 ↔ 상대 자리' 요약을 보인다. 마운트(경로 진입)마다 새로 조회한다.
+// 카드에는 마지막 메시지 미리보기·시각(lastMessage*)과 자리 요약을 보인다. 정렬은 안 읽음 먼저, 그다음 마지막 메시지(없으면 생성) 시각 최신순. 마운트(경로 진입)마다 새로 조회한다.
 
 type Filter = "ALL" | "UNREAD";
 
@@ -23,14 +23,32 @@ const STATUS_LABEL: Record<MatchStatus, string> = {
 
 const isClosed = (s: MatchStatus) => s === "COMPLETED" || s === "CANCELED";
 
-/** 안 읽은 채팅이 있는 것을 먼저, 그다음 updatedAt 최신순 (ISO 문자열 비교) */
+/** 정렬·표시 기준 시각: 마지막 메시지가 있으면 그 시각, 없으면 매칭 생성 시각 */
+const chatTime = (m: ExchangeMatch) => m.lastMessageAt ?? m.createdAt;
+
+/** 안 읽은 채팅이 있는 것을 먼저, 그다음 lastMessageAt ?? createdAt 최신순, 같으면 id 내림차순 (같은 형식 ISO 문자열 비교) */
 function sortChats(items: ExchangeMatch[]): ExchangeMatch[] {
   return [...items].sort((a, b) => {
     const ua = a.unreadChatCount > 0 ? 1 : 0;
     const ub = b.unreadChatCount > 0 ? 1 : 0;
     if (ua !== ub) return ub - ua;
-    return a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : b.id - a.id;
+    const ta = chatTime(a);
+    const tb = chatTime(b);
+    return ta < tb ? 1 : ta > tb ? -1 : b.id - a.id;
   });
+}
+
+/** KST 기준: 오늘이면 '오후 3:05', 올해면 '11월 3일', 그 외 '2025. 11. 3.' */
+function formatChatTime(value: string, now: number = Date.now()): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
+  if (!m) return "";
+  const [y, mo, d, h, mi] = [+m[1], +m[2], +m[3], +m[4], +m[5]];
+  const today = kstMinuteString(now);
+  if (value.slice(0, 10) === today.slice(0, 10)) {
+    return `${h < 12 ? "오전" : "오후"} ${h % 12 === 0 ? 12 : h % 12}:${String(mi).padStart(2, "0")}`;
+  }
+  if (y === +today.slice(0, 4)) return `${mo}월 ${d}일`;
+  return `${y}. ${mo}. ${d}.`;
 }
 
 export default function MyChatsPage() {
@@ -126,6 +144,7 @@ export default function MyChatsPage() {
 function ChatRow({ match: m }: { match: ExchangeMatch }) {
   const unread = m.unreadChatCount > 0;
   const closed = isClosed(m.status);
+  const preview = m.lastMessagePreview ?? null;
   return (
     <Link
       to={`/exchange/matches/${m.id}/chat`}
@@ -136,6 +155,9 @@ function ChatRow({ match: m }: { match: ExchangeMatch }) {
       <span className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate text-base/[normal] font-bold text-gray-900">{m.counterpartNickname}</span>
         {closed && <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-xs/[normal] text-gray-600">종료</span>}
+        <time dateTime={chatTime(m)} className="shrink-0 text-xs/[normal] text-gray-500">
+          {formatChatTime(chatTime(m))}
+        </time>
         {unread && (
           <span
             aria-label={`안 읽은 메시지 ${m.unreadChatCount}개`}
@@ -145,9 +167,15 @@ function ChatRow({ match: m }: { match: ExchangeMatch }) {
           </span>
         )}
       </span>
-      <span className="text-sm/[normal] text-gray-600">
-        {STATUS_LABEL[m.status]} · {formatKstDateTime(m.updatedAt)}
-      </span>
+      {preview ? (
+        <span className={`min-w-0 truncate text-sm/[normal] ${unread ? "font-bold text-gray-900" : "text-gray-700"}`}>
+          {m.lastMessageMine ? "나: " : ""}
+          {preview}
+        </span>
+      ) : (
+        <span className="min-w-0 truncate text-sm/[normal] text-gray-500">아직 대화가 없어요</span>
+      )}
+      <span className="text-xs/[normal] text-gray-500">{STATUS_LABEL[m.status]}</span>
       <span className={`flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-sm/[normal] ${unread ? "font-bold text-gray-900" : closed ? "text-gray-500" : "text-gray-700"}`}>
         <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
           <span className="rounded-full bg-primary-50 px-2 py-0.5 text-[0.6875rem]/[1.3] font-bold text-primary-800">내</span>

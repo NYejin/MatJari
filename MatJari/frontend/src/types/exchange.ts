@@ -140,6 +140,12 @@ export interface ExchangeMatch {
   counterpartTicketReservedElsewhere: boolean;
   /** 상대가 보낸 안 읽은 채팅 메시지 수 (종료된 매칭도 센다) */
   unreadChatCount: number;
+  /** 마지막 채팅 메시지 앞부분(최대 60자, 넘으면 …). 메시지가 없거나 옛 서버 응답이면 null/없음 */
+  lastMessagePreview?: string | null;
+  /** 마지막 메시지 시각 "yyyy-MM-ddTHH:mm:ss" (KST). 없으면 null/없음 */
+  lastMessageAt?: string | null;
+  /** 마지막 메시지를 내가 보냈는지 */
+  lastMessageMine?: boolean;
   canceledBy: CanceledBy | null;
   canceledAt: string | null;
   createdAt: string;

@@ -85,3 +85,6 @@ AI 회차·구역 읽기(V21 `performance_zone`, `feature/ai-extract-backend`)�
 
 ## [2026-10-23] ingest | 사이트별 읽는 법 반영과 인터파크·티켓링크 문구 정리
 인터파크(NOL)·티켓링크 renderer·본문 맥락 회차(PR #115)에 맞춰 `link-autofill-design.md`·`ai-detail-extract-design.md`·`poster-display-design.md`·`link-fetch-pitfalls.md`의 '인터파크 제외·티켓링크 이미지 불가' 문구를 고쳤다. `ticketing-site-reading.md` YES24 절에 모바일 페이지·상세 내용 주소 점검 결과와 남은 선택지(KOPIS 공공 API 등)를 더했다.
+
+## [2026-11-06] ingest | 구역 모양 학습 v2 결과
+`research/zone-shape-training-v2.md`(누출 점검·데이터·학습·평가), `decisions/learned-shape-gap-fill.md`(효과 작음, 운영 반영 미정), `gotchas/training-run-pitfalls.md`(셸·출력 폴더·Python -I)를 추가하고 `ai-detail-extract-design.md`에 교차 링크했다. 원자료는 저장소 밖 학습 기록이며 수치 재현은 하지 않아 confidence는 medium이다.

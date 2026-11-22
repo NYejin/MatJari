@@ -50,6 +50,16 @@
 - `VITE_PRIVACY_EFFECTIVE_DATE`: 방침 시행일(예: 2026-10-13)
 - 비어 있으면 방침에 `[운영자 정보 설정 필요]`·`[시행일 설정 필요]`가 강조 표시된다. 값은 빌드 시점에 박히므로 바꾼 뒤에는 다시 빌드해야 한다. 공개 운영 전에 반드시 채운다.
 
+## 보안 헤더·CSP·속도 제한 (운영 nginx)
+
+`nginx.conf`와 `security-headers.conf`(Dockerfile.prod가 `/etc/nginx/`에 복사)가 담당한다. nginx는 location 안에 `add_header`가 하나라도 있으면 server 단계 헤더를 상속하지 않으므로, 공통 헤더는 `security-headers.conf`로 빼서 server와 `add_header`를 쓰는 location(`/`, `/assets/`)에서 각각 include한다. 새 location에 `add_header`를 넣으면 include도 같이 넣는다.
+
+- 헤더: X-Content-Type-Options, Referrer-Policy, X-Frame-Options, Permissions-Policy(camera·microphone·geolocation 끔), Content-Security-Policy, Strict-Transport-Security(`X-Forwarded-Proto: https`일 때만, max-age 15552000).
+- CSP: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: <포스터 호스트>; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'`. `style-src 'unsafe-inline'`은 컴포넌트의 인라인 `style=`(차트 폭·색 등) 때문이다. 인라인 스크립트는 없다. STOMP WebSocket은 같은 출처 `/ws`라 `connect-src 'self'`로 충분하지만 오래된 Safari(15.4 미만)는 `'self'`가 ws/wss를 포함하지 않으므로 필요하면 `wss://도메인`을 추가한다. `VITE_API_BASE_URL`·`VITE_WS_URL`을 다른 출처로 바꾸면 `connect-src`도 고쳐야 한다. 외부 폰트는 쓰지 않는다.
+- **포스터 이미지 허용 호스트**(CSP `img-src`): `tkfile.yes24.com`(YES24), `image.toast.com`(티켓링크), `cdnticket.melon.co.kr`(멜론), `ticketimage.interpark.com`(인터파크 NOL). 백엔드·`PosterImage`의 허용 호스트에 새 사이트를 추가하면 **`security-headers.conf`의 `img-src`도 반드시 같이 고친다**(안 고치면 브라우저가 이미지를 막아 포스터가 조용히 사라진다).
+- 클라이언트 IP: cloudflared가 붙이는 `CF-Connecting-IP`를 nginx realip로 `$remote_addr`에 반영하고(신뢰 대역 172.16.0.0/12·10.0.0.0/8) 백엔드에는 `X-Real-IP`로 넘긴다. 도커 망 안에서 직접 온 요청의 `CF-Connecting-IP`는 믿으므로 web 포트를 외부에 직접 열지 않는다.
+- `/api/auth/`는 접속자 IP당 분당 10회(burst 20) 속도 제한, 초과는 nginx 429(본문 HTML). 화면은 `api/errors.ts`의 `authRateLimitMessage`로 `LOGIN_RATE_LIMITED`·`SIGNUP_RATE_LIMITED`(백엔드 429)와 code 없는 429를 안내한다.
+
 ## 다음 단계
 0. 관리자 페이지 브라우저 수동 점검 (구현 완료 2026-10-12, `feature/admin`)
 1. 교환 화면 브라우저 수동 점검·실서버 연동

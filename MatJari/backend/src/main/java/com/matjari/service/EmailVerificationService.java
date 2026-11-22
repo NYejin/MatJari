@@ -71,7 +71,7 @@ public class EmailVerificationService {
         return properties.isEnabled();
     }
 
-    /** 인증번호를 만들어 메일로 보낸다. ip 는 속도 제한 키다(request.getRemoteAddr()). */
+    /** 인증번호를 만들어 메일로 보낸다. ip 는 속도 제한 키다(ClientIpResolver.resolve 결과). */
     public EmailCodeResponse sendCode(String rawEmail, String ip) {
         String email = AuthInputNormalizer.normalizeEmail(rawEmail);
         if (email == null || email.isEmpty()) {

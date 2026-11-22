@@ -50,6 +50,10 @@ class AuthLongPasswordSliceTest {
     private AccountSuspensionChecker suspensionChecker;
     @MockBean
     private com.matjari.service.EmailVerificationService emailVerificationService;
+    @MockBean
+    private com.matjari.security.AuthRateLimiter authRateLimiter;
+    @MockBean
+    private com.matjari.security.ClientIpResolver clientIpResolver;
 
     @Test
     void loginWithPasswordOver72BytesIs400Not500() throws Exception {

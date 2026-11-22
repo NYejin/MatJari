@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useAuthRedirect } from "../hooks/useAuthRedirect";
-import { parseApiError } from "../api/errors";
+import { authRateLimitMessage, parseApiError } from "../api/errors";
 import { clearSuspensionNotice, parseSuspension, peekSuspensionNotice, suspensionMessage } from "../api/suspension";
 import {
   compactErrors,
@@ -106,6 +106,13 @@ export default function LoginPage() {
         setFieldErrors({});
         setFormError(suspensionMessage(suspension));
         setWithdrawToken(suspension.withdrawToken ?? null);
+        setSubmitting(false);
+        return;
+      }
+      const limited = authRateLimitMessage(err);
+      if (limited) {
+        setFieldErrors({});
+        setFormError(limited);
         setSubmitting(false);
         return;
       }

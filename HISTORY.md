@@ -16,6 +16,7 @@
 ## 이력
 
 ### 2026-11-22
+- [구현] 공개 배포 전 보안 보강(DB 변경 없음): 로그인 실패·가입 속도 제한, 신뢰 프록시 기반 접속자 IP(`ClientIpResolver`, nginx realip), 없는 계정 BCrypt 균등화, 개발용 비밀값 운영 기동 거부, nginx 보안 헤더 상속 누락 수정·CSP·HSTS·인증 경로 limit_req, `WEB_BIND` — `fix/deploy-security`
 - [구현] 내 채팅 목록 마지막 메시지 미리보기·최근 대화순 정렬(DB 변경 없음, 매칭 응답 `lastMessage*` 3필드, 인덱스 역방향 한 행 서브쿼리를 실DB EXPLAIN으로 확인) — `feature/chat-list-preview-all`
 - [구현] 자주 쓰는 공연장 구역 보정(블록 바깥쪽 떨어진 띠 제외, 세로 범례 칩, 어두운 구분선 자르기): 38장 IoU≥0.8 81.9→83.4%(올림픽홀 76.2→80.4%, 잠실실내 85.1→89.6%), 나빠진 지도 없음 — `fix/zone-strip-side`
 - [이슈] 평가용 Anthropic API 키가 인증 실패(Unauthorized)를 내 새 AI 응답 평가는 못 함, 저장 응답 재채점·도형 단계 평가만 — `fix/zone-strip-side`

@@ -3,7 +3,6 @@ package com.matjari.service;
 import com.matjari.domain.User;
 import com.matjari.dto.request.AuthInputNormalizer;
 import com.matjari.dto.request.LoginRequest;
-import com.matjari.dto.request.RefreshRequest;
 import com.matjari.dto.request.SignupRequest;
 import com.matjari.dto.response.TokenResponse;
 import com.matjari.dto.response.UserResponse;
@@ -17,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.security.authentication.InsufficientAuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,6 +48,7 @@ public class AuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final AccountSuspensionChecker suspensionChecker;
     private final EmailVerificationService emailVerificationService;
+    private final RefreshTokenService refreshTokenService;
 
     @Transactional
     public UserResponse signup(SignupRequest request) {
@@ -110,7 +111,7 @@ public class AuthService {
         }
     }
 
-    public TokenResponse login(LoginRequest request) {
+    public IssuedTokens login(LoginRequest request) {
         String password = request.password();
         // BCrypt 72바이트 초과 비밀번호는 가입 단계에서 거부되므로 일치할 수 없다.
         // 앞 72바이트만 비교되는 truncation 매칭을 막기 위해 matches 호출 전에 실패 처리.
@@ -118,10 +119,14 @@ public class AuthService {
             throw new MatJariException(LOGIN_FAIL_MESSAGE);
         }
 
-        User user = userRepository.findByEmail(AuthInputNormalizer.normalizeEmail(request.email()))
-                .orElseThrow(() -> new MatJariException(LOGIN_FAIL_MESSAGE));
+        User user = userRepository.findByEmail(AuthInputNormalizer.normalizeEmail(request.email())).orElse(null);
 
-        if (user.isWithdrawn() || !passwordEncoder.matches(password, user.getPassword())) {
+        // 없는 이메일·탈퇴·소셜 전용(password_login_enabled=0) 계정도 BCrypt 비교를 한 번 하도록 해 응답 시간으로 가입 여부를 알 수 없게 한다
+        if (user == null || user.isWithdrawn() || !user.isPasswordLoginEnabled()) {
+            passwordEncoder.matches(password, dummyHash());
+            throw new MatJariException(LOGIN_FAIL_MESSAGE);
+        }
+        if (!passwordEncoder.matches(password, user.getPassword())) {
             throw new MatJariException(LOGIN_FAIL_MESSAGE);
         }
         // 비밀번호가 맞은 뒤에만 정지 여부를 알려 준다(정지 여부로 계정 존재를 추측하지 못하게). 403 ACCOUNT_SUSPENDED
@@ -135,20 +140,34 @@ public class AuthService {
         return issueTokens(user);
     }
 
-    public TokenResponse refresh(RefreshRequest request) {
-        String token = request.refreshToken();
+    /** 계정이 없을 때 비교용 BCrypt 해시(처음 필요할 때 한 번 만든다). 어떤 비밀번호와도 맞지 않는 무작위 값의 해시다. */
+    private volatile String dummyHash;
 
-        if (!jwtTokenProvider.validateToken(token) || !jwtTokenProvider.isRefreshToken(token)) {
-            throw new MatJariException("유효하지 않거나 만료된 refresh token 입니다.");
+    private String dummyHash() {
+        String h = dummyHash;
+        if (h == null) {
+            byte[] random = new byte[32];
+            new java.security.SecureRandom().nextBytes(random);
+            h = passwordEncoder.encode(java.util.Base64.getEncoder().encodeToString(random));
+            dummyHash = h;
         }
+        return h;
+    }
 
-        Long userId = jwtTokenProvider.getUserId(token);
-        User user = userRepository.findById(userId)
-                .filter(u -> !u.isWithdrawn())
-                .orElseThrow(() -> new MatJariException("사용자를 찾을 수 없습니다."));
-        suspensionChecker.assertNotSuspended(user.getId());
+    /**
+     * 리프레시 쿠키로 재발급(회전). 없음·만료·폐기·탈퇴는 401, 이미 회전된 토큰의 재사용은 계열 폐기 후 401, 정지는 403 ACCOUNT_SUSPENDED.
+     */
+    public IssuedTokens refresh(String refreshToken) {
+        RefreshTokenService.Rotation rotation = refreshTokenService.rotate(refreshToken);
+        if (rotation.outcome() != RefreshTokenService.Rotation.Outcome.OK) {
+            throw new InsufficientAuthenticationException("유효하지 않거나 만료된 refresh token 입니다.");
+        }
+        User user = rotation.user();
+        return new IssuedTokens(jwtTokenProvider.generateAccessToken(user.getId(), user.getEmail()), rotation.newToken());
+    }
 
-        return issueTokens(user);
+    public void logout(String refreshToken) {
+        refreshTokenService.logout(refreshToken);
     }
 
     private static boolean exceedsBcryptLimit(String password) {
@@ -184,10 +203,19 @@ public class AuthService {
         return sqlMessage != null && sqlMessage.contains("Duplicate entry '" + email + "'");
     }
 
-    /** JWT 발급. 소셜 로그인 코드 교환(SocialAuthService)도 같은 발급 경로를 쓴다. */
-    public TokenResponse issueTokens(User user) {
-        String accessToken = jwtTokenProvider.generateAccessToken(user.getId(), user.getEmail());
-        String refreshToken = jwtTokenProvider.generateRefreshToken(user.getId(), user.getEmail());
-        return TokenResponse.of(accessToken, refreshToken);
+    /** 액세스 토큰 + 새 계열의 리프레시 토큰 발급. 소셜 로그인 코드 교환(SocialAuthService)도 같은 경로를 쓴다. 탈퇴했으면 401. */
+    public IssuedTokens issueTokens(User user) {
+        String refresh = refreshTokenService.issueNewFamily(user.getId());
+        if (refresh == null) {
+            throw new InsufficientAuthenticationException("인증된 사용자를 찾을 수 없습니다.");
+        }
+        return new IssuedTokens(jwtTokenProvider.generateAccessToken(user.getId(), user.getEmail()), refresh);
+    }
+
+    /** 발급 결과. 리프레시 토큰 원문은 컨트롤러가 쿠키로만 내려 보내고 응답 본문에 싣지 않는다({@link #body()}). */
+    public record IssuedTokens(String accessToken, String refreshToken) {
+        public TokenResponse body() {
+            return TokenResponse.of(accessToken);
+        }
     }
 }

@@ -251,4 +251,23 @@ class JwtAuthenticationFilterTest {
         assertThat(runWithdrawToken("GET", "/api/tickets")).isNull();
         verify(userDetailsService, never()).loadUserById(any());
     }
+
+    @Test
+    void 비밀번호_변경_시각보다_먼저_발급된_액세스_토큰은_인증되지_않고_같은_초_이후는_인증된다() throws Exception {
+        when(tokenProvider.validateToken("t")).thenReturn(true);
+        when(tokenProvider.isRefreshToken("t")).thenReturn(false);
+        when(tokenProvider.getUserId("t")).thenReturn(1L);
+        when(userDetailsService.loadUserById(1L)).thenReturn(AuthUserPrincipal.of(1L, "a@b.com",
+                com.matjari.domain.UserRole.USER, java.time.Instant.parse("2026-11-22T00:00:10.900Z")));
+
+        when(tokenProvider.getIssuedAt("t")).thenReturn(java.time.Instant.parse("2026-11-22T00:00:09Z"));
+        assertThat(runFilter("Bearer t", new MockHttpServletResponse())).as("이전 초에 발급").isNull();
+
+        when(tokenProvider.getIssuedAt("t")).thenReturn(java.time.Instant.parse("2026-11-22T00:00:10Z"));
+        assertThat(runFilter("Bearer t", new MockHttpServletResponse())).as("같은 초는 허용").isNotNull();
+        SecurityContextHolder.clearContext();
+
+        when(tokenProvider.getIssuedAt("t")).thenReturn(java.time.Instant.parse("2026-11-22T00:05:00Z"));
+        assertThat(runFilter("Bearer t", new MockHttpServletResponse())).isNotNull();
+    }
 }

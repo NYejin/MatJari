@@ -7,8 +7,19 @@
 - types       — 백엔드 DTO에 대응하는 타입
 - hooks       — useAuth 등 커스텀 훅
 
+## 인증 저장 방식
+- **리프레시 토큰**은 백엔드가 심는 HttpOnly 쿠키 `mj_rt`(Path=/api/auth, SameSite=Strict)로만 오간다. 프런트 JS는 읽거나 저장하지 않는다(응답 본문의 `refreshToken`은 항상 null).
+- **액세스 토큰**은 `api/tokenStorage.ts`의 모듈 변수(메모리)에만 둔다. localStorage·sessionStorage에 쓰지 않으며, 앱 시작 때 예전 버전이 남긴 `accessToken`·`refreshToken` localStorage 키를 한 번 지운다.
+- 시작(새로고침·새 탭): `AuthProvider`가 `POST /api/auth/refresh`로 액세스 토큰을 받는다. 끝날 때까지 `isInitializing`이 true라 보호 라우트가 로그인 화면으로 보내지 않는다. 쿠키가 없으면 401 → 비로그인.
+- 재발급 단일화(`api/session.ts`): 한 탭 안의 동시 호출(시작·만료 60초 전 타이머·401 인터셉터·STOMP 재연결)은 진행 중인 요청 하나를 공유하고, 탭 사이는 `navigator.locks('matjari-refresh')`로 직렬화한다(미지원 브라우저는 탭 내 single-flight만). 같은 쿠키로 동시에 재발급하면 서버가 재사용으로 보고 로그인 계열을 폐기하므로 재발급은 반드시 `refreshSession()`만 거친다.
+- `/api/auth/*`는 `withCredentials`로 쿠키를 주고받고, refresh·logout은 `X-Requested-With: XMLHttpRequest` 헤더를 붙인다(`api/authClient.ts`).
+- 로그아웃: `POST /api/auth/logout`(실패해도 무시) → 메모리 토큰 삭제 → 다른 탭에 'logout' 신호만 전달(`api/authSignal.ts`, BroadcastChannel, 없으면 storage 이벤트. 토큰은 공유하지 않음).
+- **같은 출처 필수**: `VITE_API_BASE_URL` 기본값은 `/api`다. 개발은 `vite.config.ts`의 프록시가 `/api`·`/ws`를 `http://localhost:8080`(환경변수 `VITE_DEV_PROXY_TARGET`로 변경)으로 넘기고, 운영은 nginx가 같은 출처로 처리한다. 다른 출처 API를 쓰면 SameSite=Strict 쿠키가 가지 않아 로그인이 유지되지 않는다.
+- 소셜 로그인 콜백(`/auth/callback#code=` → exchange)과 정지 중 `withdrawToken` 흐름은 액세스 토큰을 메모리에 저장하는 것 외에는 그대로다(`withdrawToken`은 저장하지 않고 로그인 화면 상태로만 보관).
+
 ## 현재 상태
 - 구현됨: 로그인(`/login`)·회원가입(`/signup`), 공연 목록(`/`), 공연 등록(`/performances/new`), 공연 상세(`/performances/:id`), 마이페이지(`/me`). 로그인이 필요한 화면은 ProtectedRoute로 보호하고, api/client.ts에서 401 재발급 인터셉터를 처리한다.
+- 비밀번호 찾기·재설정·변경(백엔드 연동): 로그인 화면의 '비밀번호를 잊었어요' → `/forgot-password`(공개, 이메일 입력, 가입 여부와 무관하게 같은 안내, 429는 남은 시간 안내), `/reset-password`(공개, 링크의 `#token=`을 읽자마자 `history.replaceState`로 주소에서 지우고 메모리에 보관, 새 비밀번호 두 칸, 성공하면 모든 기기 로그아웃 안내와 로그인 버튼, 이 탭이 로그인 상태면 로컬 로그아웃), 마이페이지 '비밀번호 변경' 카드(`components/PasswordChangeCard.tsx`, `passwordLoginEnabled`인 계정에만, `PATCH /api/auth/password`로 현재 기기 로그인은 유지). 브라우저 점검 전, 빌드 통과.
 - 교환 화면(구현 완료; 좌석표는 쓰지 않고 구역·열·번 텍스트 입력, 구역 자동완성 없음):
   - `/tickets/new` 티켓 등록(FR-03) · `/tickets` 내 티켓(내리기, 교환 조건 진입)
   - `/tickets/:ticketId/exchange` 교환 희망 조건 폼 — 범위 카드(구역·열·번 범위 + **카드마다 추가금 4유형 라디오**, 카드 복제, 겹치는 범위의 추가금이 다르면 클라이언트 경고·서버 422 `WANT_EXTRA_CONFLICT`), 요청 단위 희망 회차 우선순위, 총 N석 합집합 미리보기와 5,000석·50범위 경고
@@ -19,6 +30,7 @@
   - 알려진 한계: 브라우저 수동 점검·실서버 연동은 아직 하지 않았다.
 - 좌석표 화면은 2026-10-07 방향 전환으로 삭제했다 (좌석표 코드는 태그 `archive/seatmap-track-20261007`에 보관).
 - 알림(구현 완료, 2026-10-11, `feature/notifications`, 백엔드 V10): 헤더 벨(`components/NotificationBell.tsx`)에 안 읽은 개수 뱃지를 달고, 누르면 바로 아래 말풍선이 떠서 최신 5건 요약·'모두 읽음'·'알림 전체 보기' 버튼을 보인다. `/notifications`(`pages/NotificationsPage.tsx`, 로그인 보호)는 더 보기 페이징, 모두 읽음, 읽은 알림 삭제(2단계 확인)를 한다. API 클라이언트는 `api/notifications.ts`, 타입은 `types/notification.ts`. 안 읽은 개수는 `hooks/useUnreadNotifications.ts`가 조회한다. 실시간 연결이 끊겨 있으면 **화면이 보일 때만 30초마다 폴링**하고, 연결이 살아 있으면 5분마다 안전 확인만 한다. focus·visibilitychange, 경로 이동, 같은 탭 재진입, (재)연결 직후에는 즉시 다시 조회한다. 알림 항목을 누르면 읽음 처리 후 채팅 메시지·예약 제안은 채팅 화면(`/exchange/matches/N/chat`), 나머지는 `/exchange/matches?role=RECEIVED&matchId=N`(새 제안) 또는 `/exchange/matches?matchId=N`으로 이동하고, 매칭 화면(`pages/MatchesPage.tsx`)은 URL 쿼리(`role`, `matchId`)로 탭 선택과 해당 카드 스크롤·강조를 한다. 실시간 푸시(STOMP 신호)는 `feature/notifications-realtime`(2026-10-11)에서 구현됐고, 토스트는 만들지 않았다. 연결 중에는 벨 개수를 신호로 즉시 갱신하고, `/notifications` 목록은 바꾸지 않은 채 '새 알림이 있어요. 눌러서 불러오기' 버튼만 띄운다.
+- 내 채팅 목록(`/my/chats`, `pages/MyChatsPage.tsx`): 카드마다 상대 닉네임·마지막 메시지 미리보기(내가 보냈으면 '나: ', 없으면 '아직 대화가 없어요')·마지막 메시지 시각(`lastMessagePreview`·`lastMessageAt`·`lastMessageMine`, 옛 응답이면 null 처리). 정렬은 안 읽음 먼저, 그다음 `lastMessageAt ?? createdAt` 최신순, 같으면 id 내림차순.
 - 채팅(구현 완료, 2026-10-11, `feature/chat`, 백엔드 V11): 경로 `/exchange/matches/:matchId/chat`(`pages/ChatPage.tsx`, 로그인 보호, 매칭 참여자만). 보내기는 REST `POST .../messages`, 받기는 STOMP `/user/queue/chat` 구독만 한다(클라이언트 SEND 없음). STOMP 연결(`@stomp/stompjs`)은 `api/realtime.ts`가 맡고 `hooks/useChatSocket.ts`로 화면에 붙인다. 로그인한 앱 전체가 탭당 연결 1개를 공유한다(`api/realtimeHub.ts`, 벨 훅과 채팅 훅이 참조 카운트로 붙고 마지막 참조가 풀리면 끊는다). WS 주소는 `VITE_WS_URL`이 없으면 API 주소에서 `/ws`로 계산한다. 토큰은 CONNECT 네이티브 헤더로만 보낸다. 끊기면 1초~30초 지수 백오프로 재연결하고, 연결될 때마다 `after` 커서로 빈 구간을 채운다. 토큰이 재발급되면 새 토큰으로 다시 연결한다. 읽음은 마지막으로 읽은 메시지 포인터(`PUT .../messages/read`)를 화면이 보이고 맨 아래에 있을 때 디바운스로 보내며, 내가 보낸 마지막 메시지 아래 상대가 읽었으면 '읽음'을 표시한다. 상단 상태 배너가 매칭 상태(예약 중·교환 완료·취소 등)를 보여주고(시스템 메시지는 저장하지 않음), 종료(CANCELED·COMPLETED)된 매칭은 읽기 전용이라 입력이 비활성화된다. 본문은 텍스트만 1000자(코드 포인트 카운터), IME 조합 중 Enter는 전송하지 않는다. 전송은 `clientMessageId`로 재전송에 멱등이다. 접근성: 연결 상태와 새 메시지는 role=status로 낭독하고, 메시지마다 '나:' 라벨을 붙이며, 입력 중에는 포커스를 빼앗지 않는다. 헤더 메시지 아이콘은 두지 않는다. 새 채팅 메시지는 수신자별 `CHAT_MESSAGE` 알림 1행(V15 재사용)으로 헤더 벨에 뜨고, 매칭 카드에는 안 읽은 뱃지가 있다. 알려진 한계: 브라우저 수동 점검과 실서버 STOMP 연동 점검은 아직 하지 않았고, 프론트 테스트 러너는 없다(tsc·build 통과).
 - 관리자·공연 수정 제안·내 티켓 인증(구현 완료, 2026-10-12, `feature/admin`, 백엔드 V12): 헤더 '관리자' 링크는 ADMIN일 때만 보이고, 그때 이름 최대 폭을 40px로 줄여 md(768px) 경계에서 넘치지 않게 했다. 관리자 가드 `AdminRoute`는 `/api/users/me`의 `profile.role`로 판단하며 로딩 중에는 '권한을 확인하는 중'을 띄운다(최종 방어는 서버 `/api/admin/**`의 ADMIN 검사). 관리자 화면은 `/admin`(대시보드), `/admin/performance-edit-proposals`(제안 값과 현재 값을 비교해 승인·거절 사유 입력), `/admin/seat-claims`(사진·요청자·현재 그 좌석을 가진 티켓 요약, 승인·거절)다. 일반 화면은 공연 상세 '정보가 틀렸어요'의 수정 제안 폼(제목·공연장 중 하나 이상과 사유), `/my/edit-proposals`(내 수정 제안), 티켓 등록에서 같은 좌석이 이미 등록돼 있을 때 나오는 '내 티켓 인증' 링크 → `/seat-claims/new`(회차·구역·열·번 쿼리, 예매내역 사진 1장 jpeg/png/webp 5 MiB 이하, 예매번호·이름을 가리라는 안내), `/my/seat-claims`(내 인증 요청, 처리된 요청은 사진을 보여주지 않음)다. MyPage에 두 목록 링크가 있다. 브라우저 점검은 아직 하지 않았고 tsc·빌드는 통과.
 - 차단·신고·관리자 신고 처리·이용 정지(구현 완료, 2026-10-12, `feature/block-report`, 백엔드 V13):
@@ -48,6 +60,16 @@
 - `VITE_PRIVACY_CONTACT_EMAIL`: 문의·개인정보 보호책임자 연락 이메일
 - `VITE_PRIVACY_EFFECTIVE_DATE`: 방침 시행일(예: 2026-10-13)
 - 비어 있으면 방침에 `[운영자 정보 설정 필요]`·`[시행일 설정 필요]`가 강조 표시된다. 값은 빌드 시점에 박히므로 바꾼 뒤에는 다시 빌드해야 한다. 공개 운영 전에 반드시 채운다.
+
+## 보안 헤더·CSP·속도 제한 (운영 nginx)
+
+`nginx.conf`와 `security-headers.conf`(Dockerfile.prod가 `/etc/nginx/`에 복사)가 담당한다. nginx는 location 안에 `add_header`가 하나라도 있으면 server 단계 헤더를 상속하지 않으므로, 공통 헤더는 `security-headers.conf`로 빼서 server와 `add_header`를 쓰는 location(`/`, `/assets/`)에서 각각 include한다. 새 location에 `add_header`를 넣으면 include도 같이 넣는다.
+
+- 헤더: X-Content-Type-Options, Referrer-Policy, X-Frame-Options, Permissions-Policy(camera·microphone·geolocation 끔), Content-Security-Policy, Strict-Transport-Security(`X-Forwarded-Proto: https`일 때만, max-age 15552000).
+- CSP: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: <포스터 호스트>; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'`. `style-src 'unsafe-inline'`은 컴포넌트의 인라인 `style=`(차트 폭·색 등) 때문이다. 인라인 스크립트는 없다. STOMP WebSocket은 같은 출처 `/ws`라 `connect-src 'self'`로 충분하지만 오래된 Safari(15.4 미만)는 `'self'`가 ws/wss를 포함하지 않으므로 필요하면 `wss://도메인`을 추가한다. `VITE_API_BASE_URL`·`VITE_WS_URL`을 다른 출처로 바꾸면 `connect-src`도 고쳐야 한다. 외부 폰트는 쓰지 않는다.
+- **포스터 이미지 허용 호스트**(CSP `img-src`): `tkfile.yes24.com`(YES24), `image.toast.com`(티켓링크), `cdnticket.melon.co.kr`(멜론), `ticketimage.interpark.com`(인터파크 NOL). 백엔드·`PosterImage`의 허용 호스트에 새 사이트를 추가하면 **`security-headers.conf`의 `img-src`도 반드시 같이 고친다**(안 고치면 브라우저가 이미지를 막아 포스터가 조용히 사라진다).
+- 클라이언트 IP: cloudflared가 붙이는 `CF-Connecting-IP`를 nginx realip로 `$remote_addr`에 반영하고(신뢰 대역 172.16.0.0/12·10.0.0.0/8) 백엔드에는 `X-Real-IP`로 넘긴다. 도커 망 안에서 직접 온 요청의 `CF-Connecting-IP`는 믿으므로 web 포트를 외부에 직접 열지 않는다.
+- `/api/auth/`는 접속자 IP당 분당 10회(burst 20) 속도 제한, 초과는 nginx 429(본문 HTML). 화면은 `api/errors.ts`의 `authRateLimitMessage`로 `LOGIN_RATE_LIMITED`·`SIGNUP_RATE_LIMITED`(백엔드 429)와 code 없는 429를 안내한다.
 
 ## 다음 단계
 0. 관리자 페이지 브라우저 수동 점검 (구현 완료 2026-10-12, `feature/admin`)

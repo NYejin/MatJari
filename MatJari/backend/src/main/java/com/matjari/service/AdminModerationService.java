@@ -57,7 +57,8 @@ import java.util.Set;
  * -> (제재를 함께 걸 때) ②대상 ADMIN 여부 읽기(409 CANNOT_SANCTION_ADMIN) -> ③활성 제재 중복 잠금 읽기(409 SANCTION_ALREADY_ACTIVE)
  * -> ④{@link OpenMatchCanceller#cancelAllOf}(티켓 id↑ -> 요청 id↑ -> 매칭 id↑) -> ⑤user_sanction INSERT -> ⑥신고 행 갱신(sanction_id).
  * <ul>
- *   <li><b>대상 users 행은 잠그지 않는다.</b> canceller 가 티켓을 잠그므로 그 앞에서 users 행을 X 로 잡으면 "users 는 티켓 뒤"
+ *   <li><b>대상 users 행은 canceller 앞에서는 잠그지 않고, canceller 뒤·INSERT 앞에서 FOR UPDATE 로 잡는다</b>(리프레시 토큰 ADMIN 폐기와 탈퇴 재확인용, 탈퇴와 같은 "users 는 티켓·매칭 뒤" 순서).
+ *   canceller 가 티켓을 잠그므로 그 앞에서 users 행을 X 로 잡으면 "users 는 티켓 뒤"
  *   규약(wiki 잠금 함정 1절)을 깨고, 티켓 -> users 순으로 잡는 기존 경로와 교착할 수 있다. 활성 제재 중복은 대신 ③의 잠금 읽기가 막는다:
  *   user_sanction(user_id) 인덱스 범위를 잠그므로 같은 대상에 대한 두 제재 생성이 겹치면 한쪽이 교착(503 BUSY)으로 밀려나 중복 제재가 생기지 않는다.</li>
  *   <li>user_sanction INSERT 는 canceller 뒤(트랜잭션 끝쪽)다. INSERT 의 FK 검사가 users 행 S 잠금을 거는데, 이를 canceller 앞에 두면
@@ -79,6 +80,7 @@ public class AdminModerationService {
     private final AbuseReportRepository reportRepository;
     private final UserSanctionRepository sanctionRepository;
     private final UserRepository userRepository;
+    private final com.matjari.repository.RefreshTokenRepository refreshTokenRepository;
     private final ChatMessageRepository chatMessageRepository;
     /** 구현체(BE-A)가 없는 환경에서도 컨텍스트가 뜨도록 호출 시점에 꺼낸다. */
     private final ObjectProvider<OpenMatchCanceller> cancellerProvider;
@@ -167,7 +169,7 @@ public class AdminModerationService {
 
     /**
      * 이용 정지 생성 코어(신고 처리와 관리자 직접 정지가 공유). 호출 트랜잭션은 READ_COMMITTED 이고 호출 전에 ExchangeMatch 를 읽지 않아야 한다.
-     * 대상 users 행은 잠그지 않는다(위 Javadoc). 탈퇴자 409 TARGET_WITHDRAWN, ADMIN·자기 자신 409 CANNOT_SANCTION_ADMIN,
+     * 대상 users 행은 canceller(티켓·매칭 잠금) 뒤에 FOR UPDATE 로 잡아 탈퇴 여부를 다시 확인하고 리프레시 토큰을 ADMIN 으로 폐기한다(위 Javadoc). 탈퇴자 409 TARGET_WITHDRAWN, ADMIN·자기 자신 409 CANNOT_SANCTION_ADMIN,
      * 이미 정지 중 409 SANCTION_ALREADY_ACTIVE. 순서: 검사 -> OpenMatchCanceller -> user_sanction INSERT -> 커밋 뒤 연결 종료. reportId 는 직접 정지면 null.
      */
     Long createSanction(Long adminId, Long targetId, Long reportId, String note, Integer days, LocalDateTime now) {
@@ -182,8 +184,15 @@ public class AdminModerationService {
         if (!sanctionRepository.findActiveForUpdate(targetId, now).isEmpty()) {
             throw new ConflictException("이미 이용 정지 중인 사용자입니다.", Map.of("code", "SANCTION_ALREADY_ACTIVE"));
         }
-        // 열린 매칭 시스템 취소(티켓 -> 요청 -> 매칭 잠금)는 users 행 잠금 없이, user_sanction INSERT 보다 먼저.
+        // 열린 매칭 시스템 취소(티켓 -> 요청 -> 매칭 잠금)는 users 행 잠금보다 먼저, user_sanction INSERT 보다 먼저.
         cancellerProvider.getObject().cancelAllOf(targetId);
+        // 리프레시 토큰 전부 폐기(ADMIN): users 행 FOR UPDATE 를 티켓·매칭 잠금 뒤(탈퇴와 같은 순서)에 잡고 폐기한다 — 진행 중인 재발급과 직렬화된다
+        User locked = userRepository.findByIdForUpdate(targetId)
+                .orElseThrow(() -> new NotFoundException("대상 사용자를 찾을 수 없습니다."));
+        if (locked.isWithdrawn()) {   // 앞선 읽기와 이 잠금 사이에 탈퇴가 끝났다
+            throw new ConflictException("탈퇴한 사용자는 제재할 수 없습니다.", Map.of("code", "TARGET_WITHDRAWN"));
+        }
+        refreshTokenRepository.revokeAllActiveByUserId(targetId, com.matjari.domain.RefreshToken.RevokeReason.ADMIN, now);
         UserSanction sanction = sanctionRepository.saveAndFlush(UserSanction.suspend(targetId, reportId, note, now, days, adminId));
         closeSocketsAfterCommit(targetId);
         return sanction.getId();

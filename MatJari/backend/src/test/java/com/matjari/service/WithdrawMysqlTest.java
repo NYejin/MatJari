@@ -178,7 +178,9 @@ class WithdrawMysqlTest {
         long p = user("탈퇴자", "USER");
         String email = jdbc.queryForObject("SELECT email FROM users WHERE id = ?", String.class, p);
         String access = jwt.generateAccessToken(p, email);
-        String refresh = jwt.generateRefreshToken(p, email);
+        String refresh = mockMvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"" + email + "\",\"password\":\"" + PASSWORD + "\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getCookie("mj_rt").getValue();
         mockMvc.perform(get("/api/users/me").header("Authorization", "Bearer " + access)).andExpect(status().isOk());
 
         // 본인 확인 실패: 400, 아무것도 바뀌지 않는다
@@ -192,8 +194,8 @@ class WithdrawMysqlTest {
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(get("/api/users/me").header("Authorization", "Bearer " + access)).andExpect(status().isUnauthorized());
-        mockMvc.perform(post("/api/auth/refresh").contentType(MediaType.APPLICATION_JSON).content("{\"refreshToken\":\"" + refresh + "\"}"))
-                .andExpect(status().isBadRequest());
+        mockMvc.perform(post("/api/auth/refresh").header("X-Requested-With", "XMLHttpRequest").cookie(new jakarta.servlet.http.Cookie("mj_rt", refresh)))
+                .andExpect(status().isUnauthorized());
         mockMvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"" + email + "\",\"password\":\"" + PASSWORD + "\"}"))
                 .andExpect(status().isBadRequest());

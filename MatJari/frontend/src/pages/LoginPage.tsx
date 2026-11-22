@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useAuthRedirect } from "../hooks/useAuthRedirect";
-import { parseApiError } from "../api/errors";
+import { authRateLimitMessage, parseApiError } from "../api/errors";
 import { clearSuspensionNotice, parseSuspension, peekSuspensionNotice, suspensionMessage } from "../api/suspension";
 import {
   compactErrors,
@@ -109,6 +109,13 @@ export default function LoginPage() {
         setSubmitting(false);
         return;
       }
+      const limited = authRateLimitMessage(err);
+      if (limited) {
+        setFieldErrors({});
+        setFormError(limited);
+        setSubmitting(false);
+        return;
+      }
       const parsed = parseApiError(err, "로그인에 실패했습니다. 잠시 후 다시 시도해 주세요.");
       const { fieldErrors: next, hasFieldError } = pickFieldErrors(parsed.fieldErrors, FIELDS);
       setFieldErrors(next);
@@ -174,6 +181,12 @@ export default function LoginPage() {
             disabled={submitting}
             error={fieldErrors.password}
           />
+
+          <div className="-mt-2 flex justify-end">
+            <Link to="/forgot-password" className={ui.link}>
+              비밀번호를 잊었어요
+            </Link>
+          </div>
 
           {formError && (
             <p className={ui.formError} role="alert">

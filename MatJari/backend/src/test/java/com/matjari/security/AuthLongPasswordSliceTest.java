@@ -35,6 +35,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         SecurityErrorResponseWriter.class, AuthService.class})
 class AuthLongPasswordSliceTest {
 
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.matjari.security.RefreshTokenCookie refreshTokenCookie;
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.matjari.service.RefreshTokenService refreshTokenService;
+
     @Autowired
     private MockMvc mockMvc;
     @Autowired
@@ -50,6 +55,12 @@ class AuthLongPasswordSliceTest {
     private AccountSuspensionChecker suspensionChecker;
     @MockBean
     private com.matjari.service.EmailVerificationService emailVerificationService;
+    @MockBean
+    private com.matjari.security.AuthRateLimiter authRateLimiter;
+    @MockBean
+    private com.matjari.security.ClientIpResolver clientIpResolver;
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.matjari.service.PasswordResetService passwordResetService;
 
     @Test
     void loginWithPasswordOver72BytesIs400Not500() throws Exception {

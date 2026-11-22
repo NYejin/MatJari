@@ -91,6 +91,8 @@ public class WithdrawService {
     private final TicketRepository ticketRepository;
     private final ExchangeRequestRepository exchangeRequestRepository;
     private final SocialAccountRepository socialAccountRepository;
+    private final com.matjari.repository.RefreshTokenRepository refreshTokenRepository;
+    private final com.matjari.repository.PasswordResetTokenRepository passwordResetTokenRepository;
     private final NotificationRepository notificationRepository;
     private final OpenMatchCanceller matchCanceller;
     private final SeatClaimService seatClaimService;
@@ -107,6 +109,8 @@ public class WithdrawService {
     public WithdrawService(UserRepository userRepository, TicketRepository ticketRepository,
                            ExchangeRequestRepository exchangeRequestRepository,
                            SocialAccountRepository socialAccountRepository,
+                           com.matjari.repository.RefreshTokenRepository refreshTokenRepository,
+                           com.matjari.repository.PasswordResetTokenRepository passwordResetTokenRepository,
                            NotificationRepository notificationRepository,
                            OpenMatchCanceller matchCanceller, SeatClaimService seatClaimService,
                            SocialLinkConfirmStore reauthStore, SocialProperties socialProperties,
@@ -116,6 +120,8 @@ public class WithdrawService {
         this.ticketRepository = ticketRepository;
         this.exchangeRequestRepository = exchangeRequestRepository;
         this.socialAccountRepository = socialAccountRepository;
+        this.refreshTokenRepository = refreshTokenRepository;
+        this.passwordResetTokenRepository = passwordResetTokenRepository;
         this.notificationRepository = notificationRepository;
         this.matchCanceller = matchCanceller;
         this.seatClaimService = seatClaimService;
@@ -187,6 +193,10 @@ public class WithdrawService {
             cleanUp(userId, adminId);   // 2차: users 잠금 뒤에는 새 티켓·인증 요청이 생기지 않는다. 그 사이 생긴 것을 마저 정리(보통 0건)
 
             socialAccountRepository.deleteAllByUserId(userId);
+            // 리프레시 토큰 전부 폐기(WITHDRAW). users FOR UPDATE 를 잡은 뒤라 그 사이 새 토큰이 생기지 않는다
+            refreshTokenRepository.revokeAllActiveByUserId(userId, com.matjari.domain.RefreshToken.RevokeReason.WITHDRAW, timePolicy.now());
+            // 비밀번호 재설정 링크 행 삭제(request_ip 개인정보 파기). users FOR UPDATE 뒤라 그 사이 새 링크가 생기지 않는다
+            passwordResetTokenRepository.deleteAllByUserId(userId);
             user.anonymizeForWithdrawal(unknownPassword, timePolicy.now());
             userRepository.saveAndFlush(user);
 

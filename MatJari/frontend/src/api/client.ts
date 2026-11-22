@@ -6,7 +6,7 @@ import { parseSuspension, saveSuspensionNotice } from "./suspension";
 import { tokenStorage } from "./tokenStorage";
 
 // JWT 인터셉터는 여기 한 곳에서만 처리한다 (react-conventions 스킬 참고)
-export const apiClient = axios.create({ baseURL: API_BASE_URL });
+export const apiClient = axios.create({ baseURL: API_BASE_URL, withCredentials: true });
 
 /** 인터셉터 없는 인증 전용 클라이언트 (authClient.ts 참고) */
 export { authClient } from "./authClient";

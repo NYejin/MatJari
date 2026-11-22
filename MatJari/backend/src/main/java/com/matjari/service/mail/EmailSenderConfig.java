@@ -66,7 +66,8 @@ public class EmailSenderConfig {
         return (to, subject, text) -> log.warn("[DEV MAIL] to={} subject={}\n{}", to, subject, text);
     }
 
-    private static boolean isLoopback(String baseUrl) {
+    /** 주소(URL)의 호스트가 루프백인가. 비밀번호 재설정 메일도 log 모드가 운영에서 링크를 로그에 남기지 않도록 이 판정을 쓴다. */
+    public static boolean isLoopback(String baseUrl) {
         try {
             String host = URI.create(baseUrl == null ? "" : baseUrl.trim()).getHost();
             return host != null && LOOPBACK.contains(host.toLowerCase(Locale.ROOT));

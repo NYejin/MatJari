@@ -19,7 +19,7 @@ export interface AuthRefreshDeps {
 const BEARER = "Bearer ";
 
 /** 재발급 대상에서 제외하는 인증 엔드포인트 (baseURL의 /api 유무 모두 허용) */
-const AUTH_ENDPOINT_PATH = /^(\/api)?\/auth\/(login|signup|refresh)$/;
+const AUTH_ENDPOINT_PATH = /^(\/api)?\/auth\/(login|signup|refresh|logout)$/;
 
 /**
  * login/signup/refresh 요청인지 판정. 쿼리·해시는 제거하고, 절대 URL이면 pathname 기준으로 본다.

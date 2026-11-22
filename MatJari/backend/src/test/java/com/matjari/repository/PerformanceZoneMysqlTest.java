@@ -82,6 +82,7 @@ class PerformanceZoneMysqlTest {
         jdbc.update("DELETE FROM performance_zone");
         jdbc.update("DELETE FROM performance_session");
         jdbc.update("DELETE FROM performance");
+        jdbc.update("DELETE FROM refresh_token");
         jdbc.update("DELETE FROM users");
         jdbc.update("INSERT INTO users(id,email,password,nickname,role,created_at) VALUES (1,'u1@t','x','U1','USER',NOW(6))");
     }

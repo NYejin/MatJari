@@ -83,6 +83,7 @@ class SocialLinkMysqlTest {
         STUB.reset();
         jdbc.update("DELETE FROM user_sanction");
         jdbc.update("DELETE FROM social_account");
+        jdbc.update("DELETE FROM refresh_token");
         jdbc.update("DELETE FROM users");
         STUB.on("/token", Reply.json("{\"access_token\":\"AT-1\"}"));
     }
@@ -200,6 +201,7 @@ class SocialLinkMysqlTest {
     void 동시_해제_vs_해제에서_마지막_로그인_수단이_0개가_되지_않는다() throws Exception {
         for (int round = 0; round < 10; round++) {
             jdbc.update("DELETE FROM social_account");
+            jdbc.update("DELETE FROM refresh_token");
             jdbc.update("DELETE FROM users");
             long userId = insertUser("s" + round + "@social.matjari.invalid", false);
             insertAccount(userId, SocialProvider.GOOGLE, "g-" + round);
@@ -242,6 +244,7 @@ class SocialLinkMysqlTest {
         int threads = 6;
         for (int round = 0; round < 5; round++) {
             jdbc.update("DELETE FROM social_account");
+            jdbc.update("DELETE FROM refresh_token");
             jdbc.update("DELETE FROM users");
             long userId = insertUser("dup" + round + "@example.com", true);
             STUB.on("/userinfo", Reply.json(SocialStubServer.userinfo(SocialProvider.GOOGLE, "dup-" + round, null, true, "구글닉")));
@@ -264,6 +267,7 @@ class SocialLinkMysqlTest {
     void 서로_다른_사용자가_같은_소셜_계정을_동시에_확정하면_하나만_성공하고_나머지는_SOCIAL_LINKED_OTHER() throws Exception {
         for (int round = 0; round < 5; round++) {
             jdbc.update("DELETE FROM social_account");
+            jdbc.update("DELETE FROM refresh_token");
             jdbc.update("DELETE FROM users");
             long u1 = insertUser("a" + round + "@example.com", true);
             long u2 = insertUser("b" + round + "@example.com", true);

@@ -70,6 +70,10 @@ export default function PrivacyPolicyPage() {
                 저장하고 발송·만료 시각과 입력 횟수를 함께 기록합니다.
               </li>
               <li>
+                <strong>비밀번호 재설정 시:</strong> 재설정 링크를 메일로 보내고, 링크 값은 해시로만 저장하며 요청 IP와 요청 시각을 함께
+                기록합니다. 링크는 30분 동안만 사용할 수 있습니다.
+              </li>
+              <li>
                 <strong>소셜 로그인 시:</strong> 제공자 이름(카카오·구글·네이버)과 제공자 고유 식별자만 저장합니다. 이메일과 프로필
                 이미지는 저장하지 않지만, 제공자의 프로필 닉네임을 초기 닉네임으로 사용합니다(마이페이지에서 바꿀 수 있습니다). 다만 제공자가 검증된 이메일을 주면 가입 이메일로 사용합니다. 검증된 이메일이 없으면 서비스가
                 만든 자리표시 이메일을 사용합니다.
@@ -115,6 +119,14 @@ export default function PrivacyPolicyPage() {
                     </th>
                     <td className={cls.td}>
                       가입이 끝나면 즉시 삭제합니다. 가입하지 않고 만료된 기록은 이후 서비스가 정리합니다.
+                    </td>
+                  </tr>
+                  <tr>
+                    <th scope="row" className={`${cls.td} text-left font-semibold`}>
+                      비밀번호 재설정 링크 기록(해시, 요청 IP·시각)
+                    </th>
+                    <td className={cls.td}>
+                      30분 동안 유효하며, 사용하거나 만료된 뒤 서비스가 정리합니다. 탈퇴하면 삭제합니다.
                     </td>
                   </tr>
                   <tr>
@@ -201,7 +213,10 @@ export default function PrivacyPolicyPage() {
                 소셜 로그인 과정에서만 한시적인 쿠키(<code>ss_oauth</code>, 10분 이내)를 사용하며, 로그인 절차가 끝나면
                 삭제합니다.
               </li>
-              <li>로그인 토큰은 쿠키가 아니라 이용자 브라우저의 localStorage에 저장됩니다. 로그아웃하면 삭제됩니다.</li>
+              <li>
+                로그인 유지를 위한 인증 쿠키(<code>mj_rt</code>, HttpOnly)를 사용하며 로그아웃하면 삭제됩니다. 짧은
+                수명의 접근 토큰은 브라우저 메모리에만 두고 저장소에 기록하지 않습니다.
+              </li>
             </ul>
           </Section>
 

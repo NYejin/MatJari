@@ -18,7 +18,7 @@
   - `security/JwtAuthenticationFilter` — Authorization 헤더 검증 후 SecurityContext 설정
   - `security/CustomUserDetailsService` — 이메일 기준 사용자 조회. 요청마다 호출되며 `AccountSuspensionChecker`로 활성 제재를 확인해 정지 계정이면 403 `ACCOUNT_SUSPENDED`(V13, 아래 '차단·신고·이용 정지' 절)
   - `config/SecurityConfig` — JWT 필터 등록, CORS(개발용 localhost:5173 허용), `/api/auth/**` permitAll, `/api/admin/**`는 ADMIN 권한 (관리자 컨트롤러 2종은 2026-10-12 구현, 아래 '관리자 API' 절)
-  - `service/AuthService`, `controller/AuthController` — POST /api/auth/signup, /login, /refresh
+  - `service/AuthService`, `service/RefreshTokenService`, `controller/AuthController` — POST /api/auth/signup, /login, /refresh, /logout (리프레시 토큰은 서버 저장·회전·쿠키 전달, 아래 '리프레시 토큰' 절)
   - 요청 DTO는 `jakarta.validation`으로 기본 검증(이메일 형식, 비밀번호 8자 이상) 적용
 - **공연·회차 등록/조회(FR-02)는 구현 완료** (`PerformanceController`, `PerformanceService`). 공연은 회차와 함께 등록하며, 등록 후에는 아무도 제목·공연장·회차를 수정하거나 공연·회차를 삭제할 수 없다(수정은 관리자 수정 제안 승인으로만 바뀌며 2026-10-12 구현, 아래 '관리자 API' 절). 공연장은 공연의 텍스트 속성 `venueName`(필수, 1~100자)이다.
 - **소셜 로그인(2026-10-12, `feature/social-login`, V14)은 구현 완료**: 카카오·구글·네이버, `/api/auth/social/**`(`SocialAuthController`, `service/social/`). 자세한 규칙은 아래 '소셜 로그인 (V14)' 절.
@@ -43,12 +43,47 @@
 |---|---|---|
 | POST | /api/auth/signup/email-code | 가입 전 이메일 인증번호 발송 (email) → {expiresInSeconds, resendAfterSeconds}. 가입된 이메일 400, 너무 잦으면 429 |
 | POST | /api/auth/signup | 회원가입 (email, password, nickname, emailCode) → 생성된 사용자 정보 반환. emailCode는 인증이 켜져 있으면 필수 |
-| POST | /api/auth/login | 로그인 (email, password) → accessToken, refreshToken 반환 |
-| POST | /api/auth/refresh | refreshToken으로 accessToken 재발급 |
+| POST | /api/auth/login | 로그인 (email, password) → 본문 `{accessToken, refreshToken:null, tokenType}` + `Set-Cookie: mj_rt`(리프레시 토큰, 아래 '리프레시 토큰' 절) |
+| POST | /api/auth/refresh | 쿠키 `mj_rt`로 accessToken 재발급 + 리프레시 토큰 회전(새 쿠키). `X-Requested-With: XMLHttpRequest` 헤더 필수(없으면 403). 없음·만료·폐기·재사용·탈퇴 401, 정지 403 `ACCOUNT_SUSPENDED` |
+| POST | /api/auth/logout | 쿠키 토큰의 계열을 LOGOUT 으로 폐기하고 쿠키 삭제, 204(토큰이 없어도 멱등). `X-Requested-With` 헤더 필수 |
+| POST | /api/auth/password-reset/request | 비밀번호 재설정 링크 요청 `{email}` → **항상 204**(가입 여부를 드러내지 않음). 아래 '비밀번호 재설정·변경' 절. 너무 잦으면 429 `PASSWORD_RESET_RATE_LIMITED` |
+| POST | /api/auth/password-reset/confirm | 재설정 확정 `{token, newPassword}` → 204. 링크가 없음·만료·사용됨·무효·탈퇴·소셜 전용이면 400 `INVALID_RESET_TOKEN`, 새 비밀번호 규칙 위반 400 `newPassword`, 한도 초과 429 |
+| PATCH | /api/auth/password | 로그인 상태의 비밀번호 변경 `{currentPassword, newPassword}` → **200 + 새 액세스 토큰** `{accessToken, refreshToken:null, tokenType}`(Bearer 필요, **리프레시 쿠키가 실리는 경로**). `PATCH /api/users/me/password`와 같은 규칙 |
 | GET | /api/auth/social/providers | 활성 소셜 제공자 목록 `{providers:[...]}`(client-id가 설정된 제공자만, 인증 불필요) |
 | GET | /api/auth/social/{provider}/authorize | 제공자 인증 화면으로 302(provider = google·kakao·naver). state 쿠키 `ss_oauth` 발급. 비활성이면 404 `SOCIAL_PROVIDER_DISABLED`. `?link={ticket}`가 있으면 연결 모드('프로필 수정·소셜 계정 연결 (V16)' 절) |
 | GET | /api/auth/social/{provider}/callback | 제공자 콜백. 성공·실패 모두 302(성공 `{frontend}/auth/callback#code=`, 실패 `{frontend}/login?socialError=`. 연결 모드는 성공 `{frontend}/me#linkCode=`, 실패 `{frontend}/me?socialLinkError=`) |
-| POST | /api/auth/social/exchange | `{code}` → TokenResponse. 일회용 코드 60초, 틀리거나 만료되면 400 `INVALID_LOGIN_CODE`, 정지면 403 `ACCOUNT_SUSPENDED` |
+| POST | /api/auth/social/exchange | `{code}` → TokenResponse. 일회용 코드 60초, 틀리거나 만료되면 400 `INVALID_LOGIN_CODE`, 정지면 403 `ACCOUNT_SUSPENDED`. 성공하면 로그인과 같이 `mj_rt` 쿠키를 심는다 |
+
+### 리프레시 토큰 (V27, `feature/auth-session`)
+- **저장**: 로그인·소셜 exchange 성공마다 무작위 32바이트(base64url 43자) 불투명 토큰을 만들고 SHA-256 해시만 `refresh_token`에 새 계열(family)로 저장한다(수명 `jwt.refresh-token-validity-ms`, 14일). 액세스 토큰(JWT) 수명·형식은 그대로다. 가입은 토큰을 주지 않는다.
+- **전달**: 쿠키 `mj_rt` — HttpOnly, `Path=/api/auth`, `SameSite=Strict`, `Max-Age`=수명, `Secure`는 소셜 쿠키와 같은 설정 `matjari.social.cookie-secure`(운영 true 강제 규칙 그대로). 응답 본문 `TokenResponse.refreshToken`은 항상 null(필드는 호환용으로 남겼고 폐기 예정). 요청 본문으로 refreshToken 을 받던 방식은 제거했다.
+- **재발급 `/api/auth/refresh`**: 쿠키 토큰 해시로 id 조회(잠금 없음) → users FOR UPDATE → 토큰 PK FOR UPDATE → 상태 재판단 → 새 행 INSERT 후 옛 행 `ROTATED`. 새 액세스 토큰 + 새 리프레시 쿠키를 돌려준다. **이미 ROTATED 된 토큰이 다시 오면 재사용(도난 의심)으로 보고 그 계열 전체를 `REUSE`로 폐기하고 401**이다. 다른 계열(다른 기기)은 영향이 없다. 없음·만료·로그아웃/탈퇴/정지로 폐기된 토큰·탈퇴 사용자는 401, 폐기되지 않은 토큰이라도 정지 중이면 403 `ACCOUNT_SUSPENDED`(토큰은 그대로).
+- **폐기**: 로그아웃은 계열을 `LOGOUT`, 본인 탈퇴·관리자 강제 탈퇴는 사용자 전체를 `WITHDRAW`(`WithdrawService`, users 잠금 뒤), 신고 처리·관리자 직접 정지는 사용자 전체를 `ADMIN`(`AdminModerationService.createSanction`, 티켓·매칭 잠금 뒤 users 잠금)으로 폐기한다.
+- **CSRF**: `SameSite=Strict` + `Path=/api/auth` + `/refresh`·`/logout`은 `X-Requested-With: XMLHttpRequest` 헤더가 있을 때만 처리(없으면 403). CORS는 허용 Origin 목록 그대로 `allowCredentials(true)`(기존 설정).
+- **정리**: 로그인·재발급 뒤 마지막 정리로부터 1시간이 지났으면 별도 짧은 트랜잭션으로 만료 행을 1,000개씩(최대 20회) 지운다(스케줄러 없음, 폐기됐지만 만료 전인 행은 재사용 탐지를 위해 남긴다).
+- **영향 없음**: 정지 중 `withdrawToken` 흐름, 소셜 일회용 코드, STOMP 인증은 액세스(또는 탈퇴 전용) 토큰 기준이라 그대로다.
+- **재사용 유예**: 회전된 토큰이 다시 와도 폐기(`revoked_at`)된 지 `matjari.auth.refresh-reuse-grace-seconds`(기본 20초) 이내이고 대체 토큰(`replaced_by_id`)이 아직 살아 있으면(폐기·만료 아님) 정상적인 동시 재발급으로 보고 **계열을 폐기하지 않고 그 요청만 401**로 거절한다. 그 밖의 재사용은 위처럼 `REUSE` 계열 폐기다.
+- **세션 최대 수명**: 계열의 첫 로그인 시각(`family_started_at`, 회전 때 그대로 물려줌)부터 `matjari.auth.refresh-max-session-days`(기본 30일)가 지나면 재발급은 401이고, 새 토큰 만료는 `min(now + 14일, family_started_at + 최대 수명)`이라 회전으로 세션이 무한히 늘지 않는다.
+- **정지 틈 방지**: 로그인·소셜 exchange의 토큰 발급은 users 잠금 안에서 정지 여부를 다시 확인한다(정지면 403 `ACCOUNT_SUSPENDED`).
+- **릴리스 메모**: 이 배포로 기존 JWT 리프레시 토큰은 더 이상 통하지 않으므로 **기존 사용자는 배포 직후 한 번 로그아웃되어 다시 로그인해야 한다**.
+- **알려진 한계**: 같은 토큰으로 거의 동시에 온 두 재발급(예: 탭 두 개가 동시에 만료를 만나 재발급)은 한쪽만 성공하고 다른 쪽은 401을 받는다(유예 20초 안이면 계열은 유지되어 새 토큰으로 계속 쓸 수 있고, 유예가 지난 재사용만 계열 폐기). 프런트는 탭 간 재발급을 하나로 묶는 것이 좋다. 이용 정지(`createSanction`, 대상 users FOR UPDATE)와 같은 대상의 관리자 역할 변경이 동시에 오면 교착 감지로 한쪽이 503으로 끝날 수 있다(재시도하면 된다). 쿠키는 `Path=/api/auth`라 프런트와 API 가 같은 사이트(nginx 프록시 등)여야 `SameSite=Strict`가 동작한다. 서버 시계가 크게 틀어지면 만료 판단이 어긋난다. 검증: `RefreshTokenMysqlTest`(회전·재사용·로그아웃·탈퇴·정지·동시 재발급·정리, 실제 MySQL IT), `SecuritySliceTest`(쿠키 속성·403·본문 null).
+
+### 비밀번호 재설정·변경 (V28, `feature/password-reset`)
+| Method | Path | 요청 | 응답 / 오류 |
+|---|---|---|---|
+| POST | /api/auth/password-reset/request | `{email}` (공개) | 항상 **204**. 형식 오류 400 `email`, **메일을 보낼 수 없는 설정이면 503 `PASSWORD_RESET_UNAVAILABLE`**(`{code,message}`, 계정 조회 전에 모든 요청에 똑같이). IP당 10분 5회·이메일당 1시간 3회 초과 429 `PASSWORD_RESET_RATE_LIMITED`(`{code,message,retryAfterSeconds}`+`Retry-After`) |
+| POST | /api/auth/password-reset/confirm | `{token, newPassword}` (공개) | **204**. 400 `INVALID_RESET_TOKEN`(`{code,message}`, 없음·만료·사용됨·무효·탈퇴·소셜 전용을 구분하지 않음), 400 `newPassword`(8~64자, 72바이트 이하), 429 `PASSWORD_RESET_RATE_LIMITED`(IP당 10분 20회) |
+| PATCH | /api/users/me/password | `{currentPassword, newPassword}` (Bearer) | **200 + 새 액세스 토큰**(`TokenResponse`, `Cache-Control: no-store`). 400 `currentPassword`(틀림), 400 `newPassword`(현재와 같음·규칙 위반), 409 `PASSWORD_LOGIN_DISABLED`(소셜 전용), 429 `LOGIN_RATE_LIMITED`(계정이 잠김), 401 |
+| PATCH | /api/auth/password | 위와 같음 (Bearer + `mj_rt` 쿠키) | 위와 같음. 현재 기기(쿠키 계열)의 로그인은 유지 |
+
+- **요청**: 존재·미탈퇴·`password_login_enabled=1` 계정에만 실제로 링크를 만들어 보내고 나머지는 조용히 무시한다(항상 204). 정지 계정에도 보낸다(재설정해도 로그인은 403 그대로). 토큰은 무작위 32바이트 base64url(43자), DB에는 SHA-256 hex만 저장, 유효 30분(`matjari.password-reset.ttl-minutes`, 환경변수 `MATJARI_PASSWORD_RESET_TTL_MINUTES`). 새 요청은 이전 살아 있는 링크를 무효화한다(users FOR UPDATE → 무효화 → INSERT, `PasswordResetToken` Javadoc 순서). 메일은 **커밋 뒤** 별도 스레드(대기열 200)에서 `EmailSender`로 보내며 실패는 삼키고 로그만 남긴다(토큰·이메일은 로그에 남기지 않는다). 링크는 `{matjari.social.frontend-base-url}/reset-password#token={토큰}`(프래그먼트라 서버 로그·Referer에 남지 않음). 메일 모드가 `log`이고 백엔드 주소가 루프백이 아니면(운영) 링크가 로그에 남지 않으므로 **계정을 조회하기 전에 모든 요청을 503 `PASSWORD_RESET_UNAVAILABLE`(문구 "지금은 비밀번호 재설정 메일을 보낼 수 없어요. 잠시 후 다시 시도하거나 문의해 주세요.")로 거절한다**(운영은 `MATJARI_MAIL_MODE=smtp` 필요, 개발 루프백·log는 로그 출력). SMTP 타임아웃은 연결·읽기·쓰기 각 10초(`spring.mail.properties.mail.smtp.*`, 환경변수 `MATJARI_MAIL_SMTP_CONNECTION_TIMEOUT_MS`·`MATJARI_MAIL_SMTP_TIMEOUT_MS`·`MATJARI_MAIL_SMTP_WRITE_TIMEOUT_MS`, compose 파일은 덮어쓰지 않는다).
+- **확정**: users FOR UPDATE → 토큰 PK FOR UPDATE → 상태 재판단 → 비밀번호 변경 + 링크 `used_at` + 그 사용자의 리프레시 토큰 전부 `PASSWORD_RESET` 폐기를 한 트랜잭션에서 한다(같은 링크의 동시 확정은 하나만 성공). 성공하면 그 계정의 로그인 실패 잠금도 푼다. 만료 비교는 저장된 값(마이크로초) 기준이다.
+- **변경(로그인 상태)**: users FOR UPDATE → 현재 비밀번호 확인 → 변경 → 이미 보낸 재설정 링크 무효화 → 리프레시 토큰 폐기(사유 `PASSWORD_RESET`, V28 그대로 사용). 현재 비밀번호가 틀리면 로그인 실패 제한 계정 카운터에 센다(5회 틀리면 15분 잠김, 로그인과 같은 카운터라 429 `LOGIN_RATE_LIMITED`). **쿠키 `mj_rt`는 `Path=/api/auth`라 `/api/users/me/password`에는 브라우저가 보내지 않는다.** 그래서 현재 기기를 유지하려면 프런트는 `PATCH /api/auth/password`를 써야 하고(쿠키 계열만 남기고 나머지 폐기), `/api/users/me/password`는 쿠키를 알 수 없어 **모든 계열을 폐기**한다(현재 기기도 다음 재발급 때 다시 로그인). 액세스 토큰은 무상태라 만료(짧음)까지는 유효하다.
+- **옛 액세스 토큰 거부(`users.credentials_changed_at`, V28)**: 재설정 확정·변경 때 이 값을 현재 시각(KST)으로 기록하고, 요청마다 DB를 읽는 `CustomUserDetailsService.loadUserById`가 이 값을 주체(`AuthUserPrincipal.credentialsChangedAt`)에 담아 JWT 필터와 STOMP CONNECT가 토큰 `iat`(초)가 변경 시각(초 내림)보다 작으면 거부한다(필터 401, 같은 초는 허용). 커밋 뒤 그 사용자의 기존 STOMP 연결도 끊는다(`WebSocketSessionRegistry.closeAllOf`, 실패는 삼킴). 변경 API는 새 액세스 토큰을 응답에 담아 주므로 프런트는 그 토큰으로 바꾸고 STOMP를 다시 연결한다. 재설정 확정은 로그인 상태가 아니므로 응답에 토큰이 없고, 모든 기기가 다시 로그인한다(리프레시 토큰도 전부 폐기).
+- **변경 때 쿠키 토큰이 방금 회전돼 `ROTATED`이고 재사용 유예(20초) 안이며 대체 토큰이 살아 있으면** 그 계열을 현재 기기로 보고 유지한다.
+- **탈퇴**: `WithdrawService`가 users 잠금 뒤 `deleteAllByUserId`로 그 사용자의 재설정 행을 지운다(관리자 강제 탈퇴도 같은 `runWithdrawal` 경로). 삭제는 한 문장이 아니라 `(expires_at, id)` 순으로 한 행씩 지워 같은 방향으로 잠그는 만료 정리 배치와 교착하지 않게 했다. **만료 정리**: 요청 때 마지막 정리 1시간 뒤면 users 잠금 밖 짧은 트랜잭션으로 `deleteExpiredBatch`(최대 1000×20).
+- **보안 설정**: 공개 엔드포인트는 `/api/auth/**` permitAll(변경 경로는 principal이 없으면 401), nginx `limit_req`(`/api/auth/` 분당 10회+burst 20)도 적용된다.
+- **알려진 한계**: 속도 제한은 메모리·단일 인스턴스(재시작하면 초기화, 특정 이메일에 일부러 요청해 그 계정의 시간당 3회를 쓰게 할 수 있음). **응답 시간 차이**: 계정이 있을 때 요청 처리가 DB 쓰기 몇 번만큼 더 걸려 수 ms 차이가 나므로 이론상 응답 시간으로 가입 여부를 추측할 수 있다(메일 발송은 비동기라 새지 않음, IP·이메일 속도 제한으로 대량 측정은 어렵다). **메일 대기열 200 포화 시 버림**: 발송 대기열이 가득 차면(200) 그 메일은 버리고 로그만 남기며 요청은 204로 끝나므로 사용자는 메일을 못 받는다(다시 요청해야 함). 같은 초에 발급된 옛 액세스 토큰은 변경 직후 새 토큰과 구분할 수 없어 허용한다(최대 1초 창). 재설정 링크는 메일 계정 접근자가 쓸 수 있다(일회용·30분). 검증: `PasswordResetMysqlTest`(실제 MySQL IT), `PasswordResetServiceTest`, `PasswordResetControllerSliceTest`, `AuthHardeningTest`(제한기), `JwtAuthenticationFilterTest`·`StompAuthChannelInterceptorTest`·`CustomUserDetailsServiceTest`(옛 토큰 거부).
 
 ## 공연·공연장·회차·내 정보 API
 
@@ -404,6 +439,8 @@ keyset 조각의 내부: 저장소에 `size+1`건을 요청해 다음 조각 유
   - 주의: `./gradlew bootRun`은 `backend/.env`를 읽어 `SPRING_DATASOURCE_URL`을 덮어쓴다. 임시 DB로 검증하려면 `bootRun`이 아니라 `bootJar` 후 `java -jar`로 환경변수를 지정해 실행한다.
 - **V4 적용 안내 (교환 희망 테이블)**: `exchange_request`(티켓당 1개 `uk_exchange_request_ticket`, 추가금 유형·금액 CHECK), `exchange_want_range`(입력한 범위, 수정 화면 복원용), `exchange_want_seat`(펼친 희망 좌석, PK = request_id + 구역·열·번 키), `exchange_want_session`(희망 회차 + 우선순위, PK = request_id + 회차)를 만든다. 자식 3개는 요청 삭제 시 `ON DELETE CASCADE`다. 기존 데이터를 건드리지 않아 가드가 없다. 차단·매칭·예약 잠금·채팅·이력 테이블은 V5 이후다. `exchange_want_range`의 `row_from/row_to/col_from/col_to`에는 정규화 키를 저장한다.
 - **V5 적용 안내 (매칭·예약 잠금)**: `exchange_match`(후보를 골라 시작한 매칭. a = 제안자, b = 고른 상대. 요청·티켓·사용자 a/b, 상태 4종 CHATTING/RESERVED/COMPLETED/CANCELED, `a/b_reserved_at`·`a/b_completed_at`, `canceled_by_id`(NULL = 시스템 취소)·`canceled_at`, 생성 컬럼 `request_low_id`/`request_high_id`/`open_flag`와 `uk_exchange_match_open_pair`로 같은 쌍의 열린 매칭 1개)와 `exchange_ticket_lock`(PK ticket_id, 티켓당 예약 1개, `match_id` FK ON DELETE CASCADE)을 만든다. 기존 데이터를 건드리지 않아 가드가 없다. 차단(`user_block`)·채팅(`chat_message`)·이력(`exchange_history`)은 후속 V 파일이다. FK 인덱스는 단일 컬럼이어야 한다(위 '동시성'의 교착 사례).
+- **V28 적용 안내 (비밀번호 재설정 토큰, `V28__password_reset_token.sql`, 2026-11-22)**: 새 테이블 `password_reset_token`(`user_id` FK → users 단일 컬럼 인덱스·ON DELETE 없음, `token_hash` CHAR(64) ascii_bin UNIQUE = SHA-256 소문자 hex(평문 미저장), `created_at`·`expires_at`(만료 정리용 인덱스, expires_at > created_at), `used_at`(이 링크로 비밀번호를 바꿈)·`invalidated_at`(새 요청으로 대체 등, 둘은 동시에 값일 수 없음), `request_ip` VARCHAR(45) ascii NULL(형식·길이 CHECK, 인덱스 없음), 생성 컬럼 `live_user_id` + `uk_password_reset_token_live`(사용자당 미사용·미무효 행 1개))을 만들고, `refresh_token`의 `ck_refresh_token_reason`에 `PASSWORD_RESET`을 더한다(기존 5종 유지, 제약 교체만). 기존 데이터 변경 없음, 재실행 가능, 파괴적 단계 없음. 잠금 규칙(요청: users FOR UPDATE → 이전 링크 무효화 → INSERT / 확정: 해시로 id 잠금 없이 → users FOR UPDATE → 토큰 PK FOR UPDATE → 상태 재판단 / 탈퇴: users 잠금 뒤 그 사용자 행 삭제)은 `PasswordResetToken` Javadoc. 검증: `PasswordResetTokenSchemaMysqlTest` 3건(실제 MySQL, `MATJARI_IT_*`가 있을 때만, 마이그레이션 검증은 `{DB}_mig_it`). `users.credentials_changed_at DATETIME(6) NULL`(비밀번호 재설정·변경 시각, 기존 행 NULL, 가드 프로시저)도 같은 V28에 있다(V28은 배포 전이라 새 파일을 만들지 않았다). 다음 마이그레이션은 V29.
+- **V27 적용 안내 (리프레시 토큰 저장, `V27__refresh_token.sql`, 2026-11-22)**: 새 테이블 `refresh_token`(`user_id` FK → users 단일 컬럼 인덱스, `token_hash` CHAR(64) ascii_bin UNIQUE = SHA-256 소문자 hex(평문 미저장), `family_id` CHAR(36) ascii_bin(회전 계열 UUID, 인덱스), `family_started_at`(계열 첫 로그인 시각, 회전 때 물려줌, 세션 최대 수명 계산, CHECK family_started_at <= created_at), `created_at`·`expires_at`(만료 정리용 인덱스), `revoked_at`·`revoke_reason`(ROTATED/LOGOUT/REUSE/WITHDRAW/ADMIN, 함께 NULL이거나 함께 값), `replaced_by_id`(FK 아님, ROTATED일 때만·ROTATED면 필수)) 하나만 만든다. 기존 데이터 변경 없음, 재실행 가능, 파괴적 단계 없음. 잠금 규칙(해시로 id만 읽고 PK로 FOR UPDATE, 토큰 INSERT 경로는 users FOR UPDATE 먼저, 탈퇴는 users 잠금 뒤 일괄 폐기)은 `RefreshToken` Javadoc. 검증: `RefreshTokenSchemaMysqlTest` 3건(실제 MySQL, `MATJARI_IT_*`가 있을 때만, 마이그레이션 검증은 `{DB}_mig_it`). 다음 마이그레이션은 V28.
 - **V26 적용 안내 (AI 호출 비용 기록, `V26__ai_call_log.sql`, 2026-10-22)**: 새 테이블 `ai_call_log` 하나만 만든다(FK 없음, 재실행 가능). 단가·기준 잔액 설정은 `MATJARI_AI_PRICE_*`·`MATJARI_AI_CREDIT_BASELINE_USD`·`MATJARI_AI_CREDIT_BASELINE_AT`(충전하면 새로 적는다)·`MATJARI_AI_CREDIT_TOTAL_USD`(남은 비율의 분모인 전체 예산, 기본 100, 충전하면 더한다).
 - **V25 적용 안내 (공연 삭제 조치 기록, `V25__admin_performance_delete.sql`, 2026-10-21)**: `admin_action_log`의 action CHECK에 `PERFORMANCE_DELETE`만 추가한다(제약 교체, 데이터 변경 없음, 재실행 가능).
 - **V24 적용 안내 (AI 불러오기 월 횟수 기록, `V24__ai_extract_usage.sql`, 2026-10-21)**: 새 테이블 `ai_extract_usage`(`user_id` FK → users, `source_key`, `used_at`, `refunded_at`) 하나만 만든다. 기존 데이터 변경 없음, 재실행 가능.
@@ -626,7 +663,17 @@ keyset 조각의 내부: 저장소에 `size+1`건을 요청해 다음 조각 유
 - `state-secret`(`MATJARI_SOCIAL_STATE_SECRET`, 32바이트 이상. 기본값은 개발용이라 운영에서는 거부), `cookie-secure`(`MATJARI_SOCIAL_COOKIE_SECURE`, 기본 false, 운영 true 요구).
 - client-id가 비어 있으면 그 제공자는 비활성이다. 모두 비면 소셜 기능과 기동 검증이 꺼진다.
 - `.env.example`·`docker-compose.yml`에 `SOCIAL_*` 변수를 추가했다(값이 비면 비활성).
-- 프록시 뒤에 배포하면 `server.forward-headers-strategy` 설정이 필요하다. 속도 제한은 `getRemoteAddr()`만 믿는다.
+- 소셜 속도 제한의 IP도 아래 '인증 보안·속도 제한' 절의 `ClientIpResolver`로 구한다(`server.forward-headers-strategy`는 쓰지 않는다).
+
+### 인증 보안·속도 제한 (로그인·가입, DB 변경 없음)
+- **클라이언트 IP**: `security/ClientIpResolver`가 속도 제한 키의 유일한 출처다(소셜 authorize·callback·exchange, 이메일 인증번호, 로그인·가입). 배포 구조는 (cloudflared 터널 또는 직접) → nginx(web 컨테이너) → backend라 `getRemoteAddr()`는 항상 nginx 주소다. 직접 연결한 주소가 신뢰 프록시일 때만 `X-Real-IP`를 믿고(없으면 `X-Forwarded-For`의 가장 오른쪽 신뢰되지 않은 주소), 아니면 `getRemoteAddr()`를 쓴다. 헤더 값이 IP 리터럴이 아니면 무시한다. Cloudflare 경유일 때는 nginx가 `CF-Connecting-IP`를 `X-Real-IP`로 넘겨야 한다(nginx 설정은 `MatJari/frontend/nginx.conf`).
+- 설정 `matjari.security.trusted-proxies`(환경변수 `MATJARI_TRUSTED_PROXIES`, 쉼표 구분 CIDR, 기본 `127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16`). 공인 대역을 넣지 말 것(헤더 위조 가능). 잘못된 값이면 기동 실패. 비우면 어떤 프록시도 신뢰하지 않는다.
+- **로그인 실패 제한** (`POST /api/auth/login`, `security/AuthRateLimiter`): 계정(정규화한 이메일)별 15분 창에서 실패 5회가 되면 마지막 실패로부터 15분 잠금(잠긴 동안의 시도는 세지 않음), 성공하면 그 계정 횟수 초기화. IP별 10분 창에서 실패 30회 초과면 가장 오래된 실패가 창을 벗어날 때까지 차단. 없는 이메일·탈퇴·소셜 전용 계정도 똑같이 센다. 비밀번호가 맞은 정지 계정(403 `ACCOUNT_SUSPENDED` + `withdrawToken`)은 실패로 세지 않고 흐름도 그대로다.
+- **가입 제한** (`POST /api/auth/signup`): IP당 1시간 10회(시도마다 센다).
+- **응답 형식(프런트가 받을 수 있는 새 오류)**: 429, 본문 `{"code":"LOGIN_RATE_LIMITED"|"SIGNUP_RATE_LIMITED","message":"...","retryAfterSeconds":n}` + `Retry-After: n` 헤더.
+- **응답 시간 균등화**: 로그인에서 없는 이메일·탈퇴 계정·비밀번호 로그인이 없는 소셜 전용 계정도 무작위 값의 더미 BCrypt 해시와 한 번 비교한 뒤 같은 실패 응답을 낸다.
+- **개발용 비밀값 기동 거부** (`InsecureSecretsGuard`): `matjari.social.backend-base-url`이 루프백이 아닌데 `jwt.secret`이 개발용 기본값 또는 `changeme-dev-secret`이면, 또는 이메일 인증이 켜져 있는데(`matjari.email-verification.enabled=true`) 인증번호 해시 키가 개발용 기본값이면 기동하지 않는다(소셜 state-secret 검사와 같은 방식).
+- **한계**: 로그인·가입·이메일·소셜 제한은 모두 단일 인스턴스 메모리라 재시작하면 초기화되고 여러 대면 합쳐지지 않는다. 맵 크기에 상한(키 2만 개)이 있고 꽉 차면 만료 키를 쓸어 낸 뒤 가장 오래된 키부터 버린다. 특정 이메일에 일부러 실패를 쌓아 그 계정 로그인을 15분 막을 수 있다(계정 잠금의 일반적 절충). IPv6는 주소 단위로 센다(/64 묶음 없음). 프록시가 헤더를 덮어쓰지 않거나 신뢰 대역을 넓게 잡으면 IP 제한이 무력해진다.
 
 ### 보안 요구와 구현
 - `Cache-Control: no-store`를 authorize·callback·exchange 응답에 붙인다.
@@ -889,7 +936,7 @@ AND NOT EXISTS (SELECT 1 FROM exchange_ticket_lock l WHERE l.ticket_id = tb.id)
 - 서비스: `ChatService`(전송·목록·읽음 규칙), `ChatRateLimiter`(사용자별 메모리 슬라이딩 윈도), `ChatPushPublisher`(인터페이스)·`ChatPushPublisherImpl`(STOMP 전파).
 - 컨트롤러 `ChatController`(`/api/exchange/matches/{id}/messages`), DTO `dto/response/ChatDtos`.
 - STOMP: `config/WebSocketConfig`(`/ws`, 순수 WebSocket, 사용자 큐만 있는 simple broker), `security/StompAuthChannelInterceptor`(CONNECT 인증·구독 제한·SEND 거부), `websocket/WebSocketSessionRegistry`(세션·구독·사용자당 연결 수·만료 정리).
-- 응답 필드: 매칭 응답의 `unreadChatCount`(상대가 보낸 메시지 중 내 읽음 포인터보다 큰 id의 수, 보낸 사람 제외, CANCELED·COMPLETED 매칭도 센다).
+- 응답 필드: 매칭 응답의 `unreadChatCount`(상대가 보낸 메시지 중 내 읽음 포인터보다 큰 id의 수, 보낸 사람 제외, CANCELED·COMPLETED 매칭도 센다). 마지막 메시지 요약 `lastMessagePreview`(본문 앞 60 코드 포인트, 넘으면 `…`, 줄바꿈은 공백)·`lastMessageAt`(초 단위)·`lastMessageMine`(호출자가 보냈는지)은 매칭 조회 SQL이 `FORCE INDEX (idx_chat_message_match)`로 가장 큰 id 한 행만 붙여 읽으며(메시지가 없으면 null/null/false) 매칭 `updated_at`·정렬은 바뀌지 않는다.
 
 ### REST API
 

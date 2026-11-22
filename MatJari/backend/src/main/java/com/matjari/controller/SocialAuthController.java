@@ -28,6 +28,8 @@ public class SocialAuthController {
     private static final String NO_STORE = "no-store";
 
     private final SocialAuthService socialAuthService;
+    private final com.matjari.security.ClientIpResolver clientIpResolver;
+    private final com.matjari.security.RefreshTokenCookie refreshCookie;
 
     /** 활성 제공자 목록(프런트가 버튼 표시에 사용). 인증 불필요. */
     @GetMapping("/providers")
@@ -40,10 +42,10 @@ public class SocialAuthController {
     public ResponseEntity<Void> authorize(@PathVariable String provider,
                                           @RequestParam(required = false) String link,
                                           HttpServletRequest request) {
-        // X-Forwarded-For 는 위조할 수 있어 신뢰하지 않는다. link 가 있으면 계정 연결 모드(일회용 링크 티켓)
+        // 클라이언트 IP 는 ClientIpResolver(신뢰 프록시일 때만 X-Real-IP·X-Forwarded-For 사용)로 구한다. link 가 있으면 계정 연결 모드(일회용 링크 티켓)
         SocialAuthService.AuthorizeResult result = link == null
-                ? socialAuthService.authorize(provider, request.getRemoteAddr())
-                : socialAuthService.authorize(provider, request.getRemoteAddr(), link);
+                ? socialAuthService.authorize(provider, clientIpResolver.resolve(request))
+                : socialAuthService.authorize(provider, clientIpResolver.resolve(request), link);
         ResponseEntity.BodyBuilder builder = ResponseEntity.status(302)
                 .header(HttpHeaders.LOCATION, result.location())
                 .header(HttpHeaders.CACHE_CONTROL, NO_STORE);
@@ -61,7 +63,7 @@ public class SocialAuthController {
                                          HttpServletRequest request) {
         String cookie = cookieValue(request);
         SocialAuthService.CallbackResult result =
-                socialAuthService.callbackRateLimited(request.getRemoteAddr())
+                socialAuthService.callbackRateLimited(clientIpResolver.resolve(request))
                         ? socialAuthService.busyResult(cookie)
                         : socialAuthService.callback(provider, code, state, error, cookie);
         return ResponseEntity.status(302)
@@ -73,8 +75,10 @@ public class SocialAuthController {
 
     @PostMapping("/exchange")
     public ResponseEntity<TokenResponse> exchange(@Valid @RequestBody SocialExchangeRequest body, HttpServletRequest request) {
+        com.matjari.service.AuthService.IssuedTokens tokens = socialAuthService.exchange(body.code(), clientIpResolver.resolve(request));
         return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, NO_STORE)
-                .body(socialAuthService.exchange(body.code(), request.getRemoteAddr()));
+                .header(HttpHeaders.SET_COOKIE, refreshCookie.create(tokens.refreshToken()))
+                .body(tokens.body());
     }
 
     private static String cookieValue(HttpServletRequest request) {

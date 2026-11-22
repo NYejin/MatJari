@@ -1,13 +1,23 @@
-import type { AuthUser, TokenResponse } from "../types/auth";
+import type { AuthUser } from "../types/auth";
 
-// localStorage 키는 여기 한 곳에서만 정의한다 (client.ts 인터셉터와 AuthProvider가 공유)
-export const ACCESS_TOKEN_KEY = "accessToken";
-export const REFRESH_TOKEN_KEY = "refreshToken";
+// 액세스 토큰은 모듈 변수(메모리)에만 둔다. localStorage·sessionStorage·쿠키에 쓰지 않는다.
+// 새로고침·새 탭에서는 앱 시작 때 /api/auth/refresh(HttpOnly 쿠키 mj_rt)로 다시 받는다 (AuthProvider).
+// 리프레시 토큰은 JS가 볼 수 없다(HttpOnly 쿠키).
 
-/**
- * 같은 탭 안의 토큰 변경 알림. (window "storage" 이벤트는 다른 탭에만 오므로 별도 구독 경로가 필요)
- * 401 인터셉터/refreshSession이 토큰을 저장·삭제하면 AuthProvider가 이를 받아 세션 상태를 동기화한다.
- */
+/** 예전 버전이 localStorage에 남긴 토큰 키 — 앱 시작 때 한 번 지운다 */
+const LEGACY_STORAGE_KEYS = ["accessToken", "refreshToken"] as const;
+
+export function removeLegacyStoredTokens(): void {
+  try {
+    LEGACY_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
+  } catch {
+    // 저장소 접근이 막힌 환경 — 지울 것도 없다
+  }
+}
+
+let accessToken: string | null = null;
+
+/** 같은 탭 안의 토큰 변경 알림. 재발급·로그인·삭제 때 AuthProvider와 실시간 연결이 이를 받아 동기화한다. */
 type TokenListener = () => void;
 const listeners = new Set<TokenListener>();
 
@@ -24,19 +34,15 @@ function notify(): void {
 
 // 메서드는 this에 의존하지 않는다 (client.ts에서 함수 참조로 넘김)
 export const tokenStorage = {
-  getAccessToken: (): string | null => localStorage.getItem(ACCESS_TOKEN_KEY),
-  getRefreshToken: (): string | null => localStorage.getItem(REFRESH_TOKEN_KEY),
-  save(tokens: Pick<TokenResponse, "accessToken" | "refreshToken">): void {
-    localStorage.setItem(ACCESS_TOKEN_KEY, tokens.accessToken);
-    localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
+  getAccessToken: (): string | null => accessToken,
+  save(tokens: { accessToken: string }): void {
+    accessToken = tokens.accessToken;
     notify();
   },
   clear(): void {
-    const hadTokens =
-      localStorage.getItem(ACCESS_TOKEN_KEY) !== null || localStorage.getItem(REFRESH_TOKEN_KEY) !== null;
-    localStorage.removeItem(ACCESS_TOKEN_KEY);
-    localStorage.removeItem(REFRESH_TOKEN_KEY);
-    if (hadTokens) notify();
+    if (accessToken === null) return;
+    accessToken = null;
+    notify();
   },
   /** 같은 탭 토큰 변경 구독. 반환값은 구독 해제 함수 */
   subscribe(listener: TokenListener): () => void {

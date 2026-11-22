@@ -40,7 +40,12 @@ public class CustomUserDetailsService implements UserDetailsService {
             throw new UsernameNotFoundException("탈퇴한 사용자입니다: id=" + userId);
         }
         suspensionChecker.assertNotSuspended(user.getId());
-        return AuthUserPrincipal.of(user.getId(), user.getEmail(), user.getRole());
+        return AuthUserPrincipal.of(user.getId(), user.getEmail(), user.getRole(), changedAt(user));
+    }
+
+    private static java.time.Instant changedAt(User user) {
+        return user.getCredentialsChangedAt() == null ? null
+                : user.getCredentialsChangedAt().atZone(com.matjari.config.ClockConfig.SERVICE_ZONE).toInstant();
     }
 
     /**

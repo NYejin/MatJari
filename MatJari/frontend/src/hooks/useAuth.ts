@@ -22,7 +22,8 @@ export interface AuthContextValue {
   applyProfile: (profile: User) => void;
   /** 실패 시 axios 에러를 그대로 throw 한다 (화면에서 parseApiError로 메시지 변환) */
   login: (payload: LoginRequest) => Promise<AuthUser>;
-  logout: () => void;
+  /** 서버 로그아웃 호출(실패해도 무시) 후 메모리 토큰 삭제, 다른 탭에 로그아웃 신호 */
+  logout: () => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null);

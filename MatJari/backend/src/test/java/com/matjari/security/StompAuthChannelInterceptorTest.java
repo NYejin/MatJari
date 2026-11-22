@@ -404,4 +404,23 @@ class StompAuthChannelInterceptorTest {
         Message<byte[]> message = MessageBuilder.createMessage(new byte[0], heartbeat.getMessageHeaders());
         assertThat(interceptor.preSend(message, null)).isSameAs(message);
     }
+
+    @Test
+    void 비밀번호_변경_전에_발급된_토큰의_CONNECT는_거부되고_변경_뒤_발급_토큰은_연결된다() throws Exception {
+        socket("pw1");
+        validToken("old", 41L, Duration.ofMinutes(10));
+        when(users.loadUserById(41L)).thenReturn(AuthUserPrincipal.of(41L, "u41@t.com", UserRole.USER, NOW));
+        when(tokens.getIssuedAt("old")).thenReturn(NOW.minusSeconds(5));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                        interceptor.preSend(frame(StompCommand.CONNECT, "pw1", null, null, "Bearer old"), null))
+                .isInstanceOf(StompAuthChannelInterceptor.StompRejectedException.class);
+        assertThat(registry.isActive("pw1")).isFalse();
+
+        socket("pw2");
+        validToken("fresh", 41L, Duration.ofMinutes(10));
+        when(users.loadUserById(41L)).thenReturn(AuthUserPrincipal.of(41L, "u41@t.com", UserRole.USER, NOW));
+        when(tokens.getIssuedAt("fresh")).thenReturn(NOW);
+        connect("pw2", "fresh", 41L);
+        assertThat(registry.isActive("pw2")).isTrue();
+    }
 }

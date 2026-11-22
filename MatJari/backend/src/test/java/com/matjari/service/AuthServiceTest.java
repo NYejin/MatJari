@@ -36,7 +36,7 @@ class AuthServiceTest {
     void setUp() {
         userRepository = mock(UserRepository.class);
         passwordEncoder = mock(PasswordEncoder.class);
-        authService = new AuthService(userRepository, passwordEncoder, mock(JwtTokenProvider.class), mock(com.matjari.security.AccountSuspensionChecker.class), mock(com.matjari.service.EmailVerificationService.class));
+        authService = new AuthService(userRepository, passwordEncoder, mock(JwtTokenProvider.class), mock(com.matjari.security.AccountSuspensionChecker.class), mock(com.matjari.service.EmailVerificationService.class), mock(com.matjari.service.RefreshTokenService.class));
         when(passwordEncoder.encode(anyString())).thenReturn("encoded");
     }
 

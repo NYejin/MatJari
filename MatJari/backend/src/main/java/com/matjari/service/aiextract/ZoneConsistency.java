@@ -1487,6 +1487,37 @@ final class ZoneConsistency {
                 best = row;
             }
         }
+        boolean column = false;
+        if (best.size() < 2) {
+            // 지도 옆 구석에 세로로 쌓인 범례(209252 왼쪽 아래 R석·S석·휠체어석): 지도 높이 범위에서 도형 상자 밖의 칩을 찾아 같은 열(가운데 x ±6)로 묶는다
+            List<Chip> side = new ArrayList<>();
+            List<int[]> sideBlobs = new ArrayList<>();
+            scanBand(rgb, w, Math.max(0, top - 4), Math.min(h, bottom + band), bg, minBg, side, sideBlobs);
+            List<Chip> free = new ArrayList<>();
+            for (Chip c : side) {
+                int ch = c.y1() - c.y0() + 1;
+                boolean inShape = owned.stream().map(ZoneConsistency::box).anyMatch(b -> c.x0() <= b[2] + 4 && b[0] - 4 <= c.x1() && c.y0() <= b[3] + 4 && b[1] - 4 <= c.y1());
+                boolean glyph = sideBlobs.stream().anyMatch(b -> b[2] < c.x0() && b[2] >= c.x0() - ch && b[3] >= c.y0() && b[1] <= c.y1()
+                        && b[2] - b[0] + 1 >= 3 && b[3] - b[1] + 1 >= 0.4 * ch);
+                if (!inShape && !glyph) {
+                    free.add(c);
+                }
+            }
+            for (Chip c : free) {
+                int hc = c.y1() - c.y0() + 1;
+                List<Chip> col = new ArrayList<>();
+                for (Chip d : free) {
+                    int hd = d.y1() - d.y0() + 1;
+                    if (Math.abs((c.x0() + c.x1()) - (d.x0() + d.x1())) <= 12 && hd <= hc * 1.6 && hc <= hd * 1.6 && Math.abs(c.y0() - d.y0()) <= 6 * hc) {
+                        col.add(d);
+                    }
+                }
+                if (col.size() > best.size()) {
+                    best = col;
+                    column = true;
+                }
+            }
+        }
         if (best.size() < 2) {
             return List.of();
         }
@@ -1502,7 +1533,11 @@ final class ZoneConsistency {
         if (out.size() < 2) {
             return List.of();
         }
-        out.sort((a, b) -> Integer.compare(a.x0(), b.x0()));
+        if (column) {
+            out.sort((a, b) -> Integer.compare(a.y0(), b.y0()));
+        } else {
+            out.sort((a, b) -> Integer.compare(a.x0(), b.x0()));
+        }
         return out;
     }
 
@@ -1563,7 +1598,8 @@ final class ZoneConsistency {
         Chip c = chips.get(i);
         int h = c.y1() - c.y0() + 1;
         int x0 = Math.max(0, c.x0() - 2);
-        int x1 = i + 1 < chips.size() ? chips.get(i + 1).x0() - 3 : Math.min(img.getWidth() - 1, c.x1() + 14 * h);
+        // 세로 범례(다음 칩이 같은 열)는 칩 높이의 14배까지 오른쪽 글자를 자른다
+        int x1 = i + 1 < chips.size() && chips.get(i + 1).x0() > c.x1() ? chips.get(i + 1).x0() - 3 : Math.min(img.getWidth() - 1, c.x1() + 14 * h);
         int cy = (c.y0() + c.y1()) / 2;
         int y0 = Math.max(0, cy - (int) (1.25 * h) - 2), y1 = Math.min(img.getHeight() - 1, cy + (int) (1.25 * h) + 2);
         x1 = Math.max(x1, Math.min(img.getWidth() - 1, x0 + 10));

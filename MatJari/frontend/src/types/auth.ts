@@ -32,15 +32,13 @@ export interface EmailCodeResponse {
   resendAfterSeconds: number;
 }
 
-/** POST /api/auth/refresh 요청 — RefreshRequest */
-export interface RefreshRequest {
-  refreshToken: string;
-}
-
-/** login/refresh 응답 — TokenResponse (tokenType은 항상 "Bearer") */
+/**
+ * login/refresh/소셜 exchange 응답 — TokenResponse (tokenType은 항상 "Bearer").
+ * refreshToken은 항상 null이다. 리프레시 토큰은 HttpOnly 쿠키 mj_rt로만 오간다.
+ */
 export interface TokenResponse {
   accessToken: string;
-  refreshToken: string;
+  refreshToken: null;
   tokenType: string;
 }
 

@@ -3,7 +3,7 @@ import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useAuthRedirect, type AuthRouteState } from "../hooks/useAuthRedirect";
 import { authApi } from "../api/auth";
-import { parseApiError } from "../api/errors";
+import { authRateLimitMessage, parseApiError } from "../api/errors";
 import {
   NICKNAME_MAX_LENGTH,
   NICKNAME_MIN_LENGTH,
@@ -163,6 +163,13 @@ export default function SignupPage() {
         ...(verificationOn ? { emailCode: values.emailCode.trim() } : {}),
       });
     } catch (err) {
+      const limited = authRateLimitMessage(err);
+      if (limited) {
+        setFieldErrors({});
+        setFormError(limited);
+        setSubmitting(false);
+        return;
+      }
       const parsed = parseApiError(err, "회원가입에 실패했습니다. 잠시 후 다시 시도해 주세요.");
       const { fieldErrors: next, hasFieldError } = pickFieldErrors(parsed.fieldErrors, SERVER_FIELDS);
       setFieldErrors(next);

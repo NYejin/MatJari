@@ -25,6 +25,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import({SecurityConfig.class, JwtAuthenticationEntryPoint.class, JwtAccessDeniedHandler.class, SecurityErrorResponseWriter.class})
 class AuthControllerEmailVerificationStatusSliceTest {
 
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.matjari.security.RefreshTokenCookie refreshTokenCookie;
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -32,6 +35,12 @@ class AuthControllerEmailVerificationStatusSliceTest {
     private AuthService authService;
     @MockBean
     private EmailVerificationService emailVerificationService;
+    @MockBean
+    private com.matjari.security.AuthRateLimiter authRateLimiter;
+    @MockBean
+    private com.matjari.security.ClientIpResolver clientIpResolver;
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.matjari.service.PasswordResetService passwordResetService;
     @MockBean
     private JwtTokenProvider tokenProvider;
     @MockBean

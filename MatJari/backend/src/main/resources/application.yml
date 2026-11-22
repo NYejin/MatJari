@@ -71,6 +71,9 @@ matjari:
     global-per-hour: ${MATJARI_EMAIL_CODE_GLOBAL_PER_HOUR:200}
     # 코드 해시 HMAC 키. 운영에서는 반드시 새 값으로 덮어쓴다(예: openssl rand -base64 48)
     secret: ${MATJARI_EMAIL_CODE_SECRET:dev-only-insecure-email-code-secret-please-override}
+  password-reset:
+    # 비밀번호 재설정 링크 유효 시간(분). 링크는 {matjari.social.frontend-base-url}/reset-password#token=... 이고 메일은 matjari.mail.mode 를 따른다
+    ttl-minutes: ${MATJARI_PASSWORD_RESET_TTL_MINUTES:30}
   upload:
     # 좌석 소유 인증 사진 저장 디렉터리(웹에서 직접 서빙하지 않는 경로). UUID 이름으로만 저장한다. 처리 후 파일은 삭제된다
     dir: ${MATJARI_UPLOAD_DIR:./data/seat-claims}

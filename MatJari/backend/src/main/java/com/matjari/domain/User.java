@@ -102,6 +102,11 @@ public class User {
         this.role = role;
     }
 
+    /** 비밀번호 변경. 인코딩(BCrypt)은 호출 쪽이 끝낸 값만 넘긴다. 일반 가입(passwordLoginEnabled) 계정만 호출한다. */
+    public void changePassword(String encodedPassword) {
+        this.password = java.util.Objects.requireNonNull(encodedPassword, "encodedPassword");
+    }
+
     /** 닉네임 변경. 검증·정규화는 호출 쪽(UserService)이 한다. */
     public void changeNickname(String nickname) {
         this.nickname = nickname;

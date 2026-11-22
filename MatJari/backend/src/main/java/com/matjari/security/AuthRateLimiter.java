@@ -35,6 +35,12 @@ public class AuthRateLimiter {
     private static final int IP_MAX_FAILURES = 30;
     private static final long SIGNUP_WINDOW = 60 * 60_000L;
     static final int DEFAULT_SIGNUP_MAX = 10;
+    public static final String PASSWORD_RESET_CODE = "PASSWORD_RESET_RATE_LIMITED";
+    private static final long RESET_IP_WINDOW = 10 * 60_000L;
+    private static final int RESET_IP_MAX = 5;
+    private static final long RESET_EMAIL_WINDOW = 60 * 60_000L;
+    private static final int RESET_EMAIL_MAX = 3;
+    private static final int RESET_CONFIRM_IP_MAX = 20;
 
     public static class AuthRateLimitedException extends MatJariException {
         private final String code;
@@ -75,6 +81,9 @@ public class AuthRateLimiter {
     private final Store accounts = new Store(ACCOUNT_WINDOW);
     private final Store loginIps = new Store(IP_WINDOW);
     private final Store signupIps = new Store(SIGNUP_WINDOW);
+    private final Store resetIps = new Store(RESET_IP_WINDOW);
+    private final Store resetEmails = new Store(RESET_EMAIL_WINDOW);
+    private final Store resetConfirmIps = new Store(RESET_IP_WINDOW);
 
     public AuthRateLimiter(Clock clock) {
         this(clock, DEFAULT_SIGNUP_MAX);
@@ -134,6 +143,44 @@ public class AuthRateLimiter {
                 long wait = b.hits.peekFirst() + SIGNUP_WINDOW - now;
                 throw new AuthRateLimitedException(SIGNUP_CODE,
                         "가입 시도가 너무 많아요. 잠시 후 다시 시도해 주세요.", toSeconds(wait));
+            }
+            b.hits.addLast(now);
+        }
+    }
+
+    /**
+     * 비밀번호 재설정 요청 1건을 센다(IP당 10분 5회, 이메일당 1시간 3회, 없는 이메일도 똑같이 센다). 한도를 넘으면 429 PASSWORD_RESET_RATE_LIMITED.
+     * IP 를 먼저 확인하고, 이메일 쪽이 막히면 방금 센 IP 횟수는 돌려준다(막힌 요청이 다른 계정의 IP 몫을 쓰지 않게).
+     */
+    public void acquirePasswordResetRequest(String ip, String email) {
+        long now = clock.millis();
+        acquireWindow(resetIps, ipKey(ip), RESET_IP_MAX, now);
+        try {
+            acquireWindow(resetEmails, accountKey(email), RESET_EMAIL_MAX, now);
+        } catch (AuthRateLimitedException e) {
+            synchronized (resetIps.map) {
+                Bucket b = resetIps.map.get(ipKey(ip));
+                if (b != null && !b.hits.isEmpty()) {
+                    b.hits.pollLast();
+                }
+            }
+            throw e;
+        }
+    }
+
+    /** 비밀번호 재설정 확정 시도 1건을 센다(IP당 10분 20회). 한도를 넘으면 429 PASSWORD_RESET_RATE_LIMITED. */
+    public void acquirePasswordResetConfirm(String ip) {
+        acquireWindow(resetConfirmIps, ipKey(ip), RESET_CONFIRM_IP_MAX, clock.millis());
+    }
+
+    private void acquireWindow(Store store, String key, int max, long now) {
+        synchronized (store.map) {
+            Bucket b = touch(store, key);
+            trim(b, store.window, now);
+            if (b.hits.size() >= max) {
+                long wait = b.hits.peekFirst() + store.window - now;
+                throw new AuthRateLimitedException(PASSWORD_RESET_CODE,
+                        "요청이 너무 많아요. 잠시 후 다시 시도해 주세요.", toSeconds(wait));
             }
             b.hits.addLast(now);
         }

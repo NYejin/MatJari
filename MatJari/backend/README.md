@@ -46,6 +46,9 @@
 | POST | /api/auth/login | 로그인 (email, password) → 본문 `{accessToken, refreshToken:null, tokenType}` + `Set-Cookie: mj_rt`(리프레시 토큰, 아래 '리프레시 토큰' 절) |
 | POST | /api/auth/refresh | 쿠키 `mj_rt`로 accessToken 재발급 + 리프레시 토큰 회전(새 쿠키). `X-Requested-With: XMLHttpRequest` 헤더 필수(없으면 403). 없음·만료·폐기·재사용·탈퇴 401, 정지 403 `ACCOUNT_SUSPENDED` |
 | POST | /api/auth/logout | 쿠키 토큰의 계열을 LOGOUT 으로 폐기하고 쿠키 삭제, 204(토큰이 없어도 멱등). `X-Requested-With` 헤더 필수 |
+| POST | /api/auth/password-reset/request | 비밀번호 재설정 링크 요청 `{email}` → **항상 204**(가입 여부를 드러내지 않음). 아래 '비밀번호 재설정·변경' 절. 너무 잦으면 429 `PASSWORD_RESET_RATE_LIMITED` |
+| POST | /api/auth/password-reset/confirm | 재설정 확정 `{token, newPassword}` → 204. 링크가 없음·만료·사용됨·무효·탈퇴·소셜 전용이면 400 `INVALID_RESET_TOKEN`, 새 비밀번호 규칙 위반 400 `newPassword`, 한도 초과 429 |
+| PATCH | /api/auth/password | 로그인 상태의 비밀번호 변경 `{currentPassword, newPassword}` → 204(Bearer 필요, **리프레시 쿠키가 실리는 경로**). `PATCH /api/users/me/password`와 같은 규칙 |
 | GET | /api/auth/social/providers | 활성 소셜 제공자 목록 `{providers:[...]}`(client-id가 설정된 제공자만, 인증 불필요) |
 | GET | /api/auth/social/{provider}/authorize | 제공자 인증 화면으로 302(provider = google·kakao·naver). state 쿠키 `ss_oauth` 발급. 비활성이면 404 `SOCIAL_PROVIDER_DISABLED`. `?link={ticket}`가 있으면 연결 모드('프로필 수정·소셜 계정 연결 (V16)' 절) |
 | GET | /api/auth/social/{provider}/callback | 제공자 콜백. 성공·실패 모두 302(성공 `{frontend}/auth/callback#code=`, 실패 `{frontend}/login?socialError=`. 연결 모드는 성공 `{frontend}/me#linkCode=`, 실패 `{frontend}/me?socialLinkError=`) |
@@ -64,6 +67,21 @@
 - **정지 틈 방지**: 로그인·소셜 exchange의 토큰 발급은 users 잠금 안에서 정지 여부를 다시 확인한다(정지면 403 `ACCOUNT_SUSPENDED`).
 - **릴리스 메모**: 이 배포로 기존 JWT 리프레시 토큰은 더 이상 통하지 않으므로 **기존 사용자는 배포 직후 한 번 로그아웃되어 다시 로그인해야 한다**.
 - **알려진 한계**: 같은 토큰으로 거의 동시에 온 두 재발급(예: 탭 두 개가 동시에 만료를 만나 재발급)은 한쪽만 성공하고 다른 쪽은 401을 받는다(유예 20초 안이면 계열은 유지되어 새 토큰으로 계속 쓸 수 있고, 유예가 지난 재사용만 계열 폐기). 프런트는 탭 간 재발급을 하나로 묶는 것이 좋다. 이용 정지(`createSanction`, 대상 users FOR UPDATE)와 같은 대상의 관리자 역할 변경이 동시에 오면 교착 감지로 한쪽이 503으로 끝날 수 있다(재시도하면 된다). 쿠키는 `Path=/api/auth`라 프런트와 API 가 같은 사이트(nginx 프록시 등)여야 `SameSite=Strict`가 동작한다. 서버 시계가 크게 틀어지면 만료 판단이 어긋난다. 검증: `RefreshTokenMysqlTest`(회전·재사용·로그아웃·탈퇴·정지·동시 재발급·정리, 실제 MySQL IT), `SecuritySliceTest`(쿠키 속성·403·본문 null).
+
+### 비밀번호 재설정·변경 (V28, `feature/password-reset`)
+| Method | Path | 요청 | 응답 / 오류 |
+|---|---|---|---|
+| POST | /api/auth/password-reset/request | `{email}` (공개) | 항상 **204**. 형식 오류 400 `email`. IP당 10분 5회·이메일당 1시간 3회 초과 429 `PASSWORD_RESET_RATE_LIMITED`(`{code,message,retryAfterSeconds}`+`Retry-After`) |
+| POST | /api/auth/password-reset/confirm | `{token, newPassword}` (공개) | **204**. 400 `INVALID_RESET_TOKEN`(`{code,message}`, 없음·만료·사용됨·무효·탈퇴·소셜 전용을 구분하지 않음), 400 `newPassword`(8~64자, 72바이트 이하), 429 `PASSWORD_RESET_RATE_LIMITED`(IP당 10분 20회) |
+| PATCH | /api/users/me/password | `{currentPassword, newPassword}` (Bearer) | **204**. 400 `currentPassword`(틀림), 400 `newPassword`(현재와 같음·규칙 위반), 409 `PASSWORD_LOGIN_DISABLED`(소셜 전용), 429 `LOGIN_RATE_LIMITED`(계정이 잠김), 401 |
+| PATCH | /api/auth/password | 위와 같음 (Bearer + `mj_rt` 쿠키) | 위와 같음. 현재 기기(쿠키 계열)의 로그인은 유지 |
+
+- **요청**: 존재·미탈퇴·`password_login_enabled=1` 계정에만 실제로 링크를 만들어 보내고 나머지는 조용히 무시한다(항상 204). 정지 계정에도 보낸다(재설정해도 로그인은 403 그대로). 토큰은 무작위 32바이트 base64url(43자), DB에는 SHA-256 hex만 저장, 유효 30분(`matjari.password-reset.ttl-minutes`, 환경변수 `MATJARI_PASSWORD_RESET_TTL_MINUTES`). 새 요청은 이전 살아 있는 링크를 무효화한다(users FOR UPDATE → 무효화 → INSERT, `PasswordResetToken` Javadoc 순서). 메일은 **커밋 뒤** 별도 스레드(대기열 200)에서 `EmailSender`로 보내며 실패는 삼키고 로그만 남긴다(토큰·이메일은 로그에 남기지 않는다). 링크는 `{matjari.social.frontend-base-url}/reset-password#token={토큰}`(프래그먼트라 서버 로그·Referer에 남지 않음). 메일 모드가 `log`이고 백엔드 주소가 루프백이 아니면(운영) 링크가 로그에 남지 않도록 **발송을 건너뛰고 경고만 남긴다**(운영은 `MATJARI_MAIL_MODE=smtp` 필요).
+- **확정**: users FOR UPDATE → 토큰 PK FOR UPDATE → 상태 재판단 → 비밀번호 변경 + 링크 `used_at` + 그 사용자의 리프레시 토큰 전부 `PASSWORD_RESET` 폐기를 한 트랜잭션에서 한다(같은 링크의 동시 확정은 하나만 성공). 성공하면 그 계정의 로그인 실패 잠금도 푼다. 만료 비교는 저장된 값(마이크로초) 기준이다.
+- **변경(로그인 상태)**: users FOR UPDATE → 현재 비밀번호 확인 → 변경 → 이미 보낸 재설정 링크 무효화 → 리프레시 토큰 폐기(사유 `PASSWORD_RESET`, V28 그대로 사용). 현재 비밀번호가 틀리면 로그인 실패 제한 계정 카운터에 센다(5회 틀리면 15분 잠김, 로그인과 같은 카운터라 429 `LOGIN_RATE_LIMITED`). **쿠키 `mj_rt`는 `Path=/api/auth`라 `/api/users/me/password`에는 브라우저가 보내지 않는다.** 그래서 현재 기기를 유지하려면 프런트는 `PATCH /api/auth/password`를 써야 하고(쿠키 계열만 남기고 나머지 폐기), `/api/users/me/password`는 쿠키를 알 수 없어 **모든 계열을 폐기**한다(현재 기기도 다음 재발급 때 다시 로그인). 액세스 토큰은 무상태라 만료(짧음)까지는 유효하다.
+- **탈퇴**: `WithdrawService`가 users 잠금 뒤 `deleteAllByUserId`로 그 사용자의 재설정 행을 지운다(관리자 강제 탈퇴도 같은 `runWithdrawal` 경로). **만료 정리**: 요청 때 마지막 정리 1시간 뒤면 users 잠금 밖 짧은 트랜잭션으로 `deleteExpiredBatch`(최대 1000×20).
+- **보안 설정**: 공개 엔드포인트는 `/api/auth/**` permitAll(변경 경로는 principal이 없으면 401), nginx `limit_req`(`/api/auth/` 분당 10회+burst 20)도 적용된다.
+- **알려진 한계**: 속도 제한은 메모리·단일 인스턴스(재시작하면 초기화, 특정 이메일에 일부러 요청해 그 계정의 시간당 3회를 쓰게 할 수 있음). 계정이 있을 때 요청 처리가 DB 쓰기 몇 번만큼 더 걸려 수 ms 차이가 난다(메일 발송은 비동기라 새지 않음). 메일 대기열이 가득 차면(200) 발송을 버리고 로그만 남긴다. 재설정 링크는 메일 계정 접근자가 쓸 수 있다(일회용·30분). 검증: `PasswordResetMysqlTest`(실제 MySQL IT 23건), `PasswordResetControllerSliceTest`, `AuthHardeningTest`(제한기).
 
 ## 공연·공연장·회차·내 정보 API
 

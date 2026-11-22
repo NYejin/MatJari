@@ -57,7 +57,7 @@ class ForceWithdrawServiceTest {
     void setUp() {
         PlatformTransactionManager tm = mock(PlatformTransactionManager.class);
         when(tm.getTransaction(any())).thenReturn(mock(TransactionStatus.class));
-        service = new WithdrawService(userRepository, ticketRepository, requestRepository, socialRepository, mock(com.matjari.repository.RefreshTokenRepository.class), notificationRepository,
+        service = new WithdrawService(userRepository, ticketRepository, requestRepository, socialRepository, mock(com.matjari.repository.RefreshTokenRepository.class), mock(com.matjari.repository.PasswordResetTokenRepository.class), notificationRepository,
                 canceller, claimService, new SocialLinkConfirmStore(clock, socialProps), socialProps, mock(WebSocketSessionRegistry.class),
                 new BCryptPasswordEncoder(4), new SessionTimePolicy(clock), clock, tm);
         when(userRepository.saveAndFlush(any(User.class))).thenAnswer(i -> i.getArgument(0));

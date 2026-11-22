@@ -1,6 +1,10 @@
 package com.matjari.controller;
 
+import com.matjari.dto.request.PasswordRequests;
 import com.matjari.dto.request.UpdateNicknameRequest;
+import com.matjari.security.ClientIpResolver;
+import com.matjari.service.PasswordResetService;
+import jakarta.servlet.http.HttpServletRequest;
 import com.matjari.dto.request.WithdrawRequest;
 import com.matjari.service.WithdrawService;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -24,6 +28,8 @@ public class UserController {
 
     private final UserService userService;
     private final WithdrawService withdrawService;
+    private final PasswordResetService passwordResetService;
+    private final ClientIpResolver clientIpResolver;
 
     /**
      * 내 정보 조회. 인증 주체는 JwtAuthenticationFilter가 채운 AuthUserPrincipal이며
@@ -43,6 +49,21 @@ public class UserController {
     public ResponseEntity<Void> withdraw(@AuthenticationPrincipal AuthUserPrincipal principal,
                                          @RequestBody(required = false) WithdrawRequest body) {
         withdrawService.withdraw(principal.userId(), body);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * 비밀번호 변경(로그인 상태). 비밀번호 로그인 계정만(소셜 전용은 409 PASSWORD_LOGIN_DISABLED), 현재 비밀번호가 틀리면 400 currentPassword
+     * (로그인 실패 제한에 센다, 잠기면 429 LOGIN_RATE_LIMITED), 새 비밀번호가 같으면 400 newPassword. 성공 204.
+     * 리프레시 쿠키(Path=/api/auth)는 이 경로에 오지 않아 어느 기기가 현재인지 알 수 없으므로 모든 로그인 유지 토큰을 폐기한다.
+     * 현재 기기를 유지하려면 쿠키가 실리는 {@code PATCH /api/auth/password} 를 쓴다.
+     */
+    @PatchMapping("/me/password")
+    public ResponseEntity<Void> changePassword(@AuthenticationPrincipal AuthUserPrincipal principal,
+                                               @Valid @RequestBody PasswordRequests.ChangeRequest body,
+                                               HttpServletRequest http) {
+        passwordResetService.changePassword(principal.userId(), principal.email(), clientIpResolver.resolve(http),
+                body.currentPassword(), body.newPassword(), null);
         return ResponseEntity.noContent().build();
     }
 

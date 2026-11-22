@@ -73,6 +73,11 @@ class ChatSchemaMysqlTest {
     @Autowired
     private ChatMessageRepository messages;
 
+    /** 엔티티(ChatMessage)는 V30 의 image_key 컬럼까지 쓰므로, 엔티티로 읽고 쓰는 테스트는 최신 스키마로 올린 뒤 시작한다(V11 스키마 검증 테스트는 V11 그대로). */
+    private void upgradeToLatest() {
+        Flyway.configure().dataSource(chatUrl(), RealMysqlSupport.user(), RealMysqlSupport.password()).load().migrate();
+    }
+
     private Flyway flyway(String target) {
         return Flyway.configure().dataSource(chatUrl(), RealMysqlSupport.user(), RealMysqlSupport.password())
                 .cleanDisabled(false).target(target).load();
@@ -197,6 +202,7 @@ class ChatSchemaMysqlTest {
 
     @Test
     void 페이징_쿼리는_인덱스만_쓰고_filesort가_없다() {
+        upgradeToLatest();
         // 매칭 20개에 3000건을 번갈아 넣는다(실제처럼 한 매칭의 메시지가 PK 에서 흩어진다). 매칭 1 은 150건
         List<Object[]> batch = new ArrayList<>();
         for (int i = 0; i < 3000; i++) {
@@ -244,6 +250,7 @@ class ChatSchemaMysqlTest {
 
     @Test
     void 저장소로_저장하면_감사_시각이_채워지고_clientMessageId로_기존_행을_찾는다() {
+        upgradeToLatest();
         ChatMessage saved = messages.saveAndFlush(ChatMessage.of(1L, 1L, "안녕하세요", "client-msg-0001"));
         assertThat(saved.getId()).isNotNull();
         assertThat(saved.getCreatedAt()).isNotNull();

@@ -117,7 +117,8 @@ docker compose -f docker-compose.prod.yml up -d --build
 - `PUBLIC_URL`: 브라우저로 접속하는 주소. 이 PC에서만 `http://localhost`, 같은 공유기 안이면 `http://<이 PC의 사설 IP>`, 공개하면 `https://내도메인`.
 - 접속 주소가 localhost가 아니면 메일 모드 `log`는 기동이 거부된다. `MAIL_MODE=smtp`와 `MAIL_*`를 채운다(Gmail은 앱 비밀번호).
 - 공개 인터넷에 열 때: Cloudflare Zero Trust에서 터널을 만들고(서비스 `http://web:80`) `.env`에 `TUNNEL_TOKEN`, `SOCIAL_COOKIE_SECURE=true`를 넣은 뒤 `--profile tunnel`을 붙여 올린다. 공유기 포트포워딩은 필요 없다.
-- 데이터는 Docker 볼륨(`mysql_data`, `upload_data`)에 있다. `down -v`는 DB까지 지운다. 백업: `docker compose -f docker-compose.prod.yml exec mysql mysqldump -u root -p matjari > backup.sql`.
+- 데이터는 Docker 볼륨(`mysql_data`, `upload_data`)에 있다. `down -v`는 DB까지 지운다. **백업**: 배포 clone에서 `.\deploy\register-backup-task.ps1`로 매일 04:00 자동 백업을 등록한다(`deploy\backup.ps1`: `mysqldump --single-transaction` gzip + 업로드 볼륨 tar, 기본 `%USERPROFILE%\MatJariBackups`, 14일 보관·최근 3개는 항상 남김, 운영 mysql이 꺼져 있으면 건너뜀). 업로드 묶음에는 인증 사진·채팅 사진(개인정보)이 있으니 백업 폴더 접근을 제한하고, 다른 디스크로 한 번 더 옮기면 PC 고장에도 남는다. 되살리는 방법은 `backup.ps1` 맨 위 주석.
+- **가입 이메일 인증**: 운영 compose는 기본으로 켠다(`EMAIL_VERIFICATION_ENABLED`, 기본 true, `MAIL_MODE=smtp` 필요). 개발 기본값은 꺼짐.
 - 터널로 공개할 때는 `.env`에 `WEB_BIND=127.0.0.1`을 넣어 공유기 안에서 http로 직접 들어오는 경로를 막는다(같은 공유기 안 기기로 시연할 때만 기본값 0.0.0.0).
 - 접속자 IP: nginx가 Cloudflare의 `CF-Connecting-IP`를 실제 접속자 IP로 바꿔(`set_real_ip_from` 도커 사설망) `X-Real-IP`로 넘기고, 백엔드는 신뢰 프록시(`MATJARI_TRUSTED_PROXIES`, 기본 사설망·루프백)에서 온 요청일 때만 그 헤더를 믿는다(`ClientIpResolver`). 속도 제한은 단일 인스턴스 메모리 기준이다.
 

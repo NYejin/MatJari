@@ -74,6 +74,10 @@ export default function PrivacyPolicyPage() {
                 기록합니다. 링크는 30분 동안만 사용할 수 있습니다.
               </li>
               <li>
+                <strong>알림 메일 이용 시:</strong> 알림 메일 수신 설정, 마지막 알림 메일 발송 시각, 이메일 확인 시각을 저장합니다. 알림 메일에는
+                알림 종류별 건수와 공연 제목만 담고, 상대 닉네임·좌석·채팅 내용은 담지 않습니다.
+              </li>
+              <li>
                 <strong>소셜 로그인 시:</strong> 제공자 이름(카카오·구글·네이버)과 제공자 고유 식별자만 저장합니다. 이메일과 프로필
                 이미지는 저장하지 않지만, 제공자의 프로필 닉네임을 초기 닉네임으로 사용합니다(마이페이지에서 바꿀 수 있습니다). 다만 제공자가 검증된 이메일을 주면 가입 이메일로 사용합니다. 검증된 이메일이 없으면 서비스가
                 만든 자리표시 이메일을 사용합니다.
@@ -81,6 +85,9 @@ export default function PrivacyPolicyPage() {
               <li>
                 <strong>서비스 이용 중 생성되는 정보:</strong> 티켓, 교환 요청(희망 조건), 매칭, 채팅 메시지, 교환 이력, 차단·신고·제재
                 기록
+              </li>
+              <li>
+                <strong>채팅 사진을 보낼 때:</strong> 채팅으로 보낸 사진(이용자가 직접 올린 예매내역 등). 열람할 수 있는 사람은 채팅 참여자 두 명과, 신고 처리 목적의 관리자입니다.
               </li>
               <li>
                 <strong>좌석 인증 요청 시:</strong> 예매내역 사진(처리가 끝나면 삭제합니다)
@@ -143,6 +150,26 @@ export default function PrivacyPolicyPage() {
                   </tr>
                   <tr>
                     <th scope="row" className={`${cls.td} text-left font-semibold`}>
+                      알림 메일 수신 설정, 마지막 알림 메일 발송 시각, 이메일 확인 시각
+                    </th>
+                    <td className={cls.td}>탈퇴 즉시 삭제하거나 익명화합니다.</td>
+                  </tr>
+                  <tr>
+                    <th scope="row" className={`${cls.td} text-left font-semibold`}>
+                      데이터베이스·업로드 파일 백업본
+                    </th>
+                    <td className={cls.td}>하루 한 번 백업하고 14일 동안 보관한 뒤 삭제합니다.</td>
+                  </tr>
+                  <tr>
+                    <th scope="row" className={`${cls.td} text-left font-semibold`}>
+                      채팅으로 보낸 사진
+                    </th>
+                    <td className={cls.td}>
+                      채팅 매칭이 끝난 뒤 30일이 지나면 삭제합니다. 처리 중인 신고가 있으면 처리가 끝날 때까지 보관합니다.
+                    </td>
+                  </tr>
+                  <tr>
+                    <th scope="row" className={`${cls.td} text-left font-semibold`}>
                       채팅 메시지, 교환 이력, 차단·신고·제재 기록
                     </th>
                     <td className={cls.td}>
@@ -159,6 +186,11 @@ export default function PrivacyPolicyPage() {
             <ul className={cls.list}>
               <li>회원이 탈퇴하면 계정 정보를 삭제하거나 익명화하고, 소셜 연결 정보와 받은 알림을 삭제합니다.</li>
               <li>예매내역 사진은 요청 처리가 끝나면 서버에서 삭제합니다.</li>
+              <li>채팅으로 보낸 사진은 채팅 매칭이 끝난 뒤 30일이 지나면 서버에서 삭제합니다(처리 중인 신고가 있으면 처리가 끝날 때까지 보관합니다).</li>
+              <li>
+                서비스 장애에 대비해 데이터베이스와 업로드 파일을 하루 한 번 백업하며 백업본은 14일 동안 보관한 뒤 삭제합니다. 이 때문에 삭제된
+                정보와 사진이 백업본에는 최대 14일 더 남을 수 있습니다.
+              </li>
             </ul>
           </Section>
 
@@ -168,8 +200,9 @@ export default function PrivacyPolicyPage() {
 
           <Section n={7} title="개인정보 처리의 위탁">
             <p>
-              서비스는 개인정보 처리를 외부에 위탁하지 않습니다. 다만 이메일 인증번호는 운영자가 설정한 메일 발송 서비스(SMTP)를 통해
-              보내므로, 인증번호를 받을 때 입력한 이메일 주소가 그 서비스를 거칩니다.
+              서비스는 개인정보 처리를 외부에 위탁하지 않습니다. 다만 인증번호·비밀번호 재설정 링크·알림 메일은 운영자가 설정한 메일 발송 서비스(SMTP)를
+              통해 보내므로, 메일을 받는 이메일 주소가 그 서비스를 거칩니다. 알림 메일에는 알림 종류별 건수와 공연 제목만 담고 상대 닉네임·좌석·채팅
+              내용은 담지 않습니다.
             </p>
           </Section>
 
@@ -242,6 +275,7 @@ export default function PrivacyPolicyPage() {
             <ul className={cls.list}>
               <li>비밀번호는 복호화할 수 없는 BCrypt 해시로만 저장합니다.</li>
               <li>예매내역 사진은 처리 후 삭제하며, 본인과 관리자만 볼 수 있습니다.</li>
+              <li>채팅으로 보낸 사진은 채팅 참여자 두 명과, 신고 처리 목적의 관리자만 볼 수 있습니다.</li>
               <li>채팅 내용은 신고 처리에 필요할 때 관리자만 열람하고, 처리 목적 외에는 사용하지 않습니다.</li>
             </ul>
           </Section>

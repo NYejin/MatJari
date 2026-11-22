@@ -8,6 +8,10 @@ export interface ChatMessage {
   clientMessageId: string;
   /** 오프셋 없는 KST 초 단위 "yyyy-MM-ddTHH:mm:ss" */
   createdAt: string;
+  /** 사진 메시지면 true (content는 빈 문자열) */
+  hasImage?: boolean;
+  /** 사진 보관 기간이 지나 삭제됐으면 true */
+  imageExpired?: boolean;
 }
 
 /** GET /exchange/matches/{id}/messages 응답. messages는 오름차순 */

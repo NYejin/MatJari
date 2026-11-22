@@ -31,12 +31,14 @@ class AuthServiceTest {
     private UserRepository userRepository;
     private PasswordEncoder passwordEncoder;
     private AuthService authService;
+    private final com.matjari.service.EmailVerificationService emailVerification = mock(com.matjari.service.EmailVerificationService.class);
+    private final com.matjari.service.EmailOwnershipRecorder recorder = mock(com.matjari.service.EmailOwnershipRecorder.class);
 
     @BeforeEach
     void setUp() {
         userRepository = mock(UserRepository.class);
         passwordEncoder = mock(PasswordEncoder.class);
-        authService = new AuthService(userRepository, passwordEncoder, mock(JwtTokenProvider.class), mock(com.matjari.security.AccountSuspensionChecker.class), mock(com.matjari.service.EmailVerificationService.class), mock(com.matjari.service.RefreshTokenService.class));
+        authService = new AuthService(userRepository, passwordEncoder, mock(JwtTokenProvider.class), mock(com.matjari.security.AccountSuspensionChecker.class), emailVerification, mock(com.matjari.service.RefreshTokenService.class), recorder);
         when(passwordEncoder.encode(anyString())).thenReturn("encoded");
     }
 
@@ -62,6 +64,35 @@ class AuthServiceTest {
                     assertThat(e.getField()).isEqualTo("email");
                     assertThat(e.getMessage()).isEqualTo("이미 가입된 이메일입니다.");
                 });
+    }
+
+    private void stubSaved() {
+        when(userRepository.existsByEmail("a@b.com")).thenReturn(false);
+        when(userRepository.saveAndFlush(any(User.class))).thenAnswer(inv -> {
+            User u = inv.getArgument(0);
+            org.springframework.test.util.ReflectionTestUtils.setField(u, "id", 55L);
+            return u;
+        });
+    }
+
+    @Test
+    void 인증번호를_실제로_통과한_가입은_이메일_소유_확인을_기록한다() {
+        stubSaved();
+        when(emailVerification.verifyAndConsume(any(), any())).thenReturn(true);
+
+        authService.signup(new SignupRequest("a@b.com", "password123", "닉네임"));
+
+        verify(recorder).markVerified(55L);
+    }
+
+    @Test
+    void 인증이_꺼져_있어_통과하지_않은_가입은_이메일_소유_확인을_기록하지_않는다() {
+        stubSaved();
+        when(emailVerification.verifyAndConsume(any(), any())).thenReturn(false);
+
+        authService.signup(new SignupRequest("a@b.com", "password123", "닉네임"));
+
+        verify(recorder, never()).markVerified(any());
     }
 
     @Test

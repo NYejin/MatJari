@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { CHAT_AFTER_SIZE, CHAT_MAX_LENGTH, CHAT_PAGE_SIZE, chatApi, countCodePoints, findReadMarkerId, generateClientMessageId, mergeMessages, nextReadTarget, truncateCodePoints, visiblePending } from "../api/chat";
 import { formatKstDateTime } from "../api/dateTime";
@@ -6,6 +6,8 @@ import { exchangeApi } from "../api/exchange";
 import { exchangeErrorMessage } from "../api/exchangeMessages";
 import { getRealtimeStatus, subscribeNotificationPush } from "../api/realtimeHub";
 import { formatSeat } from "../api/seat";
+import ChatImage from "../components/ChatImage";
+import ChatImageRedactDialog from "../components/ChatImageRedactDialog";
 import ChatSafetyActions from "../components/ChatSafetyActions";
 import { button, FOCUS_RING, linkButton, liveRegionClass, ui } from "../components/ui";
 import { useAuth } from "../hooks/useAuth";
@@ -128,7 +130,10 @@ function SafetyStrip(): ReactNode {
       </button>
       {open && (
         <p id="chat-safety-text" className={`${ui.hint} pt-1`}>
-          예매내역을 확인할 때 이름·연락처·결제 정보는 가리고 보여주세요. 메시지는 텍스트만 보낼 수 있고, 보낸 뒤에는 삭제·수정할 수 없어요.
+          예매내역은 사진 보내기로 보여 줄 수 있어요. 보내기 전에 개인정보를 가려 주세요. 보낸 메시지·사진은 삭제·수정할 수 없고, 사진은 채팅이 끝나고 30일 뒤 삭제돼요.{" "}
+          <Link to="/guide" className={ui.link}>
+            자세한 안내
+          </Link>
         </p>
       )}
     </div>
@@ -159,6 +164,21 @@ export default function ChatPage() {
   const [counterpartRead, setCounterpartRead] = useState(0);
   const [pending, setPending] = useState<PendingChatMessage[]>([]);
   const [text, setText] = useState("");
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoNotice, setPhotoNotice] = useState<string | null>(null);
+  const photoIdRef = useRef<string>("");
+  const photoKeyRef = useRef<string | null>(null);
+  const photoBtnRef = useRef<HTMLButtonElement>(null);
+  const hadPhotoRef = useRef(false);
+  // 가리기 대화상자가 닫히면 사진 버튼으로 포커스를 돌려 준다
+  useEffect(() => {
+    if (photoFile) hadPhotoRef.current = true;
+    else if (hadPhotoRef.current) {
+      hadPhotoRef.current = false;
+      photoBtnRef.current?.focus();
+    }
+  }, [photoFile]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [atBottom, setAtBottom] = useState(true);
   const [newBelow, setNewBelow] = useState(0);
   const [announce, setAnnounce] = useState("");
@@ -560,6 +580,39 @@ export default function ChatPage() {
     textareaRef.current?.focus();
   };
 
+  /** 파일 선택 → 가리기 단계. 같은 파일을 다시 골라도 change가 오도록 값을 비운다 */
+  const onPickPhoto = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    setPhotoNotice(null);
+    if (!file) return;
+    if (file.type !== "image/jpeg" && file.type !== "image/png") {
+      setPhotoNotice("JPEG 또는 PNG 사진만 보낼 수 있어요.");
+      return;
+    }
+    photoIdRef.current = generateClientMessageId(); // 같은 사진·같은 가림의 재시도만 같은 id(서버 멱등)
+    photoKeyRef.current = null;
+    setPhotoFile(file);
+  };
+
+  const sendPhoto = async (blob: Blob, signal: AbortSignal, contentKey: string) => {
+    if (matchId === null) throw new Error("매칭을 찾을 수 없어요.");
+    // 가림 사각형이 바뀌면 다른 내용이므로 새 id (같은 id로 다른 사진을 보내면 서버가 먼저 온 것만 남긴다)
+    if (photoKeyRef.current !== null && photoKeyRef.current !== contentKey) photoIdRef.current = generateClientMessageId();
+    photoKeyRef.current = contentKey;
+    try {
+      const saved = await chatApi.sendImage(matchId, blob, photoIdRef.current, signal);
+      commit(mergeMessages(messagesRef.current, [saved]));
+      setPhotoFile(null);
+      setAnnounce("사진을 보냈어요.");
+    } catch (err) {
+      if (signal.aborted) throw err;
+      const parsed = exchangeErrorMessage(err, "사진을 보내지 못했습니다.");
+      if (parsed.code === "MATCH_STATE_CONFLICT") void refreshMatch();
+      throw new Error(parsed.message);
+    }
+  };
+
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     submit();
@@ -840,10 +893,17 @@ export default function ChatPage() {
                         )}
                         <div className={`flex items-end gap-1.5 ${mine ? "justify-end" : "justify-start"}`}>
                           {mine && meta}
-                          <div className={`${MSG_BUBBLE} ${radius} ${mine ? "bg-primary-600 text-white" : "bg-white text-gray-900"}`}>
-                            <span className="sr-only">{mine ? "나: " : `${counterpartName}: `}</span>
-                            {m.content}
-                          </div>
+                          {m.hasImage ? (
+                            <div className="max-w-[75%]">
+                              <span className="sr-only">{mine ? "나: " : `${counterpartName}: `}</span>
+                              <ChatImage mine={mine} expired={m.imageExpired === true} load={(signal) => chatApi.fetchImage(matchId as number, m.id, signal)} />
+                            </div>
+                          ) : (
+                            <div className={`${MSG_BUBBLE} ${radius} ${mine ? "bg-primary-600 text-white" : "bg-white text-gray-900"}`}>
+                              <span className="sr-only">{mine ? "나: " : `${counterpartName}: `}</span>
+                              {m.content}
+                            </div>
+                          )}
                           {!mine && meta}
                         </div>
                       </li>
@@ -901,6 +961,24 @@ export default function ChatPage() {
               </label>
               {/* 알약 입력창: 테두리는 바깥 알약이 맡고 textarea는 테두리·스크롤바 없이 높이만 늘어난다 */}
               <div className={`flex items-end rounded-3xl border pl-4 pr-1 focus-within:border-primary-600 focus-within:ring-3 focus-within:ring-primary-600/20 ${closedChat ? "border-gray-200 bg-gray-100" : "border-gray-300 bg-white"}`}>
+                {!closedChat && (
+                  <>
+                    <input ref={fileInputRef} type="file" accept="image/jpeg,image/png" className="hidden" onChange={onPickPhoto} tabIndex={-1} aria-hidden="true" />
+                    <button
+                      ref={photoBtnRef}
+                      type="button"
+                      aria-label="사진 보내기"
+                      className={`-ml-3 inline-flex size-11 shrink-0 cursor-pointer touch-manipulation items-center justify-center rounded-full text-gray-600 enabled:active:bg-gray-100 ${FOCUS_RING}`}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <rect x="3" y="5" width="18" height="14" rx="2" />
+                        <circle cx="8.5" cy="10" r="1.5" />
+                        <path d="M21 16l-5-5-8 8" />
+                      </svg>
+                    </button>
+                  </>
+                )}
                 <textarea
                   id="chat-input"
                   ref={textareaRef}
@@ -925,11 +1003,17 @@ export default function ChatPage() {
                   </svg>
                 </button>
               </div>
+              {photoNotice && (
+                <p className={ui.fieldError} role="alert">
+                  {photoNotice}
+                </p>
+              )}
               {/* 평소에는 낭독용으로만 존재하고 900자 이상일 때 눈에 보인다 */}
               <span id={countId} className={count >= COUNT_VISIBLE_FROM ? `${ui.hint} self-end pr-1` : "sr-only"}>
                 {count}/{CHAT_MAX_LENGTH}자
               </span>
             </form>
+            {photoFile && !closedChat && <ChatImageRedactDialog file={photoFile} onSend={sendPhoto} onClose={() => setPhotoFile(null)} />}
           </section>
         )}
       </div>

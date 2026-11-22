@@ -15,6 +15,13 @@
 
 ## 이력
 
+### 2026-11-23
+- [결정] 출시 판단: 실제 사용자 공개 전에 필요한 기능(메일 알림·채팅 사진·교환 안내)을 만들고, 터널 공개는 사용자 확인 뒤에 하기로 함. 채팅 사진 보관은 매칭 종료 30일 뒤 삭제, 운영 가입 이메일 인증 다시 켬(사용자 결정) — 작업일지 2026-11-23
+- [구현] 메일 알림·새 교환 후보 알림(V29 `notification.request_id/emailed_at`·`user_notification_setting`·`candidate_notice`, NEW_CANDIDATE, 5분 지연·사용자 30분 쿨다운·시간당 100통, 이메일 소유 확인 계정만, 마이페이지 알림 설정·이메일 확인) — `feature/launch-readiness`
+- [구현] 채팅 사진 보내기(V30 `chat_message.image_key/image_deleted_at`, 보내기 전 가리기, 서버 재인코딩으로 메타데이터 제거, 화소·동시 처리·시도 제한, 참여자·신고 관리자만 조회, 종료 30일 뒤 삭제) — `feature/launch-readiness`
+- [구현] 교환 안내 페이지(`/guide`)와 푸터·채팅·교환 수락·홈 연결, 개인정보처리방침에 채팅 사진·알림 메일·백업 보관 반영 — `feature/launch-readiness`
+- [운영] 매일 백업 스크립트(`deploy/backup.ps1`·`register-backup-task.ps1`, 덤프 완료 표시 확인, 14일 보관), 운영 compose 가입 이메일 인증 기본 켜짐. 점검 스택에서 백업·복원 확인 — `feature/launch-readiness`
+
 ### 2026-11-22
 - [구현] 비밀번호 찾기(메일 링크)·비밀번호 변경(V28 `password_reset_token`·`users.credentials_changed_at`): 가입 여부 비노출 204, 속도 제한, 커밋 뒤 비동기 메일·SMTP 타임아웃, 재설정 시 전체 로그아웃·변경 시 다른 기기 로그아웃, 옛 액세스 토큰·STOMP 거부, 화면 3개. 보안 리뷰 반영, 브라우저 점검 18항목 통과 — `feature/password-reset`
 - [구현] 리프레시 토큰 회전·재사용 탐지·폐기(V27 `refresh_token`, HttpOnly 쿠키 `mj_rt`, 동시 재발급 유예 20초·로그인 계열 최대 30일, 탈퇴·정지 시 전체 폐기), 프런트 액세스 토큰 메모리 보관·재발급 단일화·탭 간 락, vite 개발 프록시. 코드 리뷰(보안·동시성) 지적 반영 — `feature/auth-session`

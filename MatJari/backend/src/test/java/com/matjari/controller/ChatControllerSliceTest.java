@@ -74,11 +74,11 @@ class ChatControllerSliceTest {
     }
 
     private static ChatDtos.Message message(long id) {
-        return new ChatDtos.Message(id, 1L, "안녕", "client-msg-0001", LocalDateTime.of(2026, 10, 11, 12, 0, 5));
+        return new ChatDtos.Message(id, 1L, "안녕", "client-msg-0001", LocalDateTime.of(2026, 10, 11, 12, 0, 5), false, false);
     }
 
     private static final String MESSAGE_JSON =
-            "{\"id\":700,\"senderId\":1,\"content\":\"안녕\",\"clientMessageId\":\"client-msg-0001\",\"createdAt\":\"2026-10-11T12:00:05\"}";
+            "{\"id\":700,\"senderId\":1,\"content\":\"안녕\",\"clientMessageId\":\"client-msg-0001\",\"createdAt\":\"2026-10-11T12:00:05\",\"hasImage\":false,\"imageExpired\":false}";
 
     @Test
     void 세_엔드포인트_모두_로그인이_필요하다() throws Exception {
@@ -150,8 +150,8 @@ class ChatControllerSliceTest {
         mockMvc.perform(auth(get(BASE)).param("before", "700").param("size", "30"))
                 .andExpect(status().isOk())
                 .andExpect(content().json("{\"messages\":[{\"id\":699,\"senderId\":1,\"content\":\"안녕\",\"clientMessageId\":\"client-msg-0001\","
-                        + "\"createdAt\":\"2026-10-11T12:00:05\"},{\"id\":700,\"senderId\":1,\"content\":\"안녕\",\"clientMessageId\":\"client-msg-0001\","
-                        + "\"createdAt\":\"2026-10-11T12:00:05\"}],\"hasMore\":true,\"myLastReadMessageId\":690,\"counterpartLastReadMessageId\":695}", true));
+                        + "\"createdAt\":\"2026-10-11T12:00:05\",\"hasImage\":false,\"imageExpired\":false},{\"id\":700,\"senderId\":1,\"content\":\"안녕\",\"clientMessageId\":\"client-msg-0001\","
+                        + "\"createdAt\":\"2026-10-11T12:00:05\",\"hasImage\":false,\"imageExpired\":false}],\"hasMore\":true,\"myLastReadMessageId\":690,\"counterpartLastReadMessageId\":695}", true));
 
         when(chatService.list(1L, 50L, null, 600L, null)).thenReturn(new ChatDtos.MessagePage(List.of(), false, 0L, 0L));
         mockMvc.perform(auth(get(BASE)).param("after", "600")).andExpect(status().isOk());
@@ -188,5 +188,77 @@ class ChatControllerSliceTest {
         mockMvc.perform(auth(put("/api/exchange/matches/51/messages/read")).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"lastReadMessageId\":1}"))
                 .andExpect(status().isNotFound());
+    }
+
+    // ------------------------------------------------------------------ 사진 (V30)
+
+    private static org.springframework.mock.web.MockMultipartFile photo() {
+        return new org.springframework.mock.web.MockMultipartFile("image", "p.jpg", "image/jpeg", new byte[]{1, 2, 3});
+    }
+
+    @Test
+    void 사진_전송은_로그인이_필요하고_새_사진이면_201_재전송이면_200이다() throws Exception {
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart(BASE + "/image").file(photo())
+                .param("clientMessageId", "client-msg-0001")).andExpect(status().isUnauthorized());
+        verifyNoInteractions(chatService);
+
+        ChatDtos.Message withImage = new ChatDtos.Message(700L, 1L, "", "client-msg-0001", LocalDateTime.of(2026, 10, 11, 12, 0, 5), true, false);
+        when(chatService.sendImage(eq(1L), eq(50L), any(), eq("client-msg-0001"))).thenReturn(new ChatService.SendResult(withImage, true));
+        mockMvc.perform(auth(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart(BASE + "/image").file(photo())
+                        .param("clientMessageId", "client-msg-0001")))
+                .andExpect(status().isCreated())
+                .andExpect(content().json("{\"id\":700,\"content\":\"\",\"hasImage\":true,\"imageExpired\":false}"));
+
+        when(chatService.sendImage(eq(1L), eq(50L), any(), eq("client-msg-0001"))).thenReturn(new ChatService.SendResult(withImage, false));
+        mockMvc.perform(auth(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart(BASE + "/image").file(photo())
+                        .param("clientMessageId", "client-msg-0001")))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void 사진_전송_오류는_400_404_409_429_413으로_매핑된다() throws Exception {
+        var request = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart(BASE + "/image").file(photo())
+                .param("clientMessageId", "client-msg-0001");
+
+        doThrow(new FieldValidationException("image", "JPEG 또는 PNG 이미지만 보낼 수 있어요.")).when(chatService).sendImage(any(), any(), any(), any());
+        mockMvc.perform(auth(request)).andExpect(status().isBadRequest())
+                .andExpect(content().json("{\"image\":\"JPEG 또는 PNG 이미지만 보낼 수 있어요.\"}", true));
+
+        doThrow(new NotFoundException("매칭을 찾을 수 없습니다.")).when(chatService).sendImage(any(), any(), any(), any());
+        mockMvc.perform(auth(request)).andExpect(status().isNotFound());
+
+        doThrow(new ConflictException("종료된 채팅에는 메시지를 보낼 수 없어요", Map.of("code", "MATCH_STATE_CONFLICT")))
+                .when(chatService).sendImage(any(), any(), any(), any());
+        mockMvc.perform(auth(request)).andExpect(status().isConflict());
+
+        doThrow(new com.matjari.service.ChatImageRateLimiter.ChatImageRateLimitedException(30, 3600)).when(chatService).sendImage(any(), any(), any(), any());
+        mockMvc.perform(auth(request)).andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", "3600"))
+                .andExpect(content().json("{\"code\":\"CHAT_IMAGE_RATE_LIMITED\",\"retryAfterSeconds\":3600}"));
+
+        doThrow(new org.springframework.web.multipart.MaxUploadSizeExceededException(5 * 1024 * 1024)).when(chatService).sendImage(any(), any(), any(), any());
+        mockMvc.perform(auth(request)).andExpect(status().isPayloadTooLarge())
+                .andExpect(content().json("{\"code\":\"IMAGE_TOO_LARGE\"}"));
+    }
+
+    @Test
+    void 사진_조회는_보안_헤더와_정확한_Content_Type으로_응답하고_지워졌으면_410이다() throws Exception {
+        mockMvc.perform(get(BASE + "/700/image")).andExpect(status().isUnauthorized());
+
+        when(chatService.image(1L, 50L, 700L)).thenReturn(new com.matjari.service.ChatImageStore.ImageData("image/png", new byte[]{9, 8, 7}));
+        mockMvc.perform(auth(get(BASE + "/700/image")))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", "image/png"))
+                .andExpect(header().string("Cache-Control", "private, no-store"))
+                .andExpect(header().string("X-Content-Type-Options", "nosniff"))
+                .andExpect(header().string("Content-Disposition", "inline"))
+                .andExpect(content().bytes(new byte[]{9, 8, 7}));
+
+        when(chatService.image(1L, 50L, 701L)).thenThrow(new com.matjari.service.ChatImageStore.ImageExpiredException());
+        mockMvc.perform(auth(get(BASE + "/701/image"))).andExpect(status().isGone())
+                .andExpect(content().json("{\"code\":\"IMAGE_EXPIRED\"}"));
+
+        when(chatService.image(1L, 50L, 702L)).thenThrow(new NotFoundException("사진을 찾을 수 없습니다."));
+        mockMvc.perform(auth(get(BASE + "/702/image"))).andExpect(status().isNotFound());
     }
 }

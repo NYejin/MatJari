@@ -13,5 +13,7 @@ public enum NotificationType {
     /** 내 예약 제안이 거절됨: 제안자에게(V15). */
     RESERVATION_REJECTED,
     /** 새 채팅 메시지: 수신자에게. (수신자, 매칭)당 행 1개를 재사용한다(V15, dedup_key = CHAT_MESSAGE:{matchId}:{recipientId}). */
-    CHAT_MESSAGE
+    CHAT_MESSAGE,
+    /** 내 교환 요청에 새 후보가 생김: 요청 소유자에게(V29). (수신자, 요청)당 행 1개를 재사용한다(dedup_key = NEW_CANDIDATE:{requestId}:{recipientId}, match_id 없음). */
+    NEW_CANDIDATE
 }

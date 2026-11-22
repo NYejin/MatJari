@@ -70,7 +70,7 @@ public class NotificationService {
         return new PageResponse<>(content, page, pageSize, total, totalPages);
     }
 
-    /** 안 읽은 개수 (닫힌 매칭 알림 포함, 종류 6개 키는 항상 있다). */
+    /** 안 읽은 개수 (닫힌 매칭 알림 포함, 종류 7개 키는 항상 있다). */
     @Transactional(readOnly = true)
     public UnreadCountResponse unreadCount(Long userId) {
         Map<String, Long> byType = new LinkedHashMap<>();
@@ -122,7 +122,7 @@ public class NotificationService {
         try {
             return NotificationType.valueOf(type.trim());
         } catch (IllegalArgumentException e) {
-            throw new FieldValidationException("type", "type은 PROPOSAL_RECEIVED, RESERVATION_PROPOSED, MATCH_RESERVED, RESERVATION_REJECTED, RESERVATION_CANCELED, CHAT_MESSAGE 중 하나여야 합니다.");
+            throw new FieldValidationException("type", "type은 PROPOSAL_RECEIVED, RESERVATION_PROPOSED, MATCH_RESERVED, RESERVATION_REJECTED, RESERVATION_CANCELED, CHAT_MESSAGE, NEW_CANDIDATE 중 하나여야 합니다.");
         }
     }
 
@@ -144,7 +144,7 @@ public class NotificationService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void notifyChatMessage(Long recipientUserId, Long matchId) {
-        notifyReusable(recipientUserId, NotificationType.CHAT_MESSAGE, matchId);
+        notifyReusable(recipientUserId, NotificationType.CHAT_MESSAGE, matchId, null);
     }
 
     /**
@@ -153,16 +153,34 @@ public class NotificationService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void notifyReservationProposed(Long recipientUserId, Long matchId) {
-        notifyReusable(recipientUserId, NotificationType.RESERVATION_PROPOSED, matchId);
+        notifyReusable(recipientUserId, NotificationType.RESERVATION_PROPOSED, matchId, null);
     }
 
-    private void notifyReusable(Long recipientUserId, NotificationType type, Long matchId) {
-        String key = reusableDedupKey(type, matchId, recipientUserId);
+    /**
+     * 새 교환 후보 알림(V29): (수신자, 요청)당 행 1개를 재사용한다(dedup_key = NEW_CANDIDATE:{requestId}:{recipientId}, match_id 없음).
+     * requestId 는 '새 후보가 생긴' 수신자 본인의 요청이다. 되살릴 때 read_at·emailed_at 을 NULL 로, created_at 을 now 로 되돌린다.
+     * 호출자({@link NewCandidateNotifier})는 티켓·요청·매칭 잠금을 잡지 않은 별도 트랜잭션에서, candidate_notice INSERT 직후 호출한다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void notifyNewCandidate(Long recipientUserId, Long requestId) {
+        notifyReusable(recipientUserId, NotificationType.NEW_CANDIDATE, null, requestId);
+    }
+
+    private void notifyReusable(Long recipientUserId, NotificationType type, Long matchId, Long requestId) {
+        String key = reusableDedupKey(type, type == NotificationType.NEW_CANDIDATE ? requestId : matchId, recipientUserId);
         LocalDateTime now = LocalDateTime.now(clock);
         // 먼저 잠금 없는 점조회로 기존 행을 찾아 PK 로 되살린다(읽은 알림 삭제와 같은 잠금 순서: PK 먼저). 행이 없을 때만 INSERT(upsert).
         Long id = notificationRepository.findIdsByDedupKey(key).stream().findFirst().orElse(null);
-        if (id == null || notificationRepository.reviveReusable(id, now) == 0) {
-            notificationRepository.upsertReusable(recipientUserId, type.name(), matchId, key, now);
+        boolean revived;
+        if (id != null && type == NotificationType.NEW_CANDIDATE) {
+            // 이미 안 읽고 메일 대기 중인 새 후보 알림은 시각을 밀지 않는다(메일 지연이 계속 늘어나는 것 방지). 행이 사라졌으면 아래에서 새로 만든다.
+            revived = notificationRepository.reviveIfReadOrEmailed(id, now) > 0
+                    || !notificationRepository.findIdsByDedupKey(key).isEmpty();
+        } else {
+            revived = id != null && notificationRepository.reviveReusable(id, now) > 0;
+        }
+        if (!revived) {
+            notificationRepository.upsertReusable(recipientUserId, type.name(), matchId, requestId, key, now);
             id = notificationRepository.findIdsByDedupKey(key).stream().findFirst().orElse(null);
         }
         if (id == null) {

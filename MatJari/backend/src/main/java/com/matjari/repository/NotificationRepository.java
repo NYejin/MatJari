@@ -60,18 +60,27 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
      * 삭제와 교착한다(실제 MySQL 테스트로 확인). PK 로 먼저 갱신하면 잠금 순서가 같아 교착이 없다.
      */
     @Modifying(flushAutomatically = true)
-    @Query(nativeQuery = true, value = "UPDATE notification SET read_at = NULL, created_at = :now WHERE id = :id")
+    @Query(nativeQuery = true, value = "UPDATE notification SET read_at = NULL, emailed_at = NULL, created_at = :now WHERE id = :id")
     int reviveReusable(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+    /**
+     * 새 후보 알림(NEW_CANDIDATE) 되살리기: 읽었거나 이미 메일로 알린 행만 안 읽음·최신 시각으로 되돌린다. 안 읽었고 메일 대상 대기 중인 행은 그대로 둔다
+     * (새 후보가 계속 생겨도 created_at 이 계속 밀려 메일이 영영 안 나가는 일을 막는다). 0행이면 이미 대기 중이거나 행이 없는 것이다.
+     */
+    @Modifying(flushAutomatically = true)
+    @Query(nativeQuery = true, value = "UPDATE notification SET read_at = NULL, emailed_at = NULL, created_at = :now "
+            + "WHERE id = :id AND (read_at IS NOT NULL OR emailed_at IS NOT NULL)")
+    int reviveIfReadOrEmailed(@Param("id") Long id, @Param("now") LocalDateTime now);
 
     /**
      * 재사용 알림 upsert: (수신자, 매칭)당 행 1개(dedup_key = {TYPE}:{matchId}:{recipientId}; CHAT_MESSAGE 는 V15 ck_notification_chat_dedup 이 형식을 강제,
      * RESERVATION_PROPOSED 는 서비스가 같은 형식을 지킨다)를 만들거나 되살린다. 행이 없을 때(처음이거나 읽은 알림 삭제 뒤)만 쓰는 최후 경로이며, 같은 키의 동시 삽입은 매칭 행 잠금이 직렬화한다.
      */
     @Modifying(flushAutomatically = true)
-    @Query(nativeQuery = true, value = "INSERT INTO notification (user_id, type, match_id, dedup_key, created_at) "
-            + "VALUES (:userId, :type, :matchId, :dedupKey, :now) "
-            + "ON DUPLICATE KEY UPDATE read_at = NULL, created_at = :now")
-    int upsertReusable(@Param("userId") Long userId, @Param("type") String type, @Param("matchId") Long matchId,
+    @Query(nativeQuery = true, value = "INSERT INTO notification (user_id, type, match_id, request_id, dedup_key, created_at) "
+            + "VALUES (:userId, :type, :matchId, :requestId, :dedupKey, :now) "
+            + "ON DUPLICATE KEY UPDATE read_at = NULL, emailed_at = NULL, created_at = :now")
+    int upsertReusable(@Param("userId") Long userId, @Param("type") String type, @Param("matchId") Long matchId, @Param("requestId") Long requestId,
                           @Param("dedupKey") String dedupKey, @Param("now") LocalDateTime now);
 
     /**

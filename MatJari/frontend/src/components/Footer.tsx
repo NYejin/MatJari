@@ -19,6 +19,9 @@ export default function Footer({ wide = false }: { wide?: boolean }) {
           <Link to="/terms" className={LINK_CLASS}>
             서비스 이용약관
           </Link>
+          <Link to="/guide" className={LINK_CLASS}>
+            교환 안내
+          </Link>
           <Link to="/privacy" className={LINK_CLASS}>
             개인정보처리방침
           </Link>

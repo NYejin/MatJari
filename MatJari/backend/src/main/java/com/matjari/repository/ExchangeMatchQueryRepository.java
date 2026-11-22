@@ -48,7 +48,7 @@ public class ExchangeMatchQueryRepository {
                    ua.nickname AS a_nickname, ub.nickname AS b_nickname,
                    (SELECT COUNT(*) FROM chat_message c WHERE c.match_id = m.id AND c.sender_id <> ?
                        AND c.id > COALESCE((SELECT r.last_read_message_id FROM chat_read_state r WHERE r.match_id = m.id AND r.user_id = ?), 0)) AS unread_chat_count,
-                   (SELECT LEFT(l1.content, 61) FROM chat_message l1 FORCE INDEX (idx_chat_message_match) WHERE l1.match_id = m.id ORDER BY l1.id DESC LIMIT 1) AS last_message_head,
+                   (SELECT IF(l1.image_key IS NOT NULL, '사진', LEFT(l1.content, 61)) FROM chat_message l1 FORCE INDEX (idx_chat_message_match) WHERE l1.match_id = m.id ORDER BY l1.id DESC LIMIT 1) AS last_message_head,
                    (SELECT l2.created_at FROM chat_message l2 FORCE INDEX (idx_chat_message_match) WHERE l2.match_id = m.id ORDER BY l2.id DESC LIMIT 1) AS last_message_at,
                    (SELECT l3.sender_id FROM chat_message l3 FORCE INDEX (idx_chat_message_match) WHERE l3.match_id = m.id ORDER BY l3.id DESC LIMIT 1) AS last_message_sender_id
             FROM exchange_match m

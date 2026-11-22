@@ -37,6 +37,7 @@ public class SocialUserRegistrar {
     private final UserRepository userRepository;
     private final SocialAccountRepository socialAccountRepository;
     private final PasswordEncoder passwordEncoder;
+    private final com.matjari.service.EmailOwnershipRecorder emailOwnershipRecorder;
     private final SecureRandom random = new SecureRandom();
 
     /** 가입하고 사용자 id 를 돌려준다. 이메일 중복이면 SocialLoginFailure(EMAIL_EXISTS). */
@@ -57,6 +58,10 @@ public class SocialUserRegistrar {
         // flush 까지 즉시 수행해 UNIQUE 위반을 이 메서드 안(트랜잭션 롤백)에서 드러낸다. 예외는 삼키지 않고 던진다.
         User user = userRepository.saveAndFlush(User.createSocial(email, unknownPassword, nicknameFor(provider, profile.nickname())));
         socialAccountRepository.saveAndFlush(SocialAccount.create(user.getId(), provider, profile.providerUserId()));
+        if (profile.email() != null) {
+            // 제공자가 검증된 이메일을 준 경우만(구글 email_verified·카카오 verified). 네이버·자리표시 이메일은 미확인으로 둔다
+            emailOwnershipRecorder.markVerified(user.getId());
+        }
         return user.getId();
     }
 

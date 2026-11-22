@@ -82,6 +82,30 @@ matjari:
   password-reset:
     # 비밀번호 재설정 링크 유효 시간(분). 링크는 {matjari.social.frontend-base-url}/reset-password#token=... 이고 메일은 matjari.mail.mode 를 따른다
     ttl-minutes: ${MATJARI_PASSWORD_RESET_TTL_MINUTES:30}
+  chat:
+    # 채팅 사진(V30): 파일은 matjari.upload.dir/chat/ 에 저장. 매칭이 COMPLETED·CANCELED 로 닫힌 뒤 이 일수가 지나면 지운다(처리 전 신고가 있으면 보관)
+    image-retention-days: ${MATJARI_CHAT_IMAGE_RETENTION_DAYS:30}
+    # 사용자당 KST 하루 사진 전송 상한(초과 429 CHAT_IMAGE_RATE_LIMITED)
+    image-daily-limit: ${MATJARI_CHAT_IMAGE_DAILY_LIMIT:30}
+    image-cleanup:
+      enabled: ${MATJARI_CHAT_IMAGE_CLEANUP_ENABLED:true}
+      interval-ms: ${MATJARI_CHAT_IMAGE_CLEANUP_INTERVAL_MS:3600000}
+      initial-delay-ms: ${MATJARI_CHAT_IMAGE_CLEANUP_INITIAL_DELAY_MS:300000}
+      grace-minutes: ${MATJARI_CHAT_IMAGE_CLEANUP_GRACE_MINUTES:60}
+      batch: ${MATJARI_CHAT_IMAGE_CLEANUP_BATCH:200}
+  notification-mail:
+    # 안 읽은 알림을 사용자당 메일 1통(요약)으로 알린다. 단일 인스턴스 전제. mail mode 가 log 면 로그로만 나간다(개발)
+    enabled: ${MATJARI_NOTIFICATION_MAIL_ENABLED:true}
+    interval-ms: ${MATJARI_NOTIFICATION_MAIL_INTERVAL_MS:60000}
+    initial-delay-ms: ${MATJARI_NOTIFICATION_MAIL_INITIAL_DELAY_MS:60000}
+    # 알림이 생기고 이만큼(분) 지나도 안 읽었을 때만 메일 대상이 된다(사이트를 보던 사용자가 읽으면 메일을 보내지 않는다)
+    delay-minutes: ${MATJARI_NOTIFICATION_MAIL_DELAY_MINUTES:5}
+    # 이보다 오래된(시간) 알림은 메일로 보내지 않는다
+    lookback-hours: ${MATJARI_NOTIFICATION_MAIL_LOOKBACK_HOURS:24}
+    # 한 사용자에게 메일을 보낸 뒤 다음 메일까지 최소 간격(분). 그 사이 알림은 모아서 다음에 보낸다
+    user-cooldown-minutes: ${MATJARI_NOTIFICATION_MAIL_USER_COOLDOWN_MINUTES:30}
+    # 전체 시간당 발송 상한(Gmail 등 SMTP 한도 보호). 넘으면 다음 주기로 미룬다
+    max-per-hour: ${MATJARI_NOTIFICATION_MAIL_MAX_PER_HOUR:100}
   upload:
     # 좌석 소유 인증 사진 저장 디렉터리(웹에서 직접 서빙하지 않는 경로). UUID 이름으로만 저장한다. 처리 후 파일은 삭제된다
     dir: ${MATJARI_UPLOAD_DIR:./data/seat-claims}

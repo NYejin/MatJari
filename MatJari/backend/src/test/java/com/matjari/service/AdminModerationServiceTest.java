@@ -55,6 +55,7 @@ class AdminModerationServiceTest {
     private UserRepository userRepository;
     private com.matjari.repository.RefreshTokenRepository refreshTokenRepository;
     private ChatMessageRepository chatRepository;
+    private ChatImageStore imageStore;
     private OpenMatchCanceller canceller;
     private AdminModerationService service;
     private AbuseReport report;
@@ -68,11 +69,12 @@ class AdminModerationServiceTest {
         userRepository = mock(UserRepository.class);
         refreshTokenRepository = mock(com.matjari.repository.RefreshTokenRepository.class);
         chatRepository = mock(ChatMessageRepository.class);
+        imageStore = mock(ChatImageStore.class);
         canceller = mock(OpenMatchCanceller.class);
         ObjectProvider<OpenMatchCanceller> provider = mock(ObjectProvider.class);
         when(provider.getObject()).thenReturn(canceller);
         Clock clock = Clock.fixed(NOW.atZone(ZONE).toInstant(), ZONE);
-        service = new AdminModerationService(reportRepository, sanctionRepository, userRepository, refreshTokenRepository, chatRepository, provider,
+        service = new AdminModerationService(reportRepository, sanctionRepository, userRepository, refreshTokenRepository, chatRepository, imageStore, provider,
                 mock(EntityManager.class), clock, mock(com.matjari.websocket.WebSocketSessionRegistry.class));
 
         report = AbuseReport.create(10L, 20L, 50L, AbuseReport.Reason.ABUSE, "욕설");
@@ -252,6 +254,28 @@ class AdminModerationServiceTest {
         assertThat(service.messages(9L, 3L, 999).hasMore()).isFalse();     // size 상한 200 -> 조회 201건
         verify(chatRepository, never()).findLatest(eq(51L), any(Integer.class));
         assertThatThrownBy(() -> service.messages(9L, null, 0)).isInstanceOf(FieldValidationException.class);
+    }
+
+    @Test
+    void 채팅_근거_사진은_그_신고_매칭의_메시지만_열고_메시지_목록에_사진_여부가_실린다() {
+        ChatMessage mine = ChatMessage.ofImage(50L, 10L, "c-image-01", "00000000-0000-4000-8000-000000000001");
+        ReflectionTestUtils.setField(mine, "id", 5L);
+        ChatMessage other = ChatMessage.ofImage(77L, 10L, "c-image-02", "00000000-0000-4000-8000-000000000002");
+        ReflectionTestUtils.setField(other, "id", 6L);
+        ChatImageStore.ImageData data = new ChatImageStore.ImageData("image/jpeg", new byte[]{1});
+        when(chatRepository.findById(5L)).thenReturn(Optional.of(mine));
+        when(chatRepository.findById(6L)).thenReturn(Optional.of(other));
+        when(imageStore.load(mine)).thenReturn(data);
+
+        assertThat(service.messageImage(9L, 5L)).isSameAs(data);
+        assertThatThrownBy(() -> service.messageImage(9L, 6L)).isInstanceOf(NotFoundException.class);   // 다른 매칭의 메시지
+        assertThatThrownBy(() -> service.messageImage(9L, 404L)).isInstanceOf(NotFoundException.class);
+        assertThatThrownBy(() -> service.messageImage(404L, 5L)).isInstanceOf(NotFoundException.class);   // 없는 신고
+
+        when(chatRepository.findLatest(50L, 51)).thenReturn(List.of(mine));
+        AdminReportMessagePage page = service.messages(9L, null, null);
+        assertThat(page.messages().get(0).hasImage()).isTrue();
+        assertThat(page.messages().get(0).imageExpired()).isFalse();
     }
 
     @Test

@@ -18,3 +18,12 @@ export interface WithdrawRequest {
   /** 소셜 전용 계정: 연결된 소셜 계정으로 방금 다시 인증해 받은 일회용 코드 */
   reauthCode?: string;
 }
+
+/** GET·PATCH /api/users/me/notification-settings */
+export interface NotificationSettings {
+  emailEnabled: boolean;
+  /** false면 메일을 받을 수 없는 계정(소셜 가입으로 이메일 없음) */
+  emailAvailable: boolean;
+  /** 알림 메일을 받을 이메일을 확인했는가. 확인 전에는 서버가 알림 메일을 보내지 않는다 */
+  emailVerified: boolean;
+}

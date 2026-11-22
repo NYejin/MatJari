@@ -56,6 +56,8 @@ class AuthLongPasswordSliceTest {
     @MockBean
     private com.matjari.service.EmailVerificationService emailVerificationService;
     @MockBean
+    private com.matjari.service.EmailOwnershipRecorder emailOwnershipRecorder;
+    @MockBean
     private com.matjari.security.AuthRateLimiter authRateLimiter;
     @MockBean
     private com.matjari.security.ClientIpResolver clientIpResolver;

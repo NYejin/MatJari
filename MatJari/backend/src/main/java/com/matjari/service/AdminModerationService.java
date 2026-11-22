@@ -82,6 +82,7 @@ public class AdminModerationService {
     private final UserRepository userRepository;
     private final com.matjari.repository.RefreshTokenRepository refreshTokenRepository;
     private final ChatMessageRepository chatMessageRepository;
+    private final ChatImageStore chatImageStore;
     /** 구현체(BE-A)가 없는 환경에서도 컨텍스트가 뜨도록 호출 시점에 꺼낸다. */
     private final ObjectProvider<OpenMatchCanceller> cancellerProvider;
     private final EntityManager entityManager;
@@ -136,9 +137,23 @@ public class AdminModerationService {
         List<ChatMessage> page = hasMore ? rows.subList(0, limit) : rows;
         Map<Long, String> nicknames = nicknames(List.of(report.getReporterId(), report.getReportedId()));
         List<AdminReportMessage> messages = page.stream()
-                .map(m -> new AdminReportMessage(m.getId(), m.getSenderId(), nicknames.get(m.getSenderId()), m.getContent(), m.getCreatedAt()))
+                .map(m -> new AdminReportMessage(m.getId(), m.getSenderId(), nicknames.get(m.getSenderId()), m.getContent(), m.getCreatedAt(),
+                        m.hasImage(), m.isImageExpired()))
                 .toList();
         return new AdminReportMessagePage(messages, hasMore);
+    }
+
+    /**
+     * 채팅 근거의 사진(V30). 그 신고의 매칭에 속한 메시지의 사진만(다른 매칭의 메시지 id 는 404), 지워졌으면 410 IMAGE_EXPIRED.
+     * 신고 처리 전(OPEN)에는 보관 정리가 지우지 않는다. ADMIN 권한은 SecurityConfig(/api/admin/**)가 막는다.
+     */
+    @Transactional(readOnly = true)
+    public ChatImageStore.ImageData messageImage(Long reportId, Long messageId) {
+        AbuseReport report = reportRepository.findById(reportId).orElseThrow(AdminModerationService::reportNotFound);
+        ChatMessage message = chatMessageRepository.findById(messageId)
+                .filter(m -> m.getMatchId().equals(report.getMatchId()))
+                .orElseThrow(() -> new NotFoundException("사진을 찾을 수 없습니다."));
+        return chatImageStore.load(message);
     }
 
     /** READ_COMMITTED: OpenMatchCanceller 가 티켓 잠금 뒤 매칭을 다시 읽으므로 트랜잭션 스냅샷이 낡으면 안 된다(그리고 호출 전에 ExchangeMatch 를 읽지 않는다). */

@@ -81,14 +81,14 @@ class NotificationControllerSliceTest {
 
     @Test
     void listReturnsPageWithoutPersonalDataAndWithSecondPrecisionTimes() throws Exception {
-        NotificationResponse n = new NotificationResponse(7L, "PROPOSAL_RECEIVED", 50L, false, null,
+        NotificationResponse n = new NotificationResponse(7L, "PROPOSAL_RECEIVED", 50L, null, false, null,
                 LocalDateTime.of(2026, 10, 11, 9, 30, 5), "CANCELED", true, "RECEIVED", "상대", "공연",
                 new NotificationResponse.Seat("A구역", "3", "5"), new NotificationResponse.Seat("B구역", "4", "6"));
         when(notificationService.list(1L, 0, 20, false)).thenReturn(new PageResponse<>(List.of(n), 0, 20, 1, 1));
 
         mockMvc.perform(auth(get("/api/notifications"))).andExpect(status().isOk())
                 .andExpect(content().json("""
-                        {"content":[{"id":7,"type":"PROPOSAL_RECEIVED","matchId":50,"read":false,"readAt":null,
+                        {"content":[{"id":7,"type":"PROPOSAL_RECEIVED","matchId":50,"requestId":null,"read":false,"readAt":null,
                           "createdAt":"2026-10-11T09:30:05","matchStatus":"CANCELED","matchClosed":true,"role":"RECEIVED",
                           "counterpartNickname":"상대","performanceTitle":"공연",
                           "mySeat":{"zone":"A구역","row":"3","col":"5"},"counterpartSeat":{"zone":"B구역","row":"4","col":"6"}}],

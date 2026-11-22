@@ -79,6 +79,33 @@ class SeatClaimImageCleanupServiceTest {
     }
 
     @Test
+    void 요청이_가리키는_파일이_batch보다_많아도_그_뒤의_고아를_찾고_batch는_지운_개수로_센다() throws IOException {
+        SeatClaimImageCleanupService small = new SeatClaimImageCleanupService(repository, store,
+                Clock.fixed(NOW, ZoneId.of("Asia/Seoul")), mock(PlatformTransactionManager.class), 60, 3);
+        java.util.Set<String> referenced = new java.util.HashSet<>();
+        for (int i = 0; i < 12; i++) {
+            referenced.add(file(120));
+        }
+        java.util.List<String> orphans = new java.util.ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            orphans.add(file(120));
+        }
+        when(repository.findExistingImageKeys(anyCollection())).thenAnswer(inv -> {
+            java.util.Collection<String> keys = inv.getArgument(0);
+            return keys.stream().filter(referenced::contains).toList();
+        });
+
+        assertThat(small.cleanup().orphanFilesDeleted()).isEqualTo(3);
+        assertThat(small.cleanup().orphanFilesDeleted()).isEqualTo(2);
+        for (String k : referenced) {
+            assertThat(dir.resolve(k)).exists();
+        }
+        for (String k : orphans) {
+            assertThat(dir.resolve(k)).doesNotExist();
+        }
+    }
+
+    @Test
     void 처리됐는데_사진이_남은_요청은_파일을_지우고_삭제를_기록한다() throws IOException {
         String key = file(300);
         SeatClaim claim = mock(SeatClaim.class);

@@ -49,6 +49,7 @@ public class AuthService {
     private final AccountSuspensionChecker suspensionChecker;
     private final EmailVerificationService emailVerificationService;
     private final RefreshTokenService refreshTokenService;
+    private final EmailOwnershipRecorder emailOwnershipRecorder;
 
     @Transactional
     public UserResponse signup(SignupRequest request) {
@@ -90,12 +91,17 @@ public class AuthService {
 
         // 이메일 인증번호(꺼져 있으면 건너뜀). 마지막 검증 단계로 두어 다른 입력 오류로 시도 횟수를 쓰지 않게 한다.
         // 성공하면 인증 행을 지우며, 아래 저장이 실패해 롤백되면 되살아난다
-        emailVerificationService.verifyAndConsume(email, request.emailCode());
+        boolean emailVerified = emailVerificationService.verifyAndConsume(email, request.emailCode());
 
         User user = User.create(email, passwordEncoder.encode(password), nickname);
         try {
             // flush까지 즉시 수행해 unique 제약 위반을 이 메서드 안에서 잡는다 (동시 가입 레이스)
-            return UserResponse.from(userRepository.saveAndFlush(user));
+            User saved = userRepository.saveAndFlush(user);
+            if (emailVerified) {
+                // 인증번호를 실제로 통과했을 때만 이메일 소유 확인으로 기록한다(인증이 꺼져 있으면 기록하지 않는다)
+                emailOwnershipRecorder.markVerified(saved.getId());
+            }
+            return UserResponse.from(saved);
         } catch (DataIntegrityViolationException e) {
             // 주의: 여기서 예외를 삼키고 값을 반환하도록 바꾸면 안 된다. saveAndFlush 실패 시 트랜잭션이
             // 이미 rollback-only로 표시되어 있어 커밋 시점에 UnexpectedRollbackException(→500)이 난다.

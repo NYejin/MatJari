@@ -34,13 +34,14 @@ class SocialUserDecisionTest {
     private SocialAccountRepository socialRepo;
     private PasswordEncoder encoder;
     private SocialUserRegistrar registrar;
+    private final com.matjari.service.EmailOwnershipRecorder recorder = mock(com.matjari.service.EmailOwnershipRecorder.class);
 
     @BeforeEach
     void setUp() {
         userRepository = mock(UserRepository.class);
         socialRepo = mock(SocialAccountRepository.class);
         encoder = new BCryptPasswordEncoder(4);
-        registrar = new SocialUserRegistrar(userRepository, socialRepo, encoder);
+        registrar = new SocialUserRegistrar(userRepository, socialRepo, encoder, recorder);
         when(userRepository.saveAndFlush(any(User.class))).thenAnswer(inv -> {
             User u = inv.getArgument(0);
             ReflectionTestUtils.setField(u, "id", 100L);
@@ -66,6 +67,15 @@ class SocialUserDecisionTest {
         assertThat(ac.getValue().getUserId()).isEqualTo(100L);
         assertThat(ac.getValue().getProvider()).isEqualTo(SocialProvider.GOOGLE);
         assertThat(ac.getValue().getProviderUserId()).isEqualTo("sub-1");
+    }
+
+    @Test
+    void 제공자가_검증된_이메일을_주면_이메일_소유_확인을_기록하고_없으면_기록하지_않는다() {
+        registrar.register(SocialProvider.GOOGLE, new SocialProfile("sub-v", "v@b.com", "홍길동"));
+        verify(recorder).markVerified(100L);
+        org.mockito.Mockito.reset(recorder);
+        registrar.register(SocialProvider.NAVER, new SocialProfile("n-1", null, "네이버"));
+        org.mockito.Mockito.verifyNoInteractions(recorder);
     }
 
     @Test

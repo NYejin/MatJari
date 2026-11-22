@@ -86,7 +86,18 @@ public class EmailVerificationService {
         if (userRepository.existsByEmail(email)) {
             throw new FieldValidationException("email", "이미 가입된 이메일입니다.");
         }
+        return deliver(email, ip, "회원가입", "가입 화면");
+    }
 
+    /**
+     * 로그인한 사용자의 계정 이메일 소유 확인용 인증번호 발송(알림 메일 수신 확인). 가입용 '이미 가입된 이메일' 검사는 하지 않고, 인증 사용 여부 설정과도 무관하다.
+     * 같은 email_verification 행·대기시간·속도 제한을 쓴다(계정 이메일은 이미 가입돼 있어 가입용 발송과 겹치지 않는다). 호출자가 자리표시·이미 확인됨을 먼저 거른다.
+     */
+    public EmailCodeResponse sendCodeForAccount(String accountEmail, String ip) {
+        return deliver(AuthInputNormalizer.normalizeEmail(accountEmail), ip, "이메일 확인", "마이페이지");
+    }
+
+    private EmailCodeResponse deliver(String email, String ip, String purpose, String where) {
         long now = clock.millis();
         LocalDateTime nowTime = LocalDateTime.now(clock);
 
@@ -112,7 +123,7 @@ public class EmailVerificationService {
                         + "ON DUPLICATE KEY UPDATE code_hash = VALUES(code_hash), attempts = 0, sent_at = VALUES(sent_at), expires_at = VALUES(expires_at)",
                 email, hash(email, code), nowTime, expiresAt);
         try {
-            emailSender.send(email, SUBJECT, mailBody(code));
+            emailSender.send(email, SUBJECT, mailBody(code, purpose, where));
         } catch (EmailSender.EmailSendException e) {
             // 보내지 못했으면 대기시간에 걸리지 않도록 행을 지운다
             jdbc.update("DELETE FROM email_verification WHERE email = ?", email);
@@ -127,17 +138,26 @@ public class EmailVerificationService {
      * 가입 트랜잭션 안에서 호출한다. 인증이 꺼져 있으면 아무것도 하지 않는다.
      * 실패하면 400 emailCode 필드 오류. 성공하면 행을 지운다(호출 트랜잭션이 롤백되면 되살아난다).
      */
-    public void verifyAndConsume(String rawEmail, String code) {
+    public boolean verifyAndConsume(String rawEmail, String code) {
         if (!properties.isEnabled()) {
-            return;
+            return false;
         }
-        String email = AuthInputNormalizer.normalizeEmail(rawEmail);
+        consume(AuthInputNormalizer.normalizeEmail(rawEmail), code, "emailCode");
+        return true;
+    }
+
+    /** 계정 이메일 소유 확인 API(로그인 사용자)용 검증. 틀림·만료·횟수 초과는 400 code. 성공하면 행을 지운다(호출 트랜잭션이 롤백되면 되살아난다). */
+    public void verifyAndConsumeForAccount(String accountEmail, String code) {
+        consume(AuthInputNormalizer.normalizeEmail(accountEmail), code, "code");
+    }
+
+    private void consume(String email, String code, String field) {
         String trimmed = code == null ? "" : code.trim();
         if (trimmed.isEmpty()) {
-            throw new FieldValidationException("emailCode", "이메일로 받은 인증번호를 입력해주세요.");
+            throw new FieldValidationException(field, "이메일로 받은 인증번호를 입력해주세요.");
         }
         if (!CODE_PATTERN.matcher(trimmed).matches()) {
-            throw new FieldValidationException("emailCode", "인증번호는 숫자 6자리예요.");
+            throw new FieldValidationException(field, "인증번호는 숫자 6자리예요.");
         }
         LocalDateTime now = LocalDateTime.now(clock);
         // 시도 횟수를 먼저, 호출 트랜잭션과 별개로 올린다(남은 횟수가 없거나 만료면 0행)
@@ -145,13 +165,13 @@ public class EmailVerificationService {
                 "UPDATE email_verification SET attempts = attempts + 1 WHERE email = ? AND expires_at > ? AND attempts < ?",
                 email, now, properties.getMaxAttempts()));
         if (counted == null || counted == 0) {
-            throw new FieldValidationException("emailCode",
+            throw new FieldValidationException(field,
                     "인증번호가 만료되었거나 입력 횟수를 넘었어요. 인증번호를 다시 받아 주세요.");
         }
         int consumed = jdbc.update("DELETE FROM email_verification WHERE email = ? AND code_hash = ? AND expires_at > ?",
                 email, hash(email, trimmed), now);
         if (consumed == 0) {
-            throw new FieldValidationException("emailCode", "인증번호가 일치하지 않아요.");
+            throw new FieldValidationException(field, "인증번호가 일치하지 않아요.");
         }
     }
 
@@ -165,9 +185,9 @@ public class EmailVerificationService {
         }
     }
 
-    private String mailBody(String code) {
-        return "맞자리 회원가입 인증번호: " + code + "\n\n"
-                + (properties.getCodeTtlSeconds() / 60) + "분 안에 가입 화면에 입력해주세요.\n"
+    private String mailBody(String code, String purpose, String where) {
+        return "맞자리 " + purpose + " 인증번호: " + code + "\n\n"
+                + (properties.getCodeTtlSeconds() / 60) + "분 안에 " + where + "에 입력해주세요.\n"
                 + "본인이 요청하지 않았다면 이 메일을 무시하세요.";
     }
 

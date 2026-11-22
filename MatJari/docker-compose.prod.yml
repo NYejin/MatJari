@@ -58,6 +58,8 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       # 가입 이메일 인증번호. 접속 주소가 localhost 가 아니면 log 모드는 기동이 거부된다 → smtp 로 설정
       MATJARI_MAIL_MODE: ${MAIL_MODE:-log}
+      # 운영은 가입 이메일 인증을 켠다(2026-11-22, 남의 이메일 선점·메일 알림 오발송 방지). 개발 기본값(application.yml)은 꺼짐 그대로
+      MATJARI_EMAIL_VERIFICATION_ENABLED: ${EMAIL_VERIFICATION_ENABLED:-true}
       MATJARI_MAIL_FROM: ${MAIL_FROM:-}
       MATJARI_EMAIL_CODE_SECRET: ${EMAIL_CODE_SECRET:-dev-only-insecure-email-code-secret-please-override}
       SPRING_MAIL_HOST: ${MAIL_HOST:-}

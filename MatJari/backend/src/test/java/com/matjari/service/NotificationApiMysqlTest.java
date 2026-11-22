@@ -188,17 +188,17 @@ class NotificationApiMysqlTest {
         assertThat(count.byType()).containsEntry("PROPOSAL_RECEIVED", 1L).containsEntry("RESERVATION_PROPOSED", 1L)
                 .containsEntry("RESERVATION_CANCELED", 1L).containsEntry("MATCH_RESERVED", 0L);
         assertThat(count.byType().keySet()).containsExactly("PROPOSAL_RECEIVED", "MATCH_RESERVED", "RESERVATION_CANCELED",
-                "RESERVATION_PROPOSED", "RESERVATION_REJECTED", "CHAT_MESSAGE");
+                "RESERVATION_PROPOSED", "RESERVATION_REJECTED", "CHAT_MESSAGE", "NEW_CANDIDATE");
         List<NotificationResponse> list = notificationService.list(q.userId, 0, 20, true).content();
         assertThat(list).hasSize(3);
         assertThat(list).allSatisfy(n -> {
             assertThat(n.matchStatus()).isEqualTo("CANCELED");
             assertThat(n.matchClosed()).isTrue();
         });
-        // 키는 항상 6개. p 는 직접 한 제안·예약 제안·예약 취소의 알림은 받지 않고 q 의 수락 알림 1건만 받는다
+        // 키는 항상 7개. p 는 직접 한 제안·예약 제안·예약 취소의 알림은 받지 않고 q 의 수락 알림 1건만 받는다
         UnreadCountResponse mine = notificationService.unreadCount(p.userId);
         assertThat(mine.total()).isEqualTo(1);
-        assertThat(mine.byType()).containsEntry("MATCH_RESERVED", 1L).hasSize(6);
+        assertThat(mine.byType()).containsEntry("MATCH_RESERVED", 1L).hasSize(7);
     }
 
     // ------------------------------------------------------------------ 읽음 / 인가
@@ -429,7 +429,7 @@ class NotificationApiMysqlTest {
         // 마지막 정리: read-all 후에는 안 읽은 알림이 0
         notificationService.markAllRead(r.userId, null);
         assertThat(notificationService.unreadCount(r.userId).total()).isZero();
-        assertThat(NotificationType.values()).hasSize(6);
+        assertThat(NotificationType.values()).hasSize(7);
         } finally {
             jdbc.execute("DROP TRIGGER IF EXISTS trg_notification_audit_it");
             jdbc.execute("DROP TABLE IF EXISTS notification_audit_it");

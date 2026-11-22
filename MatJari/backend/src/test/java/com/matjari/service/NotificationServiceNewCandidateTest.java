@@ -49,11 +49,12 @@ class NotificationServiceNewCandidateTest {
     @Test
     void 기존_행이_있으면_PK로_되살리고_upsert하지_않는다() {
         when(repository.findIdsByDedupKey("NEW_CANDIDATE:200:2")).thenReturn(List.of(77L));
-        when(repository.reviveReusable(77L, NOW)).thenReturn(1);
+        when(repository.reviveIfReadOrEmailed(77L, NOW)).thenReturn(1);
 
         service.notifyNewCandidate(2L, 200L);
 
-        verify(repository).reviveReusable(77L, NOW);
+        verify(repository).reviveIfReadOrEmailed(77L, NOW);
+        verify(repository, never()).reviveReusable(anyLong(), any());
         verify(repository, never()).upsertReusable(anyLong(), any(), any(), any(), any(), any());
     }
 
@@ -68,6 +69,27 @@ class NotificationServiceNewCandidateTest {
     }
 
     @Test
+    void 이미_안_읽고_메일_대기_중인_행은_시각을_밀지_않고_upsert도_하지_않는다() {
+        when(repository.findIdsByDedupKey("NEW_CANDIDATE:200:2")).thenReturn(List.of(77L));
+        when(repository.reviveIfReadOrEmailed(77L, NOW)).thenReturn(0);   // 안 읽음 + emailed_at NULL
+
+        service.notifyNewCandidate(2L, 200L);
+
+        verify(repository, never()).upsertReusable(anyLong(), any(), any(), any(), any(), any());
+        verify(repository, never()).reviveReusable(anyLong(), any());
+    }
+
+    @Test
+    void 되살리려는_순간_행이_사라졌으면_새로_만든다() {
+        when(repository.findIdsByDedupKey("NEW_CANDIDATE:200:2")).thenReturn(List.of(77L), List.of(), List.of(88L));
+        when(repository.reviveIfReadOrEmailed(77L, NOW)).thenReturn(0);
+
+        service.notifyNewCandidate(2L, 200L);
+
+        verify(repository).upsertReusable(2L, "NEW_CANDIDATE", null, 200L, "NEW_CANDIDATE:200:2", NOW);
+    }
+
+    @Test
     void 키는_요청_id와_수신자_id로_만든다() {
         when(repository.findIdsByDedupKey("NEW_CANDIDATE:9:5")).thenReturn(List.of(1L));
         service.notifyNewCandidate(5L, 9L);
@@ -77,7 +99,7 @@ class NotificationServiceNewCandidateTest {
     /** 재사용 알림을 되살리는 두 SQL 은 emailed_at 을 NULL 로 되돌려 새 알림이 다시 메일 대상이 되게 한다(실DB 동작은 MySQL IT). */
     @Test
     void 되살리는_SQL은_emailed_at도_NULL로_되돌린다() throws Exception {
-        for (String name : List.of("reviveReusable", "upsertReusable")) {
+        for (String name : List.of("reviveReusable", "reviveIfReadOrEmailed", "upsertReusable")) {
             java.lang.reflect.Method m = java.util.Arrays.stream(NotificationRepository.class.getMethods())
                     .filter(x -> x.getName().equals(name)).findFirst().orElseThrow();
             String sql = m.getAnnotation(org.springframework.data.jpa.repository.Query.class).value();

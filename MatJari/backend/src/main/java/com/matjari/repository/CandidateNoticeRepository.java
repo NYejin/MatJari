@@ -11,7 +11,7 @@ import java.util.Map;
 
 /**
  * 새 후보 알림(V29) 보조 JDBC. 모두 잠금 없는 SELECT 이거나 candidate_notice 의 INSERT IGNORE 하나다.
- * candidate_notice 는 이미 알린 (받는 요청, 후보 요청) 쌍이며 같은 쌍은 다시 알리지 않는다.
+ * candidate_notice 는 이미 알린 (받는 요청, 후보 티켓) 쌍이며 같은 쌍은 다시 알리지 않는다.
  */
 @Repository
 public class CandidateNoticeRepository {
@@ -41,6 +41,12 @@ public class CandidateNoticeRepository {
         return owners.isEmpty() ? null : owners.get(0);
     }
 
+    /** 요청의 티켓 id(잠금 없는 SELECT). 요청이 없으면 null. candidate_notice 의 후보 티켓 키로 쓴다. */
+    public Long requestTicketId(Long requestId) {
+        List<Long> ids = jdbc.query("SELECT ticket_id FROM exchange_request WHERE id = ?", (rs, i) -> rs.getLong(1), requestId);
+        return ids.isEmpty() ? null : ids.get(0);
+    }
+
     /** 티켓 id -> 소유자 id (잠금 없는 SELECT). */
     public Map<Long, Long> ticketOwners(List<Long> ticketIds) {
         Map<Long, Long> result = new HashMap<>();
@@ -55,9 +61,9 @@ public class CandidateNoticeRepository {
         return result;
     }
 
-    /** (받는 요청, 후보 요청) 쌍을 기록한다. 새로 들어갔으면 1, 이미 있으면 0(INSERT IGNORE). */
-    public int insertIfAbsent(Long recipientRequestId, Long candidateRequestId, LocalDateTime now) {
-        return jdbc.update("INSERT IGNORE INTO candidate_notice (recipient_request_id, candidate_request_id, created_at) VALUES (?, ?, ?)",
-                recipientRequestId, candidateRequestId, now);
+    /** (받는 요청, 후보 티켓) 쌍을 기록한다. 새로 들어갔으면 1, 이미 있으면 0(INSERT IGNORE). */
+    public int insertIfAbsent(Long recipientRequestId, Long candidateTicketId, LocalDateTime now) {
+        return jdbc.update("INSERT IGNORE INTO candidate_notice (recipient_request_id, candidate_ticket_id, created_at) VALUES (?, ?, ?)",
+                recipientRequestId, candidateTicketId, now);
     }
 }

@@ -319,7 +319,7 @@ class AuthHardeningTest {
             when(encoder.encode(anyString())).thenReturn("$2a$10$dummydummydummydummydummydummydummydummydummydummydummy");
             when(users.findByEmail(anyString())).thenReturn(java.util.Optional.empty());
             AuthService service = new AuthService(users, encoder, mock(JwtTokenProvider.class),
-                    mock(AccountSuspensionChecker.class), mock(EmailVerificationService.class), mock(com.matjari.service.RefreshTokenService.class));
+                    mock(AccountSuspensionChecker.class), mock(EmailVerificationService.class), mock(com.matjari.service.RefreshTokenService.class), mock(com.matjari.service.EmailOwnershipRecorder.class));
 
             assertThatThrownBy(() -> service.login(new LoginRequest("nobody@x.com", "password1!")))
                     .isInstanceOf(MatJariException.class).hasMessage("이메일 또는 비밀번호가 올바르지 않습니다.");

@@ -32,7 +32,7 @@ import java.util.concurrent.TimeUnit;
  * 실패는 로그만 남기고 삼킨다(요청 저장은 이미 커밋되어 유지된다). 쌍마다 트랜잭션이 따로라 한 쌍이 실패(교착 희생자 등)해도 나머지는 계속하고,
  * 실패한 쌍은 candidate_notice 가 롤백되어 다음 변경 때 다시 시도된다.
  *
- * <p>중복 방지: (R', R) 쌍을 candidate_notice 에 INSERT IGNORE 해서 새로 들어간 때만(영향 행 1) 알림을 쓴다. 알림은 (R' 소유자, R')당 행 1개를
+ * <p>중복 방지: (R', R 의 티켓) 쌍을 candidate_notice 에 INSERT IGNORE 해서 새로 들어간 때만(영향 행 1) 알림을 쓴다. 알림은 (R' 소유자, R')당 행 1개를
  * 재사용한다(PK 먼저 갱신 -> 없을 때만 upsert, NotificationService.notifyReusable). 알림 쓰기는 이 짧은 트랜잭션의 마지막이다.
  *
  * <p>R 이 열려 있지 않거나(닫힘·삭제), 티켓을 내렸거나, 예약 잠금 중이거나, 공연이 숨김이거나, R 의 소유자가 이용 정지 중이면 아무것도 보내지 않는다
@@ -116,6 +116,10 @@ public class NewCandidateNotifier {
         if (ownerId == null) {
             return 0;
         }
+        Long ownTicketId = noticeRepository.requestTicketId(requestId);
+        if (ownTicketId == null) {
+            return 0;
+        }
         List<ExchangeCandidateRepository.Row> rows =
                 candidateRepository.findCandidates(requestId, now.toLocalDate().atStartOfDay(), MAX_CANDIDATES, 0);
         if (rows.isEmpty()) {
@@ -130,7 +134,7 @@ public class NewCandidateNotifier {
             }
             try {
                 Boolean wrote = tx.execute(status -> {
-                    if (noticeRepository.insertIfAbsent(row.requestId(), requestId, now) == 0) {
+                    if (noticeRepository.insertIfAbsent(row.requestId(), ownTicketId, now) == 0) {
                         return false;   // 이미 알린 쌍
                     }
                     notificationService.notifyNewCandidate(recipient, row.requestId());   // 이 짧은 트랜잭션의 마지막 쓰기

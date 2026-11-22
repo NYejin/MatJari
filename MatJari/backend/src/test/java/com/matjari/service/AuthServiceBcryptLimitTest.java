@@ -53,7 +53,7 @@ class AuthServiceBcryptLimitTest {
         when(jwt.generateRefreshToken(any(), anyString())).thenReturn("refresh");
         RefreshTokenService refreshTokens = mock(RefreshTokenService.class);
         when(refreshTokens.issueNewFamily(any())).thenReturn("refresh");
-        authService = new AuthService(userRepository, passwordEncoder, jwt, mock(com.matjari.security.AccountSuspensionChecker.class), mock(com.matjari.service.EmailVerificationService.class), refreshTokens);
+        authService = new AuthService(userRepository, passwordEncoder, jwt, mock(com.matjari.security.AccountSuspensionChecker.class), mock(com.matjari.service.EmailVerificationService.class), refreshTokens, mock(com.matjari.service.EmailOwnershipRecorder.class));
     }
 
     @Test

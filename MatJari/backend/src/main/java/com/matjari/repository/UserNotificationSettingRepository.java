@@ -20,6 +20,12 @@ public interface UserNotificationSettingRepository extends JpaRepository<UserNot
             + "VALUES (:userId, :enabled, :now) ON DUPLICATE KEY UPDATE email_enabled = :enabled, updated_at = :now")
     int upsertEmailEnabled(@Param("userId") Long userId, @Param("enabled") boolean enabled, @Param("now") LocalDateTime now);
 
+    /** 이메일 소유 확인 시각 기록. 행이 없으면 만들고(켜짐 기본), 이미 확인됐으면 처음 시각을 유지한다. */
+    @Modifying(flushAutomatically = true)   // clear 하지 않는다: 가입·재설정 트랜잭션이 방금 다룬 users 엔티티를 그대로 둔다
+    @Query(nativeQuery = true, value = "INSERT INTO user_notification_setting (user_id, email_enabled, email_verified_at, updated_at) "
+            + "VALUES (:userId, 1, :now, :now) ON DUPLICATE KEY UPDATE email_verified_at = COALESCE(email_verified_at, :now)")
+    int upsertEmailVerified(@Param("userId") Long userId, @Param("now") LocalDateTime now);
+
     /** 회원 탈퇴: 설정 행 삭제(PK 한 행, 없어도 0행으로 정상). */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query(nativeQuery = true, value = "DELETE FROM user_notification_setting WHERE user_id = :userId")

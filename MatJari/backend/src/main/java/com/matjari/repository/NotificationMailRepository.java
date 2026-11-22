@@ -24,8 +24,8 @@ public class NotificationMailRepository {
     /** 메일 대상 후보 알림 한 건. */
     public record Pending(long id, long userId, NotificationType type) {}
 
-    /** 수신자(이메일·탈퇴 여부·알림 설정). 설정 행이 없으면 emailEnabled=true. */
-    public record Recipient(String email, boolean withdrawn, boolean emailEnabled, LocalDateTime lastEmailAt) {}
+    /** 수신자(이메일·탈퇴 여부·알림 설정). 설정 행이 없으면 emailEnabled=true, emailVerified=false(이메일 소유 미확인이면 메일을 보내지 않는다). */
+    public record Recipient(String email, boolean withdrawn, boolean emailEnabled, boolean emailVerified, LocalDateTime lastEmailAt) {}
 
     private final JdbcTemplate jdbc;
 
@@ -46,11 +46,12 @@ public class NotificationMailRepository {
     /** 수신자 정보. 사용자가 없으면 null. */
     public Recipient loadRecipient(Long userId) {
         List<Recipient> found = jdbc.query("""
-                SELECT u.email, u.withdrawn_at, s.email_enabled, s.last_email_at
+                SELECT u.email, u.withdrawn_at, s.email_enabled, s.email_verified_at, s.last_email_at
                 FROM users u LEFT JOIN user_notification_setting s ON s.user_id = u.id
                 WHERE u.id = ?
                 """, (rs, i) -> new Recipient(rs.getString("email"), rs.getObject("withdrawn_at") != null,
                 rs.getObject("email_enabled") == null || rs.getBoolean("email_enabled"),
+                rs.getObject("email_verified_at") != null,
                 rs.getObject("last_email_at", LocalDateTime.class)), userId);
         return found.isEmpty() ? null : found.get(0);
     }

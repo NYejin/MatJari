@@ -99,6 +99,7 @@ public class PasswordResetService {
     private final PasswordResetTokenRepository tokenRepository;
     private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
+    private final EmailOwnershipRecorder emailOwnershipRecorder;
     private final EmailSender emailSender;
     private final SocialProperties socialProperties;
     private final AuthRateLimiter rateLimiter;
@@ -125,7 +126,9 @@ public class PasswordResetService {
                                 Clock clock, PlatformTransactionManager transactionManager,
                                 @Value("${matjari.auth.refresh-reuse-grace-seconds:20}") long reuseGraceSeconds,
                                 @Value("${matjari.password-reset.ttl-minutes:30}") long ttlMinutes,
-                                @Value("${matjari.mail.mode:log}") String mailMode) {
+                                @Value("${matjari.mail.mode:log}") String mailMode,
+                                EmailOwnershipRecorder emailOwnershipRecorder) {
+        this.emailOwnershipRecorder = emailOwnershipRecorder;
         this.userRepository = userRepository;
         this.tokenRepository = tokenRepository;
         this.refreshTokenRepository = refreshTokenRepository;
@@ -251,6 +254,7 @@ public class PasswordResetService {
             tokenRepository.saveAndFlush(token);
             refreshTokenRepository.revokeAllActiveByUserId(userId, RevokeReason.PASSWORD_RESET, now);
             closeSocketsAfterCommit(userId);
+            emailOwnershipRecorder.markVerified(userId);   // 재설정 링크를 메일함에서 열었으므로 이메일 소유가 확인된 것이다(users 잠금 안)
             return user.getEmail();
         });
         if (email == null) {

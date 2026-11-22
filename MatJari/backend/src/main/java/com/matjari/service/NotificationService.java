@@ -171,7 +171,15 @@ public class NotificationService {
         LocalDateTime now = LocalDateTime.now(clock);
         // 먼저 잠금 없는 점조회로 기존 행을 찾아 PK 로 되살린다(읽은 알림 삭제와 같은 잠금 순서: PK 먼저). 행이 없을 때만 INSERT(upsert).
         Long id = notificationRepository.findIdsByDedupKey(key).stream().findFirst().orElse(null);
-        if (id == null || notificationRepository.reviveReusable(id, now) == 0) {
+        boolean revived;
+        if (id != null && type == NotificationType.NEW_CANDIDATE) {
+            // 이미 안 읽고 메일 대기 중인 새 후보 알림은 시각을 밀지 않는다(메일 지연이 계속 늘어나는 것 방지). 행이 사라졌으면 아래에서 새로 만든다.
+            revived = notificationRepository.reviveIfReadOrEmailed(id, now) > 0
+                    || !notificationRepository.findIdsByDedupKey(key).isEmpty();
+        } else {
+            revived = id != null && notificationRepository.reviveReusable(id, now) > 0;
+        }
+        if (!revived) {
             notificationRepository.upsertReusable(recipientUserId, type.name(), matchId, requestId, key, now);
             id = notificationRepository.findIdsByDedupKey(key).stream().findFirst().orElse(null);
         }

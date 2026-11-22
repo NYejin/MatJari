@@ -62,18 +62,18 @@ class NotificationSettingControllerSliceTest {
 
     @Test
     void 조회는_emailEnabled와_emailAvailable을_돌려준다() throws Exception {
-        when(service.get(1L)).thenReturn(new NotificationSettingDtos.Response(true, false));
+        when(service.get(1L)).thenReturn(new NotificationSettingDtos.Response(true, false, false));
         mockMvc.perform(get(URL).header("Authorization", "Bearer good")).andExpect(status().isOk())
-                .andExpect(content().json("{\"emailEnabled\":true,\"emailAvailable\":false}", true));
+                .andExpect(content().json("{\"emailEnabled\":true,\"emailAvailable\":false,\"emailVerified\":false}", true));
     }
 
     @Test
     void 수정은_본인_설정을_바꾸고_같은_응답을_돌려준다() throws Exception {
-        when(service.update(1L, false)).thenReturn(new NotificationSettingDtos.Response(false, true));
+        when(service.update(1L, false)).thenReturn(new NotificationSettingDtos.Response(false, true, false));
         mockMvc.perform(patch(URL).header("Authorization", "Bearer good").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"emailEnabled\":false}"))
                 .andExpect(status().isOk())
-                .andExpect(content().json("{\"emailEnabled\":false,\"emailAvailable\":true}", true));
+                .andExpect(content().json("{\"emailEnabled\":false,\"emailAvailable\":true,\"emailVerified\":false}", true));
         verify(service).update(1L, false);
     }
 

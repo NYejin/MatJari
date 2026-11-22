@@ -32,7 +32,8 @@ class PasswordResetServiceTest {
         social.setBackendBaseUrl(backendBaseUrl);
         return new PasswordResetService(users, mock(PasswordResetTokenRepository.class), mock(RefreshTokenRepository.class),
                 mock(PasswordEncoder.class), mock(EmailSender.class), social, limiter, mock(JwtTokenProvider.class),
-                mock(WebSocketSessionRegistry.class), Clock.systemUTC(), mock(PlatformTransactionManager.class), 20, 30, mailMode);
+                mock(WebSocketSessionRegistry.class), Clock.systemUTC(), mock(PlatformTransactionManager.class), 20, 30, mailMode,
+                mock(com.matjari.service.EmailOwnershipRecorder.class));
     }
 
     @Test

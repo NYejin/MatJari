@@ -39,6 +39,7 @@ class NewCandidateNotifierTest {
         candidates = mock(ExchangeCandidateRepository.class);
         notices = mock(CandidateNoticeRepository.class);
         notifications = mock(NotificationService.class);
+        when(notices.requestTicketId(anyLong())).thenAnswer(inv -> inv.<Long>getArgument(0) / 10);   // 요청 100 -> 티켓 10
         notifier = new NewCandidateNotifier(candidates, notices, notifications, mock(PlatformTransactionManager.class),
                 Clock.fixed(NOW.atZone(KST).toInstant(), KST), Runnable::run);
     }
@@ -58,12 +59,12 @@ class NewCandidateNotifierTest {
         when(notices.findEligibleOwner(100L, NOW)).thenReturn(1L);
         candidatesOf(100L, row(200L, 20L), row(300L, 30L));
         when(notices.ticketOwners(List.of(20L, 30L))).thenReturn(Map.of(20L, 2L, 30L, 3L));
-        when(notices.insertIfAbsent(anyLong(), eq(100L), eq(NOW))).thenReturn(1);
+        when(notices.insertIfAbsent(anyLong(), eq(10L), eq(NOW))).thenReturn(1);
 
         assertThat(notifier.notifyCandidatesOf(100L)).isEqualTo(2);
 
-        verify(notices).insertIfAbsent(200L, 100L, NOW);
-        verify(notices).insertIfAbsent(300L, 100L, NOW);
+        verify(notices).insertIfAbsent(200L, 10L, NOW);
+        verify(notices).insertIfAbsent(300L, 10L, NOW);
         verify(notifications).notifyNewCandidate(2L, 200L);
         verify(notifications).notifyNewCandidate(3L, 300L);
     }
@@ -87,8 +88,8 @@ class NewCandidateNotifierTest {
         when(notices.findEligibleOwner(100L, NOW)).thenReturn(1L);
         candidatesOf(100L, row(200L, 20L), row(300L, 30L));
         when(notices.ticketOwners(List.of(20L, 30L))).thenReturn(Map.of(20L, 2L, 30L, 3L));
-        when(notices.insertIfAbsent(200L, 100L, NOW)).thenReturn(0);   // 이미 있음
-        when(notices.insertIfAbsent(300L, 100L, NOW)).thenReturn(1);
+        when(notices.insertIfAbsent(200L, 10L, NOW)).thenReturn(0);   // 이미 있음
+        when(notices.insertIfAbsent(300L, 10L, NOW)).thenReturn(1);
 
         assertThat(notifier.notifyCandidatesOf(100L)).isEqualTo(1);
 
@@ -138,7 +139,7 @@ class NewCandidateNotifierTest {
         when(notices.findEligibleOwner(100L, NOW)).thenReturn(1L);
         candidatesOf(100L, row(200L, 20L));
         when(notices.ticketOwners(List.of(20L))).thenReturn(Map.of(20L, 2L));
-        when(notices.insertIfAbsent(200L, 100L, NOW)).thenReturn(1);
+        when(notices.insertIfAbsent(200L, 10L, NOW)).thenReturn(1);
 
         notifier.onRequestChanged(new NewCandidateCheckEvent(100L));
 

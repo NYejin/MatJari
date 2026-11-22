@@ -104,6 +104,18 @@ class ZoneModelEvalTest {
                     boolean skip = "1".equals(System.getenv("EVAL_NO_REG"));
                     String steps = System.getenv("EVAL_REG_STEPS"); // 쉼표 목록 shape,sym,align: 다듬기 단계별 손실을 따로 잰다
                     out.put("zones", DetailExtractionService.mergeZones(names, skip ? raw : steps != null ? regularizeSteps(raw, steps) : ShapeRegularizer.regularize(raw)));
+                } else if ("segment".equals(mode)) { // Java 도형 분할 결과만(이름 없이 #번호) 내보낸다: 학습용 무료 가짜 정답(API 호출 없음)
+                    byte[] jpeg = Files.readAllBytes(p.resolve("seatmap.jpg"));
+                    ShapeSegmenter.Result seg = new ShapeSegmenter().segment(jpeg); // 운영 파이프라인의 첫 분할과 같은 호출
+                    List<Map<String, Object>> zones = new ArrayList<>();
+                    for (ShapeSegmenter.Segment s : seg == null ? List.<ShapeSegmenter.Segment>of() : seg.segments()) {
+                        List<List<Integer>> pts = new ArrayList<>();
+                        for (int[] pt : s.pixels()) {
+                            pts.add(List.of((int) Math.round(pt[0] * 1000.0 / seg.width()), (int) Math.round(pt[1] * 1000.0 / seg.height())));
+                        }
+                        zones.add(Map.of("name", "#" + s.id(), "shapePolygons", List.of(pts)));
+                    }
+                    out.put("zones", zones);
                 } else if ("regularize".equals(mode)) { // 저장된 예측(EVAL_FROM 태그)에 도형 다듬기만 다시 적용한다(API 호출 없음)
                     Path from = p.resolve("pred").resolve(model + "@" + System.getenv("EVAL_FROM") + ".json");
                     if (!Files.exists(from)) {
@@ -132,10 +144,51 @@ class ZoneModelEvalTest {
                     String segSrc = System.getenv("EVAL_SEG"); // gt: 정답 도형(상한 측정) / 그 밖: seg/{값}.json 의 도형(학습 모델 등)
                     if (segSrc != null && !segSrc.isBlank()) {
                         List<List<int[]>> polys = externalPolygons(p, segSrc);
-                        boolean fill = "1".equals(System.getenv("EVAL_SEG_FILL")); // 바깥 도형 먼저, 그것이 못 덮은 자리는 Java 도형으로 채운다
+                        String fillMode = System.getenv().getOrDefault("EVAL_SEG_FILL", "");
+                        boolean fill = "1".equals(fillMode); // 바깥 도형 먼저, 그것이 못 덮은 자리는 Java 도형으로 채운다
+                        boolean gap = "2".equals(fillMode); // Java 도형 그대로, 그것이 거의 덮지 않은 빈 곳에만 바깥 도형을 더한다
+                        double gapCover = Double.parseDouble(System.getenv().getOrDefault("EVAL_GAP_COVER", "0.35"));
+                        double gapArea = Double.parseDouble(System.getenv().getOrDefault("EVAL_GAP_AREA", "0.2"));
                         ShapeSegmenter fixed = new ShapeSegmenter() {
                             @Override
                             public Result segment(byte[] j, boolean dropGray) {
+                                if (gap) {
+                                    Result own = super.segment(j, dropGray);
+                                    if (own == null || own.segments().isEmpty()) {
+                                        return own;
+                                    }
+                                    // Java 도형이 칠한 자리를 표시하고, 바깥 도형 중 그 자리와 gapCover 미만만 겹치고 넓이가 Java 도형 중앙값의 gapArea 배 이상인 것만 더한다
+                                    BufferedImage occ = new BufferedImage(own.width(), own.height(), BufferedImage.TYPE_BYTE_GRAY);
+                                    java.awt.Graphics2D g = occ.createGraphics();
+                                    g.setColor(java.awt.Color.WHITE);
+                                    for (Segment s : own.segments()) {
+                                        g.fill(awt(s.pixels()));
+                                    }
+                                    g.dispose();
+                                    List<Integer> areas = own.segments().stream().map(Segment::area).sorted().toList();
+                                    double minArea = gapArea * areas.get(areas.size() / 2);
+                                    List<List<int[]>> extra = new ArrayList<>();
+                                    for (List<int[]> e : polys) {
+                                        java.awt.Polygon ap = awt(e);
+                                        java.awt.Rectangle b = ap.getBounds().intersection(new java.awt.Rectangle(0, 0, own.width(), own.height()));
+                                        long in = 0, hit = 0;
+                                        for (int y = b.y; y < b.y + b.height; y++) {
+                                            for (int x = b.x; x < b.x + b.width; x++) {
+                                                if (ap.contains(x + 0.5, y + 0.5)) {
+                                                    in++;
+                                                    if ((occ.getRaster().getSample(x, y, 0)) > 0) {
+                                                        hit++;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if (in >= minArea && hit < gapCover * in) {
+                                            extra.add(e);
+                                        }
+                                    }
+                                    System.out.println("GAPFILL " + p.getFileName() + " own=" + own.segments().size() + " model=" + polys.size() + " extra=" + extra.size());
+                                    return extra.isEmpty() ? own : withExtra(j, own, extra);
+                                }
                                 if (!fill) {
                                     return fromPolygons(j, polys);
                                 }

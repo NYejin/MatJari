@@ -3,7 +3,7 @@ title: 위키 목차
 type: index
 tags: [index]
 sources: []
-updated: 2026-10-18
+updated: 2026-11-06
 confidence: high
 status: draft
 ---
@@ -41,6 +41,8 @@ status: draft
 
 - [AI 회차·구역 읽기 설계 근거](decisions/ai-detail-extract-design.md): 목적과 처리 순서(본문 규칙→슬라이싱→1차·2차 호출→서버 재검증), Haiku 5.5 기본·무료 티어와 구독 로그인을 쓰지 않은 이유, 법·약관 조사 요약과 미확인 항목, 구역 규칙, 작은 표본 시험 결과, 한계·후속.
 
+- [학습 도형 빈자리 채우기](decisions/learned-shape-gap-fill.md): 학습 도형으로 놓친 구역을 채우면 재현율 93.6->95.2%, 정밀도 97.0->97.3%지만 증가분 대부분이 지도 1장이라 효과가 작고 운영 반영은 미정.
+
 ## 함정
 
 - [프런트 함정](gotchas/frontend-react-pitfalls.md): StrictMode에서 중단된 요청이 가드를 풀지 못해 로딩에 머무는 문제(신고 상세·소셜 콜백), 객체 키 조회의 `__proto__` 함정.
@@ -49,9 +51,13 @@ status: draft
 
 - [잠금 순서와 인덱스·유니크 키 함정](gotchas/lock-order-and-index-pitfalls.md): 교환 도메인(MySQL)의 잠금 순서 규약, 인덱스·유니크 키로 겪은 교착, Hibernate flush 순서와 유니크 키, 알림 쓰기 규칙과 dedup_key 함정, 교환 완료 갭 잠금 교착 가능성, 채팅 전송 잠금·읽음 포인터 교착·조회 힌트·속도 제한 함정, 관리자 기능의 좌석 키 보조 인덱스 FOR UPDATE 교착과 PENDING 전용 생성 컬럼 유니크, 차단 후보 제외 NOT EXISTS 분리, READ_COMMITTED 활성 제재 중복 직렬화, users 잠금 금지, 예약 제안/수락의 upsert 대 삭제 교착(PK 먼저)과 벌크 JPQL의 제안 컬럼 우회, 프로필·소셜 연결(V16)의 users 잠금 순서와 확정 코드 소비 순서, 회원 탈퇴(V17)의 users 잠금 위치와 교착 창 2개.
 
+- [모델 학습 실행 함정](gotchas/training-run-pitfalls.md): 꺼진 듯한 백그라운드 셸이 살아 있어 학습이 겹친 사고, 같은 출력 폴더 동시 쓰기, Python -I 의 인코딩 무시.
+
 ## 조사
 
 - [실시간 채팅(STOMP) JWT 인증·인가 조사](research/stomp-jwt-auth.md): CONNECT 인증, 토큰 만료, 구독·전송 인가, Origin·크기 제한. 조사 요약에 구현 후 확인 결과(CSRF·Origin 403·1008·RECEIPT 없음)를 덧붙였다.
+
+- [구역 모양 학습 v2 (RF-DETR Seg Nano) 결과](research/zone-shape-training-v2.md): 평가셋 누출 점검, 데이터 단계별 장수, 자동 라벨(검수 0%), 학습 설정·시간, 평가 표.
 
 ## 용어집
 

@@ -26,6 +26,7 @@ import com.matjari.repository.PerformanceSessionRepository;
 import com.matjari.repository.TicketRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -94,6 +95,7 @@ public class ExchangeRequestService {
     private final SessionTimePolicy timePolicy;
     private final WantSeatExpander expander;
     private final ExchangeMatchRepository matchRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     public ExchangeRequestService(ExchangeRequestRepository requestRepository,
                                   ExchangeWantRangeRepository rangeRepository,
@@ -107,7 +109,8 @@ public class ExchangeRequestService {
                                   @Value("${exchange.want.max-seats:5000}") int maxSeats,
                                   @Value("${exchange.want.max-ranges:50}") int maxRanges,
                                   @Value("${ticket.max-row-number:999}") int maxRowNumber,
-                                  @Value("${ticket.max-col-number:999}") int maxColNumber) {
+                                  @Value("${ticket.max-col-number:999}") int maxColNumber,
+                                  ApplicationEventPublisher eventPublisher) {
         this.requestRepository = requestRepository;
         this.rangeRepository = rangeRepository;
         this.wantSessionRepository = wantSessionRepository;
@@ -115,6 +118,7 @@ public class ExchangeRequestService {
         this.ticketRepository = ticketRepository;
         this.sessionRepository = sessionRepository;
         this.matchRepository = matchRepository;
+        this.eventPublisher = eventPublisher;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.timePolicy = timePolicy;
         this.expander = new WantSeatExpander(maxRanges, maxSeats, maxRowNumber, maxColNumber);
@@ -148,7 +152,9 @@ public class ExchangeRequestService {
                 ensureNotOwnSeat(ticket, parsed.expanded(), sessions);
 
                 ExchangeRequest saved = requestRepository.saveAndFlush(ExchangeRequest.create(ticket));
-                return writeChildren(saved, parsed, sessions);
+                ExchangeRequestResponse response = writeChildren(saved, parsed, sessions);
+                eventPublisher.publishEvent(new NewCandidateCheckEvent(saved.getId()));   // 커밋 뒤 새 후보 알림(NewCandidateNotifier)
+                return response;
             });
         } catch (DataIntegrityViolationException e) {
             if (!DataIntegrityViolations.isViolationOf(e, ExchangeRequest.UNIQUE_TICKET)) {
@@ -219,7 +225,9 @@ public class ExchangeRequestService {
         wantSessionRepository.deleteByRequestId(locked.getId());
         locked.touch(now);
         requestRepository.saveAndFlush(locked);
-        return writeChildren(locked, parsed, sessions);
+        ExchangeRequestResponse response = writeChildren(locked, parsed, sessions);
+        eventPublisher.publishEvent(new NewCandidateCheckEvent(locked.getId()));   // 커밋 뒤 새 후보 알림(NewCandidateNotifier)
+        return response;
     }
 
     /**

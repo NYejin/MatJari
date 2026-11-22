@@ -32,8 +32,13 @@ public class Notification {
     @Column(nullable = false, updatable = false, length = 40)
     private NotificationType type;
 
-    @Column(name = "match_id", nullable = false, updatable = false)
+    /** 매칭 알림의 매칭 id. NEW_CANDIDATE 는 NULL(V29). */
+    @Column(name = "match_id", updatable = false)
     private Long matchId;
+
+    /** NEW_CANDIDATE 의 '새 후보가 생긴 내 요청'(V29). 매칭 알림은 NULL. */
+    @Column(name = "request_id", updatable = false)
+    private Long requestId;
 
     /** 한 번만 생기는 알림(PROPOSAL_RECEIVED:{matchId})만 채운다. */
     @Column(name = "dedup_key", updatable = false, length = 100)

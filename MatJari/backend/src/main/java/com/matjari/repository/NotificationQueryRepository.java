@@ -17,26 +17,27 @@ import java.util.Map;
  * 접근 경로: idx_notification_user(user_id) 로 내 알림만 읽고 (created_at DESC, id DESC) 로 정렬한다. 재사용 알림이 (수신자, 매칭)당 1행이라
  * 사용자당 행 수가 작아 filesort 비용이 작다고 보고 별도 인덱스는 두지 않는다. 나머지는 PK 점조회.
  * 안 읽은 개수는 idx_notification_unread(unread_user_id, 생성 컬럼) 로 센다. 목록 COUNT 는 notification 만 센다
- * (match_id 가 NOT NULL + FK 라 INNER JOIN 으로 줄어드는 행이 없다).
+ * (매칭 알림은 match_id, NEW_CANDIDATE 는 request_id 가 NOT NULL + FK 라 INNER JOIN 으로 줄어드는 행이 없다).
  */
 @Repository
 public class NotificationQueryRepository {
 
     private static final String SELECT = """
-            SELECT STRAIGHT_JOIN n.id, n.type, n.match_id, n.read_at, n.created_at,
+            SELECT STRAIGHT_JOIN n.id, n.type, n.match_id, n.request_id, n.read_at, n.created_at,
                    m.status AS match_status, m.user_a_id,
                    ta.zone_label AS a_zone, ta.row_label AS a_row, ta.col_label AS a_col,
                    tb.zone_label AS b_zone, tb.row_label AS b_row, tb.col_label AS b_col,
                    p.title AS performance_title,
                    ua.nickname AS a_nickname, ub.nickname AS b_nickname
             FROM notification n
-            JOIN exchange_match m        ON m.id = n.match_id
-            JOIN ticket ta               ON ta.id = m.ticket_a_id
+            LEFT JOIN exchange_match m   ON m.id = n.match_id
+            LEFT JOIN exchange_request r ON r.id = n.request_id
+            JOIN ticket ta               ON ta.id = COALESCE(m.ticket_a_id, r.ticket_id)
             JOIN performance_session psa ON psa.id = ta.performance_session_id
             JOIN performance p           ON p.id = psa.performance_id
-            JOIN ticket tb               ON tb.id = m.ticket_b_id
-            JOIN users ua                ON ua.id = m.user_a_id
-            JOIN users ub                ON ub.id = m.user_b_id
+            LEFT JOIN ticket tb          ON tb.id = m.ticket_b_id
+            LEFT JOIN users ua           ON ua.id = m.user_a_id
+            LEFT JOIN users ub           ON ub.id = m.user_b_id
             WHERE n.user_id = ?
             """;
 
@@ -50,12 +51,20 @@ public class NotificationQueryRepository {
     public List<NotificationResponse> findPage(Long userId, boolean unreadOnly, int limit, long offset) {
         String sql = SELECT + (unreadOnly ? " AND n.read_at IS NULL" : "") + " ORDER BY n.created_at DESC, n.id DESC LIMIT ? OFFSET ?";
         return jdbc.query(sql, (rs, i) -> {
-            boolean mineIsA = userId.equals(rs.getLong("user_a_id"));
-            String status = rs.getString("match_status");
             LocalDateTime readAt = rs.getObject("read_at", LocalDateTime.class);
             NotificationResponse.Seat a = new NotificationResponse.Seat(rs.getString("a_zone"), rs.getString("a_row"), rs.getString("a_col"));
+            Long matchId = (Long) rs.getObject("match_id");
+            Long requestId = (Long) rs.getObject("request_id");
+            if (matchId == null) {
+                // NEW_CANDIDATE: 매칭이 없다. 내 요청의 티켓(a 별칭) 자리와 공연 제목만 채우고 매칭 전용 필드는 비운다.
+                return new NotificationResponse(rs.getLong("id"), rs.getString("type"), null, requestId,
+                        readAt != null, readAt, rs.getObject("created_at", LocalDateTime.class),
+                        null, false, null, null, rs.getString("performance_title"), a, null);
+            }
+            boolean mineIsA = userId.equals(rs.getLong("user_a_id"));
+            String status = rs.getString("match_status");
             NotificationResponse.Seat b = new NotificationResponse.Seat(rs.getString("b_zone"), rs.getString("b_row"), rs.getString("b_col"));
-            return new NotificationResponse(rs.getLong("id"), rs.getString("type"), rs.getLong("match_id"),
+            return new NotificationResponse(rs.getLong("id"), rs.getString("type"), matchId, null,
                     readAt != null, readAt, rs.getObject("created_at", LocalDateTime.class),
                     status, "CANCELED".equals(status) || "COMPLETED".equals(status),
                     mineIsA ? "SENT" : "RECEIVED",
@@ -71,7 +80,7 @@ public class NotificationQueryRepository {
         return n == null ? 0 : n;
     }
 
-    /** 안 읽은 개수(종류별). 알림 종류 6개 키를 0 으로 채워 돌려준다. 닫힌 매칭 알림도 센다. */
+    /** 안 읽은 개수(종류별). 알림 종류 7개 키를 0 으로 채워 돌려준다. 닫힌 매칭 알림도 센다. */
     public Map<NotificationType, Long> unreadCountsByType(Long userId) {
         Map<NotificationType, Long> result = new EnumMap<>(NotificationType.class);
         for (NotificationType t : NotificationType.values()) {

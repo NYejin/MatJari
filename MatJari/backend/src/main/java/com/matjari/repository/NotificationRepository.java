@@ -60,7 +60,7 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
      * 삭제와 교착한다(실제 MySQL 테스트로 확인). PK 로 먼저 갱신하면 잠금 순서가 같아 교착이 없다.
      */
     @Modifying(flushAutomatically = true)
-    @Query(nativeQuery = true, value = "UPDATE notification SET read_at = NULL, created_at = :now WHERE id = :id")
+    @Query(nativeQuery = true, value = "UPDATE notification SET read_at = NULL, emailed_at = NULL, created_at = :now WHERE id = :id")
     int reviveReusable(@Param("id") Long id, @Param("now") LocalDateTime now);
 
     /**
@@ -68,10 +68,10 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
      * RESERVATION_PROPOSED 는 서비스가 같은 형식을 지킨다)를 만들거나 되살린다. 행이 없을 때(처음이거나 읽은 알림 삭제 뒤)만 쓰는 최후 경로이며, 같은 키의 동시 삽입은 매칭 행 잠금이 직렬화한다.
      */
     @Modifying(flushAutomatically = true)
-    @Query(nativeQuery = true, value = "INSERT INTO notification (user_id, type, match_id, dedup_key, created_at) "
-            + "VALUES (:userId, :type, :matchId, :dedupKey, :now) "
-            + "ON DUPLICATE KEY UPDATE read_at = NULL, created_at = :now")
-    int upsertReusable(@Param("userId") Long userId, @Param("type") String type, @Param("matchId") Long matchId,
+    @Query(nativeQuery = true, value = "INSERT INTO notification (user_id, type, match_id, request_id, dedup_key, created_at) "
+            + "VALUES (:userId, :type, :matchId, :requestId, :dedupKey, :now) "
+            + "ON DUPLICATE KEY UPDATE read_at = NULL, emailed_at = NULL, created_at = :now")
+    int upsertReusable(@Param("userId") Long userId, @Param("type") String type, @Param("matchId") Long matchId, @Param("requestId") Long requestId,
                           @Param("dedupKey") String dedupKey, @Param("now") LocalDateTime now);
 
     /**

@@ -69,7 +69,7 @@ class WithdrawServiceTest {
     void setUp() {
         PlatformTransactionManager tm = mock(PlatformTransactionManager.class);
         when(tm.getTransaction(any())).thenReturn(mock(TransactionStatus.class));
-        service = new WithdrawService(userRepository, ticketRepository, requestRepository, socialRepository, mock(com.matjari.repository.RefreshTokenRepository.class), mock(com.matjari.repository.PasswordResetTokenRepository.class), notificationRepository,
+        service = new WithdrawService(userRepository, ticketRepository, requestRepository, socialRepository, mock(com.matjari.repository.RefreshTokenRepository.class), mock(com.matjari.repository.PasswordResetTokenRepository.class), notificationRepository, mock(com.matjari.repository.UserNotificationSettingRepository.class),
                 canceller, claimService, reauthStore, socialProps, registry, encoder, new SessionTimePolicy(clock), clock, tm);
     }
 

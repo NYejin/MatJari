@@ -13,12 +13,15 @@
 param(
     [string]$BackupDir = (Join-Path $env:USERPROFILE 'MatJariBackups'),
     [int]$KeepDays = 14,
+    # 운영이 아닌 compose 프로젝트(점검용 스택 등)를 백업할 때만 준다. 비우면 compose 파일의 name(matjari-prod)
+    [string]$ProjectName,
     [switch]$DryRun
 )
 
 $ErrorActionPreference = 'Stop'
 $matjari = Resolve-Path (Join-Path $PSScriptRoot '..')
 $compose = Join-Path $matjari 'docker-compose.prod.yml'
+$projectArgs = if ($ProjectName) { @('-p', $ProjectName) } else { @() }
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $target = Join-Path $BackupDir "matjari-$stamp"
 $logFile = Join-Path $BackupDir 'backup.log'
@@ -47,7 +50,7 @@ function Run($text, [scriptblock]$action) {
 }
 
 function RunningId($service) {
-    Native { docker compose -f $compose ps -q --status running $service } | Where-Object { $_ -match '^[0-9a-f]{12,}$' } | Select-Object -First 1
+    Native { docker compose @projectArgs -f $compose ps -q --status running $service } | Where-Object { $_ -match '^[0-9a-f]{12,}$' } | Select-Object -First 1
 }
 
 if (-not $DryRun) { New-Item -ItemType Directory -Force -Path $BackupDir | Out-Null }

@@ -13,7 +13,7 @@ export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? "/api";
 export const authClient = axios.create({ baseURL: API_BASE_URL, withCredentials: true });
 
 /** refresh·logout은 이 헤더가 없으면 서버가 403으로 거절한다 (CSRF 방어) */
-const CSRF_HEADERS = { "X-Requested-With": "XMLHttpRequest" } as const;
+export const CSRF_HEADERS = { "X-Requested-With": "XMLHttpRequest" } as const;
 
 /** POST /api/auth/refresh — 쿠키 mj_rt로 새 액세스 토큰을 받고 쿠키는 서버가 회전한다. 실패 401(정지 403) */
 export async function requestTokenRefresh(): Promise<TokenResponse> {

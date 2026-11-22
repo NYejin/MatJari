@@ -2,6 +2,7 @@ package com.matjari.controller;
 
 import com.matjari.dto.request.EmailCodeRequest;
 import com.matjari.dto.request.LoginRequest;
+import com.matjari.dto.request.PasswordRequests;
 import com.matjari.dto.request.SignupRequest;
 import com.matjari.dto.response.EmailCodeResponse;
 import com.matjari.dto.response.EmailVerificationStatusResponse;
@@ -10,15 +11,19 @@ import com.matjari.dto.response.UserResponse;
 import com.matjari.exception.AccountSuspendedException;
 import com.matjari.exception.MatJariException;
 import com.matjari.security.AuthRateLimiter;
+import com.matjari.security.AuthUserPrincipal;
 import com.matjari.security.ClientIpResolver;
 import com.matjari.security.RefreshTokenCookie;
 import com.matjari.service.AuthService;
 import com.matjari.service.EmailVerificationService;
+import com.matjari.service.PasswordResetService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.InsufficientAuthenticationException;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -28,6 +33,7 @@ public class AuthController {
 
     private final AuthService authService;
     private final EmailVerificationService emailVerificationService;
+    private final PasswordResetService passwordResetService;
     private final AuthRateLimiter rateLimiter;
     private final ClientIpResolver clientIpResolver;
     private final RefreshTokenCookie refreshCookie;
@@ -87,6 +93,47 @@ public class AuthController {
         refreshCookie.requireAjaxHeader(http);
         authService.logout(refreshCookie.read(http));
         return ResponseEntity.noContent().header(HttpHeaders.SET_COOKIE, refreshCookie.clear()).build();
+    }
+
+    /**
+     * 비밀번호 재설정 링크 요청. 가입 여부와 상관없이 항상 204(보낼 수 없는 계정은 조용히 무시, 정지 계정에는 보낸다).
+     * IP당 10분 5회·이메일당 1시간 3회, 초과 429 PASSWORD_RESET_RATE_LIMITED(+Retry-After). 링크는 메일의 {frontend}/reset-password#token=...
+     */
+    @PostMapping("/password-reset/request")
+    public ResponseEntity<Void> requestPasswordReset(@Valid @RequestBody PasswordRequests.ResetRequest request,
+                                                     HttpServletRequest http) {
+        passwordResetService.requestReset(request.email(), clientIpResolver.resolve(http));
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * 재설정 확정. 성공 204(그 사용자의 모든 로그인 유지 토큰 폐기). 없음·만료·사용됨·무효·탈퇴·소셜 전용은 400 INVALID_RESET_TOKEN(구분하지 않음),
+     * 새 비밀번호 규칙 위반은 400 newPassword. IP당 10분 20회.
+     */
+    @PostMapping("/password-reset/confirm")
+    public ResponseEntity<Void> confirmPasswordReset(@Valid @RequestBody PasswordRequests.ResetConfirmRequest request,
+                                                     HttpServletRequest http) {
+        rateLimiter.acquirePasswordResetConfirm(clientIpResolver.resolve(http));
+        String email = passwordResetService.confirmReset(request.token(), request.newPassword());
+        rateLimiter.recordLoginSuccess(email);   // 계정의 로그인 실패 잠금을 푼다
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * 로그인 상태의 비밀번호 변경(쿠키 인식 버전). 리프레시 쿠키 mj_rt 는 Path=/api/auth 라서 {@code PATCH /api/users/me/password} 에는 실려 오지 않는다.
+     * 이 경로로 부르면 현재 기기의 쿠키 계열은 유지하고 나머지 기기의 로그인을 끊는다. 규칙·오류는 /api/users/me/password 와 같다.
+     * 액세스 토큰 필수(없으면 401). 성공 200 + 새 액세스 토큰({@link TokenResponse}): 비밀번호를 바꾸면 이전에 발급된 액세스 토큰은 거부되므로 프런트는 응답 토큰으로 바꾼다.
+     */
+    @PatchMapping("/password")
+    public ResponseEntity<TokenResponse> changePassword(@AuthenticationPrincipal AuthUserPrincipal principal,
+                                               @Valid @RequestBody PasswordRequests.ChangeRequest request,
+                                               HttpServletRequest http) {
+        if (principal == null) {
+            throw new InsufficientAuthenticationException("로그인이 필요합니다.");
+        }
+        TokenResponse token = passwordResetService.changePassword(principal.userId(), principal.email(), clientIpResolver.resolve(http),
+                request.currentPassword(), request.newPassword(), refreshCookie.read(http));
+        return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store").body(token);
     }
 
     private ResponseEntity<TokenResponse> tokenResponse(AuthService.IssuedTokens tokens) {

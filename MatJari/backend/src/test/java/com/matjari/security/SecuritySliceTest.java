@@ -82,6 +82,8 @@ class SecuritySliceTest {
     private com.matjari.security.AuthRateLimiter authRateLimiter;
     @MockBean
     private com.matjari.security.ClientIpResolver clientIpResolver;
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.matjari.service.PasswordResetService passwordResetService;
 
     @BeforeEach
     void setUp() {

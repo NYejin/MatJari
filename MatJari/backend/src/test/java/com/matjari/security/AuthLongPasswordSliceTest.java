@@ -59,6 +59,8 @@ class AuthLongPasswordSliceTest {
     private com.matjari.security.AuthRateLimiter authRateLimiter;
     @MockBean
     private com.matjari.security.ClientIpResolver clientIpResolver;
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.matjari.service.PasswordResetService passwordResetService;
 
     @Test
     void loginWithPasswordOver72BytesIs400Not500() throws Exception {

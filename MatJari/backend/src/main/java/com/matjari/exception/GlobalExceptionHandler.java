@@ -95,6 +95,22 @@ public class GlobalExceptionHandler {
                 .header("Retry-After", String.valueOf(e.getRetryAfterSeconds())).body(body);
     }
 
+    // 400 — 비밀번호 재설정 링크가 없음·만료·사용됨·무효(구분하지 않는다): {"code":"INVALID_RESET_TOKEN","message":..}
+    @ExceptionHandler(com.matjari.service.PasswordResetService.InvalidResetTokenException.class)
+    public ResponseEntity<Map<String, String>> handleInvalidResetToken(
+            com.matjari.service.PasswordResetService.InvalidResetTokenException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(Map.of("code", "INVALID_RESET_TOKEN", "message", e.getMessage()));
+    }
+
+    // 503 — 메일을 보낼 수 없는 설정이라 비밀번호 재설정을 쓸 수 없음: {"code":"PASSWORD_RESET_UNAVAILABLE","message":..}
+    @ExceptionHandler(com.matjari.service.PasswordResetService.PasswordResetUnavailableException.class)
+    public ResponseEntity<Map<String, String>> handlePasswordResetUnavailable(
+            com.matjari.service.PasswordResetService.PasswordResetUnavailableException e) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(Map.of("code", "PASSWORD_RESET_UNAVAILABLE", "message", e.getMessage()));
+    }
+
     // 429 — 이메일 인증번호 발송 제한(EMAIL_CODE_COOLDOWN/EMAIL_CODE_RATE_LIMITED, Retry-After 포함), 발송 실패는 503 EMAIL_SEND_FAILED
     @ExceptionHandler(com.matjari.service.EmailVerificationService.EmailCodeRateLimitedException.class)
     public ResponseEntity<Map<String, Object>> handleEmailCodeRateLimited(

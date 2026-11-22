@@ -62,6 +62,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     // 식별은 토큰 sub(userId) 기준 — email 클레임은 변경될 수 있어 식별자로 쓰지 않는다
                     Long userId = jwtTokenProvider.getUserId(token);
                     AuthUserPrincipal principal = userDetailsService.loadUserById(userId);
+                    // 비밀번호를 바꾼 뒤에는 그 전에 발급된 액세스 토큰을 거부한다(401, 프런트가 쿠키로 재발급한다)
+                    if (principal.isIssuedBeforeCredentialChange(jwtTokenProvider.getIssuedAt(token))) {
+                        throw new UsernameNotFoundException("비밀번호 변경 전에 발급된 토큰입니다.");
+                    }
 
                     authenticate(request, principal);
                 }

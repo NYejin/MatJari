@@ -61,6 +61,10 @@ class UserSocialControllerSliceTest {
     private UserService userService;
     @MockBean
     private com.matjari.service.WithdrawService withdrawService;
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.matjari.service.PasswordResetService passwordResetService;
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.matjari.security.ClientIpResolver clientIpResolver;
     @MockBean
     private SocialAccountService socialAccountService;
 

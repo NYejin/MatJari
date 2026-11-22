@@ -151,6 +151,70 @@ class AuthHardeningTest {
     }
 
     @Nested
+    class PasswordResetLimit {
+        private final MutableClock clock = new MutableClock();
+        private final AuthRateLimiter limiter = new AuthRateLimiter(clock);
+
+        @Test
+        void 요청은_IP당_10분_5회_초과가_429_PASSWORD_RESET_RATE_LIMITED() {
+            for (int i = 0; i < 5; i++) {
+                limiter.acquirePasswordResetRequest("1.1.1.1", "u" + i + "@x.com");
+            }
+            assertThatThrownBy(() -> limiter.acquirePasswordResetRequest("1.1.1.1", "u9@x.com"))
+                    .isInstanceOfSatisfying(AuthRateLimitedException.class, e -> {
+                        assertThat(e.getCode()).isEqualTo("PASSWORD_RESET_RATE_LIMITED");
+                        assertThat(e.getRetryAfterSeconds()).isBetween(1L, 600L);
+                    });
+            assertThatCode(() -> limiter.acquirePasswordResetRequest("2.2.2.2", "u9@x.com")).doesNotThrowAnyException();
+            clock.advanceSeconds(601);
+            assertThatCode(() -> limiter.acquirePasswordResetRequest("1.1.1.1", "u9@x.com")).doesNotThrowAnyException();
+        }
+
+        @Test
+        void 요청은_이메일당_1시간_3회이고_대소문자_공백을_같은_이메일로_본다() {
+            limiter.acquirePasswordResetRequest("1.1.1.1", "a@x.com");
+            limiter.acquirePasswordResetRequest("2.2.2.2", " A@X.com");
+            limiter.acquirePasswordResetRequest("3.3.3.3", "a@x.com");
+            assertThatThrownBy(() -> limiter.acquirePasswordResetRequest("4.4.4.4", "a@x.com"))
+                    .isInstanceOfSatisfying(AuthRateLimitedException.class, e -> {
+                        assertThat(e.getCode()).isEqualTo("PASSWORD_RESET_RATE_LIMITED");
+                        assertThat(e.getRetryAfterSeconds()).isBetween(1L, 3600L);
+                    });
+            clock.advanceSeconds(3601);
+            assertThatCode(() -> limiter.acquirePasswordResetRequest("4.4.4.4", "a@x.com")).doesNotThrowAnyException();
+        }
+
+        @Test
+        void 이메일_한도에_걸린_요청은_IP_횟수를_쓰지_않는다() {
+            for (int i = 0; i < 3; i++) {
+                limiter.acquirePasswordResetRequest("1.1.1.1", "a@x.com");
+            }
+            for (int i = 0; i < 10; i++) {
+                assertThatThrownBy(() -> limiter.acquirePasswordResetRequest("1.1.1.1", "a@x.com"))
+                        .isInstanceOf(AuthRateLimitedException.class);
+            }
+            // IP 5회 중 3회만 썼으므로 다른 이메일 2건은 더 보낼 수 있다
+            limiter.acquirePasswordResetRequest("1.1.1.1", "b@x.com");
+            limiter.acquirePasswordResetRequest("1.1.1.1", "c@x.com");
+            assertThatThrownBy(() -> limiter.acquirePasswordResetRequest("1.1.1.1", "d@x.com"))
+                    .isInstanceOf(AuthRateLimitedException.class);
+        }
+
+        @Test
+        void 확정은_IP당_10분_20회() {
+            for (int i = 0; i < 20; i++) {
+                limiter.acquirePasswordResetConfirm("1.1.1.1");
+            }
+            assertThatThrownBy(() -> limiter.acquirePasswordResetConfirm("1.1.1.1"))
+                    .isInstanceOfSatisfying(AuthRateLimitedException.class,
+                            e -> assertThat(e.getCode()).isEqualTo("PASSWORD_RESET_RATE_LIMITED"));
+            assertThatCode(() -> limiter.acquirePasswordResetConfirm("2.2.2.2")).doesNotThrowAnyException();
+            clock.advanceSeconds(601);
+            assertThatCode(() -> limiter.acquirePasswordResetConfirm("1.1.1.1")).doesNotThrowAnyException();
+        }
+    }
+
+    @Nested
     class ClientIp {
         private final ClientIpResolver resolver = new ClientIpResolver(
                 "127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16".split(","));

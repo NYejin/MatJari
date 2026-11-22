@@ -3,6 +3,8 @@ import AppLayout from "./components/AppLayout";
 import ProtectedRoute from "./components/ProtectedRoute";
 import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 import SocialCallbackPage from "./pages/SocialCallbackPage";
 import HomePage from "./pages/HomePage";
 import PerformanceDetailPage from "./pages/PerformanceDetailPage";
@@ -48,6 +50,9 @@ export default function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
+          {/* 비밀번호 재설정: 공개(로그인 상태에서도 열린다) */}
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/auth/callback" element={<SocialCallbackPage />} />
           {/* 개인정보처리방침: 공개 (로그인 불필요, 리다이렉트 없음) */}
           <Route path="/privacy" element={<PrivacyPolicyPage />} />

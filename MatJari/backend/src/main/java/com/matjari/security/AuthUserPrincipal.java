@@ -14,8 +14,30 @@ import java.util.List;
  * 컨트롤러에서는 {@code @AuthenticationPrincipal AuthUserPrincipal principal}로 받는다.
  * 비밀번호 해시는 담지 않는다 (stateless JWT 인증이라 필요 없음).
  */
-public record AuthUserPrincipal(Long userId, String email, Collection<? extends GrantedAuthority> authorities)
+public record AuthUserPrincipal(Long userId, String email, Collection<? extends GrantedAuthority> authorities,
+                                 java.time.Instant credentialsChangedAt)
         implements Principal {
+
+    /** credentialsChangedAt 없이 만드는 호출(테스트·정지 예외 경로). */
+    public AuthUserPrincipal(Long userId, String email, Collection<? extends GrantedAuthority> authorities) {
+        this(userId, email, authorities, null);
+    }
+
+    /**
+     * 비밀번호 변경 시각(초 단위 내림)보다 먼저 발급된 토큰인가. 같은 초에 발급된 토큰은 허용한다(변경 직후 새로 받은 토큰이 막히지 않게).
+     * 변경 기록이 없거나 iat 를 알 수 없으면 false.
+     */
+    public boolean isIssuedBeforeCredentialChange(java.time.Instant issuedAt) {
+        if (credentialsChangedAt == null || issuedAt == null) {
+            return false;
+        }
+        return issuedAt.getEpochSecond() < credentialsChangedAt.getEpochSecond();
+    }
+
+    /** DB 의 변경 시각(KST 벽시계)을 포함한 주체. */
+    public static AuthUserPrincipal of(Long userId, String email, UserRole role, java.time.Instant credentialsChangedAt) {
+        return new AuthUserPrincipal(userId, email, List.of(new SimpleGrantedAuthority("ROLE_" + role.name())), credentialsChangedAt);
+    }
 
     public static AuthUserPrincipal of(Long userId, String email) {
         return of(userId, email, UserRole.USER);

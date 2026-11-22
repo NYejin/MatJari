@@ -49,6 +49,14 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long
                                 @Param("reason") RefreshToken.RevokeReason reason,
                                 @Param("now") LocalDateTime now);
 
+    /** 비밀번호 변경: keepFamilyId 계열을 뺀 나머지 살아 있는 행을 폐기한다(현재 기기 로그인 유지). users 행 FOR UPDATE 를 잡은 트랜잭션 안에서 부른다. */
+    @Modifying(flushAutomatically = true)
+    @Query("update RefreshToken t set t.revokedAt = :now, t.revokeReason = :reason "
+            + "where t.userId = :userId and t.revokedAt is null and t.familyId <> :keepFamilyId")
+    int revokeAllActiveByUserIdExceptFamily(@Param("userId") Long userId, @Param("keepFamilyId") String keepFamilyId,
+                                            @Param("reason") RefreshToken.RevokeReason reason,
+                                            @Param("now") LocalDateTime now);
+
     /**
      * 만료 행 배치 삭제(폐기 여부와 무관, expires_at &lt; cutoff). idx_refresh_token_expires 범위로 오래된 것부터 최대 limit 개를 지우고
      * 지운 행 수를 돌려준다. users 잠금 밖의 짧은 별도 트랜잭션에서 부른다(스케줄러 없이 로그인·재발급 때 가끔).

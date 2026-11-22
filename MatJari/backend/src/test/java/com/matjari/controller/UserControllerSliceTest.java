@@ -59,6 +59,10 @@ class UserControllerSliceTest {
     private UserService userService;
     @MockBean
     private WithdrawService withdrawService;
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.matjari.service.PasswordResetService passwordResetService;
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.matjari.security.ClientIpResolver clientIpResolver;
 
     @BeforeEach
     void setUp() {

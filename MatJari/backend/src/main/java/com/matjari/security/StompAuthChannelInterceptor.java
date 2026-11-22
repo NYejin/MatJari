@@ -111,6 +111,9 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
                 throw reject(sessionId, "unauthorized");
             }
             principal = userDetailsService.loadUserById(jwtTokenProvider.getUserId(token));
+            if (principal.isIssuedBeforeCredentialChange(jwtTokenProvider.getIssuedAt(token))) {
+                throw reject(sessionId, "unauthorized");   // 비밀번호 변경 전에 발급된 토큰
+            }
             expiresAt = jwtTokenProvider.getExpiration(token);
         } catch (StompRejectedException e) {
             throw e;

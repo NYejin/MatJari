@@ -13,6 +13,7 @@ import {
   type AdminReport,
   type ReportMessage,
 } from "../api/adminReports";
+import ChatImage from "../components/ChatImage";
 import { button, input, ui } from "../components/adminUi";
 
 // 관리자 신고 상세·처리 (/admin/reports/:id). 채팅 근거 메시지는 최신부터 불러오고 '이전 메시지 더 보기'로 위로 확장한다.
@@ -227,7 +228,13 @@ function Evidence({ reportId }: { reportId: number }) {
               <p className={ui.muted}>
                 {m.senderNickname} · {formatKstDateTime(m.createdAt)}
               </p>
-              <p className="text-xs/[1.5] break-words whitespace-pre-wrap text-gray-900">{m.content}</p>
+              {m.hasImage ? (
+                <div className="pt-1">
+                  <ChatImage mine={false} expired={m.imageExpired === true} maxWidth={120} load={(signal) => adminReportsApi.messageImage(reportId, m.id, signal)} />
+                </div>
+              ) : (
+                <p className="text-xs/[1.5] break-words whitespace-pre-wrap text-gray-900">{m.content}</p>
+              )}
             </li>
           ))}
         </ul>

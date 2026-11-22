@@ -5,7 +5,11 @@ import com.matjari.security.AuthUserPrincipal;
 import com.matjari.service.ChatService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.web.multipart.MultipartFile;
+import com.matjari.service.ChatImageStore;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -35,6 +39,36 @@ public class ChatController {
                                                  @AuthenticationPrincipal AuthUserPrincipal principal) {
         ChatService.SendResult result = chatService.send(principal.userId(), id, request.content(), request.clientMessageId());
         return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK).body(result.message());
+    }
+
+    /**
+     * 사진 전송(V30, multipart: image 파일 + clientMessageId) -> 201 / 200(재전송). 텍스트 전송과 같은 규칙 + 400 image(형식·크기·화소),
+     * 413 IMAGE_TOO_LARGE(5MiB 초과), 429 CHAT_IMAGE_RATE_LIMITED(하루 30장).
+     */
+    @PostMapping(path = "/image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ChatDtos.Message> sendImage(@PathVariable Long id,
+                                                      @RequestParam(required = false) MultipartFile image,
+                                                      @RequestParam(required = false) String clientMessageId,
+                                                      @AuthenticationPrincipal AuthUserPrincipal principal) {
+        ChatService.SendResult result = chatService.sendImage(principal.userId(), id, image, clientMessageId);
+        return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK).body(result.message());
+    }
+
+    /** 사진 바이트. 참여자만(404), 지워졌으면 410 IMAGE_EXPIRED. 캐시·형식 추측·내려받기를 막는 헤더를 고정한다. */
+    @GetMapping("/{messageId}/image")
+    public ResponseEntity<byte[]> image(@PathVariable Long id, @PathVariable Long messageId,
+                                        @AuthenticationPrincipal AuthUserPrincipal principal) {
+        return imageResponse(chatService.image(principal.userId(), id, messageId));
+    }
+
+    /** 참여자·관리자 경로가 함께 쓰는 사진 응답 헤더. */
+    public static ResponseEntity<byte[]> imageResponse(ChatImageStore.ImageData data) {
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(data.contentType()))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline")
+                .header("X-Content-Type-Options", "nosniff")
+                .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
+                .body(data.bytes());
     }
 
     /**

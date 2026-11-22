@@ -14,8 +14,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -58,6 +64,8 @@ public class ChatService {
     private final ChatMessageRepository messageRepository;
     private final ChatReadStateRepository readStateRepository;
     private final ChatRateLimiter rateLimiter;
+    private final ChatImageRateLimiter imageRateLimiter;
+    private final ChatImageStore imageStore;
     private final NotificationService notificationService;
     private final ObjectProvider<ChatPushPublisher> publisherProvider;
     private final Clock clock;
@@ -67,6 +75,8 @@ public class ChatService {
                        ChatMessageRepository messageRepository,
                        ChatReadStateRepository readStateRepository,
                        ChatRateLimiter rateLimiter,
+                       ChatImageRateLimiter imageRateLimiter,
+                       ChatImageStore imageStore,
                        NotificationService notificationService,
                        ObjectProvider<ChatPushPublisher> publisherProvider,
                        Clock clock,
@@ -75,6 +85,8 @@ public class ChatService {
         this.messageRepository = messageRepository;
         this.readStateRepository = readStateRepository;
         this.rateLimiter = rateLimiter;
+        this.imageRateLimiter = imageRateLimiter;
+        this.imageStore = imageStore;
         this.notificationService = notificationService;
         this.publisherProvider = publisherProvider;
         this.clock = clock;
@@ -91,6 +103,38 @@ public class ChatService {
     public SendResult send(Long userId, Long matchId, String rawContent, String clientMessageId) {
         String content = normalizeContent(rawContent);
         validateClientMessageId(clientMessageId);
+        return doSend(userId, matchId, content, clientMessageId, null);
+    }
+
+    /**
+     * 사진 전송(V30). 텍스트 {@link #send}와 같은 규칙(참여자 404, CHATTING·RESERVED 만 409, clientMessageId 멱등, 매칭 FOR UPDATE 첫 쿼리, 커밋 뒤 전파,
+     * CHAT_MESSAGE 알림, 채팅 속도 제한)에 더해 하루 사진 상한({@link ChatImageRateLimiter})을 새 INSERT 직전에 소모한다.
+     * 사진 검증·재인코딩(메타데이터 제거)은 <b>트랜잭션 밖</b>에서 먼저 한다(CPU 가 큰 일을 매칭 행 잠금 안에서 하지 않는다). 파일은 잠금 안에서
+     * INSERT 직전에 쓰고, INSERT 실패·롤백이면 지운다(afterCompletion). 멱등 재전송은 파일을 새로 쓰지 않는다.
+     */
+    public SendResult sendImage(Long userId, Long matchId, MultipartFile image, String clientMessageId) {
+        validateClientMessageId(clientMessageId);
+        requireParticipant(userId, matchId);   // 비참여자에게 이미지 처리(CPU)를 시키지 않고 먼저 404
+        ChatImageProcessor.Processed processed = ChatImageProcessor.process(readUpload(image));
+        return doSend(userId, matchId, "", clientMessageId, processed);
+    }
+
+    private static byte[] readUpload(MultipartFile image) {
+        if (image == null || image.isEmpty()) {
+            throw new FieldValidationException("image", "보낼 이미지를 선택해 주세요.");
+        }
+        if (image.getSize() > ChatImageProcessor.MAX_BYTES) {
+            throw new MaxUploadSizeExceededException(ChatImageProcessor.MAX_BYTES);
+        }
+        try {
+            return image.getBytes();
+        } catch (IOException e) {
+            throw new UncheckedIOException("업로드 파일을 읽지 못했습니다.", e);
+        }
+    }
+
+    private SendResult doSend(Long userId, Long matchId, String content, String clientMessageId,
+                              ChatImageProcessor.Processed image) {
         ExchangeMatch seen = requireParticipant(userId, matchId);   // 트랜잭션 밖: 잠금 읽기가 첫 일관 읽기가 되도록
         List<Long> recipients = List.of(seen.getUserAId(), seen.getUserBId());
 
@@ -110,7 +154,25 @@ public class ChatService {
                         "status", m.getStatus().name(), "action", "SEND"));
             }
             rateLimiter.acquire(userId);   // 새 INSERT 일 때만 소모(메모리 연산이라 매칭 행 잠금을 오래 잡지 않는다)
-            ChatMessage saved = messageRepository.saveAndFlush(ChatMessage.of(matchId, userId, content, clientMessageId));
+            ChatMessage entity;
+            String storedKey = null;
+            if (image == null) {
+                entity = ChatMessage.of(matchId, userId, content, clientMessageId);
+            } else {
+                imageRateLimiter.acquire(userId);
+                storedKey = imageStore.store(image.bytes());   // 파일을 먼저 쓰고 INSERT, 실패·롤백이면 지운다
+                entity = ChatMessage.ofImage(matchId, userId, clientMessageId, storedKey);
+                deleteFileUnlessCommitted(storedKey);
+            }
+            ChatMessage saved;
+            try {
+                saved = messageRepository.saveAndFlush(entity);
+            } catch (RuntimeException e) {
+                if (storedKey != null) {
+                    imageStore.delete(storedKey);
+                }
+                throw e;
+            }
             // 알림은 트랜잭션 맨 끝(저장 성공 뒤): 상대의 (수신자, 매칭)당 1행을 만들거나 되살린다. 푸시는 커밋 뒤 신호다.
             notificationService.notifyChatMessage(counterpartOf(m, userId), matchId);
             return new Stored(saved, true);
@@ -197,8 +259,35 @@ public class ChatService {
         return userId.equals(m.getUserAId()) ? m.getUserBId() : m.getUserAId();
     }
 
+    /** 트랜잭션이 커밋되지 않고 끝나면(롤백·커밋 실패) 방금 쓴 사진 파일을 지운다. 트랜잭션 동기화가 없으면(단위 테스트) 아무것도 하지 않는다. */
+    private void deleteFileUnlessCommitted(String key) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status != STATUS_COMMITTED) {
+                    imageStore.delete(key);
+                }
+            }
+        });
+    }
+
+    // ---------------------------------------------------------------- 사진 조회
+
+    /** 사진 바이트(V30). 참여자만(비참여자·없는 매칭·그 매칭의 메시지가 아니거나 사진이 없으면 404), 지워졌으면 410 IMAGE_EXPIRED. 종료된 매칭도 열람 가능. */
+    public ChatImageStore.ImageData image(Long userId, Long matchId, Long messageId) {
+        requireParticipant(userId, matchId);
+        ChatMessage message = messageRepository.findById(messageId)
+                .filter(m -> m.getMatchId().equals(matchId))
+                .orElseThrow(() -> new NotFoundException("사진을 찾을 수 없습니다."));
+        return imageStore.load(message);
+    }
+
     private static ChatDtos.Message toDto(ChatMessage m) {
-        return new ChatDtos.Message(m.getId(), m.getSenderId(), m.getContent(), m.getClientMessageId(), m.getCreatedAt());
+        return new ChatDtos.Message(m.getId(), m.getSenderId(), m.getContent(), m.getClientMessageId(), m.getCreatedAt(),
+                m.hasImage(), m.isImageExpired());
     }
 
     private void publishMessage(Long matchId, ChatDtos.Message dto, List<Long> recipients) {

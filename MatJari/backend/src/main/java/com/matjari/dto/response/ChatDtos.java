@@ -23,7 +23,11 @@ public final class ChatDtos {
             String content,
             String clientMessageId,
             @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = DateTimeFormats.SECOND)
-            LocalDateTime createdAt
+            LocalDateTime createdAt,
+            /** 사진 메시지인가(content 는 빈 문자열). 사진은 GET .../messages/{messageId}/image 로 받는다. */
+            boolean hasImage,
+            /** 사진이 보관 기간이 지나 지워졌는가(그러면 image 요청이 410 IMAGE_EXPIRED). */
+            boolean imageExpired
     ) {}
 
     /** 목록 응답: messages 는 항상 id 오름차순. before/최신 조회에서 hasMore = 더 오래된 메시지가 있음, after 조회에서 hasMore = 더 새 메시지가 있음. */

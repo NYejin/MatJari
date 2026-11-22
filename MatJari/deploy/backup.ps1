@@ -64,8 +64,9 @@ try {
 
     # 덤프는 컨테이너 안에서 파일로 만든 뒤 docker cp 로 꺼낸다(PowerShell 파이프는 바이너리를 망가뜨린다). 비밀번호는 컨테이너 환경변수로만 쓴다.
     # pipefail 로 mysqldump 실패를 잡고, 끝 줄 '-- Dump completed' 로 중간에 끊기지 않았는지 확인한다(실패하면 mysqldump 오류를 로그에 남긴다)
+    # Windows PowerShell 5.1 은 네이티브 인자 안의 큰따옴표를 지우므로 bash 명령에 큰따옴표를 쓰지 않는다(비밀번호는 MYSQL_PWD 대입으로 넘긴다)
     Run 'DB 덤프 (컨테이너 안에서 mysqldump | gzip)' {
-        docker exec $mysqlId bash -c 'set -o pipefail; rm -f /tmp/matjari-backup.sql.gz /tmp/matjari-backup.err; if mysqldump -u root -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --triggers --no-tablespaces matjari 2>/tmp/matjari-backup.err | gzip > /tmp/matjari-backup.sql.gz && gzip -dc /tmp/matjari-backup.sql.gz | tail -n 1 | grep -q "Dump completed"; then exit 0; else grep -v "Using a password" /tmp/matjari-backup.err >&2; echo "dump failed or incomplete" >&2; exit 1; fi'
+        docker exec $mysqlId bash -c 'set -o pipefail; rm -f /tmp/matjari-backup.sql.gz /tmp/matjari-backup.err; if MYSQL_PWD=$MYSQL_ROOT_PASSWORD mysqldump -uroot --single-transaction --routines --triggers --no-tablespaces matjari 2>/tmp/matjari-backup.err | gzip > /tmp/matjari-backup.sql.gz && gzip -dc /tmp/matjari-backup.sql.gz | tail -n 1 | grep -q Dump.completed; then exit 0; else cat /tmp/matjari-backup.err >&2; echo dump-failed-or-incomplete >&2; exit 1; fi'
     }
     Run 'DB 덤프 꺼내기' { docker cp "${mysqlId}:/tmp/matjari-backup.sql.gz" (Join-Path $target 'db.sql.gz') }
     Run '컨테이너 임시 파일 삭제' { docker exec $mysqlId rm -f /tmp/matjari-backup.sql.gz /tmp/matjari-backup.err }

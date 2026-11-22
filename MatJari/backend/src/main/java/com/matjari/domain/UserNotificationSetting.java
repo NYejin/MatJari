@@ -29,6 +29,10 @@ public class UserNotificationSetting {
     @Column(name = "last_email_at", insertable = false, updatable = false)
     private LocalDateTime lastEmailAt;
 
+    /** 이메일 소유가 확인된 시각. NULL 이면 미확인이라 알림 메일을 보내지 않는다. */
+    @Column(name = "email_verified_at", insertable = false, updatable = false)
+    private LocalDateTime emailVerifiedAt;
+
     @Column(name = "updated_at", nullable = false, insertable = false, updatable = false)
     private LocalDateTime updatedAt;
 }

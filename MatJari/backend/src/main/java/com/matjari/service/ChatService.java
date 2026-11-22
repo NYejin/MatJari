@@ -70,6 +70,7 @@ public class ChatService {
     private final ObjectProvider<ChatPushPublisher> publisherProvider;
     private final Clock clock;
     private final TransactionTemplate tx;
+    private final ChatImageProcessingGate imageGate;
 
     public ChatService(ExchangeMatchRepository matchRepository,
                        ChatMessageRepository messageRepository,
@@ -80,7 +81,9 @@ public class ChatService {
                        NotificationService notificationService,
                        ObjectProvider<ChatPushPublisher> publisherProvider,
                        Clock clock,
-                       PlatformTransactionManager transactionManager) {
+                       PlatformTransactionManager transactionManager,
+                       ChatImageProcessingGate imageGate) {
+        this.imageGate = imageGate;
         this.matchRepository = matchRepository;
         this.messageRepository = messageRepository;
         this.readStateRepository = readStateRepository;
@@ -114,8 +117,16 @@ public class ChatService {
      */
     public SendResult sendImage(Long userId, Long matchId, MultipartFile image, String clientMessageId) {
         validateClientMessageId(clientMessageId);
-        requireParticipant(userId, matchId);   // 비참여자에게 이미지 처리(CPU)를 시키지 않고 먼저 404
-        ChatImageProcessor.Processed processed = ChatImageProcessor.process(readUpload(image));
+        ExchangeMatch seen = requireParticipant(userId, matchId);   // 비참여자에게 이미지 처리(CPU)를 시키지 않고 먼저 404
+        // 닫힌 매칭(CANCELED·COMPLETED)이면 디코드 전에 409 로 끝낸다(잠금 없는 사전 확인; 트랜잭션 안의 검사는 그대로 유지).
+        // 같은 clientMessageId 의 이미 저장된 메시지가 있으면(응답 유실 뒤 재시도) 사전 확인은 통과시켜 기존 멱등 규칙을 따른다.
+        if (seen.getStatus() != ExchangeMatchStatus.CHATTING && seen.getStatus() != ExchangeMatchStatus.RESERVED
+                && messageRepository.findByClientMessageIdAndSenderId(clientMessageId, userId).isEmpty()) {
+            throw new ConflictException(CLOSED_MESSAGE, Map.of("code", ExchangeMatchService.STATE_CONFLICT_CODE,
+                    "status", seen.getStatus().name(), "action", "SEND"));
+        }
+        // 처리 시도를 사용자별로 세고(실패 포함) 전역 동시 처리 수를 제한한다(디코드 메모리 고갈 방지)
+        ChatImageProcessor.Processed processed = imageGate.run(userId, () -> ChatImageProcessor.process(readUpload(image)));
         return doSend(userId, matchId, "", clientMessageId, processed);
     }
 

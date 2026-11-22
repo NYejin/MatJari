@@ -29,6 +29,12 @@ public class ChatImageRateLimiter {
             this.retryAfterSeconds = retryAfterSeconds;
         }
 
+        /** 문구를 직접 정하는 생성자(처리 시도 분당 제한 등). */
+        public ChatImageRateLimitedException(String message, long retryAfterSeconds) {
+            super(message);
+            this.retryAfterSeconds = retryAfterSeconds;
+        }
+
         public String getCode() {
             return CODE;
         }

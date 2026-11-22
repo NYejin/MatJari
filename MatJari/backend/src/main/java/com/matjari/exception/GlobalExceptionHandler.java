@@ -82,6 +82,17 @@ public class GlobalExceptionHandler {
                 .header("Retry-After", String.valueOf(e.getRetryAfterSeconds())).body(body);
     }
 
+    // 503 — 채팅 사진 동시 처리 한도(H1): {"code":"SERVER_BUSY","message":..,"retryAfterSeconds":n} + Retry-After 헤더
+    @ExceptionHandler(com.matjari.service.ChatImageProcessingGate.ChatImageBusyException.class)
+    public ResponseEntity<Map<String, Object>> handleChatImageBusy(com.matjari.service.ChatImageProcessingGate.ChatImageBusyException e) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("code", e.getCode());
+        body.put("message", e.getMessage());
+        body.put("retryAfterSeconds", e.getRetryAfterSeconds());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header("Retry-After", String.valueOf(e.getRetryAfterSeconds())).body(body);
+    }
+
     // 410 — 보관 기간이 지나 지워진 채팅 사진(V30): {"code":"IMAGE_EXPIRED","message":..}
     @ExceptionHandler(com.matjari.service.ChatImageStore.ImageExpiredException.class)
     public ResponseEntity<Map<String, String>> handleChatImageExpired(com.matjari.service.ChatImageStore.ImageExpiredException e) {

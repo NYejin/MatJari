@@ -5,6 +5,7 @@ import com.matjari.repository.NotificationMailRepository;
 import com.matjari.repository.NotificationMailRepository.Pending;
 import com.matjari.repository.NotificationMailRepository.Recipient;
 import com.matjari.service.mail.EmailSender;
+import com.matjari.service.mail.MailDeliveryPolicy;
 import com.matjari.service.social.SocialProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -22,6 +23,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
 /**
  * 메일 알림 (V29). 사이트 밖에 있는 사용자에게 아직 안 읽은 알림을 <b>사용자당 메일 1통(요약)</b>으로 알린다.
@@ -46,7 +49,15 @@ import java.util.Set;
 public class NotificationMailService {
 
     static final int SCAN_LIMIT = 5000;
-    static final int MAX_TITLE_LENGTH = 100;
+    static final int MAX_TITLE_LENGTH = 60;
+    /** 한 주기에서 발송이 이만큼 연속 실패하면 그 주기를 끝낸다(SMTP 장애 때 5초 제한 시간으로 수천 명을 훑지 않는다). */
+    static final int MAX_CONSECUTIVE_FAILURES = 2;
+    static final String LINK_MASK = "[링크 생략]";
+    /** URL 모양: 스킴, www., 흔한 최상위 도메인이 붙은 호스트(+경로). 공연 제목으로 피싱 링크가 메일 본문에 실리는 것을 막는다. */
+    private static final Pattern URL_LIKE = Pattern.compile(
+            "(?i)(?:[a-z][a-z0-9+.-]*://\\S*|www\\.\\S*|(?<![\\p{L}\\p{N}])[a-z0-9-]+(?:\\.[a-z0-9-]+)*\\.(?:com|net|org|kr|co|io|me|app|dev|xyz|info|biz|link|site|shop|ly|gl|to|cc|tv|ai|top|club|online|store)(?![a-z0-9])\\S*)");
+
+    private enum Outcome { SENT, SKIPPED, FAILED }
 
     private final NotificationMailRepository repository;
     private final EmailSender emailSender;
@@ -59,8 +70,12 @@ public class NotificationMailService {
     private final int maxPerHour;
     /** 최근 1시간에 보낸 메일의 발송 시각(시간당 상한 판단용, 메모리). */
     private final ArrayDeque<LocalDateTime> sentTimes = new ArrayDeque<>();
+    /** 사용자별 마지막 발송 시각(메모리 쿨다운). DB 기록(last_email_at·emailed_at)이 실패해도 1분마다 재발송하지 않게 한다. */
+    private final ConcurrentHashMap<Long, LocalDateTime> lastSentMemory = new ConcurrentHashMap<>();
+    private final MailDeliveryPolicy mailDeliveryPolicy;
 
     public NotificationMailService(NotificationMailRepository repository, EmailSender emailSender, SocialProperties socialProperties, Clock clock,
+                                   MailDeliveryPolicy mailDeliveryPolicy,
                                    @Value("${matjari.notification-mail.enabled:true}") boolean enabled,
                                    @Value("${matjari.notification-mail.delay-minutes:5}") long delayMinutes,
                                    @Value("${matjari.notification-mail.lookback-hours:24}") long lookbackHours,
@@ -70,6 +85,10 @@ public class NotificationMailService {
         this.emailSender = emailSender;
         this.socialProperties = socialProperties;
         this.clock = clock;
+        this.mailDeliveryPolicy = mailDeliveryPolicy;
+        if (enabled && !mailDeliveryPolicy.canSendRealMail()) {
+            log.warn("알림 메일 발송을 끕니다: 메일 모드가 log(개발용)인데 백엔드 주소가 루프백이 아닙니다. 실제로 보내려면 MAIL_MODE=smtp 를 설정하세요.");
+        }
         this.enabled = enabled;
         this.delay = Duration.ofMinutes(delayMinutes);
         this.lookback = Duration.ofHours(lookbackHours);
@@ -83,7 +102,7 @@ public class NotificationMailService {
 
     /** 한 주기. 보낸 메일 수를 돌려준다. 어떤 예외도 밖으로 던지지 않는다(스케줄이 멈추면 안 된다). */
     public synchronized int runOnce() {
-        if (!enabled) {
+        if (!enabled || !mailDeliveryPolicy.canSendRealMail()) {
             return 0;
         }
         try {
@@ -107,41 +126,57 @@ public class NotificationMailService {
             byUser.computeIfAbsent(p.userId(), k -> new ArrayList<>()).add(p);
         }
         pruneSent(now);
+        lastSentMemory.values().removeIf(t -> t.isBefore(now.minus(userCooldown)));
         int sent = 0;
+        int failures = 0;
         for (Map.Entry<Long, List<Pending>> e : byUser.entrySet()) {
             if (sentTimes.size() >= maxPerHour) {
                 log.info("메일 알림 시간당 상한({}통)에 닿아 다음 주기로 미룹니다", maxPerHour);
                 break;
             }
+            Outcome outcome;
             try {
-                if (processUser(e.getKey(), e.getValue(), now, cutoff)) {
-                    sent++;
-                }
+                outcome = processUser(e.getKey(), e.getValue(), now, cutoff);
             } catch (RuntimeException ex) {
                 log.warn("메일 알림 처리 실패 (userId={}): {}", e.getKey(), ex.toString());
+                outcome = Outcome.SKIPPED;
+            }
+            if (outcome == Outcome.SENT) {
+                sent++;
+                failures = 0;
+            } else if (outcome == Outcome.FAILED) {
+                if (++failures >= MAX_CONSECUTIVE_FAILURES) {
+                    log.warn("메일 발송이 연속 {}번 실패해 이번 주기를 끝냅니다(다음 주기에 다시 시도)", failures);
+                    break;
+                }
+            } else {
+                failures = 0;
             }
         }
         return sent;
     }
 
-    private boolean processUser(Long userId, List<Pending> items, LocalDateTime now, LocalDateTime cutoff) {
+    private Outcome processUser(Long userId, List<Pending> items, LocalDateTime now, LocalDateTime cutoff) {
         Recipient recipient = repository.loadRecipient(userId);
-        if (recipient == null || recipient.withdrawn() || !recipient.emailEnabled()
+        if (recipient == null || recipient.withdrawn() || !recipient.emailEnabled() || !recipient.emailVerified()
                 || !NotificationSettingService.isMailable(recipient.email())) {
-            repository.markEmailed(items.stream().map(Pending::id).toList(), now, cutoff);   // 메일 대상이 아니다: 다시 스캔하지 않는다
-            return false;
+            // 메일 대상이 아니다(꺼짐·이메일 소유 미확인·자리표시·탈퇴): 다시 스캔하지 않는다
+            repository.markEmailed(items.stream().map(Pending::id).toList(), now, cutoff);
+            return Outcome.SKIPPED;
         }
         if (repository.isSuspended(userId, now)) {
-            return false;   // 정지 중: 표시하지 않고 건너뛴다
+            return Outcome.SKIPPED;   // 정지 중: 표시하지 않고 건너뛴다
         }
-        if (recipient.lastEmailAt() != null && recipient.lastEmailAt().isAfter(now.minus(userCooldown))) {
-            return false;   // 쿨다운: 알림을 남겨 두면 다음 주기에 합쳐 보낸다
+        LocalDateTime lastMem = lastSentMemory.get(userId);
+        if ((recipient.lastEmailAt() != null && recipient.lastEmailAt().isAfter(now.minus(userCooldown)))
+                || (lastMem != null && lastMem.isAfter(now.minus(userCooldown)))) {
+            return Outcome.SKIPPED;   // 쿨다운: 알림을 남겨 두면 다음 주기에 합쳐 보낸다
         }
         // 발송 직전에 아직 안 읽은 것만 다시 확인한다(지연 동안 사이트에서 읽었으면 보내지 않는다)
         Set<Long> unread = new HashSet<>(repository.stillUnreadIds(items.stream().map(Pending::id).toList(), cutoff));
         List<Pending> toSend = items.stream().filter(p -> unread.contains(p.id())).toList();
         if (toSend.isEmpty()) {
-            return false;
+            return Outcome.SKIPPED;
         }
         List<Long> sendIds = toSend.stream().map(Pending::id).toList();
         Map<Long, String> titles = new LinkedHashMap<>();
@@ -154,13 +189,15 @@ public class NotificationMailService {
             emailSender.send(recipient.email(), subject, body);
         } catch (RuntimeException e) {
             log.warn("알림 메일 발송 실패 (userId={}, 건수={}): {}", userId, toSend.size(), e.getClass().getSimpleName());
-            return false;   // 그대로 두고 이번 주기는 건너뜀
+            return Outcome.FAILED;   // 그대로 두고 이번 주기는 건너뜀(연속 실패면 주기를 끝낸다)
         }
         sentTimes.addLast(now);
-        repository.markEmailed(sendIds, now, cutoff);
+        lastSentMemory.put(userId, now);   // 아래 DB 기록이 실패해도 쿨다운 안에는 다시 보내지 않는다
+        // 쿨다운 기준(last_email_at)을 먼저 기록하고 그다음 알림 처리 표시(emailed_at)를 한다: 둘 중 하나가 실패해도 1분마다 재발송하지 않는다
         repository.touchLastEmail(userId, now);
+        repository.markEmailed(sendIds, now, cutoff);
         log.info("알림 메일 발송 (userId={}, 건수={})", userId, toSend.size());
-        return true;
+        return Outcome.SENT;
     }
 
     private void pruneSent(LocalDateTime now) {
@@ -170,12 +207,16 @@ public class NotificationMailService {
         }
     }
 
-    /** 메일 본문 한 줄에 들어가도록 줄바꿈·제어 문자를 공백으로 바꾸고 길이를 제한한다. */
+    /**
+     * 메일 본문 한 줄에 들어가도록 줄바꿈·제어 문자를 공백으로 바꾸고, URL 모양 문자열(스킴·www.·도메인)은 {@value #LINK_MASK} 로 바꾼 뒤
+     * 60자로 자른다. 공연 제목은 누구나 등록할 수 있어 피싱 링크가 알림 메일에 실리지 않게 한다.
+     */
     static String cleanTitle(String title) {
         if (title == null) {
             return "";
         }
         String t = title.replaceAll("[\\p{Cntrl}\\s]+", " ").trim();
+        t = URL_LIKE.matcher(t).replaceAll(java.util.regex.Matcher.quoteReplacement(LINK_MASK));
         return t.length() > MAX_TITLE_LENGTH ? t.substring(0, MAX_TITLE_LENGTH) + "…" : t;
     }
 

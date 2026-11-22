@@ -77,7 +77,8 @@ class ChatImageServiceTest {
         when(provider.getIfAvailable(any(Supplier.class))).thenReturn(publisher);
         Clock clock = Clock.fixed(Instant.parse("2026-11-22T03:00:00Z"), ZoneId.of("Asia/Seoul"));
         service = new ChatService(matchRepository, messageRepository, mock(ChatReadStateRepository.class), rateLimiter, imageRateLimiter,
-                store, notificationService, provider, clock, PerformanceFixtures.noopTransactionManager());
+                store, notificationService, provider, clock, PerformanceFixtures.noopTransactionManager(),
+                new ChatImageProcessingGate(clock, 1000, 2));
 
         match = new ExchangeMatch();
         ReflectionTestUtils.setField(match, "id", MATCH);
@@ -113,6 +114,29 @@ class ChatImageServiceTest {
     }
 
     // ------------------------------------------------------------------ 전송
+
+    @Test
+    void 닫힌_매칭은_사진을_디코드하기_전에_409로_끝낸다() throws IOException {
+        ReflectionTestUtils.setField(match, "status", ExchangeMatchStatus.CANCELED);
+        // 깨진 바이트라면 처리 단계에서 400 이 났을 것이다: 409 라는 것은 처리 전에 상태를 먼저 확인했다는 뜻이다
+        MockMultipartFile broken = new MockMultipartFile("image", "x.jpg", "image/jpeg", new byte[]{1, 2, 3});
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.sendImage(ME, MATCH, broken, CID))
+                .isInstanceOf(com.matjari.exception.ConflictException.class);
+        assertThat(filesInChatDir()).isZero();
+        verify(matchRepository, org.mockito.Mockito.never()).findByIdForUpdate(MATCH);
+    }
+
+    @Test
+    void 닫힌_매칭이어도_이미_저장된_같은_clientMessageId_재전송은_사전_확인을_통과한다() throws IOException {
+        ReflectionTestUtils.setField(match, "status", ExchangeMatchStatus.COMPLETED);
+        ChatMessage stored = ChatMessage.ofImage(MATCH, ME, CID, "0f0f0f0f-0f0f-0f0f-0f0f-0f0f0f0f0f0f");
+        ReflectionTestUtils.setField(stored, "id", 650L);
+        ReflectionTestUtils.setField(stored, "createdAt", LocalDateTime.of(2026, 11, 22, 11, 0, 0));
+        when(messageRepository.findByClientMessageIdAndSenderId(CID, ME)).thenReturn(Optional.of(stored));
+        ChatService.SendResult r = service.sendImage(ME, MATCH, jpeg(), CID);
+        assertThat(r.created()).isFalse();
+        assertThat(filesInChatDir()).isZero();
+    }
 
     @Test
     void 사진_전송은_텍스트와_같은_순서로_저장하고_알림_전파까지_한다() throws IOException {

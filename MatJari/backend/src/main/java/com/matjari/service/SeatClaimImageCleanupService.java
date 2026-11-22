@@ -37,6 +37,8 @@ public class SeatClaimImageCleanupService {
     }
 
     private static final int IN_CHUNK = 100;
+    /** 고아 파일 후보를 한 번에 훑는 최대 개수(지운 개수가 아니라 훑은 개수 상한). */
+    static final int ORPHAN_SCAN_LIMIT = 5_000;
 
     private final SeatClaimRepository claimRepository;
     private final SeatClaimImageStore imageStore;
@@ -99,12 +101,16 @@ public class SeatClaimImageCleanupService {
     }
 
     private int deleteOrphanFiles() {
-        List<String> keys = imageStore.listKeysOlderThan(Instant.now(clock).minus(grace), batch);
+        // 오래된 파일을 batch 개만 훑으면 모두 DB 가 가리키는 파일일 때 그 뒤의 고아가 영영 안 보인다. 큰 상한까지 훑고, 지운 개수로 batch 를 센다.
+        List<String> keys = imageStore.listKeysOlderThan(Instant.now(clock).minus(grace), ORPHAN_SCAN_LIMIT);
         int deleted = 0;
-        for (int from = 0; from < keys.size(); from += IN_CHUNK) {
+        for (int from = 0; from < keys.size() && deleted < batch; from += IN_CHUNK) {
             List<String> chunk = keys.subList(from, Math.min(keys.size(), from + IN_CHUNK));
             Set<String> referenced = new HashSet<>(claimRepository.findExistingImageKeys(chunk));
             for (String key : chunk) {
+                if (deleted >= batch) {
+                    break;
+                }
                 if (!referenced.contains(key) && imageStore.delete(key)) {
                     deleted++;
                 }

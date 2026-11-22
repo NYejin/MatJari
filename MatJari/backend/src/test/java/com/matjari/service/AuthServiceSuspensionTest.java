@@ -40,7 +40,7 @@ class AuthServiceSuspensionTest {
         passwordEncoder = mock(PasswordEncoder.class);
         jwt = mock(JwtTokenProvider.class);
         checker = mock(AccountSuspensionChecker.class);
-        authService = new AuthService(userRepository, passwordEncoder, jwt, checker, mock(com.matjari.service.EmailVerificationService.class), refreshTokens);
+        authService = new AuthService(userRepository, passwordEncoder, jwt, checker, mock(com.matjari.service.EmailVerificationService.class), refreshTokens, mock(com.matjari.service.EmailOwnershipRecorder.class));
         user = User.create("a@b.com", "encoded", "닉네임");
         ReflectionTestUtils.setField(user, "id", 5L);
         when(userRepository.findByEmail("a@b.com")).thenReturn(Optional.of(user));

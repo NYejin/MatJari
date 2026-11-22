@@ -127,6 +127,37 @@ class ChatImageCleanupServiceTest {
     }
 
     @Test
+    void 살아_있는_파일이_batch보다_많아도_그_뒤의_고아를_찾고_batch는_지운_개수로_센다() throws IOException {
+        ChatImageCleanupService small = new ChatImageCleanupService(repo, store, Clock.fixed(NOW, ZONE), 30, 60, 3);
+        java.util.Set<String> live = new java.util.HashSet<>();
+        for (int i = 0; i < 12; i++) {   // batch(3)보다 많은 살아 있는 파일
+            String k = put("live" + i);
+            age(k, 120);
+            live.add(k);
+        }
+        java.util.List<String> orphans = new java.util.ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            String k = put("orphan" + i);
+            age(k, 120);
+            orphans.add(k);
+        }
+        when(repo.findImagesPastRetention(any(), anyInt())).thenReturn(List.of());
+        when(repo.findLiveImageKeys(any())).thenAnswer(inv -> {
+            java.util.Collection<String> keys = inv.getArgument(0);
+            return keys.stream().filter(live::contains).toList();
+        });
+
+        assertThat(small.cleanup().orphanDeleted()).as("이번 주기 최대 batch 개").isEqualTo(3);
+        assertThat(small.cleanup().orphanDeleted()).as("다음 주기에 나머지").isEqualTo(2);
+        for (String k : live) {
+            assertThat(store.read(k)).isPresent();
+        }
+        for (String k : orphans) {
+            assertThat(store.read(k)).isEmpty();
+        }
+    }
+
+    @Test
     void 한_단계가_실패해도_다른_단계는_계속한다() throws IOException {
         String orphan = put("orphan");
         age(orphan, 120);

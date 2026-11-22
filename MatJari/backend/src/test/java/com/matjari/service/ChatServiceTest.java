@@ -73,7 +73,7 @@ class ChatServiceTest {
         when(provider.getIfAvailable(any(Supplier.class))).thenReturn(publisher);
         Clock clock = Clock.fixed(Instant.parse("2026-10-11T03:00:00Z"), ZoneId.of("Asia/Seoul"));
         service = new ChatService(matchRepository, messageRepository, readStateRepository, rateLimiter, imageRateLimiter, imageStore, notificationService, provider, clock,
-                PerformanceFixtures.noopTransactionManager());
+                PerformanceFixtures.noopTransactionManager(), new ChatImageProcessingGate(clock, 1000, 2));
 
         match = new ExchangeMatch();
         ReflectionTestUtils.setField(match, "id", MATCH);

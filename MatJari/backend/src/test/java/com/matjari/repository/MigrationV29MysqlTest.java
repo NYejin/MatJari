@@ -91,12 +91,14 @@ class MigrationV29MysqlTest {
             jdbc.update("INSERT INTO user_notification_setting (user_id, updated_at) VALUES (1, NOW(6))");
             assertThat(jdbc.queryForObject("SELECT email_enabled FROM user_notification_setting WHERE user_id = 1", Integer.class)).isEqualTo(1);
             assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM user_notification_setting WHERE last_email_at IS NULL", Integer.class)).isEqualTo(1);
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM user_notification_setting WHERE email_verified_at IS NULL", Integer.class))
+                    .as("이메일 소유 확인 시각은 기본 NULL(미확인)").isEqualTo(1);
 
-            // candidate_notice: (받는 요청, 후보 요청) 쌍은 하나
-            jdbc.update("INSERT INTO candidate_notice (recipient_request_id, candidate_request_id, created_at) VALUES (1, 2, NOW(6))");
-            assertThat(jdbc.update("INSERT IGNORE INTO candidate_notice (recipient_request_id, candidate_request_id, created_at) VALUES (1, 2, NOW(6))"))
+            // candidate_notice: (받는 요청, 후보 티켓) 쌍은 하나(요청을 지웠다 다시 만들어도 같은 티켓이면 다시 알리지 않는다)
+            jdbc.update("INSERT INTO candidate_notice (recipient_request_id, candidate_ticket_id, created_at) VALUES (1, 2, NOW(6))");
+            assertThat(jdbc.update("INSERT IGNORE INTO candidate_notice (recipient_request_id, candidate_ticket_id, created_at) VALUES (1, 2, NOW(6))"))
                     .as("이미 알린 쌍은 다시 들어가지 않는다").isZero();
-            assertThat(jdbc.update("INSERT IGNORE INTO candidate_notice (recipient_request_id, candidate_request_id, created_at) VALUES (2, 1, NOW(6))"))
+            assertThat(jdbc.update("INSERT IGNORE INTO candidate_notice (recipient_request_id, candidate_ticket_id, created_at) VALUES (2, 1, NOW(6))"))
                     .isEqualTo(1);
             jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
         }
@@ -112,11 +114,11 @@ class MigrationV29MysqlTest {
                 + "AND TABLE_NAME = 'notification' AND INDEX_NAME = 'idx_notification_request' ORDER BY SEQ_IN_INDEX", String.class))
                 .containsExactly("request_id");
         assertThat(jdbc.queryForList("SELECT COLUMN_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() "
-                + "AND TABLE_NAME = 'candidate_notice' AND INDEX_NAME = 'idx_candidate_notice_candidate' ORDER BY SEQ_IN_INDEX", String.class))
-                .containsExactly("candidate_request_id");
+                + "AND TABLE_NAME = 'candidate_notice' AND INDEX_NAME = 'idx_candidate_notice_ticket' ORDER BY SEQ_IN_INDEX", String.class))
+                .containsExactly("candidate_ticket_id");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE() "
                 + "AND CONSTRAINT_TYPE = 'FOREIGN KEY' AND CONSTRAINT_NAME IN ('fk_notification_request', 'fk_user_notification_setting_user', "
-                + "'fk_candidate_notice_recipient', 'fk_candidate_notice_candidate')", Integer.class)).isEqualTo(4);
+                + "'fk_candidate_notice_recipient', 'fk_candidate_notice_ticket')", Integer.class)).isEqualTo(4);
         assertThat(jdbc.queryForObject("SELECT CHECK_CLAUSE FROM information_schema.CHECK_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE() "
                 + "AND CONSTRAINT_NAME = 'ck_notification_type'", String.class)).contains("NEW_CANDIDATE", "CHAT_MESSAGE", "PROPOSAL_RECEIVED");
     }

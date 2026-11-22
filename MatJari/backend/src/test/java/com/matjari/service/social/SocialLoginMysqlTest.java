@@ -100,6 +100,7 @@ class SocialLoginMysqlTest {
         jdbc.update("DELETE FROM user_sanction");
         jdbc.update("DELETE FROM social_account");
         jdbc.update("DELETE FROM refresh_token");
+        jdbc.update("DELETE FROM user_notification_setting");
         jdbc.update("DELETE FROM users");
         STUB.on("/token", Reply.json("{\"access_token\":\"AT-1\"}"));
     }
@@ -153,6 +154,8 @@ class SocialLoginMysqlTest {
         assertThat(link.get("provider")).isEqualTo("GOOGLE");
         assertThat(link.get("provider_user_id")).isEqualTo("sub-100");
         assertThat(((Number) link.get("user_id")).longValue()).isEqualTo(((Number) user.get("id")).longValue());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM user_notification_setting WHERE user_id = ? AND email_verified_at IS NOT NULL", Integer.class,
+                user.get("id"))).as("제공자가 검증한 이메일이면 이메일 소유 확인이 기록된다").isEqualTo(1);
         assertThat(jwtTokenProvider.validateToken(tokens.accessToken())).isTrue();
         assertThat(jwtTokenProvider.getUserId(tokens.accessToken())).isEqualTo(((Number) user.get("id")).longValue());
         // 스텁 token 요청에 PKCE verifier 와 client_secret 이 실렸다
@@ -169,6 +172,7 @@ class SocialLoginMysqlTest {
         assertThat(emails.get(0)).matches("kakao\\.[0-9a-f]{16}@social\\.matjari\\.invalid");
         assertThat(emails.get(1)).matches("google\\.[0-9a-f]{16}@social\\.matjari\\.invalid");
         assertThat(count("social_account")).isEqualTo(2);
+        assertThat(count("user_notification_setting")).as("자리표시·미검증 이메일은 소유 확인을 기록하지 않는다").isZero();
     }
 
     @Test
@@ -247,6 +251,7 @@ class SocialLoginMysqlTest {
         for (int round = 0; round < 10; round++) {
             jdbc.update("DELETE FROM social_account");
             jdbc.update("DELETE FROM refresh_token");
+            jdbc.update("DELETE FROM user_notification_setting");
             jdbc.update("DELETE FROM users");
             String json = SocialStubServer.userinfo(SocialProvider.GOOGLE, "race-" + round, round % 2 == 0 ? "race@example.com" : null, true, "경합사용자");
             STUB.on("/userinfo", Reply.json(json));
@@ -281,6 +286,7 @@ class SocialLoginMysqlTest {
         for (int round = 0; round < 10; round++) {
             jdbc.update("DELETE FROM social_account");
             jdbc.update("DELETE FROM refresh_token");
+            jdbc.update("DELETE FROM user_notification_setting");
             jdbc.update("DELETE FROM users");
             ExecutorService pool = Executors.newFixedThreadPool(threads);
             CountDownLatch go = new CountDownLatch(1);

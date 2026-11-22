@@ -53,7 +53,7 @@ class NotificationMailServiceTest {
 
     private NotificationMailService newService(int maxPerHour) {
         Clock clock = Clock.fixed(NOW.atZone(KST).toInstant(), KST);
-        return new NotificationMailService(repository, sender, social, clock, true, 5, 24, 30, maxPerHour);
+        return new NotificationMailService(repository, sender, social, clock, new com.matjari.service.mail.MailDeliveryPolicy("smtp", "https://x.test"), true, 5, 24, 30, maxPerHour);
     }
 
     private static Pending p(long id, long userId, NotificationType type) {
@@ -61,7 +61,7 @@ class NotificationMailServiceTest {
     }
 
     private static Recipient ok(String email) {
-        return new Recipient(email, false, true, null);
+        return new Recipient(email, false, true, true, null);
     }
 
     private void pending(Pending... items) {
@@ -93,9 +93,9 @@ class NotificationMailServiceTest {
     void 설정이_꺼졌거나_자리표시_이메일이면_보내지_않고_다시_스캔하지_않게_표시한다() {
         pending(p(1, 10, NotificationType.CHAT_MESSAGE), p(2, 11, NotificationType.CHAT_MESSAGE),
                 p(3, 12, NotificationType.CHAT_MESSAGE), p(4, 13, NotificationType.CHAT_MESSAGE));
-        when(repository.loadRecipient(10L)).thenReturn(new Recipient("a@b.com", false, false, null));
+        when(repository.loadRecipient(10L)).thenReturn(new Recipient("a@b.com", false, false, true, null));
         when(repository.loadRecipient(11L)).thenReturn(ok("google.abc@social.matjari.invalid"));
-        when(repository.loadRecipient(12L)).thenReturn(new Recipient("withdrawn.12@withdrawn.matjari.invalid", true, true, null));
+        when(repository.loadRecipient(12L)).thenReturn(new Recipient("withdrawn.12@withdrawn.matjari.invalid", true, true, true, null));
         when(repository.loadRecipient(13L)).thenReturn(null);
 
         assertThat(service.runOnce()).isZero();
@@ -122,12 +122,12 @@ class NotificationMailServiceTest {
     @Test
     void 쿨다운_안이면_알림을_남겨_두고_30분이_지나면_보낸다() {
         pending(p(1, 10, NotificationType.CHAT_MESSAGE));
-        when(repository.loadRecipient(10L)).thenReturn(new Recipient("a@b.com", false, true, NOW.minusMinutes(29)));
+        when(repository.loadRecipient(10L)).thenReturn(new Recipient("a@b.com", false, true, true, NOW.minusMinutes(29)));
         assertThat(service.runOnce()).isZero();
         verify(sender, never()).send(anyString(), anyString(), anyString());
         verify(repository, never()).markEmailed(anyList(), any(), any());
 
-        when(repository.loadRecipient(10L)).thenReturn(new Recipient("a@b.com", false, true, NOW.minusMinutes(31)));
+        when(repository.loadRecipient(10L)).thenReturn(new Recipient("a@b.com", false, true, true, NOW.minusMinutes(31)));
         assertThat(service.runOnce()).isEqualTo(1);
         verify(sender).send(eq("a@b.com"), anyString(), anyString());
     }
@@ -185,7 +185,7 @@ class NotificationMailServiceTest {
     @Test
     void 꺼져_있으면_아무것도_읽지_않고_저장소_예외도_삼킨다() {
         Clock clock = Clock.fixed(NOW.atZone(KST).toInstant(), KST);
-        NotificationMailService off = new NotificationMailService(repository, sender, social, clock, false, 5, 24, 30, 100);
+        NotificationMailService off = new NotificationMailService(repository, sender, social, clock, new com.matjari.service.mail.MailDeliveryPolicy("smtp", "https://x.test"), false, 5, 24, 30, 100);
         assertThat(off.runOnce()).isZero();
         verify(repository, never()).findPending(any(), any(), org.mockito.ArgumentMatchers.anyInt());
 
@@ -201,6 +201,97 @@ class NotificationMailServiceTest {
                 Map.of(1L, NotificationMailService.cleanTitle("뮤지컬\n  레미제라블")), "https://x.test");
         assertThat(body).contains("새 교환 제안 1건 — 뮤지컬 레미제라블", "예약 제안 거절 1건",
                 "상대가 예약을 수락한 교환 1건", "상대가 예약을 취소한 교환 1건");
-        assertThat(NotificationMailService.cleanTitle("a".repeat(150))).hasSize(101).endsWith("…");
+        assertThat(NotificationMailService.cleanTitle("a".repeat(150))).hasSize(61).endsWith("…");
+    }
+
+    @Test
+    void 이메일_소유가_확인되지_않은_사용자는_보내지_않고_다시_스캔하지_않게_표시한다() {
+        pending(p(1, 10, NotificationType.CHAT_MESSAGE));
+        when(repository.loadRecipient(10L)).thenReturn(new Recipient("a@b.com", false, true, false, null));
+
+        assertThat(service.runOnce()).isZero();
+
+        verify(sender, never()).send(anyString(), anyString(), anyString());
+        verify(repository).markEmailed(List.of(1L), NOW, CUTOFF);
+        verify(repository, never()).touchLastEmail(eq(10L), any());
+    }
+
+    @Test
+    void 발송이_연속_2번_실패하면_그_주기를_끝낸다() {
+        pending(p(1, 10, NotificationType.CHAT_MESSAGE), p(2, 11, NotificationType.CHAT_MESSAGE), p(3, 12, NotificationType.CHAT_MESSAGE));
+        when(repository.loadRecipient(10L)).thenReturn(ok("a@b.com"));
+        when(repository.loadRecipient(11L)).thenReturn(ok("b@b.com"));
+        when(repository.loadRecipient(12L)).thenReturn(ok("c@b.com"));
+        org.mockito.Mockito.doThrow(new com.matjari.service.mail.EmailSender.EmailSendException("smtp down", null))
+                .when(sender).send(anyString(), anyString(), anyString());
+
+        assertThat(service.runOnce()).isZero();
+
+        verify(sender, org.mockito.Mockito.times(2)).send(anyString(), anyString(), anyString());
+        verify(repository, never()).markEmailed(anyList(), any(), any());
+    }
+
+    @Test
+    void 성공이_끼면_연속_실패로_세지_않는다() {
+        pending(p(1, 10, NotificationType.CHAT_MESSAGE), p(2, 11, NotificationType.CHAT_MESSAGE), p(3, 12, NotificationType.CHAT_MESSAGE));
+        when(repository.loadRecipient(10L)).thenReturn(ok("a@b.com"));
+        when(repository.loadRecipient(11L)).thenReturn(ok("b@b.com"));
+        when(repository.loadRecipient(12L)).thenReturn(ok("c@b.com"));
+        org.mockito.Mockito.doThrow(new com.matjari.service.mail.EmailSender.EmailSendException("fail", null))
+                .doNothing().doThrow(new com.matjari.service.mail.EmailSender.EmailSendException("fail", null))
+                .when(sender).send(anyString(), anyString(), anyString());
+
+        assertThat(service.runOnce()).isEqualTo(1);
+
+        verify(sender, org.mockito.Mockito.times(3)).send(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void 발송_뒤_last_email_at을_emailed_at보다_먼저_기록한다() {
+        pending(p(1, 10, NotificationType.CHAT_MESSAGE));
+        when(repository.loadRecipient(10L)).thenReturn(ok("a@b.com"));
+
+        service.runOnce();
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(sender, repository);
+        order.verify(sender).send(eq("a@b.com"), anyString(), anyString());
+        order.verify(repository).touchLastEmail(10L, NOW);
+        order.verify(repository).markEmailed(List.of(1L), NOW, CUTOFF);
+    }
+
+    @Test
+    void DB_기록이_실패해도_메모리_쿨다운으로_다음_주기에_다시_보내지_않는다() {
+        pending(p(1, 10, NotificationType.CHAT_MESSAGE));
+        when(repository.loadRecipient(10L)).thenReturn(ok("a@b.com"));
+        org.mockito.Mockito.doThrow(new IllegalStateException("db down")).when(repository).touchLastEmail(eq(10L), any());
+
+        assertThat(service.runOnce()).isZero();
+        assertThat(service.runOnce()).isZero();
+
+        verify(sender, org.mockito.Mockito.times(1)).send(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void log_모드이면서_백엔드가_루프백이_아니면_아무것도_읽지_않는다() {
+        Clock clock = Clock.fixed(NOW.atZone(KST).toInstant(), KST);
+        NotificationMailService off = new NotificationMailService(repository, sender, social, clock,
+                new com.matjari.service.mail.MailDeliveryPolicy("log", "https://matjari.example.com"), true, 5, 24, 30, 100);
+        assertThat(off.runOnce()).isZero();
+        verify(repository, never()).findPending(any(), any(), org.mockito.ArgumentMatchers.anyInt());
+        // 루프백(개발)이면 log 모드여도 돈다
+        NotificationMailService dev = new NotificationMailService(repository, sender, social, clock,
+                new com.matjari.service.mail.MailDeliveryPolicy("log", "http://localhost:8080"), true, 5, 24, 30, 100);
+        dev.runOnce();
+        verify(repository).findPending(any(), any(), org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    @Test
+    void 제목의_URL_모양_문자열은_링크_생략으로_바뀌고_60자로_잘린다() {
+        assertThat(NotificationMailService.cleanTitle("햄릿 http://evil.example/login 보기")).isEqualTo("햄릿 [링크 생략] 보기");
+        assertThat(NotificationMailService.cleanTitle("지금 확인 www.evil.com/a?b=1")).isEqualTo("지금 확인 [링크 생략]");
+        assertThat(NotificationMailService.cleanTitle("evil.com 무료 티켓")).isEqualTo("[링크 생략] 무료 티켓");
+        assertThat(NotificationMailService.cleanTitle("HTTPS://EVIL.KR")).isEqualTo("[링크 생략]");
+        assertThat(NotificationMailService.cleanTitle("뮤지컬 레미제라블 Vol.2")).isEqualTo("뮤지컬 레미제라블 Vol.2");
+        assertThat(NotificationMailService.cleanTitle("가".repeat(80))).isEqualTo("가".repeat(60) + "…");
     }
 }

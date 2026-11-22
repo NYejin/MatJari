@@ -14,7 +14,8 @@
 --      (기존 행의 emailed_at 이 NULL 이라 배포 직후 최근 24시간 안의 안 읽은 알림이 한 번 메일 대상이 될 수 있다.
 --       메일 스캔이 created_at 하한을 24시간으로 두고 사용자당 1통으로 묶으므로 허용한다.)
 --  (b) user_notification_setting: 사용자별 알림 설정. 행이 없으면 메일 켜짐으로 본다. last_email_at 은 메일 쿨다운 기준.
---  (c) candidate_notice: 이미 알린 (받는 요청, 후보 요청) 쌍. 같은 쌍은 다시 알리지 않는다.
+--      email_verified_at: 이메일 소유가 확인된 시각(가입 인증번호 통과·소셜 제공자 검증 이메일·비밀번호 재설정 성공·내 이메일 인증 API). NULL(또는 행 없음)이면 메일을 보내지 않는다.
+--  (c) candidate_notice: 이미 알린 (받는 요청, 후보 티켓) 쌍. 요청을 지웠다 다시 만들어도 같은 티켓이면 다시 알리지 않는다.
 --
 -- 재실행 가능: V15·V27 과 같은 INFORMATION_SCHEMA 가드 프로시저. 파괴적 단계 없음.
 -- 되돌리기(롤포워드): 새 V 파일에서 NEW_CANDIDATE 행을 지운 뒤 CHECK·FK·인덱스·컬럼·테이블을 DROP 한다.
@@ -103,6 +104,7 @@ BEGIN
             user_id       BIGINT      NOT NULL,
             email_enabled TINYINT(1)  NOT NULL DEFAULT 1,
             last_email_at DATETIME(6) NULL,
+            email_verified_at DATETIME(6) NULL,
             updated_at    DATETIME(6) NOT NULL,
             PRIMARY KEY (user_id),
             CONSTRAINT fk_user_notification_setting_user FOREIGN KEY (user_id) REFERENCES users (id)
@@ -114,12 +116,12 @@ BEGIN
                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'candidate_notice') THEN
         CREATE TABLE candidate_notice (
             recipient_request_id BIGINT      NOT NULL,   -- 새 후보를 알려 받는 요청(R')
-            candidate_request_id BIGINT      NOT NULL,   -- 새로 생기거나 바뀐 요청(R)
+            candidate_ticket_id  BIGINT      NOT NULL,   -- 새로 후보가 된 상대 티켓(요청이 아니라 티켓 기준)
             created_at           DATETIME(6) NOT NULL,
-            PRIMARY KEY (recipient_request_id, candidate_request_id),
-            KEY idx_candidate_notice_candidate (candidate_request_id),
+            PRIMARY KEY (recipient_request_id, candidate_ticket_id),
+            KEY idx_candidate_notice_ticket (candidate_ticket_id),
             CONSTRAINT fk_candidate_notice_recipient FOREIGN KEY (recipient_request_id) REFERENCES exchange_request (id),
-            CONSTRAINT fk_candidate_notice_candidate FOREIGN KEY (candidate_request_id) REFERENCES exchange_request (id)
+            CONSTRAINT fk_candidate_notice_ticket FOREIGN KEY (candidate_ticket_id) REFERENCES ticket (id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
     END IF;
 END//

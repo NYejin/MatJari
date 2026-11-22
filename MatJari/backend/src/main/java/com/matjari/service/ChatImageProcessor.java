@@ -4,6 +4,7 @@ import com.matjari.exception.FieldValidationException;
 
 import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReadParam;
 import javax.imageio.ImageReader;
 import javax.imageio.ImageWriteParam;
 import javax.imageio.ImageWriter;
@@ -25,7 +26,7 @@ import java.util.Iterator;
  * <ol>
  *   <li>크기 5 MiB 이하.</li>
  *   <li>형식은 확장자·Content-Type 이 아니라 <b>시작 바이트(매직 넘버)</b>로 판정한다: JPEG(FF D8 FF) · PNG(89 50 4E 47 0D 0A 1A 0A)만.</li>
- *   <li><b>디코드 전에</b> 헤더에서 폭·높이만 읽어 한 변 8,000px·총 4,000만 화소를 넘으면 거부한다(압축 폭탄 방지).</li>
+ *   <li><b>디코드 전에</b> 헤더에서 폭·높이만 읽어 한 변 8,000px·총 1,600만 화소를 넘으면 거부한다(압축 폭탄 방지).</li>
  *   <li>디코드한 뒤 <b>다시 인코딩</b>해 EXIF·GPS·ICC·텍스트 청크 등 메타데이터를 모두 버린다(JPEG -> JPEG 품질 0.9, PNG -> PNG).
  *       메타데이터를 버리면 휴대폰 사진의 회전 정보(EXIF 방향)도 사라져 옆으로 누워 보이므로, 버리기 전에 방향 값을 읽어 픽셀에 적용한다.</li>
  * </ol>
@@ -35,12 +36,17 @@ public final class ChatImageProcessor {
 
     public static final int MAX_BYTES = 5 * 1024 * 1024;
     public static final int MAX_SIDE = 8_000;
-    public static final long MAX_PIXELS = 40_000_000L;
+    /** 저장하는 사진의 긴 변 상한. 이보다 크면 서브샘플링으로 줄여 디코드하고 저장 전에 이 크기 안으로 맞춘다. */
+    public static final int MAX_STORED_SIDE = 4_000;
+    /** 다시 인코딩한 결과의 크기 상한(원본 상한 5 MiB 보다 커질 수 있어 따로 둔다). */
+    public static final int MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
+    public static final long MAX_PIXELS = 16_000_000L;
     static final float JPEG_QUALITY = 0.9f;
 
     static final String MSG_FORMAT = "JPEG 또는 PNG 이미지만 보낼 수 있어요.";
     static final String MSG_SIZE = "이미지는 5MB 이하만 보낼 수 있어요.";
-    static final String MSG_DIMENSION = "이미지가 너무 커요. 가로·세로 8,000px 이하, 4,000만 화소 이하로 줄여 주세요.";
+    static final String MSG_DIMENSION = "이미지가 너무 커요. 가로·세로 8,000px 이하, 1,600만 화소 이하로 줄여 주세요.";
+    static final String MSG_TOO_LARGE_OUT = "이미지를 줄여도 용량이 너무 커요. 더 작은 사진으로 다시 시도해 주세요.";
     static final String MSG_BROKEN = "이미지를 읽을 수 없어요. 다른 사진으로 다시 시도해 주세요.";
 
     /** 정리된 사진: 다시 인코딩한 바이트와 형식. */
@@ -72,13 +78,19 @@ public final class ChatImageProcessor {
             if (w <= 0 || h <= 0 || w > MAX_SIDE || h > MAX_SIDE || (long) w * h > MAX_PIXELS) {
                 throw new FieldValidationException("image", MSG_DIMENSION);
             }
-            BufferedImage decoded = reader.read(0);
+            // 긴 변이 4,000px 를 넘으면 디코드 단계에서 줄여 읽는다(전체 크기로 풀지 않아 메모리를 아낀다). 줄인 뒤 긴 변은 항상 4,000px 이하다.
+            int factor = subsamplingFactor(w, h);
+            ImageReadParam readParam = reader.getDefaultReadParam();
+            if (factor > 1) {
+                readParam.setSourceSubsampling(factor, factor, 0, 0);
+            }
+            BufferedImage decoded = reader.read(0, readParam);
             if (decoded == null) {
                 throw new FieldValidationException("image", MSG_BROKEN);
             }
             int orientation = jpeg ? exifOrientation(data) : 1;
             BufferedImage clean = redraw(decoded, orientation, jpeg);
-            return new Processed(encode(clean, jpeg), type);
+            return encodeWithinLimit(clean, jpeg, type);
         } catch (FieldValidationException e) {
             throw e;
         } catch (IOException | RuntimeException e) {
@@ -89,6 +101,45 @@ public final class ChatImageProcessor {
                 reader.dispose();
             }
         }
+    }
+
+    /** 긴 변이 {@link #MAX_STORED_SIDE} 이하가 되는 가장 작은 서브샘플링 배수(1 이면 줄이지 않는다). */
+    static int subsamplingFactor(int w, int h) {
+        int longSide = Math.max(w, h);
+        return longSide <= MAX_STORED_SIDE ? 1 : (longSide + MAX_STORED_SIDE - 1) / MAX_STORED_SIDE;
+    }
+
+    /**
+     * 다시 인코딩하고 결과가 {@link #MAX_OUTPUT_BYTES} 를 넘으면 JPEG 품질을 0.9 -> 0.75 -> 0.6 -> 0.45 로 낮춰 본다. PNG 는 JPEG 로 바꾼다(투명은 흰색).
+     * 그래도 넘으면 400 image.
+     */
+    private static Processed encodeWithinLimit(BufferedImage clean, boolean jpeg, String type) throws IOException {
+        byte[] first = encode(clean, jpeg, JPEG_QUALITY);
+        if (first.length <= MAX_OUTPUT_BYTES) {
+            return new Processed(first, type);
+        }
+        BufferedImage rgb = jpeg || !clean.getColorModel().hasAlpha() ? clean : flattenToRgb(clean);
+        float[] qualities = {0.75f, 0.6f, 0.45f};
+        for (float q : qualities) {
+            byte[] out = encode(rgb, true, q);
+            if (out.length <= MAX_OUTPUT_BYTES) {
+                return new Processed(out, "image/jpeg");
+            }
+        }
+        throw new FieldValidationException("image", MSG_TOO_LARGE_OUT);
+    }
+
+    private static BufferedImage flattenToRgb(BufferedImage src) {
+        BufferedImage dst = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = dst.createGraphics();
+        try {
+            g.setColor(Color.WHITE);
+            g.fillRect(0, 0, dst.getWidth(), dst.getHeight());
+            g.drawImage(src, 0, 0, null);
+        } finally {
+            g.dispose();
+        }
+        return dst;
     }
 
     /** 메타데이터가 없는 새 이미지에 픽셀만 옮겨 그린다(방향 적용 포함). JPEG 는 알파 없는 RGB(투명은 흰색), PNG 는 알파가 있으면 ARGB. */
@@ -126,7 +177,7 @@ public final class ChatImageProcessor {
         };
     }
 
-    private static byte[] encode(BufferedImage image, boolean jpeg) throws IOException {
+    private static byte[] encode(BufferedImage image, boolean jpeg, float quality) throws IOException {
         Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName(jpeg ? "jpeg" : "png");
         if (!writers.hasNext()) {
             throw new IOException("writer 없음");
@@ -138,7 +189,7 @@ public final class ChatImageProcessor {
             ImageWriteParam param = writer.getDefaultWriteParam();
             if (jpeg) {
                 param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
-                param.setCompressionQuality(JPEG_QUALITY);
+                param.setCompressionQuality(quality);
             }
             // 메타데이터 인자를 null 로 넘기면 기본(최소) 메타데이터만 쓰인다: 원본의 EXIF·GPS·텍스트는 들어가지 않는다
             writer.write(null, new IIOImage(image, null, null), param);

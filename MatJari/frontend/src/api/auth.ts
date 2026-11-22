@@ -1,4 +1,5 @@
 import { apiClient } from "./client";
+import { tokenStorage } from "./tokenStorage";
 import { authClient, CSRF_HEADERS, requestLogout } from "./authClient";
 import type { User } from "../types/user";
 import type { EmailCodeResponse, EmailVerificationStatus, LoginRequest, SignupRequest, TokenResponse } from "../types/auth";
@@ -43,7 +44,9 @@ export const authApi = {
    * 400 {currentPassword}·{newPassword}, 409 PASSWORD_LOGIN_DISABLED, 429 LOGIN_RATE_LIMITED. (/users/me/password는 현재 기기도 끊어 쓰지 않는다)
    */
   async changePassword(currentPassword: string, newPassword: string): Promise<void> {
-    await apiClient.patch("/auth/password", { currentPassword, newPassword }, { headers: CSRF_HEADERS });
+    // 200 + 새 액세스 토큰: 옛 토큰은 무효가 되므로 바로 교체한다(토큰 변경을 구독하는 AuthProvider·실시간 연결이 새 토큰으로 다시 붙는다)
+    const { data } = await apiClient.patch<TokenResponse>("/auth/password", { currentPassword, newPassword }, { headers: CSRF_HEADERS });
+    if (data?.accessToken) tokenStorage.save({ accessToken: data.accessToken });
   },
 
   /** POST /api/auth/logout — 서버가 리프레시 토큰 계열을 폐기하고 쿠키를 지운다. 인터셉터 없는 authClient 사용 */

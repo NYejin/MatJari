@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { authApi } from "../api/auth";
-import { parseApiError, passwordResetRateLimitMessage } from "../api/errors";
+import { getErrorCode, parseApiError, passwordResetRateLimitMessage } from "../api/errors";
 import { normalizeEmail, validateEmail } from "../api/authValidation";
 import TextField from "../components/TextField";
 import { authFormClasses as ui } from "../components/authFormClasses";
@@ -32,7 +32,10 @@ export default function ForgotPasswordPage() {
       setSent(true);
     } catch (err) {
       const limited = passwordResetRateLimitMessage(err);
-      if (limited) {
+      const unavailable = getErrorCode(err) === "PASSWORD_RESET_UNAVAILABLE";
+      if (unavailable) {
+        setFormError(parseApiError(err).message);
+      } else if (limited) {
         setFormError(limited);
       } else {
         const parsed = parseApiError(err, "요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.");

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { exchangeErrorMessage } from "../api/exchangeMessages";
 import { subscribeNotificationPush } from "../api/realtimeHub";
-import { formatRelativeTime, notificationPath, notificationsApi, notificationText } from "../api/notifications";
+import { formatRelativeTime, isClosedMatchNotification, notificationPath, notificationsApi, notificationText } from "../api/notifications";
 import { button, FOCUS_RING, liveRegionClass, ui } from "../components/ui";
 import { usePagedList } from "../hooks/usePagedList";
 import { adjustUnreadCount, refreshUnreadCount } from "../hooks/useUnreadNotifications";
@@ -173,18 +173,18 @@ export default function NotificationsPage() {
                     onClick={() => void openItem(n)}
                     className={
                       "flex min-h-11 w-full cursor-pointer touch-manipulation flex-col gap-1 rounded-2xl p-4 text-left active:bg-gray-100 " +
-                      `${n.matchClosed ? "bg-gray-100" : "bg-white shadow-[0_4px_24px_rgba(0,0,0,0.06)]"} ` +
+                      `${isClosedMatchNotification(n) ? "bg-gray-100" : "bg-white shadow-[0_4px_24px_rgba(0,0,0,0.06)]"} ` +
                       FOCUS_RING
                     }
                   >
-                    <span className={`text-[0.9375rem]/[1.4] ${n.matchClosed ? "text-gray-700" : "text-gray-900"} ${n.read ? "font-normal" : "font-semibold"}`}>
+                    <span className={`text-[0.9375rem]/[1.4] ${isClosedMatchNotification(n) ? "text-gray-700" : "text-gray-900"} ${n.read ? "font-normal" : "font-semibold"}`}>
                       {!n.read && <span className="mr-2 inline-block size-2 rounded-full bg-primary-600 align-middle" aria-hidden="true" />}
                       {!n.read && <span className="sr-only">안 읽음. </span>}
                       {notificationText(n)}
                     </span>
                     <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm/[normal] text-gray-600">
                       <span>{formatRelativeTime(n.createdAt)}</span>
-                      {n.matchClosed && <span className="rounded-full bg-gray-200 px-2.5 py-0.5 text-[0.8125rem]/[normal] font-semibold text-gray-700">종료된 매칭</span>}
+                      {isClosedMatchNotification(n) && <span className="rounded-full bg-gray-200 px-2.5 py-0.5 text-[0.8125rem]/[normal] font-semibold text-gray-700">종료된 매칭</span>}
                     </span>
                   </button>
                 </li>

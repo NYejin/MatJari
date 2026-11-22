@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { subscribeNotificationPush } from "../api/realtimeHub";
 import { exchangeErrorMessage } from "../api/exchangeMessages";
-import { formatRelativeTime, notificationPath, notificationsApi, notificationText } from "../api/notifications";
+import { formatRelativeTime, isClosedMatchNotification, notificationPath, notificationsApi, notificationText } from "../api/notifications";
 import { adjustUnreadCount, refreshUnreadCount, useUnreadNotifications } from "../hooks/useUnreadNotifications";
 import type { AppNotification } from "../types/notification";
 import { button, FOCUS_RING, linkButton } from "./ui";
@@ -173,14 +173,14 @@ export default function NotificationBell({ userId, onOpen }: { userId: number; o
               {preview.items.map((n) => (
                 <li key={n.id}>
                   <button type="button" className={cls.item} onClick={() => void openItem(n)}>
-                    <span className={`text-sm/[1.35] ${n.matchClosed ? "text-gray-500" : "text-gray-900"} ${n.read ? "font-normal" : "font-semibold"}`}>
+                    <span className={`text-sm/[1.35] ${isClosedMatchNotification(n) ? "text-gray-500" : "text-gray-900"} ${n.read ? "font-normal" : "font-semibold"}`}>
                       {!n.read && <span className="mr-1.5 inline-block size-2 rounded-full bg-primary-600 align-middle" aria-hidden="true" />}
                       {!n.read && <span className="sr-only">안 읽음. </span>}
                       {notificationText(n)}
                     </span>
                     <span className="text-xs/[normal] text-gray-500">
                       {formatRelativeTime(n.createdAt)}
-                      {n.matchClosed && " · 종료된 매칭"}
+                      {isClosedMatchNotification(n) && " · 종료된 매칭"}
                     </span>
                   </button>
                 </li>

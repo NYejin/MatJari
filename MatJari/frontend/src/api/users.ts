@@ -1,6 +1,6 @@
 import { apiClient } from "./client";
 import { authClient } from "./authClient";
-import type { User, WithdrawRequest } from "../types/user";
+import type { NotificationSettings, User, WithdrawRequest } from "../types/user";
 
 // 백엔드 UserController (@RequestMapping("/api/users")). baseURL에 /api가 포함되어 있다.
 export const usersApi = {
@@ -30,5 +30,17 @@ export const usersApi = {
    */
   async withdrawSuspended(withdrawToken: string, body: WithdrawRequest): Promise<void> {
     await authClient.delete("/users/me", { data: body, headers: { Authorization: `Bearer ${withdrawToken}` } });
+  },
+
+  /** GET /api/users/me/notification-settings — 알림 메일 설정 */
+  async getNotificationSettings(): Promise<NotificationSettings> {
+    const { data } = await apiClient.get<NotificationSettings>("/users/me/notification-settings");
+    return data;
+  },
+
+  /** PATCH /api/users/me/notification-settings {emailEnabled} — 같은 모양의 응답 */
+  async updateNotificationSettings(emailEnabled: boolean): Promise<NotificationSettings> {
+    const { data } = await apiClient.patch<NotificationSettings>("/users/me/notification-settings", { emailEnabled });
+    return data;
   },
 };

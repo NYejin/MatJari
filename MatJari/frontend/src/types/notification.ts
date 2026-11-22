@@ -7,7 +7,8 @@ export type NotificationType =
   | "RESERVATION_CANCELED"
   | "RESERVATION_PROPOSED"
   | "RESERVATION_REJECTED"
-  | "CHAT_MESSAGE";
+  | "CHAT_MESSAGE"
+  | "NEW_CANDIDATE";
 
 /** 알림에 걸린 자리 (교환 전 자리). 시각은 없다 */
 export interface NotificationSeat {
@@ -20,14 +21,17 @@ export interface NotificationSeat {
 export interface AppNotification {
   id: number;
   type: NotificationType;
-  matchId: number;
+  /** NEW_CANDIDATE는 매칭이 없어 null */
+  matchId: number | null;
+  /** NEW_CANDIDATE: 받는 사람의 교환 요청 id. 그 외는 null */
+  requestId: number | null;
   read: boolean;
   readAt: string | null;
   createdAt: string;
-  matchStatus: MatchStatus;
+  matchStatus: MatchStatus | null;
   /** 매칭이 CANCELED/COMPLETED. 알림을 지우거나 개수에서 빼지 않고 회색 '종료된 매칭'으로만 표시한다 */
   matchClosed: boolean;
-  role: Exclude<MatchRole, "ALL">;
+  role: Exclude<MatchRole, "ALL"> | null;
   counterpartNickname: string;
   performanceTitle: string;
   mySeat: NotificationSeat;
@@ -45,5 +49,5 @@ export interface NotificationPush {
   type: "NOTIFICATION_CREATED";
   notificationId: number;
   notificationType: NotificationType;
-  matchId: number;
+  matchId: number | null;
 }

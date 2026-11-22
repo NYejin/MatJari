@@ -38,6 +38,11 @@ export const notificationsApi = {
   },
 };
 
+/** 종료된 매칭 라벨 대상 여부 (매칭이 없는 NEW_CANDIDATE에는 붙이지 않는다) */
+export function isClosedMatchNotification(n: AppNotification): boolean {
+  return n.type !== "NEW_CANDIDATE" && n.matchClosed;
+}
+
 /** 알림 문구 (이름·공연·좌석은 조회 때 조인한 값). 알 수 없는 type은 일반 문구로 폴백한다 */
 export function notificationText(n: AppNotification): string {
   const name = n.counterpartNickname;
@@ -54,6 +59,8 @@ export function notificationText(n: AppNotification): string {
       return `${name}님이 예약 제안을 거절했어요`;
     case "CHAT_MESSAGE":
       return `${name}님이 메시지를 보냈어요`;
+    case "NEW_CANDIDATE":
+      return "조건이 맞는 새 교환 후보가 생겼어요";
     default:
       return `${name ?? "상대"}님과의 매칭에 새 소식이 있어요`;
   }
@@ -61,6 +68,8 @@ export function notificationText(n: AppNotification): string {
 
 /** 알림을 누르면 이동할 주소: 채팅/예약 제안 알림은 채팅 화면, 제안 알림은 받은 제안 탭, 그 외는 해당 매칭 카드 */
 export function notificationPath(n: AppNotification): string {
+  if (n.type === "NEW_CANDIDATE" && n.requestId !== null) return `/exchange/requests/${n.requestId}/candidates`;
+  if (n.matchId === null) return "/notifications";
   if (n.type === "CHAT_MESSAGE" || n.type === "RESERVATION_PROPOSED") return `/exchange/matches/${n.matchId}/chat`;
   const query = new URLSearchParams();
   if (n.type === "PROPOSAL_RECEIVED") query.set("role", "RECEIVED");

@@ -55,6 +55,18 @@ export default function HomePage() {
   return isAuthenticated ? <PerformanceList notice={notice} /> : <GuestIntro notice={notice} />;
 }
 
+/** 처음 온 사용자를 위한 교환 안내 링크 한 줄 */
+function GuideLink() {
+  return (
+    <p className="text-[0.9375rem]/[normal] text-gray-700">
+      처음이라면:{" "}
+      <Link to="/guide" className={`${ui.link} inline-flex min-h-11 items-center`}>
+        교환 안내
+      </Link>
+    </p>
+  );
+}
+
 function GuestIntro({ notice }: { notice: string | null }) {
   return (
     <div className={ui.page}>
@@ -78,6 +90,7 @@ function GuestIntro({ notice }: { notice: string | null }) {
               회원가입
             </Link>
           </div>
+          <GuideLink />
         </section>
       </div>
     </div>
@@ -183,6 +196,8 @@ function PerformanceList({ notice }: { notice: string | null }) {
         <p className={liveRegionClass(notice, ui.notice)} role="status">
           {notice ?? ""}
         </p>
+
+        <GuideLink />
 
         <form role="search" className="flex flex-col gap-1.5" onSubmit={(e) => e.preventDefault()}>
           <label htmlFor="home-search" className={ui.label}>

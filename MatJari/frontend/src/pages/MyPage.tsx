@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { getDisplayName, getVisibleEmail, useAuth } from "../hooks/useAuth";
 import { useLogout } from "../hooks/useLogout";
 import NicknameEditor from "../components/NicknameEditor";
+import NotificationSettingsCard from "../components/NotificationSettingsCard";
 import PasswordChangeCard from "../components/PasswordChangeCard";
 import SocialLinkCard from "../components/SocialLinkCard";
 import WithdrawDialog from "../components/WithdrawDialog";
@@ -147,6 +148,8 @@ export default function MyPage() {
         </section>
 
         {profile && (profile.passwordLoginEnabled ?? true) && <PasswordChangeCard />}
+
+        <NotificationSettingsCard />
 
         <SocialLinkCard />
 

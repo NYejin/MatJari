@@ -128,7 +128,10 @@ function SafetyStrip(): ReactNode {
       </button>
       {open && (
         <p id="chat-safety-text" className={`${ui.hint} pt-1`}>
-          예매내역을 확인할 때 이름·연락처·결제 정보는 가리고 보여주세요. 메시지는 텍스트만 보낼 수 있고, 보낸 뒤에는 삭제·수정할 수 없어요.
+          예매내역을 확인할 때 이름·연락처·결제 정보는 가리고 보여주세요. 메시지는 텍스트만 보낼 수 있고, 보낸 뒤에는 삭제·수정할 수 없어요.{" "}
+          <Link to="/guide" className={ui.link}>
+            자세한 안내
+          </Link>
         </p>
       )}
     </div>

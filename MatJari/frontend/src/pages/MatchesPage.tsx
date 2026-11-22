@@ -486,6 +486,14 @@ function MatchCard({
                 : confirming === "complete"
                   ? "티켓팅 사이트에서 양도를 마쳤나요? 두 사람 모두 수락하면 교환이 완료되고 취소할 수 없어요."
                   : "이 채팅을 종료할까요? 매칭이 취소돼요."}
+            {confirming === "complete" && (
+              <>
+                {" "}
+                <Link to="/guide" className={ui.link}>
+                  교환 안내 보기
+                </Link>
+              </>
+            )}
           </p>
           <div className="flex flex-wrap gap-2">
             <button

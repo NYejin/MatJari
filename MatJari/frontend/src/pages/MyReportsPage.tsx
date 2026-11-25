@@ -3,7 +3,7 @@ import { formatKstDateTime } from "../api/dateTime";
 import { parseApiError } from "../api/errors";
 import { REASON_LABEL, REPORT_STATUS_LABEL, reportsApi, type MyReport, type ReportStatus } from "../api/reports";
 import { usePagedList } from "../hooks/usePagedList";
-import { button, liveRegionClass, ui } from "../components/ui";
+import { badgeTone, button, liveRegionClass, ui } from "../components/ui";
 
 // 내 신고 내역 (/my/reports, 보호 라우트). 신고자에게는 처리 상태만 보인다(처리 메모·제재 내용은 숨김). 읽기 전용.
 
@@ -11,9 +11,9 @@ const PAGE_SIZE = 20;
 
 /** 상태 뱃지: 처리 전은 강조, 처리 후는 기본 */
 const STATUS_CLASS: Record<ReportStatus, string> = {
-  OPEN: "inline-flex shrink-0 items-center rounded-full bg-accent-100 px-2.5 py-0.5 text-[0.8125rem]/[normal] text-gray-900",
-  RESOLVED: ui.badge,
-  DISMISSED: ui.badge,
+  OPEN: badgeTone.amber,
+  RESOLVED: badgeTone.mint,
+  DISMISSED: badgeTone.gray,
 };
 
 export default function MyReportsPage() {
@@ -29,8 +29,11 @@ export default function MyReportsPage() {
   return (
     <div className={ui.page}>
       <div className={ui.container}>
-        <h1 className={ui.pageTitle}>내 신고 내역</h1>
-        <p className={ui.hint}>처리 상태만 확인할 수 있어요. 신고는 상대에게 알리지 않아요.</p>
+        <header className="flex flex-col gap-2">
+          <p className={ui.eyebrow}>내 활동</p>
+          <h1 className={ui.pageTitle}>내 신고 내역</h1>
+          <p className={ui.pageLead}>처리 상태만 확인할 수 있어요. 신고는 상대에게 알리지 않아요.</p>
+        </header>
         <p className={liveRegionClass(statusText, ui.status)} role="status">
           {statusText}
         </p>
@@ -47,7 +50,10 @@ export default function MyReportsPage() {
         )}
 
         {state.status === "success" && state.items.length === 0 && (
-          <div className={ui.card}>
+          <div className={ui.empty}>
+            <span aria-hidden="true" className="flex size-12 items-center justify-center rounded-full bg-coral-100 text-xl text-coral-700">
+              ⚑
+            </span>
             <p className={ui.body}>접수한 신고가 없어요. 신고는 채팅 화면의 '신고' 버튼으로 할 수 있어요.</p>
           </div>
         )}
@@ -55,7 +61,7 @@ export default function MyReportsPage() {
         {state.status === "success" && state.items.length > 0 && (
           <ul className="flex flex-col gap-3">
             {state.items.map((r) => (
-              <li key={r.id} className={`${ui.card} flex flex-col gap-2`}>
+              <li key={r.id} className={`${ui.card} flex flex-col gap-3 !p-5`}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="min-w-0 truncate text-base/[normal] font-semibold text-gray-900">{r.reportedNickname}님</p>
                   <span className={STATUS_CLASS[r.status]}>{REPORT_STATUS_LABEL[r.status]}</span>

@@ -4,11 +4,14 @@ import { formatKstDateTime } from "../api/dateTime";
 import { parseApiError } from "../api/errors";
 import { usePagedList } from "../hooks/usePagedList";
 import SessionChangesView from "../components/SessionChangesView";
-import { button, liveRegionClass, ui } from "../components/ui";
+import { badgeTone, button, liveRegionClass, ui } from "../components/ui";
 
 // 내 공연 수정 제안 목록 (/my/edit-proposals, 보호 라우트). 처리 결과(승인·거절 사유)를 여기서 본다.
 
 const PAGE_SIZE = 20;
+
+/** 상태 뱃지 색: 검토 중 amber / 승인 mint / 거절 red */
+const STATUS_TONE = { PENDING: badgeTone.amber, APPROVED: badgeTone.mint, REJECTED: badgeTone.red } as const;
 
 export default function MyEditProposalsPage() {
   const { state, loadingMore, moreError, loadMore, reload } = usePagedList<EditProposal>(
@@ -22,7 +25,10 @@ export default function MyEditProposalsPage() {
   return (
     <div className={ui.page}>
       <div className={ui.container}>
-        <h1 className={ui.pageTitle}>내 수정 제안</h1>
+        <header className="flex flex-col gap-2">
+          <p className={ui.eyebrow}>내 활동</p>
+          <h1 className={ui.pageTitle}>내 수정 제안</h1>
+        </header>
         <p className={liveRegionClass(statusText, ui.status)} role="status">
           {statusText}
         </p>
@@ -39,7 +45,10 @@ export default function MyEditProposalsPage() {
         )}
 
         {state.status === "success" && state.items.length === 0 && (
-          <div className={`${ui.card} flex flex-col gap-2`}>
+          <div className={ui.empty}>
+            <span aria-hidden="true" className="flex size-12 items-center justify-center rounded-full bg-primary-100 text-xl text-primary-700">
+              ✎
+            </span>
             <p className={ui.body}>보낸 수정 제안이 없어요. 공연 상세에서 "정보가 틀렸어요"로 제안할 수 있어요.</p>
           </div>
         )}
@@ -47,12 +56,12 @@ export default function MyEditProposalsPage() {
         {state.status === "success" && state.items.length > 0 && (
           <ul className="flex flex-col gap-3">
             {state.items.map((p) => (
-              <li key={p.id} className={`${ui.card} flex flex-col gap-2`}>
+              <li key={p.id} className={`${ui.card} flex flex-col gap-3 !p-5`}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <Link to={`/performances/${p.performanceId}`} className={`${ui.link} break-words`}>
                     {p.performanceTitle}
                   </Link>
-                  <span className={ui.badge}>{STATUS_LABEL[p.status]}</span>
+                  <span className={STATUS_TONE[p.status]}>{STATUS_LABEL[p.status]}</span>
                 </div>
                 {p.newTitle && <Change label="제목" from={p.status === "APPROVED" ? null : p.currentTitle} to={p.newTitle} />}
                 {p.newVenueName && <Change label="공연장" from={p.status === "APPROVED" ? null : p.currentVenueName} to={p.newVenueName} />}

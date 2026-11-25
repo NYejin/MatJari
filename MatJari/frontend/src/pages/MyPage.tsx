@@ -8,54 +8,50 @@ import PasswordChangeCard from "../components/PasswordChangeCard";
 import SocialLinkCard from "../components/SocialLinkCard";
 import WithdrawDialog from "../components/WithdrawDialog";
 import { clearTakenWithdrawReauthCode, takeWithdrawReauthCode } from "../api/socialLink";
-import { FOCUS_RING } from "../components/ui";
+import { button, FOCUS_RING, ui } from "../components/ui";
 
 // FR-01 회원 — 마이페이지 (보호 라우트 /me). 내 정보(/api/users/me) 표시 + 로그아웃.
 // 내 티켓·내 매칭·교환 이력 등은 링크, 회원탈퇴는 확인 모달(WithdrawDialog)을 연다.
 
 const cls = {
-  /** AppLayout 콘텐츠 영역을 채우는 배경 (로그인 화면과 같은 톤) */
-  page: "flex w-full flex-[1_0_auto] justify-center bg-surface px-4 pt-6 pb-[calc(24px+env(safe-area-inset-bottom))]",
-  container: "flex w-full max-w-[640px] flex-col gap-4",
-  title: "text-2xl/[normal] font-bold text-gray-900",
-  card: "rounded-2xl bg-white p-5 shadow-[0_4px_24px_rgba(0,0,0,0.06)] sm:p-6",
-  /** 프로필 카드 상단 장식선은 보조색 (장식 용도 — 글자에는 쓰지 않음). 재시도 후 포커스 대상이라 외곽선 표시 */
-  profileCard: "border-t-4 border-secondary-500 " + FOCUS_RING,
   nickname: "truncate text-xl/[normal] font-bold text-gray-900",
-  email: "mt-1 truncate text-sm/[normal] text-gray-500",
+  email: "mt-1 truncate text-sm/[normal] text-gray-600",
   /** 상태 라이브 영역 — 항상 렌더링하고 텍스트만 바꾼다 (비어 있으면 높이·여백 0) */
-  status: "text-sm/[normal] text-gray-500 not-empty:mb-3",
-  errorBox: "mt-3 rounded-[10px] bg-red-50 px-3.5 py-3 text-sm/[normal] text-red-700",
-  sectionTitle: "text-base/[normal] font-semibold text-gray-900",
-  comingList: "mt-2 divide-y divide-gray-200",
-  comingItem: "flex min-h-11 items-center justify-between gap-3 text-[0.9375rem]/[normal] text-gray-700",
-  activityLink: "font-semibold text-gray-900 no-underline active:bg-gray-100 " + FOCUS_RING,
-  /** 하단 계정 동작 버튼 줄 (오른쪽 정렬) */
-  accountActions: "flex justify-end gap-2",
-  /** 터치 영역 48px */
-  button:
-    "inline-flex min-h-12 w-full cursor-pointer touch-manipulation items-center justify-center rounded-[10px] " +
-    "px-4 text-base/[normal] font-semibold sm:w-auto " +
-    FOCUS_RING,
-  retryButton: "mt-3",
-  buttonOutline: "border border-gray-300 bg-white text-gray-900 active:bg-gray-100",
-  buttonSolid: "border border-primary-600 bg-primary-600 text-white active:bg-primary-700",
+  status: "text-sm/[normal] text-gray-600 not-empty:mb-3",
+  /** 프로필 카드: 그라데이션 띠 위에 이니셜 아바타. 재시도 후 포커스 대상이라 외곽선 표시 */
+  profileCard: "relative overflow-hidden " + FOCUS_RING,
+  banner: "absolute inset-x-0 top-0 h-20 bg-linear-to-r from-primary-200 via-primary-100 to-coral-100",
+  avatar:
+    "relative flex size-16 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-primary-600 to-coral-600 " +
+    "text-2xl/[normal] font-bold text-white ring-4 ring-white",
+  activityGrid: "mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4",
+  tile: "flex min-h-[116px] flex-col items-start gap-3 !p-4 sm:!p-5",
+  tileIcon: "flex size-11 items-center justify-center rounded-2xl",
+  /** 회원탈퇴·로그아웃: 맨 아래 옅은 위험 영역 */
+  dangerZone:
+    "flex flex-col gap-3 rounded-[20px] border border-red-100 bg-red-50/50 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6",
+  accountActions: "flex flex-col gap-2 sm:flex-row sm:justify-end",
 } as const;
 
-const outlineButton = `${cls.button} ${cls.buttonOutline}`;
-/** 회원탈퇴: 위험 색 외곽선 (red-700 / 흰 배경 6.47:1) */
-const withdrawButton = `${cls.button} border border-red-600 bg-white text-red-700 enabled:active:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60`;
-const retryButton = `${cls.button} ${cls.buttonSolid} ${cls.retryButton}`;
+/** 활동 타일 색 (글자·아이콘은 각 색 700 / 배경 100) */
+const TONES = {
+  primary: "bg-primary-100 text-primary-700",
+  sky: "bg-sky-100 text-sky-700",
+  mint: "bg-mint-100 text-mint-700",
+  coral: "bg-coral-100 text-coral-700",
+  amber: "bg-accent-100 text-gray-900",
+  gray: "bg-gray-100 text-gray-700",
+} as const;
 
 const ACTIVITY_LINKS = [
-  { to: "/tickets", label: "내 티켓" },
-  { to: "/exchange/matches", label: "내 매칭" },
-  { to: "/my/chats", label: "내 채팅" },
-  { to: "/exchange/history", label: "교환 이력" },
-  { to: "/my/edit-proposals", label: "내 수정 제안" },
-  { to: "/my/seat-claims", label: "내 티켓 인증 요청" },
-  { to: "/my/blocks", label: "차단 목록" },
-  { to: "/my/reports", label: "내 신고 내역" },
+  { to: "/tickets", label: "내 티켓", tone: "primary", icon: "M4 8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4zM14 6v12" },
+  { to: "/exchange/matches", label: "내 매칭", tone: "mint", icon: "M7 7h11l-3-3M17 17H6l3 3" },
+  { to: "/my/chats", label: "내 채팅", tone: "sky", icon: "M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-8l-4 3v-3H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" },
+  { to: "/exchange/history", label: "교환 이력", tone: "mint", icon: "M12 7v5l3 2M4 12a8 8 0 1 0 2.5-5.8M4 4v4h4" },
+  { to: "/my/edit-proposals", label: "내 수정 제안", tone: "primary", icon: "M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4" },
+  { to: "/my/seat-claims", label: "내 티켓 인증 요청", tone: "amber", icon: "M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6zM9 12l2 2 4-4" },
+  { to: "/my/blocks", label: "차단 목록", tone: "gray", icon: "M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM6.5 6.5l11 11" },
+  { to: "/my/reports", label: "내 신고 내역", tone: "coral", icon: "M6 21V4M6 5h11l-2 4 2 4H6" },
 ] as const;
 
 export default function MyPage() {
@@ -99,6 +95,7 @@ export default function MyPage() {
   const displayName = getDisplayName(user, profile);
   const visibleEmail = getVisibleEmail(user, profile);
   const statusText = profileStatus === "loading" ? "내 정보를 불러오는 중..." : "";
+  const initial = Array.from(displayName.trim())[0] ?? "?";
 
   let profileBody: ReactNode = null;
   if (profile) {
@@ -125,27 +122,61 @@ export default function MyPage() {
   }
 
   return (
-    <div className={cls.page}>
-      <div className={cls.container}>
-        <h1 className={cls.title}>마이페이지</h1>
+    <div className={ui.page}>
+      <div className={ui.container}>
+        <header className={ui.pageHeader}>
+          <div>
+            <p className={ui.eyebrow}>내 계정</p>
+            <h1 className={ui.pageTitle}>마이페이지</h1>
+          </div>
+        </header>
 
-        <section ref={cardRef} tabIndex={-1} className={`${cls.card} ${cls.profileCard}`} aria-label="내 정보">
-          <p className={cls.status} role="status">
+        <section ref={cardRef} tabIndex={-1} className={`${ui.card} ${cls.profileCard}`} aria-label="내 정보">
+          <div aria-hidden="true" className={cls.banner} />
+          <div className="relative flex items-end gap-4 pt-6">
+            <div aria-hidden="true" className={cls.avatar}>
+              {initial}
+            </div>
+          </div>
+          <p className={`${cls.status} mt-4`} role="status">
             {statusText}
           </p>
-          {profileBody}
+          <div className="mt-3">{profileBody}</div>
           {/* profile이 있어도 재조회가 실패하면 오류 안내와 재시도를 함께 보여준다 */}
           {profileStatus === "error" && (
             <>
-              <p className={cls.errorBox} role="alert">
+              <p className={`${ui.errorBox} mt-3`} role="alert">
                 {profileError ?? "내 정보를 불러오지 못했습니다."}
               </p>
-              <button type="button" className={retryButton} onClick={handleRetry}>
+              <button type="button" className={`${button.solid} mt-3`} onClick={handleRetry}>
                 다시 시도
               </button>
             </>
           )}
         </section>
+
+        {/* 관리자 계정은 거래 활동 메뉴를 두지 않는다(2026-10-21) */}
+        {profile?.role !== "ADMIN" && (
+          <section aria-labelledby="mypage-coming-soon">
+            <h2 id="mypage-coming-soon" className={ui.sectionTitle}>
+              내 활동
+            </h2>
+            <ul className={cls.activityGrid}>
+              {ACTIVITY_LINKS.map((item) => (
+                <li key={item.to} className="flex">
+                  <Link to={item.to} className={`${ui.cardInteractive} ${cls.tile} w-full no-underline`}>
+                    <span aria-hidden="true" className={`${cls.tileIcon} ${TONES[item.tone]}`}>
+                      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <path d={item.icon} />
+                      </svg>
+                    </span>
+                    <span className="text-[0.9375rem]/[1.4] font-semibold break-keep text-gray-900">{item.label}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {profile && (profile.passwordLoginEnabled ?? true) && <PasswordChangeCard />}
 
@@ -153,35 +184,22 @@ export default function MyPage() {
 
         <SocialLinkCard />
 
-        {/* 관리자 계정은 거래 활동 메뉴를 두지 않는다(2026-10-21) */}
-        {profile?.role !== "ADMIN" && (
-        <section className={cls.card} aria-labelledby="mypage-coming-soon">
-          <h2 id="mypage-coming-soon" className={cls.sectionTitle}>
-            내 활동
-          </h2>
-          <ul className={cls.comingList}>
-            {ACTIVITY_LINKS.map((item) => (
-              <li key={item.to}>
-                <Link to={item.to} className={`${cls.comingItem} ${cls.activityLink}`}>
-                  <span>{item.label}</span>
-                  <span aria-hidden="true">›</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-        )}
-
-        <div className={cls.accountActions}>
-          <button type="button" className={outlineButton} onClick={logoutAndGoHome}>
-            로그아웃
-          </button>
-          <button type="button" className={withdrawButton} onClick={() => setWithdrawOpen(true)}
-            disabled={!profile}
-            title={profile ? undefined : "내 정보를 불러온 뒤 탈퇴할 수 있어요"}
-          >
-            회원탈퇴
-          </button>
+        <div className={cls.dangerZone}>
+          <p className="text-sm/[1.6] break-keep text-gray-700">계정 관련 동작이에요. 회원탈퇴는 되돌릴 수 없어요.</p>
+          <div className={cls.accountActions}>
+            <button type="button" className={button.outline} onClick={logoutAndGoHome}>
+              로그아웃
+            </button>
+            <button
+              type="button"
+              className={button.dangerOutline}
+              onClick={() => setWithdrawOpen(true)}
+              disabled={!profile}
+              title={profile ? undefined : "내 정보를 불러온 뒤 탈퇴할 수 있어요"}
+            >
+              회원탈퇴
+            </button>
+          </div>
         </div>
       </div>
       {withdrawOpen && profile && (

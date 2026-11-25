@@ -2,12 +2,15 @@ import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { formatKstDateTime } from "../api/dateTime";
 import { exchangeErrorMessage } from "../api/exchangeMessages";
-import { CLAIM_BADGE, CLAIM_STATUS_LABEL, seatClaimsApi, type SeatClaim } from "../api/seatClaims";
+import { CLAIM_STATUS_LABEL, seatClaimsApi, type SeatClaim } from "../api/seatClaims";
 import { formatSeat } from "../api/seat";
-import { button, linkButton, liveRegionClass, ui } from "../components/ui";
+import { badgeTone, button, linkButton, liveRegionClass, ui } from "../components/ui";
 import { usePagedList } from "../hooks/usePagedList";
 
 // 내 좌석 인증 요청 (보호 라우트 /my/seat-claims). 처리 결과(승인·거절 사유)를 본다.
+
+/** 상태 뱃지 색: 대기 amber / 승인 mint / 거절 red */
+const CLAIM_BADGE = { PENDING: badgeTone.amber, APPROVED: badgeTone.mint, REJECTED: badgeTone.red } as const;
 
 function readNotice(state: unknown): string | null {
   if (typeof state !== "object" || state === null || !("notice" in state)) return null;
@@ -32,7 +35,10 @@ export default function MySeatClaimsPage() {
   return (
     <div className={ui.page}>
       <div className={ui.container}>
-        <h1 className={ui.pageTitle}>내 티켓 인증 요청</h1>
+        <header className="flex flex-col gap-2">
+          <p className={ui.eyebrow}>내 활동</p>
+          <h1 className={ui.pageTitle}>내 티켓 인증 요청</h1>
+        </header>
         <p className={liveRegionClass(notice, ui.notice)} role="status">
           {notice ?? ""}
         </p>
@@ -55,7 +61,10 @@ export default function MySeatClaimsPage() {
           </div>
         )}
         {state.status === "success" && state.items.length === 0 && (
-          <div className={`${ui.card} flex flex-col items-start gap-3`}>
+          <div className={ui.empty}>
+            <span aria-hidden="true" className="flex size-12 items-center justify-center rounded-full bg-accent-100 text-xl text-gray-900">
+              ✓
+            </span>
             <p className={ui.body}>보낸 인증 요청이 없어요.</p>
             <Link to="/tickets/new" className={linkButton.outline}>
               티켓 등록하기
@@ -66,7 +75,7 @@ export default function MySeatClaimsPage() {
           <>
             <ul className="flex flex-col gap-3" aria-label="인증 요청 목록">
               {state.items.map((c) => (
-                <li key={c.id} className={`${ui.card} flex flex-col gap-2`}>
+                <li key={c.id} className={`${ui.card} flex flex-col gap-3 !p-5`}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-base/[normal] font-bold break-keep text-gray-900">{c.performanceTitle}</span>
                     <span className={CLAIM_BADGE[c.status]}>{CLAIM_STATUS_LABEL[c.status]}</span>

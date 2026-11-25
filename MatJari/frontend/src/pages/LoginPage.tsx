@@ -12,6 +12,7 @@ import {
   validateLoginPassword,
 } from "../api/authValidation";
 import TextField from "../components/TextField";
+import AuthShell from "../components/AuthShell";
 import { authFormClasses as ui } from "../components/authFormClasses";
 import SocialLoginButtons from "../components/SocialLoginButtons";
 import WithdrawDialog from "../components/WithdrawDialog";
@@ -126,8 +127,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className={ui.page}>
-      <div className={ui.card}>
+    <AuthShell>
         <h1 className={ui.title}>맞자리 로그인</h1>
         <p className={ui.subtitle}>같은 공연 티켓 보유자와 좌석을 교환하세요.</p>
 
@@ -231,7 +231,6 @@ export default function LoginPage() {
             회원가입
           </Link>
         </p>
-      </div>
-    </div>
+      </AuthShell>
   );
 }

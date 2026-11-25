@@ -188,7 +188,7 @@ export default function SocialLinkCard() {
 
   return (
     <section className={ui.card} aria-labelledby="mypage-social-link">
-      <h2 id="mypage-social-link" className="text-base/[normal] font-semibold text-gray-900">
+      <h2 id="mypage-social-link" className={ui.sectionTitle}>
         소셜 계정 연결
       </h2>
       <p className={`${ui.status} not-empty:mt-2`} role="status">

@@ -157,7 +157,10 @@ export default function SeatClaimNewPage() {
     return (
       <div className={ui.page}>
         <div className={ui.container}>
-          <h1 className={ui.pageTitle}>내 티켓 인증</h1>
+          <header className="flex flex-col gap-2">
+            <p className={ui.eyebrow}>내 활동</p>
+            <h1 className={ui.pageTitle}>내 티켓 인증</h1>
+          </header>
           <div className={`${ui.card} flex flex-col items-start gap-3`}>
             <p className={ui.body}>인증할 좌석 정보가 없어요. 티켓 등록 화면에서 이미 등록된 좌석 안내를 통해 들어와 주세요.</p>
             <Link to="/tickets/new" className={linkButton.outline}>
@@ -203,7 +206,10 @@ export default function SeatClaimNewPage() {
   return (
     <div className={ui.page}>
       <div className={ui.container}>
-        <h1 className={ui.pageTitle}>내 티켓 인증</h1>
+        <header className="flex flex-col gap-2">
+          <p className={ui.eyebrow}>내 활동</p>
+          <h1 className={ui.pageTitle}>내 티켓 인증</h1>
+        </header>
         <p className={ui.body}>
           이미 다른 사람이 등록해 둔 좌석이 내 자리라면, 예매내역 사진으로 인증을 요청할 수 있어요. 관리자가 확인한 뒤 승인하면 기존
           등록이 내려가고, 그 뒤에 내 티켓으로 직접 등록할 수 있어요.

@@ -145,7 +145,7 @@ export default function WithdrawDialog({ passwordLoginEnabled, withdrawToken, re
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-gray-900/50 backdrop-blur-[2px] sm:items-center sm:p-4"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !submitting) onClose();
       }}
@@ -157,7 +157,7 @@ export default function WithdrawDialog({ passwordLoginEnabled, withdrawToken, re
         aria-labelledby="withdraw-title"
         aria-describedby="withdraw-desc"
         onKeyDown={handleKeyDown}
-        className="max-h-[92dvh] w-full max-w-[480px] overflow-y-auto overscroll-contain rounded-t-2xl bg-white p-5 pb-[calc(20px+env(safe-area-inset-bottom))] shadow-[0_4px_24px_rgba(0,0,0,0.2)] sm:rounded-2xl sm:p-6"
+        className="max-h-[92dvh] w-full max-w-[480px] overflow-y-auto overscroll-contain rounded-t-[24px] bg-white p-6 pb-[calc(24px+env(safe-area-inset-bottom))] shadow-[0_12px_40px_rgba(17,24,39,0.25)] sm:rounded-[24px] sm:p-8"
       >
         <h2 id="withdraw-title" className={ui.sectionTitle}>
           회원탈퇴

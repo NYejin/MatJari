@@ -50,7 +50,7 @@ import java.util.regex.Pattern;
 public class DetailImageFetcher {
 
     private static final Logger log = LoggerFactory.getLogger(DetailImageFetcher.class);
-    private static final String USER_AGENT = "MatJariBot/0.1 (+portfolio project; contact: kidjin1016@gmail.com)";
+    private static final String USER_AGENT = "MatJariBot/0.1 (+portfolio project; contact: changeSeat2seat@gmail.com)";
     /** 사이트별 상세 이미지 호스트(정확히 일치, 설정 image-hosts 에도 있어야 한다)와 경로 앞부분. */
     private record SiteRule(String host, String path, boolean contains) {
         boolean pathOk(String p) {

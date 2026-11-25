@@ -227,18 +227,12 @@ const SESSION_PREVIEW = 6;
 function SessionList({ detail }: { detail: PerformanceDetail }) {
   const sessions = [...detail.sessions].sort((a, b) => compareLocalDateTime(a.startsAt, b.startsAt));
   const [showAll, setShowAll] = useState(false);
-  const [showPast, setShowPast] = useState(false);
   if (sessions.length === 0) return <span className={ui.body}>등록된 회차가 없어요.</span>;
-  const pastSessions = sessions.filter((s) => isPastKst(s.startsAt));
-  const upcoming = sessions.filter((s) => !isPastKst(s.startsAt));
-  // 6개 접기는 다가오는 회차 기준, 지난 회차는 토글로 앞쪽에 펼친다(시간순)
-  const upcomingShown = showAll ? upcoming : upcoming.slice(0, SESSION_PREVIEW);
-  const shown = showPast ? [...pastSessions, ...upcomingShown] : upcomingShown;
+  const shown = showAll ? sessions : sessions.slice(0, SESSION_PREVIEW);
 
   return (
     <div className="flex flex-col items-start gap-1">
-      {upcoming.length === 0 && <span className={ui.body}>다가오는 회차가 없어요.</span>}
-      <ul className={cls.sessionList} aria-label={`회차 ${shown.length}개`}>
+      <ul className={cls.sessionList} aria-label={`회차 ${sessions.length}개`}>
         {shown.map((session) => {
           const past = isPastKst(session.startsAt);
           return (
@@ -249,14 +243,9 @@ function SessionList({ detail }: { detail: PerformanceDetail }) {
           );
         })}
       </ul>
-      {upcoming.length > SESSION_PREVIEW && (
+      {sessions.length > SESSION_PREVIEW && (
         <button type="button" className={`${ui.link} cursor-pointer`} aria-expanded={showAll} onClick={() => setShowAll((v) => !v)}>
-          {showAll ? "접기" : `회차 ${upcoming.length}개 모두 보기`}
-        </button>
-      )}
-      {pastSessions.length > 0 && (
-        <button type="button" className={`${ui.link} cursor-pointer`} aria-expanded={showPast} onClick={() => setShowPast((v) => !v)}>
-          {showPast ? "지난 회차 숨기기" : `지난 회차 ${pastSessions.length}개 보기`}
+          {showAll ? "접기" : `회차 ${sessions.length}개 모두 보기`}
         </button>
       )}
     </div>

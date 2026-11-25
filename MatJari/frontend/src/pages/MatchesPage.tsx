@@ -4,7 +4,8 @@ import { exchangeApi } from "../api/exchange";
 import { exchangeErrorMessage, formatExtra } from "../api/exchangeMessages";
 import { formatKstDateTime } from "../api/dateTime";
 import { formatSeat } from "../api/seat";
-import { button, FOCUS_RING, linkButton, liveRegionClass, ui } from "../components/ui";
+import Avatar from "../components/Avatar";
+import { badgeTone, button, FOCUS_RING, linkButton, liveRegionClass, matchStatusTone, segment, ui } from "../components/ui";
 import { usePagedList } from "../hooks/usePagedList";
 import type { ExchangeMatch, MatchRole, MatchStatus } from "../types/exchange";
 
@@ -19,13 +20,6 @@ const STATUS_LABEL: Record<MatchStatus, string> = {
   CANCELED: "취소됨",
 };
 
-/** 상태 배지 — 색만으로 구분하지 않고 항상 글자를 함께 쓴다. 모두 대비 AA 이상 */
-const STATUS_CLASS: Record<MatchStatus, string> = {
-  CHATTING: "bg-primary-50 text-primary-800",
-  RESERVED: "bg-accent-100 text-gray-900",
-  COMPLETED: "bg-gray-900 text-white",
-  CANCELED: "bg-gray-100 text-gray-700",
-};
 
 const CANCELED_BY_LABEL = {
   ME: "내가 취소했어요.",
@@ -112,10 +106,13 @@ export default function MatchesPage() {
   return (
     <div className={ui.page}>
       <div className={ui.container}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 ref={headingRef} tabIndex={-1} className={`${ui.pageTitle} outline-none`}>
-            내 매칭
-          </h1>
+        <div className={ui.pageHeader}>
+          <div className="flex flex-col gap-1.5">
+            <p className={ui.eyebrow}>교환</p>
+            <h1 ref={headingRef} tabIndex={-1} className={`${ui.pageTitle} outline-none`}>
+              내 매칭
+            </h1>
+          </div>
           <Link to="/tickets" className={linkButton.outline}>
             내 티켓
           </Link>
@@ -125,12 +122,12 @@ export default function MatchesPage() {
           {notice ?? ""}
         </p>
 
-        <div role="group" aria-label="제안 구분" className="grid grid-cols-3 gap-2">
+        <div role="group" aria-label="제안 구분" className={segment.group}>
           {TABS.map((tab) => (
             <button
               key={tab.role}
               type="button"
-              className={role === tab.role ? button.solid : button.outline}
+              className={`${segment.item} ${role === tab.role ? segment.active : segment.idle}`}
               aria-pressed={role === tab.role}
               onClick={() => {
                 setRole(tab.role);
@@ -173,7 +170,7 @@ export default function MatchesPage() {
         )}
 
         {state.status === "success" && state.items.length === 0 && (
-          <div className={`${ui.card} flex flex-col items-start gap-3`}>
+          <div className={ui.empty}>
             <p className={ui.body}>
               {role === "SENT" ? "아직 보낸 제안이 없어요. 후보 목록에서 마음에 드는 상대에게 제안해 보세요." : "아직 받은 제안이 없어요."}
             </p>
@@ -185,7 +182,7 @@ export default function MatchesPage() {
 
         {state.status === "success" && state.items.length > 0 && (
           <>
-            <ul className="flex flex-col gap-3" aria-label={role === "SENT" ? "보낸 제안 목록" : role === "RECEIVED" ? "받은 제안 목록" : "전체 매칭 목록"}>
+            <ul className="flex flex-col gap-4" aria-label={role === "SENT" ? "보낸 제안 목록" : role === "RECEIVED" ? "받은 제안 목록" : "전체 매칭 목록"}>
               {state.items.map((m) => (
                 <li
                   key={m.id}
@@ -213,16 +210,12 @@ export default function MatchesPage() {
   );
 }
 
-/** dt: 좁을 때는 회색 작은 글자(원래 레이아웃), 480px 이상에서는 배지 모양 (ui.badge와 같은 모양) */
 /** 추가금이 실제로 있는 조건(받고/낼)만 보인다. 없음(X)·상관없음(ANY)은 표시하지 않는다 */
 const hasExtra = (type: string) => type === "POS" || type === "NEG";
 
-const DT_CLASS =
-  "text-sm/[normal] text-gray-500 min-[30rem]:inline-flex min-[30rem]:items-center min-[30rem]:rounded-full min-[30rem]:bg-gray-100 min-[30rem]:px-2.5 min-[30rem]:py-0.5 min-[30rem]:text-[0.8125rem]/[normal] min-[30rem]:text-gray-700";
 /** 지금은 누를 수 없는 버튼 (aria-disabled). 대비는 AA를 유지하고 점선 테두리로 색 외에도 구분한다 */
 const NOT_READY_CLASS =
-  "inline-flex min-h-11 cursor-not-allowed items-center justify-center rounded-[10px] border border-dashed border-gray-500 bg-gray-100 px-4 text-[0.9375rem]/[normal] font-semibold whitespace-nowrap text-gray-700 touch-manipulation " + FOCUS_RING;
-const DD_CLASS = "text-sm/[normal] text-gray-900 min-[30rem]:my-1 min-[30rem]:ml-2";
+  "inline-flex min-h-11 cursor-not-allowed items-center justify-center rounded-xl border border-dashed border-gray-500 bg-gray-100 px-4 text-[0.9375rem]/[normal] font-semibold whitespace-nowrap text-gray-700 touch-manipulation " + FOCUS_RING;
 
 type Action = "unreserve" | "reject" | "cancel" | "complete";
 
@@ -320,7 +313,7 @@ function MatchCard({
   const chatLink = (
     <Link
       to={`/exchange/matches/${m.id}/chat`}
-      className={proposal === "THEIRS" ? linkButton.solid : linkButton.outline}
+      className={proposal === "THEIRS" || (open && !reserved) ? linkButton.solid : linkButton.outline}
       aria-label={`${m.counterpartNickname}님과 채팅${proposal === "THEIRS" ? ", 상대가 예약을 제안했어요" : ""}${unread > 0 ? `, 안 읽은 메시지 ${unread}개` : ""}`}
     >
       채팅
@@ -331,61 +324,58 @@ function MatchCard({
       )}
     </Link>
   );
-
   return (
     <article
-      className={`${ui.card} flex flex-col gap-3 ${anyDeleted ? "border-gray-300! bg-gray-100!" : ""}`}
+      className={`${ui.card} flex flex-col gap-4 ${anyDeleted ? "border-gray-300! bg-gray-100!" : ""}`}
       aria-labelledby={titleId}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id={titleId} className={`text-lg/[normal] font-bold ${anyDeleted ? "text-gray-700" : "text-gray-900"}`}>
-          {m.counterpartNickname}
-          {m.counterpartRequestDeleted && <DeletedTag label="상대가 교환 조건을 삭제했어요" text="(삭제)" />}
-        </h2>
-        <span
-          className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-[0.8125rem]/[normal] font-semibold ${STATUS_CLASS[m.status]}`}
-        >
-          {STATUS_LABEL[m.status]}
-        </span>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <Avatar name={m.counterpartNickname} />
+          <h2 id={titleId} className={`min-w-0 text-lg/[normal] font-bold break-keep ${anyDeleted ? "text-gray-700" : "text-gray-900"}`}>
+            {m.counterpartNickname}
+            {m.counterpartRequestDeleted && <DeletedTag label="상대가 교환 조건을 삭제했어요" text="(삭제)" />}
+          </h2>
+        </div>
+        <span className={badgeTone[matchStatusTone(m.status)]}>{STATUS_LABEL[m.status]}</span>
       </div>
 
-      {/* 좁은 화면(<480px): 라벨|값 한 줄 레이아웃, 넓은 화면: 2열 카드형(라벨 배지 위, 값 아래). 항목 래퍼는 좁을 때 contents라 dt/dd가 바로 그리드 칸이 된다 */}
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 min-[30rem]:grid-cols-[1fr_auto_1fr] min-[30rem]:gap-x-2 min-[30rem]:gap-y-4">
-        {/* 교환 방향: 내 자리 → 상대 자리. 넓은 화면은 두 칸 사이의 가운데 열(→), 좁은 화면은 두 줄 사이(↓)에 옅은 큰 화살표를 둔다 */}
-        <div className="contents min-[30rem]:block">
-          <dt className={DT_CLASS}>{completed ? "교환 전 내 자리" : "내 자리"}</dt>
-          <dd className={`${DD_CLASS} min-w-0`}>
-            <span className="text-gray-600">{formatSeat(m.mySeat)}</span>
+      {/* 교환 방향: 내 자리(회색 칸) → 받을 자리(primary 강조 칸). 넓은 화면은 두 칸 사이 →, 좁은 화면은 두 칸 사이 ↓ */}
+      <dl className="grid grid-cols-1 gap-2 min-[30rem]:grid-cols-[1fr_auto_1fr] min-[30rem]:items-stretch min-[30rem]:gap-x-3">
+        <div className="min-w-0 rounded-2xl bg-gray-50 px-4 py-3.5">
+          <dt className="text-[0.8125rem]/[normal] font-semibold text-gray-600">{completed ? "교환 전 내 자리" : "내 자리"}</dt>
+          <dd className="mt-1 min-w-0 text-sm/[normal] text-gray-900">
+            <span className="break-keep text-gray-700">{formatSeat(m.mySeat)}</span>
             {m.myRequestDeleted && <DeletedTag label="내 교환 조건을 삭제했어요" text="(내 조건 삭제됨)" />}
             {myElsewhere && <span className="block text-sm/[normal] text-gray-700">{ELSEWHERE}</span>}
             <span className={`block text-sm/[normal] ${anyDeleted ? "text-gray-600" : "text-gray-500"}`}>{formatKstDateTime(m.mySeat.startsAt)}</span>
           </dd>
+          {hasExtra(m.myExtraType) && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <dt className={badgeTone.amber}>내 추가금</dt>
+              <dd className="text-sm/[normal] text-gray-900">{formatExtra(m.myExtraType, m.myExtraAmount)}</dd>
+            </div>
+          )}
         </div>
-        <div aria-hidden="true" className="col-span-2 -my-1 pl-1 text-2xl/[1] font-light text-primary-600/40 min-[30rem]:col-span-1 min-[30rem]:my-0 min-[30rem]:self-center min-[30rem]:px-2 min-[30rem]:pl-2 min-[30rem]:text-center min-[30rem]:text-4xl/[1]">
+        <div aria-hidden="true" className="flex items-center justify-center text-2xl/[1] font-light text-primary-400 min-[30rem]:text-3xl/[1]">
           <span className="min-[30rem]:hidden">↓</span>
           <span className="hidden min-[30rem]:inline">→</span>
         </div>
-        <div className="contents min-[30rem]:block">
-          <dt className={DT_CLASS}>{completed ? "받은 자리" : "상대 자리"}</dt>
-          <dd className={`${DD_CLASS} min-w-0`}>
-            <span className="text-base/[normal] font-extrabold text-primary-800">{formatSeat(m.counterpartSeat)}</span>
+        <div className="min-w-0 rounded-2xl bg-primary-50 px-4 py-3.5">
+          <dt className="text-[0.8125rem]/[normal] font-semibold text-primary-700">{completed ? "받은 자리" : "상대 자리"}</dt>
+          <dd className="mt-1 min-w-0 text-sm/[normal] text-gray-900">
+            <span className="break-keep text-base/[normal] font-extrabold text-primary-800">{formatSeat(m.counterpartSeat)}</span>
             {m.counterpartRequestDeleted && <DeletedTag label="상대가 교환 조건을 삭제했어요" text="(삭제)" />}
             {counterpartElsewhere && <span className="block text-sm/[normal] text-gray-700">{ELSEWHERE}</span>}
             <span className={`block text-sm/[normal] ${anyDeleted ? "text-gray-600" : "text-gray-500"}`}>{formatKstDateTime(m.counterpartSeat.startsAt)}</span>
           </dd>
+          {hasExtra(m.counterpartExtraType) && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <dt className={badgeTone.amber}>상대 추가금</dt>
+              <dd className="text-sm/[normal] text-gray-900">{formatExtra(m.counterpartExtraType, m.counterpartExtraAmount)}</dd>
+            </div>
+          )}
         </div>
-        {hasExtra(m.myExtraType) && (
-          <div className="contents min-[30rem]:col-start-1 min-[30rem]:block">
-            <dt className={DT_CLASS}>내 추가금</dt>
-            <dd className={DD_CLASS}>{formatExtra(m.myExtraType, m.myExtraAmount)}</dd>
-          </div>
-        )}
-        {hasExtra(m.counterpartExtraType) && (
-          <div className="contents min-[30rem]:col-start-3 min-[30rem]:block">
-            <dt className={DT_CLASS}>상대 추가금</dt>
-            <dd className={DD_CLASS}>{formatExtra(m.counterpartExtraType, m.counterpartExtraAmount)}</dd>
-          </div>
-        )}
       </dl>
 
       {anyDeleted && (

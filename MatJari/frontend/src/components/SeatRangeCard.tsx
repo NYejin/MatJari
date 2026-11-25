@@ -65,8 +65,13 @@ export default function SeatRangeCard({
   );
 
   return (
-    <fieldset className="flex min-w-0 flex-col gap-6 rounded-[10px] border border-gray-200 p-3.5" disabled={disabled}>
-      <legend className="px-1 text-sm/[normal] font-bold text-gray-900">희망 범위 {number}</legend>
+    <fieldset className="flex min-w-0 flex-col gap-6 rounded-[20px] border border-gray-200 bg-gray-50/60 p-4 sm:p-5" disabled={disabled}>
+      <legend className="flex items-center gap-2 px-1 text-sm/[normal] font-bold text-gray-900">
+        <span aria-hidden="true" className="inline-flex size-7 items-center justify-center rounded-full bg-primary-600 text-[0.8125rem] text-white">
+          {number}
+        </span>
+        희망 범위 {number}
+      </legend>
       <ZonePickField
         id={rangeFieldId(uid, "zone")}
         label="구역"

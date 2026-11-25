@@ -225,7 +225,7 @@ export default function ChatImageRedactDialog({ file, onSend, onClose }: Props) 
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 sm:items-center" role="presentation">
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="redact-title" className="flex max-h-[95dvh] w-full max-w-lg flex-col gap-3 overflow-y-auto rounded-t-2xl bg-white p-4 pb-[calc(16px+env(safe-area-inset-bottom))] sm:rounded-2xl">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="redact-title" className="flex max-h-[95dvh] w-full max-w-lg flex-col gap-3 overflow-y-auto rounded-t-[24px] bg-white p-5 pb-[calc(20px+env(safe-area-inset-bottom))] shadow-[0_-8px_40px_-12px_rgba(17,24,39,0.35)] sm:rounded-[24px]">
         <h2 id="redact-title" ref={titleRef} tabIndex={-1} className="text-base font-semibold text-gray-900 outline-none">
           사진 보내기
         </h2>
@@ -240,7 +240,7 @@ export default function ChatImageRedactDialog({ file, onSend, onClose }: Props) 
           </p>
         )}
         {!loadError && (
-          <div className="flex justify-center rounded-lg bg-gray-100 p-1">
+          <div className="flex justify-center rounded-2xl bg-gray-100 p-1.5">
             <div
               ref={boxRef}
               className="relative max-w-full touch-none select-none"

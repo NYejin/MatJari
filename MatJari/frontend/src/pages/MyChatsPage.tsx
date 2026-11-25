@@ -4,7 +4,8 @@ import { exchangeApi } from "../api/exchange";
 import { exchangeErrorMessage } from "../api/exchangeMessages";
 import { kstMinuteString } from "../api/dateTime";
 import { formatSeat } from "../api/seat";
-import { button, FOCUS_RING, ui } from "../components/ui";
+import Avatar from "../components/Avatar";
+import { badgeTone, button, FOCUS_RING, matchStatusTone, segment, ui } from "../components/ui";
 import { usePagedList } from "../hooks/usePagedList";
 import type { ExchangeMatch, MatchStatus } from "../types/exchange";
 
@@ -72,8 +73,13 @@ export default function MyChatsPage() {
 
   return (
     <div className={ui.page}>
-      <div className="flex w-full max-w-2xl min-w-0 flex-col gap-4">
-        <h1 className={ui.pageTitle}>내 채팅</h1>
+      <div className={ui.container}>
+        <div className={ui.pageHeader}>
+          <div className="flex flex-col gap-1.5">
+            <p className={ui.eyebrow}>교환</p>
+            <h1 className={ui.pageTitle}>내 채팅</h1>
+          </div>
+        </div>
 
         {state.status === "loading" && (
           <p className={ui.status} role="status">
@@ -96,12 +102,12 @@ export default function MyChatsPage() {
 
         {state.status === "success" && (
           <>
-            <div role="group" aria-label="채팅 필터" className="grid grid-cols-2 gap-2">
+            <div role="group" aria-label="채팅 필터" className={segment.group}>
               {FILTERS.map((f) => (
                 <button
                   key={f.key}
                   type="button"
-                  className={filter === f.key ? button.solid : button.outline}
+                  className={`${segment.item} ${filter === f.key ? segment.active : segment.idle}`}
                   aria-pressed={filter === f.key}
                   onClick={() => setFilter(f.key)}
                 >
@@ -111,11 +117,11 @@ export default function MyChatsPage() {
             </div>
 
             {shown.length === 0 ? (
-              <div className={ui.card}>
+              <div className={ui.empty}>
                 <p className={ui.body}>{filter === "UNREAD" ? "안 읽은 대화가 없어요." : "아직 대화가 없어요."}</p>
               </div>
             ) : (
-              <ul className="flex flex-col gap-2" aria-label={filter === "UNREAD" ? "안 읽은 채팅 목록" : "채팅 목록"}>
+              <ul className="flex flex-col gap-3" aria-label={filter === "UNREAD" ? "안 읽은 채팅 목록" : "채팅 목록"}>
                 {shown.map((m) => (
                   <li key={m.id}>
                     <ChatRow match={m} />
@@ -148,43 +154,52 @@ function ChatRow({ match: m }: { match: ExchangeMatch }) {
   return (
     <Link
       to={`/exchange/matches/${m.id}/chat`}
-      className={`flex min-h-16 flex-col gap-1 rounded-2xl border bg-white px-4 py-3 no-underline shadow-[0_2px_12px_rgba(0,0,0,0.04)] active:bg-gray-100 ${
-        unread ? "border-primary-600" : "border-gray-200"
-      } ${FOCUS_RING}`}
+      className={`flex items-start gap-3.5 rounded-[20px] border bg-white px-4 py-4 no-underline shadow-[0_2px_12px_rgba(17,24,39,0.04)] transition-[border-color,box-shadow] hover:shadow-[0_10px_30px_-12px_rgba(138,43,226,0.28)] active:bg-gray-50 ${
+        unread ? "border-primary-300" : "border-gray-200/70"
+      } ${closed ? "opacity-90" : ""} ${FOCUS_RING}`}
     >
-      <span className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-base/[normal] font-bold text-gray-900">{m.counterpartNickname}</span>
-        {closed && <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-xs/[normal] text-gray-600">종료</span>}
-        <time dateTime={chatTime(m)} className="shrink-0 text-xs/[normal] text-gray-500">
-          {formatChatTime(chatTime(m))}
-        </time>
-        {unread && (
-          <span
-            aria-label={`안 읽은 메시지 ${m.unreadChatCount}개`}
-            className="inline-flex min-w-6 shrink-0 items-center justify-center rounded-full bg-primary-600 px-2 py-0.5 text-xs/[normal] font-bold text-white"
-          >
-            {m.unreadChatCount > 99 ? "99+" : m.unreadChatCount}
-          </span>
-        )}
+      {/* 안 읽은 채팅은 아바타 왼쪽 위에 점 (색 외에도 굵은 글자·개수 뱃지로 구분) */}
+      <span className="relative shrink-0">
+        <Avatar name={m.counterpartNickname} />
+        {unread && <span aria-hidden="true" className="absolute -top-0.5 -left-0.5 size-3 rounded-full border-2 border-white bg-primary-600" />}
       </span>
-      {preview ? (
-        <span className={`min-w-0 truncate text-sm/[normal] ${unread ? "font-bold text-gray-900" : "text-gray-700"}`}>
-          {m.lastMessageMine ? "나: " : ""}
-          {preview}
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="flex items-center gap-2">
+          <span className="min-w-0 truncate text-base/[normal] font-bold text-gray-900">{m.counterpartNickname}</span>
+          <span className={badgeTone[matchStatusTone(m.status)]}>{STATUS_LABEL[m.status]}</span>
+          {closed && <span className="sr-only">종료</span>}
+          <time dateTime={chatTime(m)} className="ml-auto shrink-0 text-xs/[normal] text-gray-500">
+            {formatChatTime(chatTime(m))}
+          </time>
         </span>
-      ) : (
-        <span className="min-w-0 truncate text-sm/[normal] text-gray-500">아직 대화가 없어요</span>
-      )}
-      <span className="text-xs/[normal] text-gray-500">{STATUS_LABEL[m.status]}</span>
-      <span className={`flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-sm/[normal] ${unread ? "font-bold text-gray-900" : closed ? "text-gray-500" : "text-gray-700"}`}>
-        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-          <span className="rounded-full bg-primary-50 px-2 py-0.5 text-[0.6875rem]/[1.3] font-bold text-primary-800">내</span>
-          <span className="font-normal text-gray-600">{formatSeat(m.mySeat)}</span>
-          <span aria-hidden="true" className="px-0.5 text-2xl/[1] font-light text-primary-600/40">→</span>
+        <span className="flex items-center gap-2">
+          {preview ? (
+            <span className={`min-w-0 flex-1 truncate text-sm/[normal] ${unread ? "font-bold text-gray-900" : "text-gray-700"}`}>
+              {m.lastMessageMine ? "나: " : ""}
+              {preview}
+            </span>
+          ) : (
+            <span className="min-w-0 flex-1 truncate text-sm/[normal] text-gray-500">아직 대화가 없어요</span>
+          )}
+          {unread && (
+            <span
+              aria-label={`안 읽은 메시지 ${m.unreadChatCount}개`}
+              className="inline-flex min-w-6 shrink-0 items-center justify-center rounded-full bg-primary-600 px-2 py-0.5 text-xs/[normal] font-bold text-white"
+            >
+              {m.unreadChatCount > 99 ? "99+" : m.unreadChatCount}
+            </span>
+          )}
         </span>
-        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-          <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[0.6875rem]/[1.3] font-bold text-gray-700">상대</span>
-          <span className="text-base/[1.4] font-extrabold text-primary-800">{formatSeat(m.counterpartSeat)}</span>
+        <span className={`mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 text-sm/[normal] ${closed ? "text-gray-500" : "text-gray-700"}`}>
+          <span className="inline-flex items-center gap-1.5 rounded-xl bg-gray-50 px-2.5 py-1 whitespace-nowrap">
+            <span className="text-[0.6875rem]/[1.3] font-bold text-gray-600">내</span>
+            <span className="font-normal text-gray-600">{formatSeat(m.mySeat)}</span>
+          </span>
+          <span aria-hidden="true" className="text-lg/[1] font-light text-primary-400">→</span>
+          <span className="inline-flex items-center gap-1.5 rounded-xl bg-primary-50 px-2.5 py-1 whitespace-nowrap">
+            <span className="text-[0.6875rem]/[1.3] font-bold text-primary-700">상대</span>
+            <span className="font-extrabold text-primary-800">{formatSeat(m.counterpartSeat)}</span>
+          </span>
         </span>
       </span>
     </Link>

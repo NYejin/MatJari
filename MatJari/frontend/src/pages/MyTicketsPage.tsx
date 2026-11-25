@@ -5,7 +5,7 @@ import { exchangeErrorMessage, summarizeRangeExtras } from "../api/exchangeMessa
 import { formatKstDateTime } from "../api/dateTime";
 import { formatSeat } from "../api/seat";
 import { ticketsApi } from "../api/tickets";
-import { button, linkButton, liveRegionClass, ui } from "../components/ui";
+import { badgeTone, button, linkButton, liveRegionClass, ui } from "../components/ui";
 import type { ExchangeRequest } from "../types/exchange";
 import type { Ticket } from "../types/ticket";
 
@@ -60,8 +60,12 @@ export default function MyTicketsPage() {
   return (
     <div className={ui.page}>
       <div className={ui.container}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className={ui.pageTitle}>내 티켓</h1>
+        <div className={ui.pageHeader}>
+          <div className="flex flex-col gap-1.5">
+            <p className={ui.eyebrow}>내 활동</p>
+            <h1 className={ui.pageTitle}>내 티켓</h1>
+            <p className={ui.pageLead}>등록한 티켓마다 교환 조건을 설정하고 후보를 확인해요.</p>
+          </div>
           <Link to="/tickets/new" className={linkButton.solid}>
             티켓 등록
           </Link>
@@ -86,7 +90,7 @@ export default function MyTicketsPage() {
         )}
 
         {state.status === "success" && state.tickets.length === 0 && (
-          <div className={`${ui.card} flex flex-col items-start gap-3`}>
+          <div className={ui.empty}>
             <p className={ui.body}>아직 등록한 티켓이 없어요. 가지고 있는 티켓을 등록하면 바꿀 상대를 찾을 수 있어요.</p>
             <Link to="/tickets/new" className={linkButton.outline}>
               티켓 등록하기
@@ -95,7 +99,7 @@ export default function MyTicketsPage() {
         )}
 
         {state.status === "success" && state.tickets.length > 0 && (
-          <ul className="flex flex-col gap-3" aria-label="내 티켓 목록">
+          <ul className="flex flex-col gap-4" aria-label="내 티켓 목록">
             {state.tickets.map((ticket) => (
               <li key={ticket.id}>
                 <TicketCard ticket={ticket} request={state.requests.get(ticket.id) ?? null} onRemoved={removeFromList} />
@@ -147,21 +151,24 @@ function TicketCard({
   const titleId = `ticket-${ticket.id}-title`;
 
   return (
-    <article className={`${ui.card} flex flex-col gap-3`} aria-labelledby={titleId}>
-      <div className="flex flex-col gap-1">
+    <article
+      className={`${ui.card} relative flex flex-col gap-4 overflow-hidden !pt-8 before:absolute before:inset-x-0 before:top-0 before:h-2 before:bg-gradient-to-r before:from-primary-500 before:via-sky-400 before:to-coral-400`}
+      aria-labelledby={titleId}
+    >
+      <div className="flex flex-col gap-1.5">
         <h2 id={titleId} className="text-lg/[normal] font-bold break-keep text-gray-900">
           {ticket.performanceTitle}
         </h2>
         <p className={ui.body}>
           {formatKstDateTime(ticket.startsAt)} · {ticket.venueName}
         </p>
-        <p className="text-[0.9375rem]/[normal] font-semibold text-primary-700">{formatSeat(ticket)}</p>
+        <p className="mt-1 w-fit rounded-xl bg-primary-50 px-3 py-1.5 text-xl/[normal] font-bold text-primary-700">{formatSeat(ticket)}</p>
       </div>
 
-      <div className="flex flex-col gap-1">
+      <div className={`${ui.well} flex flex-col gap-1.5`}>
         {request ? (
           <>
-            <span className={ui.badge + " self-start"}>{open ? "교환 조건 설정됨" : "교환 조건 닫힘"}</span>
+            <span className={`${open ? badgeTone.mint : badgeTone.gray} self-start`}>{open ? "교환 조건 설정됨" : "교환 조건 닫힘"}</span>
             <p className={ui.muted}>
               희망 {request.wantSeatCount.toLocaleString("ko-KR")}석 · 희망 회차 {request.wantSessions.length}개 ·{" "}
               {summarizeRangeExtras(request.ranges)}

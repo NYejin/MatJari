@@ -11,7 +11,7 @@ import {
   validateSignupPassword,
 } from "../api/authValidation";
 import TextField from "./TextField";
-import { button } from "./ui";
+import { button, ui } from "./ui";
 
 // 마이페이지 '비밀번호 변경' 카드 — 비밀번호 로그인 계정에만 MyPage가 렌더한다.
 // PATCH /api/auth/password: 현재 기기는 로그인 유지, 다른 기기는 로그아웃된다.
@@ -67,13 +67,13 @@ export default function PasswordChangeCard() {
 
   return (
     <section
-      className="rounded-2xl bg-white p-5 shadow-[0_4px_24px_rgba(0,0,0,0.06)] sm:p-6"
+      className={ui.card}
       aria-labelledby="password-change-title"
     >
-      <h2 id="password-change-title" className="text-base/[normal] font-semibold text-gray-900">
+      <h2 id="password-change-title" className={ui.sectionTitle}>
         비밀번호 변경
       </h2>
-      <form onSubmit={handleSubmit} noValidate className="mt-3 flex flex-col gap-3">
+      <form onSubmit={handleSubmit} noValidate className="mt-4 flex flex-col gap-4">
         <TextField
           id="pw-current"
           label="현재 비밀번호"

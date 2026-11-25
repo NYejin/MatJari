@@ -29,7 +29,7 @@ const cls = {
   term: "text-sm/[normal] font-semibold text-gray-700",
   desc: "min-w-0 text-[0.9375rem]/[normal] break-words text-gray-900",
   descSub: "block text-sm/[normal] text-gray-700",
-  title: "text-2xl/[normal] font-bold break-keep text-gray-900",
+  title: "text-[1.625rem]/[1.3] font-bold tracking-[-0.01em] break-keep text-gray-900 sm:text-[1.875rem]/[1.3]",
   sessionList: "flex flex-col gap-1",
   sessionRow: "flex flex-wrap items-center gap-2",
   /** 회차 시각 — 지난 회차는 gray-500(흰 배경 4.83:1)으로 흐리게 + "지난 회차" 배지 (색만으로 구분하지 않음) */
@@ -85,7 +85,7 @@ export default function PerformanceDetailPage() {
   let content: ReactNode = null;
   if (state.status === "notFound") {
     content = (
-      <div className={`${ui.card} flex flex-col items-start gap-3`}>
+      <div className={ui.empty}>
         <h1 className={ui.pageTitle}>공연을 찾을 수 없어요</h1>
         <p className={ui.body}>존재하지 않거나 잘못된 주소예요.</p>
         <Link to="/" className={linkButton.outline}>
@@ -123,7 +123,7 @@ export default function PerformanceDetailPage() {
   const loadingText = state.status === "loading" ? "공연 정보를 불러오는 중..." : "";
   return (
     <div className={ui.page}>
-      <div className={ui.container}>
+      <div className={ui.containerWide}>
         <p className={liveRegionClass(loadingText, ui.status)} role="status">
           {loadingText}
         </p>
@@ -150,13 +150,17 @@ function InfoSection({ detail }: { detail: PerformanceDetail }) {
   }, [detail.id]);
 
   return (
-    <section className={`${ui.card} flex flex-col gap-4 md:flex-row md:items-start md:justify-between`} aria-labelledby="perf-title">
-      <div className="flex min-w-0 flex-1 flex-col gap-4">
+    <section
+      className={`${ui.card} relative flex flex-col gap-6 overflow-hidden !pt-9 before:absolute before:inset-x-0 before:top-0 before:h-2 before:bg-gradient-to-r before:from-primary-500 before:via-sky-400 before:to-coral-400 md:flex-row md:items-start md:justify-between md:gap-8`}
+      aria-labelledby="perf-title"
+    >
+      <div className="flex min-w-0 flex-1 flex-col gap-5">
+      <p className={ui.eyebrow}>공연 정보</p>
       <h1 id="perf-title" className={cls.title}>
         {detail.title}
       </h1>
 
-      <dl className={cls.infoList}>
+      <dl className={`${ui.well} ${cls.infoList} !gap-y-3`}>
         <dt className={cls.term}>공연장</dt>
         <dd className={cls.desc}>{detail.venueName}</dd>
         <dt className={cls.term}>티켓팅</dt>
@@ -209,7 +213,7 @@ function ZoneMapSection({ detail }: { detail: PerformanceDetail }) {
   const zones = detail.zones ?? [];
   if (!hasShapedZone(zones)) return null;
   return (
-    <section className={`${ui.card} flex flex-col gap-3`} aria-labelledby="perf-zonemap-title">
+    <section className={`${ui.card} flex flex-col gap-4`} aria-labelledby="perf-zonemap-title">
       <h2 id="perf-zonemap-title" className={ui.sectionTitle}>
         구역 지도
       </h2>
@@ -309,7 +313,7 @@ function EditProposalSection({ detail }: { detail: PerformanceDetail }) {
   const sessionCheck = checkSessionChanges(rows);
   const panelId = "edit-proposal-panel";
   return (
-    <section className={`${ui.card} flex flex-col gap-3`} aria-labelledby="edit-proposal-title">
+    <section className={`${ui.card} flex flex-col gap-4`} aria-labelledby="edit-proposal-title">
       <h2 id="edit-proposal-title" className={ui.sectionTitle}>
         정보가 틀렸어요
       </h2>

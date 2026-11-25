@@ -42,18 +42,44 @@
   --color-accent-500: #e8a33d;
   --color-accent-700: #a2722b;
 
-  /* 화면 바탕(카드 바깥) 중립색 — 흰 카드와 구분되는 옅은 회색 */
-  --color-surface: #f5f6f8;
+  --color-accent-50: #fdf7ec;
+
+  /* ---- 보조 색 3종 (2026-11-25 디자인 개편, 사용자 지시 "색 여러 개 써도 됨").
+     상태·분류 구분용: sky=정보·채팅 중, mint=완료·성공, coral=새 소식·하이라이트 (amber=accent는 예약·주의).
+     글자는 700만 쓰고(흰 배경·50 배경 모두 4.5:1 이상), 50/100은 배경, 400·500은 장식(점·막대·그라데이션)에만 쓴다.
+     대비: sky-700/sky-50 6.4:1, mint-700/mint-50 5.0:1, coral-700/coral-50 5.6:1 */
+  --color-sky-50: #eff6ff;
+  --color-sky-100: #dbeafe;
+  --color-sky-400: #60a5fa;
+  --color-sky-500: #3b82f6;
+  --color-sky-700: #1d4ed8;
+  --color-mint-50: #ecfdf5;
+  --color-mint-100: #d1fae5;
+  --color-mint-400: #34d399;
+  --color-mint-500: #10b981;
+  --color-mint-700: #047857;
+  --color-coral-50: #fff1f3;
+  --color-coral-100: #ffe4e8;
+  --color-coral-400: #fb7185;
+  --color-coral-500: #f43f5e;
+  --color-coral-700: #be123c;
+
+  /* 화면 바탕(카드 바깥) — 보라 기운이 아주 살짝 도는 밝은 바탕 (흰 카드와 구분) */
+  --color-surface: #f6f5fb;
 
   /* ---- 중립·상태 색: 기존 CSS hex 값(Tailwind v3 팔레트)으로 고정.
      v4 기본 팔레트는 oklch라 같은 이름이어도 색이 미세하게 다르다. */
+  --color-gray-50: #f9fafb;
   --color-gray-100: #f3f4f6;
   --color-gray-200: #e5e7eb;
   --color-gray-300: #d1d5db;
+  --color-gray-400: #9ca3af;
   --color-gray-500: #6b7280;
+  --color-gray-600: #4b5563;
   --color-gray-700: #374151;
   --color-gray-900: #111827;
   --color-red-50: #fef2f2;
+  --color-red-200: #fecaca;
   --color-red-600: #dc2626;
   --color-red-700: #b91c1c;
 }

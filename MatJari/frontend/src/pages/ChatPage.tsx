@@ -9,7 +9,8 @@ import { formatSeat } from "../api/seat";
 import ChatImage from "../components/ChatImage";
 import ChatImageRedactDialog from "../components/ChatImageRedactDialog";
 import ChatSafetyActions from "../components/ChatSafetyActions";
-import { button, FOCUS_RING, linkButton, liveRegionClass, ui } from "../components/ui";
+import Avatar from "../components/Avatar";
+import { badgeTone, button, FOCUS_RING, linkButton, liveRegionClass, matchStatusTone, ui } from "../components/ui";
 import { useAuth } from "../hooks/useAuth";
 import { useChatSocket } from "../hooks/useChatSocket";
 import type { ChatMessage, ChatPush, PendingChatMessage } from "../types/chat";
@@ -92,16 +93,16 @@ function statusLabel(status: ExchangeMatch["status"]): string {
   return status === "CHATTING" ? "채팅 중" : status === "RESERVED" ? "예약 중" : status === "COMPLETED" ? "교환 완료" : "종료";
 }
 
-const BADGE_BASE = "inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-[0.8125rem]/[normal] font-semibold";
+/** 상태별 색 뱃지: 채팅 중 sky, 예약 중 amber, 교환 완료 mint, 종료 gray */
 function statusBadgeClass(status: ExchangeMatch["status"]): string {
-  return status === "RESERVED" ? `${BADGE_BASE} bg-primary-50 text-primary-800` : status === "CHATTING" ? `${BADGE_BASE} bg-gray-100 text-gray-700` : `${BADGE_BASE} bg-gray-100 text-gray-600`;
+  return badgeTone[matchStatusTone(status)];
 }
 
 /** 상태 안내 배너 묶음: 1개면 그대로, 2개 이상이면 첫 줄만 보이고 펼치기 (UI 전용 상태) */
 function ChatBanners({ banners }: { banners: { text: string; strong?: boolean }[] }) {
   const [open, setOpen] = useState(false);
   if (banners.length === 0) return null;
-  const cls = (b: { strong?: boolean }) => `${b.strong ? "bg-accent-100 text-gray-900" : "bg-primary-50 text-primary-800"} rounded-[10px] px-3 py-1 text-[0.8125rem]/[1.4]`;
+  const cls = (b: { strong?: boolean }) => `${b.strong ? "bg-accent-100 text-gray-900" : "bg-primary-50 text-primary-800"} rounded-xl px-3.5 py-2 text-[0.8125rem]/[1.45]`;
   const shown = open ? banners : banners.slice(0, 1);
   return (
     <div className="flex flex-col gap-1">
@@ -123,7 +124,7 @@ function ChatBanners({ banners }: { banners: { text: string; strong?: boolean }[
 function SafetyStrip(): ReactNode {
   const [open, setOpen] = useState(false);
   return (
-    <div className="shrink-0 border-b border-gray-200 bg-gray-50 px-4 py-1.5">
+    <div className="shrink-0 border-b border-gray-200 bg-accent-50 px-4 py-2">
       <button type="button" className={`flex w-full items-center justify-between gap-2 rounded text-left text-[0.8125rem]/[normal] text-gray-600 ${FOCUS_RING}`} aria-expanded={open} aria-controls="chat-safety-text" onClick={() => setOpen((v) => !v)}>
         <span>안전하게 거래하세요</span>
         <span className="underline underline-offset-2">{open ? "접기" : "자세히"}</span>
@@ -141,11 +142,11 @@ function SafetyStrip(): ReactNode {
 }
 
 /** 거래 카드 오른쪽 슬롯의 작은 윤곽선 버튼 (터치 영역 40px) */
-const SLOT_BUTTON = `inline-flex min-h-10 shrink-0 cursor-pointer touch-manipulation items-center justify-center rounded-lg border border-primary-600 bg-white px-3 text-[0.8125rem]/[normal] font-semibold whitespace-nowrap text-primary-700 enabled:active:bg-primary-50 disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS_RING}`;
+const SLOT_BUTTON = `inline-flex min-h-11 shrink-0 cursor-pointer touch-manipulation items-center justify-center rounded-xl border border-primary-600 bg-primary-600 px-4 text-[0.8125rem]/[normal] font-semibold whitespace-nowrap text-white shadow-[0_6px_16px_-6px_rgba(138,43,226,0.55)] enabled:hover:bg-primary-700 enabled:active:bg-primary-800 disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS_RING}`;
 /** 카드 안 보조 동작(거절·철회·예약 취소)용 작은 윤곽선 버튼 */
-const SMALL_OUTLINE = `inline-flex min-h-10 cursor-pointer touch-manipulation items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-[0.8125rem]/[normal] font-semibold whitespace-nowrap text-gray-900 enabled:active:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS_RING}`;
+const SMALL_OUTLINE = `inline-flex min-h-11 cursor-pointer touch-manipulation items-center justify-center rounded-xl border border-gray-200 bg-white px-3 text-[0.8125rem]/[normal] font-semibold whitespace-nowrap text-gray-900 enabled:active:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS_RING}`;
 
-const MSG_BUBBLE = "max-w-[75%] px-3.5 py-2 text-[0.9375rem]/[1.45] break-words whitespace-pre-wrap";
+const MSG_BUBBLE = "max-w-[75%] px-4 py-2.5 text-[0.9375rem]/[1.5] break-words whitespace-pre-wrap shadow-[0_1px_2px_rgba(17,24,39,0.06)]";
 
 export default function ChatPage() {
   const params = useParams();
@@ -679,7 +680,8 @@ export default function ChatPage() {
               <path d="M15 5l-7 7 7 7" />
             </svg>
           </Link>
-          <div className="flex min-w-0 flex-1 items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2.5">
+            {match && <Avatar name={match.counterpartNickname} size="sm" />}
             <h1 ref={headingRef} tabIndex={-1} className="min-w-0 truncate text-xl/[normal] font-bold text-gray-900 outline-none">
               {match ? (
                 <>
@@ -697,7 +699,7 @@ export default function ChatPage() {
         </div>
 
         {/* 연결 상태 띠 (정상이면 비어 있음) */}
-        <p role="status" className={liveRegionClass(connectionText, connection === "failed" ? "shrink-0 bg-red-50 px-4 py-1.5 text-[0.8125rem]/[normal] text-red-700" : "shrink-0 bg-gray-100 px-4 py-1.5 text-[0.8125rem]/[normal] text-gray-700")}>
+        <p role="status" className={liveRegionClass(connectionText, connection === "failed" ? "shrink-0 bg-red-50 px-4 py-1.5 text-[0.8125rem]/[normal] text-red-700" : "shrink-0 bg-sky-50 px-4 py-1.5 text-[0.8125rem]/[normal] text-sky-700")}>
           {connectionText}
         </p>
 
@@ -709,19 +711,19 @@ export default function ChatPage() {
 
         {/* 거래 정보 카드: 자리 요약 + 상태 뱃지, 안내 배너, 예약 블록. 길어지면 안쪽만 스크롤 */}
         {match && (
-          <div className="relative max-h-[40dvh] shrink-0 overflow-y-auto overscroll-contain border-b border-gray-200 bg-white px-4 py-2">
+          <div className="relative max-h-[40dvh] shrink-0 overflow-y-auto overscroll-contain border-b border-primary-100 bg-linear-to-br from-primary-50 via-white to-sky-50 px-4 py-3">
             <div className="flex flex-col gap-1.5">
               <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
                 <div className="flex min-w-0 flex-1 basis-56 flex-col gap-0.5">
                   {/* 교환 방향은 내 자리 → 상대 자리 화살표로 보이고, 도착(상대) 자리를 강조한다. 내 자리·상대 자리는 라벨 알약으로 구분한다. 한 줄에 들어가면 한 줄, 넘치는 순간 상대 자리가 다음 줄로 내려간다 */}
                   <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                      <span className="rounded-full bg-primary-50 px-2 py-0.5 text-[0.6875rem]/[1.3] font-bold text-primary-800">내</span>
+                    <span className="inline-flex items-center gap-1.5 rounded-xl bg-white/80 px-2.5 py-1 whitespace-nowrap">
+                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[0.6875rem]/[1.3] font-bold text-gray-700">내</span>
                       <span className="text-[0.8125rem]/[1.4] text-gray-600">{formatSeat(match.mySeat)}</span>
-                      <span aria-hidden="true" className="px-0.5 text-2xl/[1] font-light text-primary-600/40">→</span>
                     </span>
-                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                      <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[0.6875rem]/[1.3] font-bold text-gray-700">상대</span>
+                    <span aria-hidden="true" className="-mx-1 text-2xl/[1] font-light text-primary-400">→</span>
+                    <span className="inline-flex items-center gap-1.5 rounded-xl bg-primary-100 px-2.5 py-1 whitespace-nowrap">
+                      <span className="rounded-full bg-white px-2 py-0.5 text-[0.6875rem]/[1.3] font-bold text-primary-700">상대</span>
                       <span className="text-base/[1.4] font-extrabold text-primary-800">{formatSeat(match.counterpartSeat)}</span>
                     </span>
                   </div>
@@ -752,7 +754,7 @@ export default function ChatPage() {
               <ChatBanners banners={banners} />
               {reservable && (
                 <div ref={reserveBlockRef} tabIndex={-1} aria-label="예약" className="flex flex-col gap-1.5 rounded-[10px] outline-none">
-                  {reserveStateText && <p className={proposal === "THEIRS" ? "rounded-[10px] bg-accent-100 px-3 py-1.5 text-[0.8125rem]/[1.4] text-gray-900" : "rounded-[10px] bg-primary-50 px-3 py-1.5 text-[0.8125rem]/[1.4] text-primary-800"}>{reserveStateText}</p>}
+                  {reserveStateText && <p className={proposal === "THEIRS" ? "rounded-xl bg-accent-100 px-3.5 py-2 text-[0.8125rem]/[1.45] text-gray-900" : "rounded-xl bg-primary-50 px-3.5 py-2 text-[0.8125rem]/[1.45] text-primary-800"}>{reserveStateText}</p>}
                   {match.status === "CHATTING" && proposal === "NONE" && seatExchanged && (
                     <p className="text-[0.8125rem]/[1.4] text-gray-600">이미 교환된 좌석이라 예약을 제안할 수 없어요.</p>
                   )}
@@ -888,7 +890,7 @@ export default function ChatPage() {
                       <li key={m.id} className={first && prev !== null ? "mt-3" : "mt-0.5"}>
                         {showDay && day && (
                           <p className="mt-1 mb-3 flex justify-center">
-                            <span className="rounded-full bg-gray-200 px-3 py-1 text-[0.75rem]/[normal] text-gray-700">{day}</span>
+                            <span className="rounded-full bg-white px-3.5 py-1 text-[0.75rem]/[normal] font-semibold text-gray-700 shadow-[0_1px_2px_rgba(17,24,39,0.08)]">{day}</span>
                           </p>
                         )}
                         <div className={`flex items-end gap-1.5 ${mine ? "justify-end" : "justify-start"}`}>
@@ -899,7 +901,7 @@ export default function ChatPage() {
                               <ChatImage mine={mine} expired={m.imageExpired === true} load={(signal) => chatApi.fetchImage(matchId as number, m.id, signal)} />
                             </div>
                           ) : (
-                            <div className={`${MSG_BUBBLE} ${radius} ${mine ? "bg-primary-600 text-white" : "bg-white text-gray-900"}`}>
+                            <div className={`${MSG_BUBBLE} ${radius} ${mine ? "bg-primary-600 text-white" : "border border-gray-200 bg-white text-gray-900"}`}>
                               <span className="sr-only">{mine ? "나: " : `${counterpartName}: `}</span>
                               {m.content}
                             </div>
@@ -960,7 +962,7 @@ export default function ChatPage() {
                 {counterpartName}님에게 보낼 메시지
               </label>
               {/* 알약 입력창: 테두리는 바깥 알약이 맡고 textarea는 테두리·스크롤바 없이 높이만 늘어난다 */}
-              <div className={`flex items-end rounded-3xl border pl-4 pr-1 focus-within:border-primary-600 focus-within:ring-3 focus-within:ring-primary-600/20 ${closedChat ? "border-gray-200 bg-gray-100" : "border-gray-300 bg-white"}`}>
+              <div className={`flex items-end rounded-3xl border pl-4 pr-1 focus-within:border-primary-600 focus-within:ring-3 focus-within:ring-primary-600/20 ${closedChat ? "border-gray-200 bg-gray-100" : "border-gray-200 bg-white shadow-[0_4px_16px_-6px_rgba(17,24,39,0.18)]"}`}>
                 {!closedChat && (
                   <>
                     <input ref={fileInputRef} type="file" accept="image/jpeg,image/png" className="hidden" onChange={onPickPhoto} tabIndex={-1} aria-hidden="true" />

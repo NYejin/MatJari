@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { formatKstDateTime } from "../api/dateTime";
-import { button, ui } from "./ui";
+import { badgeTone, button, ui } from "./ui";
 
 // 희망 회차 선택 + 우선순위 설정 (요청 단위). 체크한 회차가 목록 순서대로 1순위, 2순위...가 된다.
 // 위/아래 버튼은 이웃한 '체크된' 회차와 자리를 바꾼다. 반드시 모듈 최상위 컴포넌트로 쓴다.
@@ -72,7 +72,7 @@ export default function WantSessionsEditor({ rows, onChange, error, disabled = f
       {rows.length === 0 ? (
         <p className={ui.body}>이 공연에는 회차가 없어요.</p>
       ) : (
-        <ul className="flex flex-col divide-y divide-gray-200">
+        <ul className="flex flex-col gap-2">
           {rows.map((row, index) => {
             const label = formatKstDateTime(row.startsAt);
             const thisRank = row.checked ? ++rank : 0;
@@ -80,7 +80,12 @@ export default function WantSessionsEditor({ rows, onChange, error, disabled = f
             const hasNext = rows.slice(index + 1).some((r) => r.checked);
             const cbId = wantSessionCheckboxId(row.sessionId);
             return (
-              <li key={row.sessionId} className="flex flex-wrap items-center justify-between gap-2 py-2">
+              <li
+                key={row.sessionId}
+                className={`flex flex-wrap items-center justify-between gap-2 rounded-2xl border px-3.5 py-2 ${
+                  row.checked ? "border-primary-600 bg-primary-50" : row.closed ? "border-gray-200 bg-gray-50" : "border-gray-200 bg-white"
+                }`}
+              >
                 <div className="flex min-h-11 min-w-0 items-center gap-3">
                   <input
                     id={cbId}
@@ -92,8 +97,8 @@ export default function WantSessionsEditor({ rows, onChange, error, disabled = f
                   />
                   <label htmlFor={cbId} className="flex min-w-0 flex-wrap items-center gap-2 text-[0.9375rem]/[normal] text-gray-900">
                     <span>{label}</span>
-                    {row.mine && <span className={ui.badge}>내 티켓 회차</span>}
-                    {row.closed && <span className={ui.badge}>마감</span>}
+                    {row.mine && <span className={badgeTone.primary}>내 티켓 회차</span>}
+                    {row.closed && <span className={badgeTone.gray}>마감</span>}
                     {row.checked && <span className="text-sm/[normal] font-bold text-primary-700">{thisRank}순위</span>}
                   </label>
                 </div>

@@ -461,10 +461,15 @@ function FormBody({ data }: { data: Loaded }) {
   return (
     <div className={ui.page}>
       <div className={ui.container}>
-        <h1 className={ui.pageTitle}>{existing ? "교환 조건 수정" : "교환 조건 설정"}</h1>
+        <div className={ui.pageHeader}>
+          <div className="flex flex-col gap-1.5">
+            <p className={ui.eyebrow}>교환</p>
+            <h1 className={ui.pageTitle}>{existing ? "교환 조건 수정" : "교환 조건 설정"}</h1>
+          </div>
+        </div>
 
-        <section className={`${ui.card} flex flex-col gap-1`} aria-labelledby="ticket-summary-title">
-          <h2 id="ticket-summary-title" className="text-sm/[normal] font-semibold text-gray-700">
+        <section className={`${ui.card} flex flex-col gap-1 border-primary-200 bg-primary-50/50`} aria-labelledby="ticket-summary-title">
+          <h2 id="ticket-summary-title" className="text-sm/[normal] font-semibold text-primary-700">
             내 티켓
           </h2>
           <p className="text-lg/[normal] font-bold break-keep text-gray-900">{performance.title}</p>
@@ -478,7 +483,7 @@ function FormBody({ data }: { data: Loaded }) {
           {status}
         </p>
 
-        <form className="flex flex-col gap-4" onSubmit={submit} noValidate aria-label="교환 조건">
+        <form className="flex flex-col gap-5" onSubmit={submit} noValidate aria-label="교환 조건">
           <section className={`${ui.card} flex flex-col gap-4`} aria-labelledby="ranges-title">
             <div className="flex flex-col gap-1">
               <h2 id="ranges-title" className={ui.sectionTitle}>
@@ -492,7 +497,7 @@ function FormBody({ data }: { data: Loaded }) {
               </p>
             </div>
 
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-4">
               {cards.map((card, i) => {
                 const prefix = `ranges[${i}].`;
                 const cardErrors = Object.fromEntries(
@@ -535,9 +540,9 @@ function FormBody({ data }: { data: Loaded }) {
               </span>
             </div>
 
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1.5 rounded-2xl bg-primary-50 px-4 py-3.5">
               <p className="text-[0.9375rem]/[normal] font-semibold text-gray-900">
-                총 {count.toLocaleString("ko-KR")}석
+                총{count.toLocaleString("ko-KR")}석
                 {invalid > 0 && <span className="font-normal text-gray-700"> (입력을 확인해야 하는 범위 {invalid}개는 제외)</span>}
               </p>
               <p className={ui.hint}>겹치는 자리는 한 번만 세요. 서버 안전 상한은 {WANT_MAX_SEATS.toLocaleString("ko-KR")}석이에요.</p>

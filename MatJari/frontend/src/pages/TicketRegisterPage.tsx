@@ -35,7 +35,13 @@ export default function TicketRegisterPage() {
   return (
     <div className={ui.page}>
       <div className={ui.container}>
-        <h1 className={ui.pageTitle}>티켓 등록</h1>
+        <div className={ui.pageHeader}>
+          <div className="flex flex-col gap-1.5">
+            <p className={ui.eyebrow}>티켓</p>
+            <h1 className={ui.pageTitle}>티켓 등록</h1>
+            <p className={ui.pageLead}>공연을 고르고 가지고 있는 좌석을 입력해 주세요.</p>
+          </div>
+        </div>
         {performanceId === null ? (
           <PerformancePicker onPick={setPickedId} />
         ) : (
@@ -351,7 +357,7 @@ function TicketForm({ performanceId, presetSessionId, canChangePerformance, onCh
 
   return (
     <form className="flex flex-col gap-4" onSubmit={submit} noValidate aria-label="티켓 등록">
-      <section className={`${ui.card} flex flex-col gap-2`} aria-labelledby="ticket-perf-title">
+      <section className={`${ui.card} flex flex-col gap-2 !bg-primary-50/60`} aria-labelledby="ticket-perf-title">
         <h2 id="ticket-perf-title" className="text-sm/[normal] font-semibold text-gray-700">
           공연
         </h2>
@@ -418,7 +424,7 @@ function TicketForm({ performanceId, presetSessionId, canChangePerformance, onCh
       </fieldset>
 
       <fieldset
-        className={`${ui.card} flex flex-col gap-4`}
+        className={`${ui.card} flex flex-col gap-5`}
         disabled={submitting}
         aria-labelledby="ticket-seat-title"
       >

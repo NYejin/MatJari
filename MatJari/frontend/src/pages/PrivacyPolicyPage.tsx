@@ -23,11 +23,11 @@ const cls = {
 function Section({ n, title, children }: { n: number | string; title: string; children: ReactNode }) {
   const id = `privacy-s${n}`;
   return (
-    <section aria-labelledby={id} className="flex flex-col gap-2">
-      <h2 id={id} className={ui.sectionTitle}>
+    <section aria-labelledby={id} className="flex flex-col gap-3">
+      <h2 id={id} className={`${ui.sectionTitle} flex items-start gap-2.5 before:mt-[0.3em] before:h-[1em] before:w-1 before:shrink-0 before:rounded-full before:bg-primary-500`}>
         {n}. {title}
       </h2>
-      <div className={`flex flex-col gap-2 ${ui.body}`}>{children}</div>
+      <div className="flex flex-col gap-2.5 text-[0.9375rem]/[1.75] break-keep text-gray-700">{children}</div>
     </section>
   );
 }
@@ -39,9 +39,9 @@ function Setting({ value, missing }: { value: string; missing: string }) {
 export default function PrivacyPolicyPage() {
   return (
     <div className={ui.page}>
-      <div className={ui.container}>
-        <article className={`${ui.card} flex flex-col gap-6`} aria-labelledby="privacy-title">
-          <header className="flex flex-col gap-2">
+      <div className="flex w-full max-w-[680px] min-w-0 flex-col gap-5">
+        <article className={`${ui.card} flex flex-col gap-9 !p-6 sm:!p-10`} aria-labelledby="privacy-title">
+          <header className="flex flex-col gap-3 border-b border-gray-100 pb-7">
             <h1 id="privacy-title" className={ui.pageTitle}>
               개인정보처리방침
             </h1>

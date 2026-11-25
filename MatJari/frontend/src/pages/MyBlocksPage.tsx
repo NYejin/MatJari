@@ -49,10 +49,13 @@ export default function MyBlocksPage() {
   return (
     <div className={ui.page}>
       <div className={ui.container}>
-        <h1 ref={titleRef} tabIndex={-1} className={`${ui.pageTitle} outline-none`}>
-          차단 목록
-        </h1>
-        <p className={ui.hint}>차단한 사용자와는 서로 후보에 나오지 않고 채팅할 수 없어요. 상대에게는 알리지 않아요.</p>
+        <header className="flex flex-col gap-2">
+          <p className={ui.eyebrow}>내 활동</p>
+          <h1 ref={titleRef} tabIndex={-1} className={`${ui.pageTitle} outline-none`}>
+            차단 목록
+          </h1>
+          <p className={ui.pageLead}>차단한 사용자와는 서로 후보에 나오지 않고 채팅할 수 없어요. 상대에게는 알리지 않아요.</p>
+        </header>
         <p className={liveRegionClass(statusText, ui.status)} role="status">
           {statusText}
         </p>
@@ -75,7 +78,10 @@ export default function MyBlocksPage() {
         )}
 
         {state.status === "success" && state.items.length === 0 && (
-          <div className={ui.card}>
+          <div className={ui.empty}>
+            <span aria-hidden="true" className="flex size-12 items-center justify-center rounded-full bg-gray-100 text-xl text-gray-700">
+              ⊘
+            </span>
             <p className={ui.body}>차단한 사용자가 없어요. 차단은 채팅 화면의 '차단' 버튼으로 할 수 있어요.</p>
           </div>
         )}
@@ -86,7 +92,7 @@ export default function MyBlocksPage() {
               const confirming = confirmId === b.id;
               const busy = busyId === b.id;
               return (
-                <li key={b.id} className={`${ui.card} flex flex-col gap-3`}>
+                <li key={b.id} className={`${ui.card} flex flex-col gap-4 !p-5`}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="min-w-0">
                       <p className="truncate text-base/[normal] font-semibold text-gray-900">{b.blockedNickname}</p>

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { parseSuspension, saveSuspensionNotice } from "../api/suspension";
 import { exchangeSocialCode } from "../api/socialAuth";
 import { getUserFromAccessToken, tokenStorage } from "../api/tokenStorage";
+import AuthShell from "../components/AuthShell";
 import { authFormClasses as ui } from "../components/authFormClasses";
 
 // 소셜 로그인 콜백: 백엔드가 `/auth/callback#code=...`로 보낸다 (프래그먼트라 서버 로그·Referer에 남지 않음).
@@ -68,12 +69,10 @@ export default function SocialCallbackPage() {
   }, [navigate]);
 
   return (
-    <div className={ui.page}>
-      <div className={ui.card}>
+    <AuthShell>
         <p className={ui.subtitle} role="status">
           로그인 처리 중이에요...
         </p>
-      </div>
-    </div>
+      </AuthShell>
   );
 }

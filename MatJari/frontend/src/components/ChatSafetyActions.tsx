@@ -261,7 +261,7 @@ export default function ChatSafetyActions({ matchId, counterpartName, menu = fal
               {REPORT_REASONS.map((r) => {
                 const id = `report-reason-${r.value}`;
                 return (
-                  <label key={r.value} htmlFor={id} className={`flex min-h-11 cursor-pointer items-start gap-2.5 rounded-[10px] border border-gray-200 px-3 py-2.5 has-[:checked]:border-primary-600 has-[:checked]:bg-primary-50 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-primary-600`}>
+                  <label key={r.value} htmlFor={id} className={`flex min-h-11 cursor-pointer items-start gap-2.5 rounded-2xl border border-gray-200 px-3.5 py-3 has-[:checked]:border-primary-600 has-[:checked]:bg-primary-50 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-primary-600`}>
                     <input
                       id={id}
                       type="radio"

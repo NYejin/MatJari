@@ -5,6 +5,7 @@ import { exchangeErrorMessage } from "../api/exchangeMessages";
 import { formatRelativeTime, isClosedMatchNotification, notificationPath, notificationsApi, notificationText } from "../api/notifications";
 import { adjustUnreadCount, refreshUnreadCount, useUnreadNotifications } from "../hooks/useUnreadNotifications";
 import type { AppNotification } from "../types/notification";
+import NotificationIcon from "./NotificationIcon";
 import { button, FOCUS_RING, linkButton } from "./ui";
 
 // 헤더 알림 벨: 안 읽은 개수 뱃지 + 누르면 바로 아래에 최근 알림 5건 말풍선(popover).
@@ -29,11 +30,11 @@ const cls = {
     "absolute top-0.5 right-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 " +
     "text-xs/[normal] font-bold text-white",
   popover:
-    "absolute top-full right-2 left-2 z-[110] mt-1 flex flex-col gap-2 rounded-2xl border border-gray-200 bg-white p-3 " +
-    "shadow-[0_8px_24px_rgba(0,0,0,0.12)] outline-none md:right-auto md:left-0 md:w-88",
+    "absolute top-full right-2 left-2 z-[110] mt-2 flex flex-col gap-2 rounded-[20px] border border-gray-200/70 bg-white p-3 " +
+    "shadow-[0_16px_40px_-12px_rgba(17,24,39,0.25)] outline-none md:right-auto md:left-0 md:w-88",
   item:
-    "flex min-h-11 w-full cursor-pointer touch-manipulation flex-col gap-0.5 rounded-[10px] px-3 py-2 text-left " +
-    "active:bg-gray-100 " +
+    "flex min-h-11 w-full cursor-pointer touch-manipulation items-start gap-3 rounded-xl px-3 py-2.5 text-left " +
+    "hover:bg-gray-50 active:bg-gray-100 " +
     FOCUS_RING,
 } as const;
 
@@ -173,14 +174,17 @@ export default function NotificationBell({ userId, onOpen }: { userId: number; o
               {preview.items.map((n) => (
                 <li key={n.id}>
                   <button type="button" className={cls.item} onClick={() => void openItem(n)}>
-                    <span className={`text-sm/[1.35] ${isClosedMatchNotification(n) ? "text-gray-500" : "text-gray-900"} ${n.read ? "font-normal" : "font-semibold"}`}>
-                      {!n.read && <span className="mr-1.5 inline-block size-2 rounded-full bg-primary-600 align-middle" aria-hidden="true" />}
-                      {!n.read && <span className="sr-only">안 읽음. </span>}
-                      {notificationText(n)}
-                    </span>
-                    <span className="text-xs/[normal] text-gray-500">
-                      {formatRelativeTime(n.createdAt)}
-                      {isClosedMatchNotification(n) && " · 종료된 매칭"}
+                    <NotificationIcon type={n.type} muted={isClosedMatchNotification(n)} />
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className={`text-sm/[1.4] break-keep ${isClosedMatchNotification(n) ? "text-gray-500" : "text-gray-900"} ${n.read ? "font-normal" : "font-bold"}`}>
+                        {!n.read && <span className="mr-1.5 inline-block size-2 rounded-full bg-primary-600 align-middle" aria-hidden="true" />}
+                        {!n.read && <span className="sr-only">안 읽음. </span>}
+                        {notificationText(n)}
+                      </span>
+                      <span className="text-xs/[normal] text-gray-500">
+                        {formatRelativeTime(n.createdAt)}
+                        {isClosedMatchNotification(n) && " · 종료된 매칭"}
+                      </span>
                     </span>
                   </button>
                 </li>

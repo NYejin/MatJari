@@ -53,12 +53,12 @@ export default function ExtraFields({
       aria-describedby={typeError ? typeErrorId : noteId}
     >
       <legend className="mb-1 text-[0.9375rem]/[normal] font-bold text-gray-900">범위 {number}의 추가금</legend>
-      <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+      <div className="grid grid-cols-1 gap-2.5 min-[30rem]:grid-cols-2">
         {OPTIONS.map((o) => (
           <label
             key={o.value}
             htmlFor={extraTypeId(uid, o.value)}
-            className="flex min-h-11 min-w-0 cursor-pointer items-center gap-2 rounded-[10px] px-1 py-1.5"
+            className="flex min-h-14 min-w-0 cursor-pointer items-center gap-3 rounded-2xl border border-gray-200 bg-white px-3.5 py-3 transition-colors hover:border-gray-300 has-checked:border-primary-600 has-checked:bg-primary-50 has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-primary-600"
           >
             <input
               id={extraTypeId(uid, o.value)}
@@ -68,7 +68,7 @@ export default function ExtraFields({
               checked={type === o.value}
               onChange={() => onTypeChange(o.value)}
             />
-            <span className="flex min-w-0 flex-col">
+            <span className="flex min-w-0 flex-col gap-0.5 break-keep">
               <span className="text-[0.9375rem]/[normal] font-semibold text-gray-900">{o.label}</span>
               <span className={ui.muted}>{o.desc}</span>
             </span>

@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { exchangeErrorMessage } from "../api/exchangeMessages";
 import { subscribeNotificationPush } from "../api/realtimeHub";
 import { formatRelativeTime, isClosedMatchNotification, notificationPath, notificationsApi, notificationText } from "../api/notifications";
-import { button, FOCUS_RING, liveRegionClass, ui } from "../components/ui";
+import NotificationIcon from "../components/NotificationIcon";
+import { badgeTone, button, FOCUS_RING, liveRegionClass, ui } from "../components/ui";
 import { usePagedList } from "../hooks/usePagedList";
 import { adjustUnreadCount, refreshUnreadCount } from "../hooks/useUnreadNotifications";
 import type { AppNotification } from "../types/notification";
@@ -88,9 +89,14 @@ export default function NotificationsPage() {
   return (
     <div className={ui.page}>
       <div className={ui.container}>
-        <h1 ref={headingRef} tabIndex={-1} className={`${ui.pageTitle} outline-none`}>
-          알림
-        </h1>
+        <div className={ui.pageHeader}>
+          <div className="flex flex-col gap-1.5">
+            <p className={ui.eyebrow}>소식</p>
+            <h1 ref={headingRef} tabIndex={-1} className={`${ui.pageTitle} outline-none`}>
+              알림
+            </h1>
+          </div>
+        </div>
 
         <div role="status">
           {hasNew && (
@@ -158,33 +164,36 @@ export default function NotificationsPage() {
         )}
 
         {state.status === "success" && state.items.length === 0 && (
-          <div className={ui.card}>
+          <div className={ui.empty}>
             <p className={ui.body}>아직 알림이 없어요. 새 제안·예약·채팅 메시지가 생기면 여기에 알려드려요.</p>
           </div>
         )}
 
         {state.status === "success" && state.items.length > 0 && (
           <>
-            <ul className="flex flex-col gap-2" aria-label="알림 목록">
+            <ul className="flex flex-col gap-2.5" aria-label="알림 목록">
               {state.items.map((n) => (
                 <li key={n.id}>
                   <button
                     type="button"
                     onClick={() => void openItem(n)}
                     className={
-                      "flex min-h-11 w-full cursor-pointer touch-manipulation flex-col gap-1 rounded-2xl p-4 text-left active:bg-gray-100 " +
-                      `${isClosedMatchNotification(n) ? "bg-gray-100" : "bg-white shadow-[0_4px_24px_rgba(0,0,0,0.06)]"} ` +
+                      "flex min-h-11 w-full cursor-pointer touch-manipulation items-start gap-3.5 rounded-[20px] border p-4 text-left transition-[border-color,box-shadow] hover:border-primary-200 active:bg-gray-50 " +
+                      `${isClosedMatchNotification(n) ? "border-gray-200 bg-gray-100" : n.read ? "border-gray-200/70 bg-white" : "border-primary-200 bg-white shadow-[0_4px_20px_-8px_rgba(138,43,226,0.25)]"} ` +
                       FOCUS_RING
                     }
                   >
-                    <span className={`text-[0.9375rem]/[1.4] ${isClosedMatchNotification(n) ? "text-gray-700" : "text-gray-900"} ${n.read ? "font-normal" : "font-semibold"}`}>
-                      {!n.read && <span className="mr-2 inline-block size-2 rounded-full bg-primary-600 align-middle" aria-hidden="true" />}
-                      {!n.read && <span className="sr-only">안 읽음. </span>}
-                      {notificationText(n)}
-                    </span>
-                    <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm/[normal] text-gray-600">
-                      <span>{formatRelativeTime(n.createdAt)}</span>
-                      {isClosedMatchNotification(n) && <span className="rounded-full bg-gray-200 px-2.5 py-0.5 text-[0.8125rem]/[normal] font-semibold text-gray-700">종료된 매칭</span>}
+                    <NotificationIcon type={n.type} muted={isClosedMatchNotification(n)} />
+                    <span className="flex min-w-0 flex-1 flex-col gap-1">
+                      <span className={`text-[0.9375rem]/[1.5] break-keep ${isClosedMatchNotification(n) ? "text-gray-700" : "text-gray-900"} ${n.read ? "font-normal" : "font-bold"}`}>
+                        {!n.read && <span className="mr-2 inline-block size-2 rounded-full bg-primary-600 align-middle" aria-hidden="true" />}
+                        {!n.read && <span className="sr-only">안 읽음. </span>}
+                        {notificationText(n)}
+                      </span>
+                      <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm/[normal] text-gray-600">
+                        <span>{formatRelativeTime(n.createdAt)}</span>
+                        {isClosedMatchNotification(n) && <span className={badgeTone.gray}>종료된 매칭</span>}
+                      </span>
                     </span>
                   </button>
                 </li>

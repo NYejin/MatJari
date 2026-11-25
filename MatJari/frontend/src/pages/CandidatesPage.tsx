@@ -5,7 +5,8 @@ import { exchangeErrorMessage, formatExtra, formatWon } from "../api/exchangeMes
 import { getErrorStatus } from "../api/performances";
 import { formatKstDateTime } from "../api/dateTime";
 import { formatSeat } from "../api/seat";
-import { button, linkButton, liveRegionClass, ui } from "../components/ui";
+import Avatar from "../components/Avatar";
+import { badgeTone, button, linkButton, liveRegionClass, ui } from "../components/ui";
 import { useCursorList } from "../hooks/useCursorList";
 import type { ExchangeCandidate, ExchangeRequest } from "../types/exchange";
 
@@ -110,8 +111,11 @@ function CandidatesView({ requestId, validId }: { requestId: number; validId: bo
   return (
     <div className={ui.page}>
       <div className={ui.container}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className={ui.pageTitle}>매칭 후보</h1>
+        <div className={ui.pageHeader}>
+          <div className="flex flex-col gap-1.5">
+            <p className={ui.eyebrow}>교환</p>
+            <h1 className={ui.pageTitle}>매칭 후보</h1>
+          </div>
           <div className="flex flex-wrap gap-2">
             {myRequest && (
               <Link to={`/tickets/${myRequest.ticketId}/exchange`} className={linkButton.outline}>
@@ -175,10 +179,10 @@ function CandidatesView({ requestId, validId }: { requestId: number; validId: bo
 
         {state.status === "success" && state.items.length > 0 && (
           <>
-            <p className={ui.hint}>
+            <p className={`${ui.well} ${ui.hint} break-keep`}>
               ‘내 조건’은 내가 이 자리를 원할 때 정한 추가금, ‘상대 조건’은 상대가 내 자리를 원할 때 정한 추가금이에요. 금액은 매칭 판정에 쓰이지 않고 참고로만 보여요. ‘제안하기’를 누르면 바로 매칭(채팅 단계)이 시작되고, 예약은 채팅 화면에서 한 명이 ‘예약 제안하기’를 누르고 상대가 수락하면 두 티켓이 예약돼요.
             </p>
-            <ul className="flex flex-col gap-3" aria-label="매칭 후보 목록">
+            <ul className="flex flex-col gap-4" aria-label="매칭 후보 목록">
               {state.items.map((c) => (
                 <li key={c.requestId}>
                   <CandidateCard
@@ -226,40 +230,49 @@ function CandidateCard({
   const locked = error?.code === "NOT_A_CANDIDATE" || error?.code === "MATCH_ALREADY_OPEN";
 
   return (
-    <article className={`${ui.card} flex flex-col gap-3`} aria-labelledby={titleId}>
-      <div className="flex flex-col gap-1">
-        <h2 id={titleId} className="text-lg/[normal] font-bold text-gray-900">
-          {c.nickname}
-        </h2>
-        <p className="text-[0.9375rem]/[normal] font-semibold text-primary-700">{formatSeat(c)}</p>
-        <p className={ui.body}>{formatKstDateTime(c.startsAt)}</p>
+    <article className={`${ui.card} flex flex-col gap-4`} aria-labelledby={titleId}>
+      <div className="flex items-center gap-3">
+        <Avatar name={c.nickname} />
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <h2 id={titleId} className="text-lg/[normal] font-bold break-keep text-gray-900">
+            {c.nickname}
+          </h2>
+          <p className="text-sm/[normal] text-gray-500">내 희망 회차 {c.wantPriority}순위</p>
+        </div>
       </div>
 
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
-        <dt className={ui.muted}>내 희망 회차</dt>
-        <dd className="text-sm/[normal] text-gray-900">{c.wantPriority}순위</dd>
-        {/* 추가금이 실제로 있는 조건(받고/낼)만 보인다 */}
-        {(c.myExtraType === "POS" || c.myExtraType === "NEG") && (
-          <>
-            <dt className={ui.muted}>내 조건</dt>
-            <dd className="text-sm/[normal] text-gray-900">{formatExtra(c.myExtraType, c.myExtraAmount)}</dd>
-          </>
-        )}
-        {(c.extraType === "POS" || c.extraType === "NEG") && (
-          <>
-            <dt className={ui.muted}>상대 조건</dt>
-            <dd className="text-sm/[normal] text-gray-900">{formatExtra(c.extraType, c.extraAmount)}</dd>
-          </>
-        )}
-        {c.settlementHint && (
-          <>
-            <dt className={ui.muted}>참고 금액</dt>
-            <dd className="text-sm/[normal] text-gray-900">
-              {formatWon(c.settlementHint.min)}~{formatWon(c.settlementHint.max)}
-            </dd>
-          </>
-        )}
-      </dl>
+      {/* 받을 상대 자리를 강조 칸으로 */}
+      <div className="rounded-2xl bg-primary-50 px-4 py-3.5">
+        <p className="text-[0.8125rem]/[normal] font-semibold text-primary-700">받을 자리</p>
+        <p className="mt-0.5 text-base/[1.5] font-extrabold break-keep text-primary-800">{formatSeat(c)}</p>
+        <p className="text-sm/[normal] text-gray-600">{formatKstDateTime(c.startsAt)}</p>
+      </div>
+
+      {/* 추가금이 실제로 있는 조건(받고/낼)만 보인다 */}
+      {(c.myExtraType === "POS" || c.myExtraType === "NEG" || c.extraType === "POS" || c.extraType === "NEG" || c.settlementHint) && (
+        <dl className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          {(c.myExtraType === "POS" || c.myExtraType === "NEG") && (
+            <div className="flex items-center gap-2">
+              <dt className={ui.muted}>내 조건</dt>
+              <dd className={badgeTone.amber}>{formatExtra(c.myExtraType, c.myExtraAmount)}</dd>
+            </div>
+          )}
+          {(c.extraType === "POS" || c.extraType === "NEG") && (
+            <div className="flex items-center gap-2">
+              <dt className={ui.muted}>상대 조건</dt>
+              <dd className={badgeTone.amber}>{formatExtra(c.extraType, c.extraAmount)}</dd>
+            </div>
+          )}
+          {c.settlementHint && (
+            <div className="flex items-center gap-2">
+              <dt className={ui.muted}>참고 금액</dt>
+              <dd className={badgeTone.mint}>
+                {formatWon(c.settlementHint.min)}~{formatWon(c.settlementHint.max)}
+              </dd>
+            </div>
+          )}
+        </dl>
+      )}
 
       {error && (
         <div id={errorId} className={`${ui.errorBox} flex flex-col items-start gap-2`} role="alert">

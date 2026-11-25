@@ -6,27 +6,36 @@ import { formatKstDateTime, kstMinuteString } from "../api/dateTime";
 import { useAuth } from "../hooks/useAuth";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import type { PerformanceSummary } from "../types/performance";
-import { FOCUS_RING, button, input, linkButton, liveRegionClass, ui } from "../components/ui";
+import { FOCUS_RING, badgeTone, button, input, linkButton, liveRegionClass, ui } from "../components/ui";
 
 // 홈 = 공연 목록 (FR-02). 공개 라우트: 목록 API가 로그인 필요라 비로그인 사용자에게는 API를 부르지 않고
 // 서비스 안내 + 로그인/회원가입 버튼을 보여준다 (헤더와 같은 진입점 — 로그인 후 "/"로 복귀).
 
 const cls = {
-  header: "flex flex-wrap items-center justify-between gap-3",
-  list: "flex flex-col gap-3",
-  /** 카드 전체가 상세 링크 */
-  item:
-    "flex min-w-0 flex-col gap-1.5 rounded-2xl bg-white p-5 shadow-[0_4px_24px_rgba(0,0,0,0.06)] no-underline " +
-    "active:bg-gray-100 " +
+  hero:
+    "relative flex flex-col gap-4 overflow-hidden rounded-[28px] bg-gradient-to-br from-primary-600 via-primary-500 to-coral-500 " +
+    "px-6 py-9 text-white shadow-[0_20px_40px_-20px_rgba(138,43,226,0.6)] sm:px-10 sm:py-12",
+  heroEyebrow: "text-[0.8125rem]/[normal] font-semibold text-white/90",
+  heroTitle: "text-[1.75rem]/[1.3] font-bold tracking-[-0.01em] text-balance break-keep sm:text-[2.25rem]",
+  heroLead: "max-w-[520px] text-[0.9375rem]/[1.7] text-white/95 break-keep sm:text-base/[1.7]",
+  /** 히어로 위 버튼: 흰 바탕 + 보라 글자 */
+  heroBtn:
+    "inline-flex min-h-11 touch-manipulation items-center justify-center rounded-xl bg-white px-5 text-[0.9375rem]/[normal] font-semibold text-primary-700 no-underline shadow-[0_6px_16px_-8px_rgba(0,0,0,0.4)] hover:bg-primary-50 " +
     FOCUS_RING,
-  itemTitle: "line-clamp-2 text-lg/[normal] font-bold break-keep text-gray-900",
+  heroBtn2:
+    "inline-flex min-h-11 touch-manipulation items-center justify-center rounded-xl border border-white/70 bg-white/15 px-5 text-[0.9375rem]/[normal] font-semibold text-white no-underline hover:bg-white/25 " +
+    FOCUS_RING,
+  list: "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3",
+  /** 카드 전체가 상세 링크 */
+  item: `${ui.cardInteractive} flex h-full flex-col gap-3 !p-4 no-underline sm:!p-4`,
+  thumb:
+    "flex aspect-[16/9] items-center justify-center rounded-2xl bg-gradient-to-br from-primary-100 via-sky-100 to-coral-100 " +
+    "text-5xl font-bold text-primary-700",
+  itemTitle: "line-clamp-2 text-lg/[1.4] font-bold break-keep text-gray-900",
   itemVenue: "truncate text-[0.9375rem]/[normal] text-gray-700",
-  itemMeta: "flex flex-wrap items-center justify-between gap-2",
-  /** 다음 회차: primary-700 / 흰 배경 7.67:1 */
+  itemMeta: "mt-auto flex flex-wrap items-center justify-between gap-2",
   itemNext: "text-sm/[normal] font-semibold text-primary-700",
   itemNoSession: "text-sm/[normal] text-gray-700",
-  intro: "flex flex-col gap-4",
-  introText: "text-[0.9375rem]/[normal] text-gray-700",
 } as const;
 
 type ListState =
@@ -70,28 +79,31 @@ function GuideLink() {
 function GuestIntro({ notice }: { notice: string | null }) {
   return (
     <div className={ui.page}>
-      <div className={ui.container}>
+      <div className={ui.containerWide}>
         <p className={liveRegionClass(notice, ui.notice)} role="status">
           {notice ?? ""}
         </p>
-        <section className={`${ui.card} ${cls.intro}`} aria-labelledby="home-intro-title">
-          <h1 id="home-intro-title" className={ui.pageTitle}>
+        <section className={cls.hero} aria-labelledby="home-intro-title">
+          <p className={cls.heroEyebrow}>맞자리</p>
+          <h1 id="home-intro-title" className={cls.heroTitle}>
             같은 공연, 원하는 자리로
           </h1>
-          <p className={cls.introText}>
+          <p className={cls.heroLead}>
             맞자리는 같은 공연 티켓을 가진 사람끼리 좌석을 교환하는 서비스예요. 로그인하면 등록된 공연을 보고, 새
             공연도 등록할 수 있어요.
           </p>
           <div className="flex flex-wrap gap-2">
-            <Link to="/login" state={{ from: { pathname: "/" } }} className={linkButton.solid}>
+            <Link to="/login" state={{ from: { pathname: "/" } }} className={cls.heroBtn}>
               로그인
             </Link>
-            <Link to="/signup" state={{ from: { pathname: "/" } }} className={linkButton.outline}>
+            <Link to="/signup" state={{ from: { pathname: "/" } }} className={cls.heroBtn2}>
               회원가입
             </Link>
           </div>
-          <GuideLink />
         </section>
+        <div className={`${ui.card} flex items-center`}>
+          <GuideLink />
+        </div>
       </div>
     </div>
   );
@@ -177,36 +189,41 @@ function PerformanceList({ notice }: { notice: string | null }) {
 
   return (
     <div className={ui.page}>
-      <div className={ui.container}>
-        <div className={cls.header}>
-          <h1 className={ui.pageTitle}>공연 목록</h1>
+      <div className={ui.containerWide}>
+        <section className={cls.hero} aria-labelledby="home-title">
+          <p className={cls.heroEyebrow}>공연 목록</p>
+          <h1 id="home-title" className={cls.heroTitle}>
+            같은 공연, 원하는 자리로
+          </h1>
+          <p className={cls.heroLead}>가진 티켓을 등록하면 서로 조건이 맞는 상대를 후보로 보여드려요.</p>
           {/* 공연은 티켓 등록 안에서만 등록한다(찾는 공연이 없을 때). 관리자는 티켓 없이 공연만 등록할 수 있어 버튼을 하나 더 둔다 */}
           <div className="flex flex-wrap gap-2">
+            <Link to="/tickets/new" className={cls.heroBtn}>
+              티켓 등록
+            </Link>
             {isAdmin && (
-              <Link to="/performances/new" className={linkButton.outline}>
+              <Link to="/performances/new" className={cls.heroBtn2}>
                 공연 등록
               </Link>
             )}
-            <Link to="/tickets/new" className={linkButton.solid}>
-              티켓 등록
+            <Link to="/guide" className={cls.heroBtn2}>
+              교환 안내
             </Link>
           </div>
-        </div>
+        </section>
 
         <p className={liveRegionClass(notice, ui.notice)} role="status">
           {notice ?? ""}
         </p>
 
-        <GuideLink />
-
-        <form role="search" className="flex flex-col gap-1.5" onSubmit={(e) => e.preventDefault()}>
+        <form role="search" className="flex flex-col gap-2" onSubmit={(e) => e.preventDefault()}>
           <label htmlFor="home-search" className={ui.label}>
             공연 제목 검색
           </label>
           <input
             id="home-search"
             type="search"
-            className={input.normal}
+            className={`${input.normal} !min-h-14 !rounded-2xl !px-5`}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="공연 제목을 입력하세요"
@@ -230,7 +247,7 @@ function PerformanceList({ notice }: { notice: string | null }) {
         )}
 
         {state.status === "success" && state.items.length === 0 && (
-          <div className={`${ui.card} flex flex-col items-start gap-3`}>
+          <div className={ui.empty}>
             <p className={ui.body}>
               {debouncedQuery
                 ? "검색 결과가 없어요. 이 공연의 티켓이 있다면 티켓을 등록하면서 공연도 함께 등록할 수 있어요."
@@ -248,6 +265,9 @@ function PerformanceList({ notice }: { notice: string | null }) {
               {state.items.map((item) => (
                 <li key={item.id}>
                   <Link to={`/performances/${item.id}`} className={cls.item}>
+                    <span className={cls.thumb} aria-hidden="true">
+                      {Array.from(item.title.trim())[0] ?? "♪"}
+                    </span>
                     <span className={cls.itemTitle}>{item.title}</span>
                     <span className={cls.itemVenue}>{item.venueName}</span>
                     <span className={cls.itemMeta}>
@@ -258,7 +278,7 @@ function PerformanceList({ notice }: { notice: string | null }) {
                       ) : (
                         <span className={cls.itemNoSession}>예정된 회차 없음</span>
                       )}
-                      <span className={ui.badge}>회차 {item.sessionCount}개</span>
+                      <span className={badgeTone.sky}>회차 {item.sessionCount}개</span>
                     </span>
                   </Link>
                 </li>

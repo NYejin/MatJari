@@ -114,12 +114,12 @@ function aiErrorText(err: unknown): string {
 const dotShort = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
 
 const cls = {
-  steps: "flex flex-wrap gap-x-3 gap-y-1",
+  steps: "flex flex-wrap gap-2",
   /** 단계 표시 — 현재/그 외 중 완성된 문자열 하나. surface 배경 위라 gray-500(4.47:1) 대신 gray-700.
       완료 단계는 색이 아닌 체크 표시로 구분한다 */
-  stepCurrent: "text-sm/[normal] font-bold text-primary-700",
-  stepOther: "text-sm/[normal] text-gray-700",
-  stepBody: "flex flex-col gap-4",
+  stepCurrent: "inline-flex min-h-9 items-center gap-1.5 rounded-full bg-primary-600 px-3.5 text-sm/[normal] font-bold text-white shadow-[0_6px_16px_-8px_rgba(138,43,226,0.6)]",
+  stepOther: "inline-flex min-h-9 items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3.5 text-sm/[normal] text-gray-700",
+  stepBody: "flex flex-col gap-5",
   actions: "flex flex-wrap justify-between gap-2",
   sessionList: "flex max-h-80 flex-col divide-y divide-gray-200 overflow-y-auto rounded-[10px] border border-gray-200 px-3",
   // 좁은 화면에서는 날짜 글자가 눌리지 않게 날짜 라벨이 한 줄을 차지하고, 시각 선택·삭제 버튼은 다음 줄로 내려간다
@@ -838,9 +838,9 @@ export default function PerformanceRegisterPage() {
         <PosterImage key={posterUrl ?? "none"} url={posterUrl} title={title || "공연"} className="self-start" />
         </div>
         {infoMode === "choose" ? (
-          <section className="flex flex-col gap-3" aria-labelledby="perf-info-choose-title">
+          <section className="flex flex-col gap-3 rounded-2xl bg-gradient-to-br from-primary-50 to-sky-50 p-5" aria-labelledby="perf-info-choose-title">
             <h3 id="perf-info-choose-title" className={ui.sectionTitle}>
-              회차·구역 입력
+              <span aria-hidden="true">✨ </span>회차·구역 입력
             </h3>
             <p className={ui.hint}>AI가 공연 상세 페이지에서 회차와 좌석 구역을 읽어 채워요. 직접 입력해도 돼요.</p>
             <div className="flex flex-wrap gap-2">
@@ -1234,7 +1234,12 @@ export default function PerformanceRegisterPage() {
   return (
     <div className={ui.page}>
       <div className={ui.container}>
-        <h1 className={ui.pageTitle}>{isAdmin ? "새 공연 등록 (관리자)" : "새 공연과 내 티켓 등록"}</h1>
+        <div className={ui.pageHeader}>
+          <div className="flex flex-col gap-1.5">
+            <p className={ui.eyebrow}>공연 등록</p>
+            <h1 className={ui.pageTitle}>{isAdmin ? "새 공연 등록 (관리자)" : "새 공연과 내 티켓 등록"}</h1>
+          </div>
+        </div>
 
         <ol className={cls.steps} aria-label="등록 단계">
           {STEPS.map((name, index) =>
@@ -1252,7 +1257,7 @@ export default function PerformanceRegisterPage() {
           )}
         </ol>
 
-        <section className={`${ui.card} flex flex-col gap-4`} aria-labelledby="perf-step-title">
+        <section className={`${ui.card} flex flex-col gap-6`} aria-labelledby="perf-step-title">
           <h2 id="perf-step-title" ref={headingRef} tabIndex={-1} className={`${ui.sectionTitle} outline-none`}>
             {isAdmin && step > 2 ? step : step + 1}단계 · {STEPS[step]}
           </h2>

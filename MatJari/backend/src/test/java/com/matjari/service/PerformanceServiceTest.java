@@ -267,7 +267,7 @@ class PerformanceServiceTest {
     void searchMapsStatsAndClampsPaging() {
         Performance p1 = performance(100L, kspo, registrant);
         Performance p2 = performance(101L, kspo, registrant);
-        when(performanceRepository.search(eq("%두아!_리파%"), eq(NOW), any(Pageable.class)))
+        when(performanceRepository.search(eq("%두아!_리파%"), eq(NOW), eq(NOW.toLocalDate().atStartOfDay()), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(p1, p2), PageRequest.of(0, 50), 2));
         PerformanceSessionRepository.SessionStats stats = new PerformanceSessionRepository.SessionStats() {
             public Long getPerformanceId() { return 100L; }
@@ -304,7 +304,7 @@ class PerformanceServiceTest {
     void searchUsesAsOfTruncatedToMinuteInsteadOfNow() {
         LocalDateTime asOf = LocalDateTime.of(2026, 10, 1, 9, 30, 45);
         LocalDateTime truncated = LocalDateTime.of(2026, 10, 1, 9, 30);
-        when(performanceRepository.search(eq("%"), eq(truncated), any(Pageable.class)))
+        when(performanceRepository.search(eq("%"), eq(truncated), eq(truncated.toLocalDate().atStartOfDay()), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(performance(100L, kspo, registrant)), PageRequest.of(0, 20), 1));
 
         service.search(null, 0, 20, asOf);
@@ -403,7 +403,7 @@ class PerformanceServiceTest {
                 com.matjari.domain.PerformanceZone.create(p, "A", "A", 0, tri(0))));
         assertThat(service.get(100L, 1L).zones()).extracting("name").containsExactly("A");
 
-        when(performanceRepository.search(any(), any(), any(Pageable.class))).thenReturn(new PageImpl<>(
+        when(performanceRepository.search(any(), any(), any(), any(Pageable.class))).thenReturn(new PageImpl<>(
                 List.of(p, performance(101L, "V", registrant)), PageRequest.of(0, 20), 2));
         PerformanceZoneRepository.ZoneCount count = mock(PerformanceZoneRepository.ZoneCount.class);
         when(count.getPerformanceId()).thenReturn(100L);

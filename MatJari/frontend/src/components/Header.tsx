@@ -15,8 +15,8 @@ const DESKTOP_MEDIA_QUERY = "(min-width: 768px)";
 const cls = {
   /** 하단 경계선은 보조색(장식 용도 — 글자에는 쓰지 않음) */
   logoImage: "h-11 w-auto",
-  header: "sticky top-0 z-[100] border-b border-secondary-200 bg-white pt-[env(safe-area-inset-top)]",
-  bar: "relative mx-auto flex min-h-14 max-w-[1080px] items-center gap-2 pr-2 pl-4 md:gap-4 md:px-4",
+  header: "sticky top-0 z-[100] border-b border-gray-200/70 bg-white/85 pt-[env(safe-area-inset-top)] backdrop-blur-md supports-[backdrop-filter]:bg-white/75",
+  bar: "relative mx-auto flex min-h-16 max-w-[1080px] items-center gap-2 pr-2 pl-4 md:gap-4 md:px-6",
   /** 관리자 화면: 폭 제한 없이 양 끝에 맞추고, 데스크톱에서는 메뉴·버튼 글자를 관리자 본문 크기(13px)에 맞춰 낮춘다(2026-10-22 사용자 지시) */
   barAdmin:
     "max-w-none! md:min-h-11! [&_img]:h-8! md:[&_a]:min-h-8! md:[&_a]:text-[13px]/[normal]! " +
@@ -41,15 +41,15 @@ const cls = {
   panelClosed: "hidden",
   /** 모바일 열림: 바 아래로 펼침 */
   panelOpen:
-    "absolute inset-x-0 top-full flex flex-col gap-1 border-b border-gray-200 bg-white px-4 pt-2 pb-4 " +
+    "absolute inset-x-0 top-full flex flex-col gap-1 border-b border-gray-200 bg-white px-4 pt-3 pb-5 " +
     "shadow-[0_8px_24px_rgba(0,0,0,0.08)]",
   nav: "flex flex-col md:shrink-0 md:flex-row md:gap-1",
   navLink:
-    "flex min-h-11 items-center rounded-[10px] px-3 text-base/[normal] font-semibold whitespace-nowrap no-underline " +
-    "active:bg-gray-100 md:text-[0.9375rem]/[normal] " +
+    "flex min-h-11 items-center rounded-full px-3.5 text-base/[normal] font-semibold whitespace-nowrap no-underline transition-colors " +
+    "hover:bg-gray-100 active:bg-gray-100 md:min-h-10 md:text-[0.9375rem]/[normal] " +
     FOCUS_RING,
   navLinkIdle: "text-gray-700",
-  navLinkActive: "bg-primary-50 text-primary-600",
+  navLinkActive: "bg-primary-50 text-primary-700 hover:bg-primary-100",
   auth:
     "flex min-w-0 flex-col gap-1 border-t border-gray-200 pt-2 whitespace-nowrap " +
     "md:flex-row md:items-center md:gap-2 md:border-t-0 md:pt-0",
@@ -66,23 +66,23 @@ const cls = {
   /** 초기화 중 자리 표시 — em 기준을 표시 이름(text-sm)과 맞춰 높이 유지 */
   userNamePending: "min-h-[1.25em] text-sm/[normal] md:w-[104px] lg:w-[248px]",
   button:
-    "inline-flex min-h-11 shrink-0 cursor-pointer touch-manipulation items-center justify-center rounded-[10px] " +
-    "px-4 text-base/[normal] font-semibold whitespace-nowrap no-underline md:px-3.5 md:text-[0.9375rem]/[normal] " +
+    "inline-flex min-h-11 shrink-0 cursor-pointer touch-manipulation items-center justify-center rounded-full " +
+    "px-4.5 text-base/[normal] font-semibold whitespace-nowrap no-underline transition-colors md:min-h-10 md:px-4 md:text-[0.9375rem]/[normal] " +
     FOCUS_RING,
-  buttonOutline: "border border-gray-300 bg-white text-gray-900 active:bg-gray-100",
-  buttonSolid: "border border-primary-600 bg-primary-600 text-white active:bg-primary-700",
+  buttonOutline: "border border-gray-200 bg-white text-gray-900 hover:bg-gray-50 active:bg-gray-100",
+  buttonSolid: "border border-primary-600 bg-primary-600 text-white shadow-[0_6px_16px_-6px_rgba(138,43,226,0.55)] hover:bg-primary-700 active:bg-primary-800",
   /** 로그인 상태의 마이페이지·로그아웃을 한 줄로 묶고 두 항목이 폭을 나눠 가진다 */
   accountActions: "flex gap-1",
   accountActionItem: "grow justify-center",
   /** 계정 줄의 마이페이지 — 모바일 패널(md 미만)은 메인색 채운 버튼(흰 글자/primary-600 5.96:1),
       md 이상은 메뉴 링크 모양. navLink는 무접두 active:bg-gray-100이 있어 섞지 않고 별도 조합으로 둔다 */
   accountNav:
-    "flex min-h-11 grow items-center justify-center rounded-[10px] px-4 text-base/[normal] font-semibold " +
+    "flex min-h-11 grow items-center justify-center rounded-full px-4 text-base/[normal] font-semibold md:min-h-10 " +
     "whitespace-nowrap no-underline md:px-3 md:text-[0.9375rem]/[normal] " +
     "border border-primary-600 bg-primary-600 text-white active:bg-primary-700 " +
     FOCUS_RING,
-  accountNavIdle: "md:border-0 md:bg-transparent md:text-gray-700 md:active:bg-gray-100",
-  accountNavActive: "md:border-0 md:bg-primary-50 md:text-primary-600 md:active:bg-gray-100",
+  accountNavIdle: "md:border-0 md:bg-transparent md:text-gray-700 md:hover:bg-gray-100 md:active:bg-gray-100",
+  accountNavActive: "md:border-0 md:bg-primary-50 md:text-primary-700 md:active:bg-gray-100",
 } as const;
 
 const outlineButton = `${cls.button} ${cls.buttonOutline}`;

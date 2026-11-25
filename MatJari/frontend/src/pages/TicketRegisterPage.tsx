@@ -184,6 +184,8 @@ function TicketForm({ performanceId, presetSessionId, canChangePerformance, onCh
   /** 공연에 등록된 구역 목록(없거나 실패하면 null → 텍스트 입력) */
   const zoneData = useZones(performanceId);
   const [sessionId, setSessionId] = useState<number | null>(presetSessionId);
+  /** 마감된 회차 보기 여부 (기본 숨김) */
+  const [showClosed, setShowClosed] = useState(false);
   const [zone, setZone] = useState("");
   const [row, setRow] = useState("");
   const [col, setCol] = useState("");
@@ -255,6 +257,7 @@ function TicketForm({ performanceId, presetSessionId, canChangePerformance, onCh
 
   const { detail } = detailState;
   const sessions = [...detail.sessions].sort((a, b) => compareLocalDateTime(a.startsAt, b.startsAt));
+  const closedCount = sessions.filter((s) => isSessionClosed(s.startsAt)).length;
 
   /** 오류 칸의 요소 id. 선택 가능한 회차가 하나도 없으면(모두 마감) 회차 묶음 자체 */
   const fieldFocusId = (field: SeatField | "sessionId"): string => {
@@ -381,7 +384,7 @@ function TicketForm({ performanceId, presetSessionId, canChangePerformance, onCh
           <p className={ui.body}>이 공연에는 등록된 회차가 없어요.</p>
         ) : (
           <ul className="flex flex-col divide-y divide-gray-200">
-            {sessions.map((s) => {
+            {sessions.filter((s) => showClosed || !isSessionClosed(s.startsAt)).map((s) => {
               const closed = isSessionClosed(s.startsAt);
               const id = `ticket-session-${s.id}`;
               return (
@@ -409,6 +412,16 @@ function TicketForm({ performanceId, presetSessionId, canChangePerformance, onCh
               );
             })}
           </ul>
+        )}
+        {sessions.length > 0 && closedCount === sessions.length && (
+          <p className={ui.hint}>선택할 수 있는 회차가 없어요. 모든 회차가 마감됐어요.</p>
+        )}
+        {closedCount > 0 && (
+          <div>
+            <button type="button" className={`${ui.link} cursor-pointer`} aria-expanded={showClosed} onClick={() => setShowClosed((v) => !v)}>
+              {showClosed ? "지난 회차 숨기기" : `지난 회차 ${closedCount}개 보기`}
+            </button>
+          </div>
         )}
         {sessionError && (
           <p id="ticket-session-error" className={ui.fieldError}>

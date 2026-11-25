@@ -27,6 +27,7 @@ export const wantSessionCheckboxId = (sessionId: number) => `want-session-${sess
 
 export default function WantSessionsEditor({ rows, onChange, error, disabled = false }: WantSessionsEditorProps) {
   const [announce, setAnnounce] = useState("");
+  const [showClosed, setShowClosed] = useState(false);
   /** 이동 뒤 포커스를 돌려줄 버튼 id (요소가 재배치되면 포커스를 잃을 수 있어서) */
   const pendingFocus = useRef<string | null>(null);
 
@@ -58,6 +59,10 @@ export default function WantSessionsEditor({ rows, onChange, error, disabled = f
 
   const checkedCount = rows.filter((r) => r.checked).length;
   let rank = 0;
+  // 마감 회차는 기본 숨김(표시만 — 체크 상태·내 티켓 회차 행은 숨기지 않아 상태를 잃지 않는다)
+  const isHiddenRow = (r: WantSessionRow) => r.closed && !r.checked && !r.mine;
+  const hiddenCount = rows.filter(isHiddenRow).length;
+  const openCount = rows.filter((r) => !r.closed).length;
 
   return (
     <fieldset
@@ -79,6 +84,7 @@ export default function WantSessionsEditor({ rows, onChange, error, disabled = f
             const hasPrev = rows.slice(0, index).some((r) => r.checked);
             const hasNext = rows.slice(index + 1).some((r) => r.checked);
             const cbId = wantSessionCheckboxId(row.sessionId);
+            if (!showClosed && isHiddenRow(row)) return null;
             return (
               <li key={row.sessionId} className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <div className="flex min-h-11 min-w-0 items-center gap-3">
@@ -125,6 +131,14 @@ export default function WantSessionsEditor({ rows, onChange, error, disabled = f
             );
           })}
         </ul>
+      )}
+      {rows.length > 0 && openCount === 0 && <p className={ui.hint}>선택할 수 있는 회차가 없어요. 모든 회차가 마감됐어요.</p>}
+      {hiddenCount > 0 && (
+        <div>
+          <button type="button" className={`${ui.link} cursor-pointer`} aria-expanded={showClosed} onClick={() => setShowClosed((v) => !v)}>
+            {showClosed ? "지난 회차 숨기기" : `지난 회차 ${hiddenCount}개 보기`}
+          </button>
+        </div>
       )}
       <p className="sr-only" role="status">
         {announce}

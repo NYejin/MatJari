@@ -22,11 +22,11 @@ const cls = {
 function Section({ n, suffix, title, children }: { n: number; suffix?: number; title: string; children: ReactNode }) {
   const id = `terms-s${n}${suffix ? `-${suffix}` : ""}`;
   return (
-    <section aria-labelledby={id} className="flex flex-col gap-2">
-      <h2 id={id} className={ui.sectionTitle}>
+    <section aria-labelledby={id} className="flex flex-col gap-3">
+      <h2 id={id} className={`${ui.sectionTitle} flex items-start gap-2.5 before:mt-[0.3em] before:h-[1em] before:w-1 before:shrink-0 before:rounded-full before:bg-primary-500`}>
         제{n}조{suffix ? `의${suffix}` : ""} ({title})
       </h2>
-      <div className={`flex flex-col gap-2 break-words ${ui.body}`}>{children}</div>
+      <div className="flex flex-col gap-2.5 break-words text-[0.9375rem]/[1.75] break-keep text-gray-700">{children}</div>
     </section>
   );
 }
@@ -38,9 +38,9 @@ function Setting({ value, missing }: { value: string; missing: string }) {
 export default function TermsOfServicePage() {
   return (
     <div className={ui.page}>
-      <div className={ui.container}>
-        <article className={`${ui.card} flex flex-col gap-6`} aria-labelledby="terms-title">
-          <header className="flex flex-col gap-2">
+      <div className="flex w-full max-w-[680px] min-w-0 flex-col gap-5">
+        <article className={`${ui.card} flex flex-col gap-9 !p-6 sm:!p-10`} aria-labelledby="terms-title">
+          <header className="flex flex-col gap-3 border-b border-gray-100 pb-7">
             <h1 id="terms-title" className={ui.pageTitle}>
               서비스 이용약관
             </h1>
@@ -245,7 +245,7 @@ export default function TermsOfServicePage() {
             <h2 id="terms-addendum" className={ui.sectionTitle}>
               부칙
             </h2>
-            <div className={`flex flex-col gap-2 break-words ${ui.body}`}>
+            <div className="flex flex-col gap-2.5 break-words text-[0.9375rem]/[1.75] break-keep text-gray-700">
               <p>이 약관은 다음 시행일부터 적용합니다.</p>
               <ul className={cls.list}>
                 <li>

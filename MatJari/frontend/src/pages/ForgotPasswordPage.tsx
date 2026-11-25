@@ -4,6 +4,7 @@ import { authApi } from "../api/auth";
 import { getErrorCode, parseApiError, passwordResetRateLimitMessage } from "../api/errors";
 import { normalizeEmail, validateEmail } from "../api/authValidation";
 import TextField from "../components/TextField";
+import AuthShell from "../components/AuthShell";
 import { authFormClasses as ui } from "../components/authFormClasses";
 
 // 비밀번호 찾기 — 공개 라우트 /forgot-password. 가입 여부를 알려 주지 않도록 성공·실패와 무관하게 같은 안내를 보인다.
@@ -48,8 +49,7 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <div className={ui.page}>
-      <div className={ui.card}>
+    <AuthShell>
         <h1 className={ui.title}>비밀번호 찾기</h1>
         <p className={ui.subtitle}>가입한 이메일을 입력하면 비밀번호를 다시 정할 수 있는 링크를 보내 드려요.</p>
 
@@ -92,7 +92,6 @@ export default function ForgotPasswordPage() {
             로그인으로 돌아가기
           </Link>
         </p>
-      </div>
-    </div>
+      </AuthShell>
   );
 }

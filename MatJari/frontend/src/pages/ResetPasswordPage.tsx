@@ -11,6 +11,7 @@ import {
 } from "../api/authValidation";
 import { useAuth } from "../hooks/useAuth";
 import TextField from "../components/TextField";
+import AuthShell from "../components/AuthShell";
 import { authFormClasses as ui } from "../components/authFormClasses";
 
 // 비밀번호 재설정 — 공개 라우트 /reset-password#token=… . 토큰은 읽자마자 주소에서 지우고 메모리에만 둔다.
@@ -87,8 +88,7 @@ export default function ResetPasswordPage() {
 
   if (done) {
     return (
-      <div className={ui.page}>
-        <div className={ui.card}>
+      <AuthShell>
           <h1 className={ui.title}>비밀번호 재설정</h1>
           <p className={ui.notice} role="status">
             비밀번호를 바꿨어요. 모든 기기에서 로그아웃됐으니 새 비밀번호로 로그인해 주세요.
@@ -96,15 +96,13 @@ export default function ResetPasswordPage() {
           <button type="button" className={`${ui.submit} w-full`} onClick={() => navigate("/login", { replace: true })}>
             로그인
           </button>
-        </div>
-      </div>
+        </AuthShell>
     );
   }
 
   if (invalidToken) {
     return (
-      <div className={ui.page}>
-        <div className={ui.card}>
+      <AuthShell>
           <h1 className={ui.title}>비밀번호 재설정</h1>
           <p className={ui.formError} role="alert">
             링크가 만료됐거나 이미 사용됐어요. 비밀번호 재설정을 다시 요청해 주세요.
@@ -114,14 +112,12 @@ export default function ResetPasswordPage() {
               다시 요청하기
             </Link>
           </p>
-        </div>
-      </div>
+        </AuthShell>
     );
   }
 
   return (
-    <div className={ui.page}>
-      <div className={ui.card}>
+    <AuthShell>
         <h1 className={ui.title}>새 비밀번호 정하기</h1>
         <p className={ui.subtitle}>앞으로 사용할 새 비밀번호를 입력해 주세요.</p>
 
@@ -158,7 +154,6 @@ export default function ResetPasswordPage() {
             {submitting ? "바꾸는 중..." : "비밀번호 바꾸기"}
           </button>
         </form>
-      </div>
-    </div>
+      </AuthShell>
   );
 }

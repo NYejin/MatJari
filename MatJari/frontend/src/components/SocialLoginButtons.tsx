@@ -6,7 +6,7 @@ import { FOCUS_RING } from "./ui";
 // 로고 이미지는 쓰지 않는 텍스트 버튼. 버튼은 페이지 이동 링크(<a>)다.
 
 const BASE =
-  "flex min-h-12 w-full touch-manipulation items-center justify-center rounded-[10px] px-4 text-base/[normal] " +
+  "flex min-h-12 w-full touch-manipulation items-center justify-center rounded-xl px-4 text-base/[normal] " +
   "font-semibold no-underline active:opacity-80 " +
   FOCUS_RING;
 
@@ -36,13 +36,13 @@ export default function SocialLoginButtons() {
   if (providers.length === 0) return null;
 
   return (
-    <div className="mt-6" role="group" aria-label="소셜 계정으로 계속하기">
-      <div className="mb-4 flex items-center gap-3 text-sm/[normal] text-gray-500" aria-hidden="true">
+    <div className="mt-7" role="group" aria-label="소셜 계정으로 계속하기">
+      <div className="mb-5 flex items-center gap-3 text-sm/[normal] text-gray-600" aria-hidden="true">
         <span className="h-px flex-1 bg-gray-200" />
         <span>또는</span>
         <span className="h-px flex-1 bg-gray-200" />
       </div>
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3.5">
         {providers.map((p) => (
           <a key={p} href={socialAuthorizeUrl(p)} className={PROVIDERS[p].className}>
             {PROVIDERS[p].label}

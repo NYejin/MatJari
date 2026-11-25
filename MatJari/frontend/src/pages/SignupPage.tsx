@@ -21,6 +21,7 @@ import {
   validateSignupPassword,
 } from "../api/authValidation";
 import TextField from "../components/TextField";
+import AuthShell from "../components/AuthShell";
 import { authFormClasses as ui } from "../components/authFormClasses";
 import SocialLoginButtons from "../components/SocialLoginButtons";
 import { button } from "../components/ui";
@@ -190,8 +191,7 @@ export default function SignupPage() {
   };
 
   return (
-    <div className={ui.page}>
-      <div className={ui.card}>
+    <AuthShell>
         <h1 className={ui.title}>맞자리 회원가입</h1>
         <p className={ui.subtitle}>가입하고 같은 공연 티켓 보유자와 좌석을 교환하세요.</p>
 
@@ -331,7 +331,6 @@ export default function SignupPage() {
             로그인
           </Link>
         </p>
-      </div>
-    </div>
+      </AuthShell>
   );
 }

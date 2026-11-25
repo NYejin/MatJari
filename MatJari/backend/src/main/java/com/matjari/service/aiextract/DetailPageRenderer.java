@@ -41,7 +41,7 @@ import java.util.regex.Pattern;
 public class DetailPageRenderer {
 
     private static final Logger log = LoggerFactory.getLogger(DetailPageRenderer.class);
-    private static final String USER_AGENT = "MatJariBot/0.1 (+portfolio project; contact: kidjin1016@gmail.com)";
+    private static final String USER_AGENT = "MatJariBot/0.1 (+portfolio project; contact: changeSeat2seat@gmail.com)";
     private static final Pattern ID = Pattern.compile("\\d{1,20}");
     private static final Pattern TARGET_ID = Pattern.compile("[A-Za-z0-9]{16,64}");
     private static final int MAX_TEXT_CHARS = 60_000;

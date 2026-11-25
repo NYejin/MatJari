@@ -111,6 +111,7 @@ public class PerformanceService {
         Page<Performance> result = performanceRepository.search(
                 LikePatterns.contains(q),
                 now,
+                now.toLocalDate().atStartOfDay(),   // 끝난 공연(오늘 0시 이후 회차 없음)은 빼기
                 PageRequest.of(page, pageSize));
 
         Map<Long, PerformanceSessionRepository.SessionStats> stats = result.isEmpty()

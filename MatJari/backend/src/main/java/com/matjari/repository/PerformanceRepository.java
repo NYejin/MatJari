@@ -53,12 +53,15 @@ public interface PerformanceRepository extends JpaRepository<Performance, Long> 
     /**
      * 목록 검색. 정렬: 다가오는 회차(now 이후 가장 이른 starts_at)가 있는 공연 먼저 그 시각 오름차순,
      * 다가오는 회차가 없는 공연은 뒤로(최근 등록 순).
+     * 끝난 공연(openFrom = 오늘(KST) 0시 이후 회차가 하나도 없는 공연, 즉 모든 회차가 마감)은 목록·검색에서 뺀다(사용자 지시 2026-11-25).
+     * 기준은 회차 마감 규칙(회차 당일 끝 = 다음날 0시)과 같다. 링크 lookup·상세는 끝난 공연도 그대로 보인다.
      * titlePattern은 '!'로 이스케이프한 "%...%" (검색어 없으면 "%"). 대소문자 무시는 컬럼 collation(ci)에 맡긴다.
      * 다음 회차 서브쿼리는 uk_performance_session_performance_starts_at (performance_id, starts_at) 인덱스로 처리된다.
      */
     @Query(value = """
             select p from Performance p
             where p.title like :titlePattern escape '!' and p.hiddenAt is null
+              and exists (select 1 from PerformanceSession s0 where s0.performance = p and s0.startsAt >= :openFrom)
             order by
               case when (select min(s1.startsAt) from PerformanceSession s1
                          where s1.performance = p and s1.startsAt >= :now) is null then 1 else 0 end,
@@ -70,8 +73,10 @@ public interface PerformanceRepository extends JpaRepository<Performance, Long> 
             countQuery = """
             select count(p) from Performance p
             where p.title like :titlePattern escape '!' and p.hiddenAt is null
+              and exists (select 1 from PerformanceSession s0 where s0.performance = p and s0.startsAt >= :openFrom)
             """)
     Page<Performance> search(@Param("titlePattern") String titlePattern,
                              @Param("now") LocalDateTime now,
+                             @Param("openFrom") LocalDateTime openFrom,
                              Pageable pageable);
 }

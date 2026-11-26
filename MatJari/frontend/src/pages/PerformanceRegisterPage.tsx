@@ -1013,7 +1013,7 @@ export default function PerformanceRegisterPage() {
             <p className={ui.hint}>
               티켓 등록·교환 조건에서 구역 지도를 눌러 구역을 고를 수 있게 해 줘요. 선택 사항이고, 비워도 등록할 수 있어요.
             </p>
-            <ZoneEditor rows={zoneRows} aspect={seatmapAspect} onChange={(r) => { setZoneRows(r); setZoneError(undefined); }} serverError={zoneError} />
+            <ZoneEditor rows={zoneRows} aspect={seatmapAspect} seatmapImage={seatmapImage} onChange={(r) => { setZoneRows(r); setZoneError(undefined); }} serverError={zoneError} />
             {!aiLoading && !aiOff && (smBusy || smNote || !hasShapedZone(toPayloadZones(zoneRows))) && (
               <div className={`${ui.notice} flex flex-col gap-2`}>
                 <p>

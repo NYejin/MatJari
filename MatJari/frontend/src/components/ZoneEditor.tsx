@@ -12,6 +12,8 @@ import {
 } from "../api/zones";
 import { polygonsBox } from "../api/zoomMath";
 import ZoomableSeatmap from "./ZoomableSeatmap";
+import { originalLayer, useOriginal } from "./ZoneMap";
+import type { SeatmapImage } from "../types/performance";
 import { useTokens } from "./density";
 
 // 공연 등록 2단계의 "구역 확인" — 이름 수정·삭제·직접 추가와 (모양이 있으면) 작은 SVG 미리보기.
@@ -24,12 +26,14 @@ interface ZoneEditorProps {
   disabled?: boolean;
   /** 서버가 돌려준 구역 오류 */
   serverError?: string;
+  /** 원본 좌석표(인라인 링크). 있으면 미리보기 아래에 깔고 구역은 반투명으로 얹는다(못 불러오면 색 블록) */
+  seatmapImage?: SeatmapImage | null;
 }
 
 export const ZONE_ADD_INPUT_ID = "perf-zone-add";
 export const zoneNameInputId = (id: number) => `perf-zone-${id}`;
 
-export default function ZoneEditor({ rows, aspect, onChange, disabled = false, serverError }: ZoneEditorProps) {
+export default function ZoneEditor({ rows, aspect, onChange, disabled = false, serverError, seatmapImage = null }: ZoneEditorProps) {
   const { button, input, ui } = useTokens();
   const [draft, setDraft] = useState("");
   const [addError, setAddError] = useState<string>();
@@ -44,6 +48,8 @@ export default function ZoneEditor({ rows, aspect, onChange, disabled = false, s
   const height = previewHeight(aspect);
   const activeRow = shaped.find((r) => r.id === active);
   const activeBox = activeRow ? polygonsBox(activeRow.shapePolygons, height / 1000) : null;
+  const orig = useOriginal(seatmapImage);
+  const overlay = !!seatmapImage && !!orig.href;
 
   const add = (e: FormEvent) => {
     e.preventDefault();
@@ -79,6 +85,7 @@ export default function ZoneEditor({ rows, aspect, onChange, disabled = false, s
       {shaped.length > 0 && (
         <div className="flex flex-col gap-1">
           <ZoomableSeatmap width={1000} height={height} label={previewLabel} focusBox={activeBox} focusKey={active}>
+            {originalLayer(seatmapImage, orig, height)}
             {shaped.map((r) => {
               const on = r.id === active;
               return polygonPoints(r.shapePolygons, height / 1000).map((pts, i) => (
@@ -87,9 +94,9 @@ export default function ZoneEditor({ rows, aspect, onChange, disabled = false, s
                   points={pts}
                   strokeLinejoin="round"
                   vectorEffect="non-scaling-stroke"
-                  className={on ? "fill-accent-100 stroke-gray-900" : "fill-primary-50 stroke-primary-700"}
+                  className={on ? "fill-accent-100 stroke-gray-900" : overlay ? "fill-primary-500 stroke-primary-700" : "fill-primary-50 stroke-primary-700"}
                   strokeWidth={on ? 3 : 1.5}
-                  fillOpacity={0.85}
+                  fillOpacity={on ? 0.7 : overlay ? 0.18 : 0.85}
                 />
               ));
             })}
@@ -97,6 +104,7 @@ export default function ZoneEditor({ rows, aspect, onChange, disabled = false, s
               const a = labelAnchor(r.shapePolygons, height / 1000);
               if (!a) return null;
               const on = r.id === active;
+              if (overlay && !on) return null; // 원본에 번호가 인쇄돼 있어 '위치 보기'로 고른 구역만 이름을 띄운다
               return (
                 <text
                   key={`t-${r.id}`}
@@ -117,6 +125,9 @@ export default function ZoneEditor({ rows, aspect, onChange, disabled = false, s
               );
             })}
           </ZoomableSeatmap>
+          {overlay && orig.natural && (
+            <p className={ui.hint}>원본 좌석표 · 출처: {orig.source} · 저작권은 원 권리자에게 있어요</p>
+          )}
           <p className={ui.hint}>목록의 구역 이름 옆 &lsquo;위치 보기&rsquo;를 누르면 지도에서 진하게 표시되고 그 구역으로 확대돼요. 지도는 +/− 버튼이나 두 손가락으로 확대하고 드래그로 옮길 수 있어요. 이름과 위치가 맞는지 확인하세요.</p>
         </div>
       )}

@@ -32,7 +32,7 @@ interface OriginalState {
 const NONE = { href: null, source: "", natural: null, loading: false } as const;
 
 /** 원본 이미지를 미리 불러 크기를 읽는다. 허용 호스트·https가 아니거나 실패하면 href 가 null(색 블록 지도) */
-function useOriginal(image: SeatmapImage | null | undefined) {
+export function useOriginal(image: SeatmapImage | null | undefined) {
   const parsed = image ? parsePosterUrl(image.url) : null;
   const okBox =
     !!image && [image.left, image.top, image.width, image.height].every(Number.isFinite) && image.width > 0 && image.height > 0;
@@ -60,6 +60,26 @@ function useOriginal(image: SeatmapImage | null | undefined) {
   const cur = state && state.href === href ? state : null;
   if (cur?.failed) return NONE;
   return { href, source: parsed.source, natural: cur?.natural ?? null, loading: !cur };
+}
+
+/** 원본 좌석표 SVG 레이어(지도 좌표 0~1000 × height). 불러오는 중이면 회색 자리표시, 원본을 쓰지 않으면 null */
+export function originalLayer(seatmapImage: SeatmapImage | null | undefined, orig: ReturnType<typeof useOriginal>, height: number): React.ReactNode {
+  if (!seatmapImage || !orig.href) return null;
+  if (!orig.natural) return <rect x={0} y={0} width={1000} height={height} className="fill-gray-100" />;
+  const w = 1000 / seatmapImage.width;
+  const h = w * (orig.natural.h / orig.natural.w);
+  return (
+    <image
+      href={orig.href}
+      x={-seatmapImage.left * w}
+      y={-seatmapImage.top * h}
+      width={w}
+      height={h}
+      preserveAspectRatio="none"
+      {...{ referrerPolicy: "no-referrer" }}
+      aria-hidden="true"
+    />
+  );
 }
 
 export default function ZoneMap({ zones, aspect, selected = null, onSelect, seatmapImage = null }: ZoneMapProps) {

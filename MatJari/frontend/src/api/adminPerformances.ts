@@ -1,6 +1,6 @@
 import { apiClient } from "./client";
 import type { PageResponse } from "../types/page";
-import type { AiExtractResult, PerformanceZone } from "../types/performance";
+import type { AiExtractResult, PerformanceZone, SeatmapImage } from "../types/performance";
 import type { SessionChangeRequest } from "./editProposals";
 
 // 관리자 공연 관리 (/api/admin/performances). 규약: 관리자 권한 확장 API 규약 'A. 공연 관리'.
@@ -41,6 +41,7 @@ export interface AdminPerformanceDetail {
   sessions: AdminPerformanceSession[];
   zones: PerformanceZone[];
   seatmapAspect: number | null;
+  seatmapImage?: SeatmapImage | null;
   createdAt: string;
 }
 
@@ -125,7 +126,13 @@ export const adminPerformancesApi = {
 
   async replaceZones(
     id: number,
-    body: { zones: PerformanceZone[]; seatmapAspect: number | null; reason: string }
+    body: {
+      zones: PerformanceZone[];
+      seatmapAspect: number | null;
+      reason: string;
+      /** 없으면 KEEP. 링크에서 다시 인식한 결과는 LINK, 이미지로 인식한 결과는 CLEAR */
+      seatmapImageMode?: "KEEP" | "LINK" | "CLEAR";
+    }
   ): Promise<AdminPerformanceDetail> {
     const { data } = await apiClient.put<AdminPerformanceDetail>(`/admin/performances/${id}/zones`, body);
     return data;

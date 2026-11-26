@@ -217,7 +217,7 @@ function ZoneMapSection({ detail }: { detail: PerformanceDetail }) {
       <h2 id="perf-zonemap-title" className={ui.sectionTitle}>
         구역 지도
       </h2>
-      <ZoneMap zones={zones} aspect={detail.seatmapAspect} />
+      <ZoneMap zones={zones} aspect={detail.seatmapAspect} seatmapImage={detail.seatmapImage} />
       <p className={ui.hint}>AI가 상세 이미지에서 읽은 구역 모양이라 실제와 다를 수 있어요. 지도는 +/− 버튼이나 두 손가락으로 확대하고 드래그로 옮길 수 있어요.</p>
     </section>
   );

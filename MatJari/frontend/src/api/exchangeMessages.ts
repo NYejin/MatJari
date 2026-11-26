@@ -6,6 +6,8 @@ import type { ExtraType, WantRange } from "../types/exchange";
 // 코드에 맞는 문구가 없으면 서버 message(한국어)를 그대로 쓴다.
 
 const CODE_MESSAGES: Record<string, string> = {
+  IMAGE_LIMIT_REACHED: "사진은 최대 3장까지 올릴 수 있어요. 기존 사진을 지우고 올려 주세요.",
+  LISTING_IMAGE_RATE_LIMITED: "사진을 너무 자주 올리고 있어요. 잠시 뒤 다시 시도해 주세요.",
   MATCH_ALREADY_OPEN: "이미 이 상대와 진행 중인 매칭이 있어요.",
   NOT_A_CANDIDATE: "조건이 바뀌어 더 이상 후보가 아니에요. 후보 목록을 새로 확인해 주세요.",
   TICKET_LOCKED: "내 티켓이 다른 상대와 예약되어 있어요. 그 예약을 취소하기 전에는 새로 제안할 수 없어요.",

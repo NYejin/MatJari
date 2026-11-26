@@ -17,6 +17,10 @@ import {
   type RangeInput,
 } from "../api/seat";
 import { ticketsApi } from "../api/tickets";
+import { requestImagesApi } from "../api/listingImages";
+import { partialFailureNotice, uploadPending } from "../api/pendingImages";
+import ListingImageUploader from "../components/ListingImageUploader";
+import type { ListingImageRef } from "../types/listingImage";
 import { useZones } from "../hooks/useZones";
 import { extraAmountId, extraTypeId } from "../components/ExtraFields";
 import SeatRangeCard, { rangeFieldId } from "../components/SeatRangeCard";
@@ -204,6 +208,9 @@ function FormBody({ data }: { data: Loaded }) {
   );
   const [sessionRows, setSessionRows] = useState<WantSessionRow[]>(() => buildSessionRows(performance, ticket, existing));
   /** 서버 오류 키 형식으로 통일한 필드 오류 (클라이언트 검증 결과도 같은 키) */
+  /** 새 요청: 가리기까지 마친 '원하는 자리' 사진 대기 목록 / 수정: 이미 올라간 사진 */
+  const [photos, setPhotos] = useState<Blob[]>([]);
+  const [reqImages, setReqImages] = useState<ListingImageRef[]>(existing?.images ?? []);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -394,9 +401,16 @@ function FormBody({ data }: { data: Loaded }) {
       const saved = existing
         ? await exchangeApi.updateRequest(existing.id, payload)
         : await exchangeApi.createRequest({ ticketId: ticket.id, ...payload });
+      // 새 요청이면 대기 중이던 사진을 이제 올린다(조건 저장은 이미 성공, 일부 실패해도 그대로 둔다)
+      let photoNotice: string | null = null;
+      if (!existing && photos.length > 0) {
+        const { failed } = await uploadPending(photos, (blob) => requestImagesApi.upload(saved.id, blob));
+        photoNotice = partialFailureNotice(failed, "교환 조건 수정 화면");
+      }
+      const base = existing ? "교환 조건을 수정했어요." : "교환 조건을 저장했어요. 조건이 맞는 상대를 찾아봤어요.";
       navigate(`/exchange/requests/${saved.id}/candidates`, {
         replace: true,
-        state: { notice: existing ? "교환 조건을 수정했어요." : "교환 조건을 저장했어요. 조건이 맞는 상대를 찾아봤어요." },
+        state: { notice: photoNotice ? `${base} ${photoNotice}` : base },
       });
     } catch (err) {
       const parsed = exchangeErrorMessage(err, "교환 조건을 저장하지 못했습니다.");
@@ -572,6 +586,33 @@ function FormBody({ data }: { data: Loaded }) {
             )}
             {/* 오류 시 포커스가 갈 곳: 첫 선택 가능한 체크박스 (id는 WantSessionsEditor가 부여) */}
             <WantSessionsEditor rows={sessionRows} onChange={(r) => { setSessionRows(r); clearError("wantSessions"); setFormError(null); }} error={sessionError} disabled={busy} />
+          </section>
+
+          <section className={`${ui.card} flex flex-col gap-3`} aria-labelledby="want-photo-title">
+            <h2 id="want-photo-title" className={ui.sectionTitle}>
+              원하는 자리 사진 <span className="text-sm font-normal text-gray-500">(선택, 최대 3장)</span>
+            </h2>
+            {existing ? (
+              <ListingImageUploader
+                mode="live"
+                idPrefix="want-photo"
+                api={requestImagesApi}
+                ownerId={existing.id}
+                images={reqImages}
+                onImagesChange={setReqImages}
+                disabled={busy || requestDeleted}
+                guide="좌석표에 원하는 자리를 표시한 스크린샷을 올리면 상대가 이해하기 쉬워요. 사진은 바로 올라가고 지워져요."
+              />
+            ) : (
+              <ListingImageUploader
+                mode="pending"
+                idPrefix="want-photo"
+                pending={photos}
+                onPendingChange={setPhotos}
+                disabled={busy}
+                guide="좌석표에 원하는 자리를 표시한 스크린샷을 올리면 상대가 이해하기 쉬워요. 조건을 저장하면 함께 올라가요."
+              />
+            )}
           </section>
 
           {formError && (

@@ -11,6 +11,7 @@ import com.matjari.domain.PerformanceZone;
 import com.matjari.dto.request.PerformanceCreateRequest;
 import com.matjari.dto.response.DateTimeFormats;
 import com.matjari.dto.response.PageResponse;
+import com.matjari.dto.response.SeatmapImageResponse;
 import com.matjari.dto.response.PerformanceEditProposalDtos.SessionChangeRequest;
 import com.matjari.exception.BusinessRuleException;
 import com.matjari.exception.FieldValidationException;
@@ -70,6 +71,7 @@ public class AdminPerformanceService {
                          @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = DateTimeFormats.SECOND) LocalDateTime hiddenAt,
                          String hiddenReason, String hiddenByNickname, Registrant registrant,
                          List<SessionItem> sessions, List<ZoneItem> zones, BigDecimal seatmapAspect,
+                         SeatmapImageResponse seatmapImage,
                          @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = DateTimeFormats.SECOND) LocalDateTime createdAt) {}
 
     public record ReasonRequest(String reason) {}
@@ -78,7 +80,35 @@ public class AdminPerformanceService {
 
     public record SessionChangesRequest(List<SessionChangeRequest> changes, String reason) {}
 
-    public record ZonesRequest(List<PerformanceCreateRequest.ZoneInput> zones, BigDecimal seatmapAspect, String reason) {}
+    /**
+     * seatmapImageMode(V31, 원본 좌석표 이미지 위치): KEEP(기본, 없으면 KEEP)=그대로, LINK=이 공연 링크의 AI 보관 결과에서 가져와 저장(없으면 비움),
+     * CLEAR=비움. 모든 구역 모양이 없어지면 모드와 무관하게 비운다. 이미지 주소·비율은 요청으로 받지 않는다.
+     */
+    public record ZonesRequest(List<PerformanceCreateRequest.ZoneInput> zones, BigDecimal seatmapAspect, String reason,
+                               String seatmapImageMode) {
+        public ZonesRequest(List<PerformanceCreateRequest.ZoneInput> zones, BigDecimal seatmapAspect, String reason) {
+            this(zones, seatmapAspect, reason, null);
+        }
+    }
+
+    /** 원본 좌석표 이미지 위치(V31). null 이면 저장·응답 모두 하지 않는다(단위 시험). */
+    private SeatmapImageService seatmapImages;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setSeatmapImages(SeatmapImageService seatmapImages) {
+        this.seatmapImages = seatmapImages;
+    }
+
+    private static String imageMode(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "KEEP";
+        }
+        String m = raw.strip().toUpperCase(Locale.ROOT);
+        if (!Set.of("KEEP", "LINK", "CLEAR").contains(m)) {
+            throw new FieldValidationException("seatmapImageMode", "seatmapImageMode는 KEEP, LINK, CLEAR 중 하나여야 합니다.");
+        }
+        return m;
+    }
 
     private final PerformanceRepository performanceRepository;
     private final PerformanceSessionRepository sessionRepository;
@@ -389,10 +419,12 @@ public class AdminPerformanceService {
         }
         List<PerformanceZoneSanitizer.Zone> inputs = PerformanceZoneSanitizer.sanitize(request.zones());
         BigDecimal aspect = PerformanceZoneSanitizer.sanitizeAspect(request.seatmapAspect());
+        String imageMode = imageMode(request.seatmapImageMode());
         Performance performance = lock(id);
         List<PerformanceZone> existing = zoneRepository.findByPerformanceIdOrderBySortOrderAscIdAsc(id);
         List<String> beforeNames = existing.stream().map(PerformanceZone::getName).toList();
         BigDecimal beforeAspect = performance.getSeatmapAspect();
+        String beforeImageUrl = performance.getSeatmapImageUrl();
 
         zoneRepository.deleteAll(existing);
         zoneRepository.flush(); // 같은 이름 구역을 다시 넣을 수 있게 먼저 지운다(uk_performance_zone_name_key)
@@ -405,6 +437,14 @@ public class AdminPerformanceService {
             zoneRepository.saveAll(created);
         }
         performance.changeSeatmapAspect(aspect);
+        // 원본 좌석표 이미지 위치: 모양 있는 구역이 없으면 항상 비운다. LINK 는 이 공연 링크의 보관 결과에서만 가져온다(요청 값은 쓰지 않는다)
+        boolean anyShape = inputs.stream().anyMatch(z -> z.shapePolygons() != null);
+        if (!anyShape || "CLEAR".equals(imageMode)) {
+            SeatmapImageService.apply(performance, null);
+        } else if ("LINK".equals(imageMode)) {
+            SeatmapImageService.apply(performance, seatmapImages == null ? null
+                    : seatmapImages.findStored(performance.getSourceKey(), aspect).orElse(null));
+        }
         zoneRepository.flush();
         performanceRepository.flush();
 
@@ -412,10 +452,13 @@ public class AdminPerformanceService {
         Map<String, Object> before = new LinkedHashMap<>();
         before.put("zones", beforeNames);
         before.put("seatmapAspect", beforeAspect == null ? null : beforeAspect.toPlainString());
+        before.put("seatmapImageUrl", beforeImageUrl);
         Map<String, Object> after = new LinkedHashMap<>();
         after.put("zones", inputs.stream().map(PerformanceZoneSanitizer.Zone::name).toList());
         after.put("withShape", inputs.stream().filter(z -> z.shapePolygons() != null).count());
         after.put("seatmapAspect", aspect == null ? null : aspect.toPlainString());
+        after.put("seatmapImageMode", imageMode);
+        after.put("seatmapImageUrl", performance.getSeatmapImageUrl());
         actionLogger.log(adminId, AdminActionLog.Action.PERFORMANCE_ZONES, AdminActionLog.TargetType.PERFORMANCE, id,
                 reason, json(Map.of("before", before, "after", after)));
         return detail;
@@ -443,7 +486,8 @@ public class AdminPerformanceService {
                 performance.isHidden(), performance.getHiddenAt(), performance.getHiddenReason(), hiddenBy,
                 new Registrant(registrant.getId(), registrant.getNickname()),
                 sessions.stream().map(s -> new SessionItem(s.getId(), s.getStartsAt(), inUse.contains(s.getId()))).toList(),
-                zones, performance.getSeatmapAspect(), performance.getCreatedAt());
+                zones, performance.getSeatmapAspect(), seatmapImages == null ? null : seatmapImages.expose(performance),
+                performance.getCreatedAt());
     }
 
     private static String requiredReason(String reason) {

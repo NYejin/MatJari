@@ -45,6 +45,7 @@ export default function ZonePickField({ id, label, value, onValueChange, zoneDat
             <ZoneMap
               zones={zoneData.zones}
               aspect={zoneData.aspect}
+              seatmapImage={zoneData.seatmapImage}
               selected={value.trim() || null}
               onSelect={inputProps.disabled ? undefined : onValueChange}
             />

@@ -16,6 +16,8 @@ public record PerformanceDetailResponse(
         String sourceUrl,
         String venueName,
         BigDecimal seatmapAspect,
+        /** 원본 좌석표 이미지 위치(인라인 링크, V31). 없거나 스위치가 꺼져 있으면 null. */
+        SeatmapImageResponse seatmapImage,
         List<Zone> zones,
         Registrant registrant,
         boolean canEdit,

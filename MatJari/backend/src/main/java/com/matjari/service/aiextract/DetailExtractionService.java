@@ -1,5 +1,6 @@
 package com.matjari.service.aiextract;
 
+import com.matjari.dto.response.SeatmapImageResponse;
 import com.matjari.exception.MatJariException;
 import com.matjari.service.SeatKeyNormalizer;
 import com.matjari.service.SourceKeyResolver;
@@ -80,14 +81,26 @@ public class DetailExtractionService {
 
     /** verifiedZones: 구역이 사람이 검수한 정답에서 왔다(AI 결과 아님, VerifiedZones). */
     public record Response(List<SessionDto> sessions, String sessionsSource, List<ZoneDto> zones, Double seatmapAspect,
-                           boolean aiEnabled, boolean aiError, boolean cached, boolean truncatedSlices, boolean verifiedZones) {
+                           boolean aiEnabled, boolean aiError, boolean cached, boolean truncatedSlices, boolean verifiedZones,
+                           SeatmapImageResponse seatmapImage) {
+        public Response(List<SessionDto> sessions, String sessionsSource, List<ZoneDto> zones, Double seatmapAspect,
+                        boolean aiEnabled, boolean aiError, boolean cached, boolean truncatedSlices, boolean verifiedZones) {
+            this(sessions, sessionsSource, zones, seatmapAspect, aiEnabled, aiError, cached, truncatedSlices, verifiedZones, null);
+        }
+
         public Response(List<SessionDto> sessions, String sessionsSource, List<ZoneDto> zones, Double seatmapAspect,
                         boolean aiEnabled, boolean aiError, boolean cached, boolean truncatedSlices) {
-            this(sessions, sessionsSource, zones, seatmapAspect, aiEnabled, aiError, cached, truncatedSlices, false);
+            this(sessions, sessionsSource, zones, seatmapAspect, aiEnabled, aiError, cached, truncatedSlices, false, null);
         }
 
         Response asCached() {
-            return new Response(sessions, sessionsSource, zones, seatmapAspect, aiEnabled, aiError, true, truncatedSlices, verifiedZones);
+            return new Response(sessions, sessionsSource, zones, seatmapAspect, aiEnabled, aiError, true, truncatedSlices,
+                    verifiedZones, seatmapImage);
+        }
+
+        Response withSeatmapImage(SeatmapImageResponse image) {
+            return new Response(sessions, sessionsSource, zones, seatmapAspect, aiEnabled, aiError, cached, truncatedSlices,
+                    verifiedZones, image);
         }
     }
 
@@ -130,6 +143,14 @@ public class DetailExtractionService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setVerifiedZones(VerifiedZones verifiedZones) {
         this.verifiedZones = verifiedZones;
+    }
+
+    /** 응답에 원본 좌석표 이미지 위치를 내보낼지(matjari.seatmap-image.enabled, 기본 true). 저장은 이 값과 무관하다. */
+    private boolean seatmapImageEnabled = true;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setSeatmapImageEnabled(@org.springframework.beans.factory.annotation.Value("${matjari.seatmap-image.enabled:true}") boolean enabled) {
+        this.seatmapImageEnabled = enabled;
     }
 
     public DetailExtractionService(SourceKeyResolver sourceKeyResolver, PerformancePreviewService previewService,
@@ -218,6 +239,20 @@ public class DetailExtractionService {
 
     /** admin: 보관 결과를 쓰지 않고 새로 읽음(다시 인식). unlimited: 월 횟수를 세지 않음(관리자). */
     private Response extract(Long userId, String sourceUrl, boolean admin, boolean unlimited) {
+        Response r = extractCore(userId, sourceUrl, admin, unlimited);
+        // 스위치(matjari.seatmap-image.enabled)가 꺼져 있으면 응답에서만 뺀다(보관 결과에는 그대로 남는다)
+        return seatmapImageEnabled || r.seatmapImage() == null ? r : r.withSeatmapImage(null);
+    }
+
+    /** 이 링크로 보관된(메모리→DB) 결과. 공연 등록·관리자 구역 교체가 좌석표 이미지 위치를 서버 쪽 값으로만 얻는 데 쓴다. */
+    public java.util.Optional<Response> findStored(String sourceKey) {
+        if (sourceKey == null || sourceKey.isBlank()) {
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.ofNullable(cacheGet(sourceKey));
+    }
+
+    private Response extractCore(Long userId, String sourceUrl, boolean admin, boolean unlimited) {
         String key = sourceKeyResolver.resolve(sourceUrl); // 형식 오류는 400(FieldValidationException)
         Matcher m = KEY.matcher(key);
         if (!m.matches()) {
@@ -258,7 +293,8 @@ public class DetailExtractionService {
                 java.util.Optional<VerifiedZones.Match> vm = verifiedZones.find(site, key, page.document());
                 if (vm.isPresent()) {
                     Response b = build(ruleSessions, List.of(), vm.get().zones(), vm.get().aspect(), false, false, false);
-                    return new Response(b.sessions(), b.sessionsSource(), b.zones(), b.seatmapAspect(), b.aiEnabled(), false, false, false, true);
+                    return new Response(b.sessions(), b.sessionsSource(), b.zones(), b.seatmapAspect(), b.aiEnabled(), false, false, false, true,
+                            vm.get().seatmapImage());
                 }
             } catch (RuntimeException e) {
                 log.info("검수 정답 확인 실패: {}", e.getClass().getSimpleName());
@@ -334,6 +370,11 @@ public class DetailExtractionService {
         Double aspect = null;
         int cropW = 0;
         int cropH = 0;
+        // 좌석표를 자른 근거(원본 이미지 주소, 줄인 이미지 기준 잘라 낸 윗변·높이, 줄인 이미지 전체 높이): 이미지 위치 비율 계산용
+        String seatImageUrl = null;
+        int cropTop = 0;
+        int scaledImageHeight = 0;
+        SeatmapImageResponse seatmapImage = null;
         boolean aiError = false;
         AiUsageLimiter.Permit permit = unlimited ? limiter.acquireAdmin(key) : limiter.acquire(userId, key);
         try (permit) {
@@ -405,11 +446,15 @@ public class DetailExtractionService {
                         aspect = Math.round(target.width() * 1000.0 / target.height()) / 1000.0;
                         cropW = target.width();
                         cropH = target.height();
+                        seatImageUrl = images.get(loc.imageIndex() - 1).url();
+                        cropTop = target.top();
+                        scaledImageHeight = sliced.get(loc.imageIndex() - 1).imageHeight();
                     }
                 } catch (RuntimeException e) { // 2차 실패해도 1차 이름 목록은 유지(모양만 null)
                     log.info("AI 2차 실패, 이름만 유지: {}", e.getClass().getSimpleName());
                     shapes = List.of();
                     aspect = null;
+                    seatImageUrl = null;
                 }
             }
             zones = mergeZones(names, shapes);
@@ -421,10 +466,17 @@ public class DetailExtractionService {
                 if (fit != null) {
                     zones = fit.zones();
                     aspect = fit.aspect();
+                    seatmapImage = seatmapRect(seatImageUrl, fit, cropTop, cropH, scaledImageHeight);
                 }
             }
             if (aspect != null && zones.stream().noneMatch(z -> z.shapePolygons() != null)) {
                 aspect = null;
+            }
+            if (aspect == null) {
+                seatmapImage = null; // 모양 있는 구역이 없으면 이미지 위치도 두지 않는다
+            }
+            if (seatmapImage != null && !imageFetcher.isAllowedImageUrl(seatmapImage.url())) {
+                seatmapImage = null; // 허용 호스트·https 밖 주소는 내보내지 않는다
             }
         } catch (AiExtractException e) {
             throw e; // 429 등
@@ -441,7 +493,7 @@ public class DetailExtractionService {
         if (aiError && ruleSessions.isEmpty()) {
             throw new AiExtractException(503, "AI_UNAVAILABLE", "AI로 정보를 읽지 못했어요. 잠시 후 다시 시도하거나 직접 입력해주세요.", 0);
         }
-        Response r = build(ruleSessions, aiSessions, zones, aspect, true, aiError, truncated);
+        Response r = build(ruleSessions, aiSessions, zones, aspect, true, aiError, truncated).withSeatmapImage(seatmapImage);
         if (!aiError) {
             cacheIfUseful(key, r);
         }
@@ -2217,7 +2269,31 @@ public class DetailExtractionService {
         }
     }
 
-    record FitResult(List<ZoneDto> zones, double aspect) {}
+    /**
+     * x0·y0·spanX·spanY: 맞춘 기준 사각형(맞추기 전 좌표계, 0~1000, 이미지 안으로 잘라 낸 값). 구역 좌표 0~1000 은 이 사각형 안의 위치다.
+     */
+    record FitResult(List<ZoneDto> zones, double aspect, double x0, double y0, double spanX, double spanY) {
+        FitResult(List<ZoneDto> zones, double aspect) {
+            this(zones, aspect, 0, 0, 1000, 1000);
+        }
+    }
+
+    /**
+     * 구역 기준 사각형을 **원본 이미지 전체 크기에 대한 비율**로 바꾼다(V31).
+     * 좌석표는 줄인 이미지(폭 sliceMaxWidth 이하, 비율 유지)에서 가로는 전체 폭, 세로는 [cropTop, cropTop+cropHeight) 로 잘렸고,
+     * fit 의 사각형은 그 잘라 낸 이미지 안의 위치(0~1000)다. 줄이기는 가로·세로 같은 비율이라 줄인 이미지 기준 비율이 곧 원본 기준 비율이다.
+     *  left = x0/1000, width = spanX/1000
+     *  top = (cropTop + y0/1000*cropHeight) / scaledHeight, height = spanY/1000*cropHeight / scaledHeight
+     * 계산할 수 없거나 범위를 벗어나면 null.
+     */
+    static SeatmapImageResponse seatmapRect(String url, FitResult fit, int cropTop, int cropHeight, int scaledHeight) {
+        if (url == null || fit == null || cropHeight <= 0 || scaledHeight <= 0 || cropTop < 0 || cropTop + cropHeight > scaledHeight) {
+            return null;
+        }
+        double h = scaledHeight;
+        return SeatmapImageResponse.ofRatios(url, fit.x0() / 1000.0, (cropTop + fit.y0() / 1000.0 * cropHeight) / h,
+                fit.spanX() / 1000.0, fit.spanY() / 1000.0 * cropHeight / h);
+    }
 
     /**
      * 모든 구역 모양의 바깥 사각형을 구해(둘레 3% 여백, 최소 10) 그 사각형이 0~1000 전체가 되도록 좌표를 다시 계산하고,
@@ -2246,8 +2322,9 @@ public class DetailExtractionService {
         }
         int mx = Math.max(10, (int) Math.round((maxX - minX) * 0.03));
         int my = Math.max(10, (int) Math.round((maxY - minY) * 0.03));
-        double x0 = minX - mx, y0 = minY - my;
-        double spanX = (maxX - minX) + 2.0 * mx, spanY = (maxY - minY) + 2.0 * my;
+        // 여백이 이미지 밖으로 나가면 이미지 안으로 자른다(원본 이미지 위치를 비율로 나타낼 수 있게, V31). 좌표도 같은 사각형으로 맞춘다.
+        double x0 = Math.max(0, minX - mx), y0 = Math.max(0, minY - my);
+        double spanX = Math.min(1000, maxX + mx) - x0, spanY = Math.min(1000, maxY + my) - y0;
         List<ZoneDto> out = new ArrayList<>();
         for (ZoneDto z : zones) {
             if (z.shapePolygons() == null) {
@@ -2272,7 +2349,7 @@ public class DetailExtractionService {
         if (aspect <= 0 || aspect > 999.999) {
             return null;
         }
-        return new FitResult(List.copyOf(out), aspect);
+        return new FitResult(List.copyOf(out), aspect, x0, y0, spanX, spanY);
     }
 
     private static boolean validPolygon(List<List<Integer>> p) {

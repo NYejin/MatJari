@@ -82,7 +82,7 @@ class AdminPerformanceControllerSliceTest {
         return new Detail(100L, "제목", "공연장", "https://x", true, AT, "사유", "관리자",
                 new AdminPerformanceService.Registrant(1L, "등록자"),
                 List.of(new AdminPerformanceService.SessionItem(7L, LocalDateTime.of(2026, 11, 1, 19, 0), true)),
-                List.of(new AdminPerformanceService.ZoneItem("A구역", null)), null, AT);
+                List.of(new AdminPerformanceService.ZoneItem("A구역", null)), null, null, AT);
     }
 
     @Test

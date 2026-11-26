@@ -28,6 +28,7 @@ export interface PerformanceDetail {
   zones?: PerformanceZone[];
   /** 구역 지도 가로/세로 비율(없을 수 있음) */
   seatmapAspect?: number | null;
+  seatmapImage?: SeatmapImage | null;
   /** 관리자가 내린 공연이면 true (새 티켓 등록·교환 요청 불가) */
   hidden?: boolean;
   createdAt: string;
@@ -42,8 +43,21 @@ export interface PerformanceZone {
   shapePolygons: number[][][] | null;
 }
 
+/**
+ * 원본 좌석표 이미지(인라인 링크, 서버는 저장하지 않음)와 보여 줄 영역.
+ * left/top/width/height 는 원본 이미지 전체 크기에 대한 비율(0~1)이며 이 사각형이 구역 좌표(0~1000)의 기준 영역이다.
+ */
+export interface SeatmapImage {
+  url: string;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
 /** GET /api/performances/{id}/zones */
 export interface PerformanceZonesResponse {
+  seatmapImage?: SeatmapImage | null;
   seatmapAspect: number | null;
   zones: PerformanceZone[];
 }
@@ -75,6 +89,8 @@ export interface AiExtractResult {
   truncatedSlices: number;
   /** 구역이 사람이 검수한 정답에서 왔다(같은 상품·같은 좌석표 이미지, AI 결과 아님) */
   verifiedZones?: boolean;
+  /** 원본 좌석표 이미지(없으면 null) */
+  seatmapImage?: SeatmapImage | null;
 }
 
 /** GET /api/performances/lookup — 없으면 performanceId가 null이거나 생략될 수 있다 */

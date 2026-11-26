@@ -2,6 +2,7 @@ package com.matjari.service.aiextract;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.matjari.dto.response.SeatmapImageResponse;
 import org.jsoup.nodes.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,7 +36,11 @@ public class VerifiedZones {
     record Zone(String name, List<List<List<Integer>>> polygons) {}
 
     /** 검수 정답 구역과 지도 비율. */
-    public record Match(List<DetailExtractionService.ZoneDto> zones, Double aspect) {}
+    public record Match(List<DetailExtractionService.ZoneDto> zones, Double aspect, SeatmapImageResponse seatmapImage) {
+        public Match(List<DetailExtractionService.ZoneDto> zones, Double aspect) {
+            this(zones, aspect, null);
+        }
+    }
 
     private final Map<String, Entry> byKey;
     private final DetailImageFetcher imageFetcher;
@@ -78,8 +83,10 @@ public class VerifiedZones {
             return Optional.empty();
         }
         Set<String> onPage = new HashSet<>();
+        Map<String, URI> pageUri = new HashMap<>(); // 이미지 키 -> 지금 페이지의 원본 주소(좌석표 이미지 위치 응답용)
         for (URI u : imageFetcher.candidateUris(page)) { // 지금은 멜론만(검수 정답도 멜론뿐)
             onPage.add(imageKey(u));
+            pageUri.putIfAbsent(imageKey(u), u);
         }
         for (String img : e.images()) {
             URI u = URI.create(img);
@@ -106,8 +113,19 @@ public class VerifiedZones {
             zones = fit.zones();
             aspect = fit.aspect();
         }
+        // 좌석표 이미지 위치: 검수 이미지가 한 장이면 정답 좌표의 기준(width x height)이 그 이미지 전체라고 보고 fit 사각형을 그대로 비율로 쓴다.
+        // 여러 장이면 어느 이미지의 어느 부분인지 알 수 없어 null.
+        SeatmapImageResponse image = null;
+        if (e.images().size() == 1) {
+            URI u = pageUri.get(imageKey(URI.create(e.images().get(0))));
+            String url = u == null ? null : u.toString();
+            if (url != null && imageFetcher.isAllowedImageUrl(url)) {
+                image = fit != null ? DetailExtractionService.seatmapRect(url, fit, 0, e.height(), e.height())
+                        : SeatmapImageResponse.ofRatios(url, 0, 0, 1, 1);
+            }
+        }
         log.info("검수 구역 정답 사용 ({}): 구역 {}개", sourceKey, zones.size());
-        return Optional.of(new Match(List.copyOf(zones), aspect));
+        return Optional.of(new Match(List.copyOf(zones), aspect, image));
     }
 
     /** 호스트+경로. 멜론은 같은 파일에 변환 꼬리(.jpg/melon/quality/90/optimize 등)를 붙이므로 확장자 뒤는 떼고 비교한다. */

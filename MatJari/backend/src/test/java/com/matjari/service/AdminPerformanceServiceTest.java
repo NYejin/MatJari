@@ -241,4 +241,73 @@ class AdminPerformanceServiceTest {
         assertThat(d.sessions()).singleElement().satisfies(s -> assertThat(s.inUse()).isTrue());
         assertThat(d.registrant().nickname()).isEqualTo("등록자");
     }
+
+    // ---- 원본 좌석표 이미지 위치 (V31) ----
+
+    private static final com.matjari.dto.response.SeatmapImageResponse IMAGE = new com.matjari.dto.response.SeatmapImageResponse(
+            "https://cdnticket.melon.co.kr/resource/image/upload/product/a.jpg",
+            new BigDecimal("0.100000"), new BigDecimal("0.200000"), new BigDecimal("0.800000"), new BigDecimal("0.500000"));
+    private static final List<ZoneInput> SHAPED = List.of(
+            new ZoneInput("A", List.of(List.of(List.of(0, 0), List.of(10, 0), List.of(10, 10)))));
+
+    private SeatmapImageService images;
+
+    private void withImages() {
+        images = mock(SeatmapImageService.class);
+        when(images.findStored(eq("interpark:100"), any())).thenReturn(Optional.of(IMAGE));
+        service.setSeatmapImages(images);
+    }
+
+    @Test
+    void LINK_모드는_이_공연_링크의_보관_결과에서만_이미지_위치를_저장한다() {
+        withImages();
+        service.replaceZones(9L, 100L, new AdminPerformanceService.ZonesRequest(SHAPED, new BigDecimal("1.5"), "다시 인식", "LINK"));
+        assertThat(performance.getSeatmapImageUrl()).isEqualTo(IMAGE.url());
+        assertThat(performance.getSeatmapCropWidth()).isEqualByComparingTo("0.8");
+        verify(images).findStored("interpark:100", new BigDecimal("1.500"));
+    }
+
+    @Test
+    void LINK_모드인데_보관_결과가_없으면_비운다() {
+        withImages();
+        performance.changeSeatmapImage(IMAGE.url(), IMAGE.left(), IMAGE.top(), IMAGE.width(), IMAGE.height());
+        when(images.findStored(any(), any())).thenReturn(Optional.empty());
+        service.replaceZones(9L, 100L, new AdminPerformanceService.ZonesRequest(SHAPED, new BigDecimal("1.5"), "x", "LINK"));
+        assertThat(performance.getSeatmapImageUrl()).isNull();
+    }
+
+    @Test
+    void KEEP_기본값은_그대로_두고_CLEAR는_비운다() {
+        withImages();
+        performance.changeSeatmapImage(IMAGE.url(), IMAGE.left(), IMAGE.top(), IMAGE.width(), IMAGE.height());
+        service.replaceZones(9L, 100L, new AdminPerformanceService.ZonesRequest(SHAPED, new BigDecimal("1.5"), "x"));
+        assertThat(performance.getSeatmapImageUrl()).isEqualTo(IMAGE.url());
+        service.replaceZones(9L, 100L, new AdminPerformanceService.ZonesRequest(SHAPED, new BigDecimal("1.5"), "x", "KEEP"));
+        assertThat(performance.getSeatmapImageUrl()).isEqualTo(IMAGE.url());
+        service.replaceZones(9L, 100L, new AdminPerformanceService.ZonesRequest(SHAPED, new BigDecimal("1.5"), "x", "CLEAR"));
+        assertThat(performance.getSeatmapImageUrl()).isNull();
+        assertThat(performance.getSeatmapCropTop()).isNull();
+        verify(images, never()).findStored(any(), any());
+    }
+
+    @Test
+    void 모양_있는_구역이_하나도_없으면_모드와_무관하게_비운다() {
+        withImages();
+        performance.changeSeatmapImage(IMAGE.url(), IMAGE.left(), IMAGE.top(), IMAGE.width(), IMAGE.height());
+        service.replaceZones(9L, 100L, new AdminPerformanceService.ZonesRequest(
+                List.of(new ZoneInput("스탠딩", null)), null, "x", "LINK"));
+        assertThat(performance.getSeatmapImageUrl()).isNull();
+        verify(images, never()).findStored(any(), any());
+    }
+
+    @Test
+    void 알_수_없는_모드는_400이고_조치_기록_요약에_모드가_들어간다() {
+        withImages();
+        assertThatThrownBy(() -> service.replaceZones(9L, 100L,
+                new AdminPerformanceService.ZonesRequest(SHAPED, null, "x", "COPY"))).isInstanceOf(FieldValidationException.class);
+        service.replaceZones(9L, 100L, new AdminPerformanceService.ZonesRequest(SHAPED, new BigDecimal("1.5"), "x", "link"));
+        ArgumentCaptor<String> summary = ArgumentCaptor.forClass(String.class);
+        verify(logger).log(eq(9L), eq(AdminActionLog.Action.PERFORMANCE_ZONES), any(), eq(100L), eq("x"), summary.capture());
+        assertThat(summary.getValue()).contains("\"seatmapImageMode\":\"LINK\"").contains(IMAGE.url());
+    }
 }

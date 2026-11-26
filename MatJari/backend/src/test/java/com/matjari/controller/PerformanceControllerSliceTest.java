@@ -84,7 +84,7 @@ class PerformanceControllerSliceTest {
 
     private static PerformanceDetailResponse detail(boolean canEdit) {
         return new PerformanceDetailResponse(100L, "두아 리파 내한", "https://tickets.interpark.com/goods/1",
-                "KSPO DOME", null, List.of(),
+                "KSPO DOME", null, null, List.of(),
                 new PerformanceDetailResponse.Registrant(1L, "등록자"), canEdit,
                 List.of(new SessionResponse(7L, SHOW)),
                 LocalDateTime.of(2026, 10, 6, 14, 3, 21), false);
@@ -141,7 +141,7 @@ class PerformanceControllerSliceTest {
                 .andExpect(status().isOk())
                 .andExpect(content().json("""
                         {"id":100,"title":"두아 리파 내한","sourceUrl":"https://tickets.interpark.com/goods/1",
-                         "venueName":"KSPO DOME","seatmapAspect":null,"zones":[],
+                         "venueName":"KSPO DOME","seatmapAspect":null,"seatmapImage":null,"zones":[],
                          "registrant":{"id":1,"nickname":"등록자"},"canEdit":true,
                          "sessions":[{"id":7,"startsAt":"2026-11-01T19:00"}],
                          "createdAt":"2026-10-06T14:03:21","hidden":false}
@@ -151,7 +151,10 @@ class PerformanceControllerSliceTest {
     @Test
     void zonesEndpointShapeAndNotFound() throws Exception {
         when(performanceService.getZones(100L)).thenReturn(new PerformanceZonesResponse(
-                new java.math.BigDecimal("1.500"), List.of(
+                new java.math.BigDecimal("1.500"),
+                new com.matjari.dto.response.SeatmapImageResponse("https://cdnticket.melon.co.kr/resource/image/upload/product/a.jpg",
+                        new java.math.BigDecimal("0.100000"), new java.math.BigDecimal("0.250000"),
+                        new java.math.BigDecimal("0.800000"), new java.math.BigDecimal("0.500000")), List.of(
                 new PerformanceDetailResponse.Zone("A구역", List.of(List.of(List.of(0, 0), List.of(10, 0), List.of(10, 10)))),
                 new PerformanceDetailResponse.Zone("스탠딩", null))));
         when(performanceService.getZones(404L)).thenThrow(new NotFoundException("공연을 찾을 수 없습니다."));
@@ -159,7 +162,8 @@ class PerformanceControllerSliceTest {
         mockMvc.perform(auth(get("/api/performances/100/zones")))
                 .andExpect(status().isOk())
                 .andExpect(content().json("""
-                        {"seatmapAspect":1.5,"zones":[
+                        {"seatmapAspect":1.5,"seatmapImage":{"url":"https://cdnticket.melon.co.kr/resource/image/upload/product/a.jpg",
+                          "left":0.1,"top":0.25,"width":0.8,"height":0.5},"zones":[
                           {"name":"A구역","shapePolygons":[[[0,0],[10,0],[10,10]]]},
                           {"name":"스탠딩","shapePolygons":null}]}
                         """, true));

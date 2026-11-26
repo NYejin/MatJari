@@ -5,6 +5,7 @@ import { parseApiError } from "../api/errors";
 import { formatKstDateTime, kstMinuteString } from "../api/dateTime";
 import { useAuth } from "../hooks/useAuth";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
+import PerformanceThumb from "../components/PerformanceThumb";
 import type { PerformanceSummary } from "../types/performance";
 import { FOCUS_RING, badgeTone, button, input, linkButton, liveRegionClass, ui } from "../components/ui";
 
@@ -28,9 +29,6 @@ const cls = {
   list: "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3",
   /** 카드 전체가 상세 링크 */
   item: `${ui.cardInteractive} flex h-full flex-col gap-3 !p-4 no-underline sm:!p-4`,
-  thumb:
-    "flex aspect-[16/9] items-center justify-center rounded-2xl bg-gradient-to-br from-primary-100 via-sky-100 to-coral-100 " +
-    "text-5xl font-bold text-primary-700",
   itemTitle: "line-clamp-2 text-lg/[1.4] font-bold break-keep text-gray-900",
   itemVenue: "truncate text-[0.9375rem]/[normal] text-gray-700",
   itemMeta: "mt-auto flex flex-wrap items-center justify-between gap-2",
@@ -265,9 +263,11 @@ function PerformanceList({ notice }: { notice: string | null }) {
               {state.items.map((item) => (
                 <li key={item.id}>
                   <Link to={`/performances/${item.id}`} className={cls.item}>
-                    <span className={cls.thumb} aria-hidden="true">
-                      {Array.from(item.title.trim())[0] ?? "♪"}
-                    </span>
+                    <PerformanceThumb
+                      performanceId={item.id}
+                      title={item.title}
+                      nextSessionStartsAt={item.nextSessionStartsAt}
+                    />
                     <span className={cls.itemTitle}>{item.title}</span>
                     <span className={cls.itemVenue}>{item.venueName}</span>
                     <span className={cls.itemMeta}>

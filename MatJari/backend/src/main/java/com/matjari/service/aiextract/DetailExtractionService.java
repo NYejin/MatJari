@@ -368,6 +368,7 @@ public class DetailExtractionService {
         List<SessionDto> aiSessions = List.of();
         List<ZoneDto> zones = List.of();
         Double aspect = null;
+        int[] mapBounds = null; // 좌석표 그림 전체의 바깥 사각형(0~1000), 세그먼트 정보가 없으면 null
         int cropW = 0;
         int cropH = 0;
         // 좌석표를 자른 근거(원본 이미지 주소, 줄인 이미지 기준 잘라 낸 윗변·높이, 줄인 이미지 전체 높이): 이미지 위치 비율 계산용
@@ -420,7 +421,9 @@ public class DetailExtractionService {
                     }
                     log.info("AI 좌석표 구간: 이미지 {}, 조각 {}~{}/{}, 합친 크기 {}x{}, 사용 크기 {}x{}", loc.imageIndex(), a, b, sl.size(),
                             merged.width(), merged.height(), target.width(), target.height());
-                    shapes = labelShapes(target, names); // 실제 픽셀 윤곽(ShapeSegmenter) + AI가 타일에서 읽은 구역 이름
+                    Labeled labeled = labelShapesWithBounds(target, names); // 실제 픽셀 윤곽(ShapeSegmenter) + AI가 타일에서 읽은 구역 이름
+                    shapes = labeled.zones();
+                    mapBounds = labeled.mapBounds();
                     if (!shapes.isEmpty()) {
                         names = extendNames(names, shapes); // 1차 이름 목록에서 빠졌지만 타일에서 읽힌 구역을 되살린다
                     }
@@ -462,7 +465,7 @@ public class DetailExtractionService {
             zones = dropUnshapedNumbers(zones);
             logExtent(zones, cropW, cropH);
             if (aspect != null && cropW > 0 && cropH > 0) { // 좌석표가 잘라 낸 이미지의 일부만 차지해도 미리보기가 꽉 차도록 모양 좌표를 좌석표 영역에 맞춘다
-                FitResult fit = fitToBounds(zones, cropW, cropH);
+                FitResult fit = fitToBounds(zones, cropW, cropH, mapBounds);
                 if (fit != null) {
                     zones = fit.zones();
                     aspect = fit.aspect();
@@ -543,6 +546,7 @@ public class DetailExtractionService {
         long started = System.nanoTime();
         List<ZoneDto> zones = List.of();
         Double aspect = null;
+        int[] mapBounds = null;
         boolean aiError = false;
         AiUsageLimiter.Permit permit = admin ? limiter.acquireAdmin(key) : limiter.acquire(userId, key);
         try (permit) {
@@ -553,7 +557,9 @@ public class DetailExtractionService {
             List<DetailExtractor.RawZone> shapes = List.of();
             if (!names.isEmpty()) {
                 try {
-                    shapes = labelShapes(target, names);
+                    Labeled labeled = labelShapesWithBounds(target, names);
+                    shapes = labeled.zones();
+                    mapBounds = labeled.mapBounds();
                     if (!shapes.isEmpty()) {
                         names = extendNames(names, shapes);
                     }
@@ -568,7 +574,7 @@ public class DetailExtractionService {
             }
             zones = mergeZones(names, shapes);
             if (aspect != null) {
-                FitResult fit = fitToBounds(zones, target.width(), target.height());
+                FitResult fit = fitToBounds(zones, target.width(), target.height(), mapBounds);
                 if (fit != null) {
                     zones = fit.zones();
                     aspect = fit.aspect();
@@ -712,14 +718,23 @@ public class DetailExtractionService {
      * 구역의 30% 미만만 연결됨) 빈 목록이라 호출자가 AI 좌표 방식(2차)으로 넘어간다.
      */
     private List<DetailExtractor.RawZone> labelShapes(ImageSlicer.SliceImage target, List<String> names) {
+        return labelShapesWithBounds(target, names).zones();
+    }
+
+    /** labelShapes 결과와, 좌석표 그림 전체(지도 블록 영역)의 바깥 사각형(0~1000, [minX,minY,maxX,maxY], 없으면 null). */
+    record Labeled(List<DetailExtractor.RawZone> zones, int[] mapBounds) {
+        static final Labeled EMPTY = new Labeled(List.of(), null);
+    }
+
+    private Labeled labelShapesWithBounds(ImageSlicer.SliceImage target, List<String> names) {
         try {
             ShapeSegmenter.Result seg = segmenter.segment(target.jpeg());
             if (seg == null || seg.segments().size() < 3) {
-                return List.of();
+                return Labeled.EMPTY;
             }
             DetailExtractor.LabelResult result = voteLabels(target, seg, names);
             if (result == null) {
-                return List.of();
+                return Labeled.EMPTY;
             }
             writeDebug(target, seg, result);
             if (legendWithoutGray(result, seg)) { // 범례에 회색 등급이 없으면 회색 부분을 빼고 다시 나눠 이름을 옮긴다
@@ -748,18 +763,68 @@ public class DetailExtractionService {
             labels = checked.labels();
             seg = checked.seg();
             labels = columnHeaders(labels, seg);
+            List<DetailExtractor.RawLabel> beforeLegendRow = labels;
             labels = dropLegendRow(labels, seg);
+            int[] mapBounds = mapBounds(beforeLegendRow, labels, seg);
             writeFinalDebug(seg, labels);
             List<DetailExtractor.RawZone> zones = dropOutliers(shapesFromLabels(labels, seg, checked.legendPieces()));
             log.info("AI 번호 방식: 도형 후보 {}개, 연결된 구역 {}개 / 이름 {}개", seg.segments().size(), zones.size(), names.size());
             if (validShapeRatio(extendNames(names, zones), zones) < 0.3) {
-                return List.of();
+                return Labeled.EMPTY;
             }
-            return zones;
+            return new Labeled(zones, mapBounds);
         } catch (RuntimeException e) {
             log.info("AI 번호 방식 실패, 좌표 방식으로 대체: {}", e.getClass().getSimpleName());
-            return List.of();
+            return Labeled.EMPTY;
         }
+    }
+
+    /**
+     * 좌석표 그림 전체의 바깥 사각형(0~1000): 도형 분할이 이미 지도 밖(안내 글자·패널)으로 뺀 도형은 seg 에 없고, 여기서는 범례 칩 줄
+     * (범례 알약·범례 이름 도형·범례 줄로 뺀 구역)만 더 뺀다. 구역에 연결되지 않은 블록·무대·콘솔은 포함한다(화면에서 좌석표 위·아래가 잘리지 않게).
+     * 계산할 수 없으면 null.
+     */
+    static int[] mapBounds(List<DetailExtractor.RawLabel> beforeLegendRow, List<DetailExtractor.RawLabel> labels, ShapeSegmenter.Result seg) {
+        if (seg == null || seg.segments().isEmpty()) {
+            return null;
+        }
+        java.util.Set<Integer> skip = new java.util.HashSet<>();
+        java.util.Set<Integer> kept = new java.util.HashSet<>();
+        labels.forEach(l -> kept.addAll(l.segmentIds() == null ? List.<Integer>of() : l.segmentIds()));
+        for (DetailExtractor.RawLabel l : beforeLegendRow) {
+            String c = cleanName(l.name());
+            boolean legendName = c != null && (isLegendName(c) || c.replaceAll("\\s+", "").matches(".*[가-힣]석"));
+            for (Integer id : l.segmentIds() == null ? List.<Integer>of() : l.segmentIds()) {
+                if (legendName || !kept.contains(id)) {
+                    skip.add(id);
+                }
+            }
+        }
+        try {
+            legendPills(new DetailExtractor.LabelResult(beforeLegendRow, List.of()), seg).forEach(p -> skip.add(p.id()));
+        } catch (RuntimeException e) {
+            // 범례 알약을 못 찾아도 사각형은 계산한다
+        }
+        int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE;
+        for (ShapeSegmenter.Segment sg : seg.segments()) {
+            if (skip.contains(sg.id()) || sg.pixels().isEmpty()) {
+                continue;
+            }
+            int[] b = box(sg);
+            minX = Math.min(minX, b[0]);
+            minY = Math.min(minY, b[1]);
+            maxX = Math.max(maxX, b[2]);
+            maxY = Math.max(maxY, b[3]);
+        }
+        if (minX == Integer.MAX_VALUE) {
+            return null;
+        }
+        int w = Math.max(1, seg.width() - 1), h = Math.max(1, seg.height() - 1);
+        return new int[]{
+                (int) Math.max(0, Math.min(1000, Math.round(minX * 1000.0 / w))),
+                (int) Math.max(0, Math.min(1000, Math.round(minY * 1000.0 / h))),
+                (int) Math.max(0, Math.min(1000, Math.round(maxX * 1000.0 / w))),
+                (int) Math.max(0, Math.min(1000, Math.round(maxY * 1000.0 / h)))};
     }
 
     /** 좌석 등급 범례 칩(이름이 범례 글자인 구역의 조각)이 있고 모두 색이 있으며(회색 등급 없음), 구역에 연결된 조각 중 회색이 섞인 것이 있다. */
@@ -2295,12 +2360,17 @@ public class DetailExtractionService {
                 fit.spanX() / 1000.0, fit.spanY() / 1000.0 * cropHeight / h);
     }
 
-    /**
-     * 모든 구역 모양의 바깥 사각형을 구해(둘레 3% 여백, 최소 10) 그 사각형이 0~1000 전체가 되도록 좌표를 다시 계산하고,
-     * 그 사각형의 실제 가로/세로 비율을 돌려준다. 모양이 하나도 없거나 너무 작으면(폭·높이 20 미만) null이다.
-     * cropW·cropH 는 모양 좌표의 기준이 된 이미지의 픽셀 크기다.
-     */
     static FitResult fitToBounds(List<ZoneDto> zones, int cropW, int cropH) {
+        return fitToBounds(zones, cropW, cropH, null);
+    }
+
+    /**
+     * 기준 사각형을 구해 그 사각형이 0~1000 전체가 되도록 좌표를 다시 계산하고, 그 사각형의 실제 가로/세로 비율을 돌려준다.
+     * mapBounds(좌석표 그림 전체의 바깥 사각형 [minX,minY,maxX,maxY], 0~1000)가 있으면 구역 모양 사각형과의 합집합에 각 변 6%(최소 16) 여백을 두고,
+     * 없으면(세그먼트 정보 없음) 구역 모양 사각형에 3%(최소 10) 여백을 둔다. 여백은 이미지 안으로 자른다.
+     * 모양이 하나도 없거나 너무 작으면(폭·높이 20 미만) null이다. cropW·cropH 는 모양 좌표의 기준이 된 이미지의 픽셀 크기다.
+     */
+    static FitResult fitToBounds(List<ZoneDto> zones, int cropW, int cropH, int[] mapBounds) {
         int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE;
         boolean any = false;
         for (ZoneDto z : zones) {
@@ -2320,8 +2390,18 @@ public class DetailExtractionService {
         if (!any || cropW <= 0 || cropH <= 0 || maxX - minX < 20 || maxY - minY < 20) {
             return null;
         }
-        int mx = Math.max(10, (int) Math.round((maxX - minX) * 0.03));
-        int my = Math.max(10, (int) Math.round((maxY - minY) * 0.03));
+        double ratio = 0.03;
+        int minMargin = 10;
+        if (mapBounds != null && mapBounds.length == 4) {
+            minX = Math.min(minX, mapBounds[0]);
+            minY = Math.min(minY, mapBounds[1]);
+            maxX = Math.max(maxX, mapBounds[2]);
+            maxY = Math.max(maxY, mapBounds[3]);
+            ratio = 0.06;
+            minMargin = 16;
+        }
+        int mx = Math.max(minMargin, (int) Math.round((maxX - minX) * ratio));
+        int my = Math.max(minMargin, (int) Math.round((maxY - minY) * ratio));
         // 여백이 이미지 밖으로 나가면 이미지 안으로 자른다(원본 이미지 위치를 비율로 나타낼 수 있게, V31). 좌표도 같은 사각형으로 맞춘다.
         double x0 = Math.max(0, minX - mx), y0 = Math.max(0, minY - my);
         double spanX = Math.min(1000, maxX + mx) - x0, spanY = Math.min(1000, maxY + my) - y0;

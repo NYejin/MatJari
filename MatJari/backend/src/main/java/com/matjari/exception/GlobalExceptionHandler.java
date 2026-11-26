@@ -82,6 +82,18 @@ public class GlobalExceptionHandler {
                 .header("Retry-After", String.valueOf(e.getRetryAfterSeconds())).body(body);
     }
 
+    // 429 — 티켓·희망 조건 사진 속도 제한(V33): {"code":"LISTING_IMAGE_RATE_LIMITED","message":..,"retryAfterSeconds":n} + Retry-After 헤더
+    @ExceptionHandler(com.matjari.service.ListingImageRateLimiter.ListingImageRateLimitedException.class)
+    public ResponseEntity<Map<String, Object>> handleListingImageRateLimited(
+            com.matjari.service.ListingImageRateLimiter.ListingImageRateLimitedException e) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("code", e.getCode());
+        body.put("message", e.getMessage());
+        body.put("retryAfterSeconds", e.getRetryAfterSeconds());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", String.valueOf(e.getRetryAfterSeconds())).body(body);
+    }
+
     // 503 — 채팅 사진 동시 처리 한도(H1): {"code":"SERVER_BUSY","message":..,"retryAfterSeconds":n} + Retry-After 헤더
     @ExceptionHandler(com.matjari.service.ChatImageProcessingGate.ChatImageBusyException.class)
     public ResponseEntity<Map<String, Object>> handleChatImageBusy(com.matjari.service.ChatImageProcessingGate.ChatImageBusyException e) {

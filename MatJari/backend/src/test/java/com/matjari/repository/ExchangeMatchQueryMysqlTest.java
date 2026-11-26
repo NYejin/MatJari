@@ -58,7 +58,7 @@ class ExchangeMatchQueryMysqlTest {
         dataSource = new SingleConnectionDataSource(RealMysqlSupport.url(), RealMysqlSupport.user(), RealMysqlSupport.password(), true);
         jdbc = new JdbcTemplate(dataSource);
         repository = new ExchangeMatchQueryRepository(jdbc);
-        service = new ExchangeMatchQueryService(repository);
+        service = new ExchangeMatchQueryService(repository, com.matjari.testsupport.ListingImageMocks.noImages());
     }
 
     @BeforeEach

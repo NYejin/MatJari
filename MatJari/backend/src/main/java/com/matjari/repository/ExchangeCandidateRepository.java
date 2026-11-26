@@ -297,6 +297,19 @@ public class ExchangeCandidateRepository {
                 myRequestId, todayStart, targetRequestId).stream().findFirst();
     }
 
+    /**
+     * 사진 열람용(V33): 내 요청(a)에게 상대 요청(b)이 '지금 후보 목록에 나올 수 있는' 관계인가. {@link #findCandidatePair} 와 같은 판정(차단·정지 제외 포함)에
+     * 상대 티켓이 예약 잠금 상태가 아닐 것을 더한다(후보 목록이 잠긴 티켓을 빼는 것과 같다). 같은 쌍의 열린 매칭 제외는 붙이지 않는다
+     * (매칭 참여자는 매칭 경로로 열람 권한이 따로 있다).
+     */
+    public boolean isVisibleCandidate(Long myRequestId, Long targetRequestId, LocalDateTime todayStart) {
+        String sql = "SELECT STRAIGHT_JOIN 1 " + FROM_CORE + WHERE
+                + normalizeExclusions(BLOCK_EXCLUSIONS) + sanctionExclusion(now())
+                + normalizeExclusions("AND NOT EXISTS (SELECT 1 FROM exchange_ticket_lock l WHERE l.ticket_id = tb.id)")
+                + "  AND b.id = ? LIMIT 1";
+        return !jdbc.query(sql, (rs, i) -> 1, myRequestId, todayStart, targetRequestId).isEmpty();
+    }
+
     public boolean isCandidatePair(Long myRequestId, Long targetRequestId, LocalDateTime todayStart) {
         return findCandidatePair(myRequestId, targetRequestId, todayStart).isPresent();
     }

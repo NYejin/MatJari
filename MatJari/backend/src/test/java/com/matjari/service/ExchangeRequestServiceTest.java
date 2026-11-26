@@ -96,7 +96,7 @@ class ExchangeRequestServiceTest {
         eventPublisher = mock(org.springframework.context.ApplicationEventPublisher.class);
         service = new ExchangeRequestService(requestRepository, rangeRepository, wantSessionRepository,
                 seatRepository, ticketRepository, sessionRepository, matchRepository, PerformanceFixtures.noopTransactionManager(),
-                PerformanceFixtures.timePolicy(), 5000, 50, 999, 999, eventPublisher);
+                PerformanceFixtures.timePolicy(), 5000, 50, 999, 999, eventPublisher, com.matjari.testsupport.ListingImageMocks.noImages());
 
         myTicket = ticket(500L, me, mySession, TicketStatus.ACTIVE);
         when(ticketRepository.findByIdForUpdate(500L)).thenReturn(Optional.of(myTicket));

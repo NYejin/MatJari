@@ -13,6 +13,7 @@ import com.matjari.exception.NotFoundException;
 import com.matjari.repository.ExchangeMatchRepository;
 import com.matjari.repository.ExchangeRequestRepository;
 import com.matjari.repository.ExchangeTicketLockRepository;
+import com.matjari.repository.ListingImageIndex;
 import com.matjari.repository.PerformanceSessionRepository;
 import com.matjari.repository.TicketRepository;
 import com.matjari.repository.UserRepository;
@@ -61,6 +62,7 @@ public class TicketService {
     private final ExchangeTicketLockRepository lockRepository;
     private final SessionTimePolicy sessionTimePolicy;
     private final TransactionTemplate transactionTemplate;
+    private final ListingImageService listingImageService;
     private final int maxActivePerUser;
     private final int maxRowNumber;
     private final int maxColNumber;
@@ -73,6 +75,7 @@ public class TicketService {
                          ExchangeTicketLockRepository lockRepository,
                          SessionTimePolicy sessionTimePolicy,
                          PlatformTransactionManager transactionManager,
+                         ListingImageService listingImageService,
                          @Value("${ticket.max-active-per-user:20}") int maxActivePerUser,
                          @Value("${ticket.max-row-number:999}") int maxRowNumber,
                          @Value("${ticket.max-col-number:999}") int maxColNumber) {
@@ -84,6 +87,7 @@ public class TicketService {
         this.lockRepository = lockRepository;
         this.sessionTimePolicy = sessionTimePolicy;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.listingImageService = listingImageService;
         this.maxActivePerUser = maxActivePerUser;
         this.maxRowNumber = maxRowNumber;
         this.maxColNumber = maxColNumber;
@@ -174,7 +178,9 @@ public class TicketService {
 
     @Transactional(readOnly = true)
     public List<TicketResponse> listMine(Long userId) {
-        return ticketRepository.findActiveByUser(userId).stream().map(TicketResponse::from).toList();
+        List<Ticket> tickets = ticketRepository.findActiveByUser(userId);
+        ListingImageIndex images = listingImageService.index(tickets.stream().map(Ticket::getId).toList(), List.of());   // 사진 참조(V33): id 묶음 한 번에
+        return tickets.stream().map(t -> TicketResponse.from(t).withImages(images.ticket(t.getId()))).toList();
     }
 
     /**

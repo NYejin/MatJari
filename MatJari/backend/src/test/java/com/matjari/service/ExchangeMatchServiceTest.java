@@ -102,7 +102,7 @@ class ExchangeMatchServiceTest {
         notificationService = mock(NotificationService.class);
         service = new ExchangeMatchService(matchRepository, requestRepository, ticketRepository, lockRepository,
                 candidateRepository, historyRepository, queryRepository, notificationService, PerformanceFixtures.timePolicy(),
-                PerformanceFixtures.noopTransactionManager());
+                PerformanceFixtures.noopTransactionManager(), com.matjari.testsupport.ListingImageMocks.noImages());
 
         myTicket = ticket(MY_TICKET, me, openSession);
         theirTicket = ticket(THEIR_TICKET, other, openSession);

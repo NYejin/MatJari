@@ -65,7 +65,7 @@ class ExchangeCandidateServiceTest {
         candidateRepository = mock(ExchangeCandidateRepository.class);
         lockRepository = mock(ExchangeTicketLockRepository.class);
         service = new ExchangeCandidateService(requestRepository, ticketRepository, candidateRepository,
-                PerformanceFixtures.timePolicy(), lockRepository);
+                PerformanceFixtures.timePolicy(), lockRepository, com.matjari.testsupport.ListingImageMocks.noImages());
     }
 
     private ExchangeRequest stub(long requestId, User owner, PerformanceSession session, TicketStatus ticketStatus,

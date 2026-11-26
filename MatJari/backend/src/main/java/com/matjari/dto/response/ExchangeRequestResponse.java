@@ -21,8 +21,15 @@ public record ExchangeRequestResponse(
         @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = DateTimeFormats.SECOND)
         LocalDateTime createdAt,
         @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = DateTimeFormats.SECOND)
-        LocalDateTime updatedAt
+        LocalDateTime updatedAt,
+        List<ListingImageRef> images
 ) {
+    /** 사진 참조(V33)를 채운 사본. images 는 이 요청에 붙인 '원하는 자리' 사진(최대 3장, 목록 조회에서만 채운다). */
+    public ExchangeRequestResponse withImages(List<ListingImageRef> images) {
+        return new ExchangeRequestResponse(id, ticketId, status, wantSessions, ranges, wantSeatCount, createdAt, updatedAt,
+                images == null ? List.of() : images);
+    }
+
     public record WantSessionItem(
             Long sessionId,
             int priority,

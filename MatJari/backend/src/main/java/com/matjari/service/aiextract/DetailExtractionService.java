@@ -779,9 +779,12 @@ public class DetailExtractionService {
         }
     }
 
+    /** 구역 조각 사각형을 넓혀 좌석표 그림으로 볼 범위(각 변, 폭·높이 비율) */
+    static final double NEAR_RATIO = 0.3;
+
     /**
      * 좌석표 그림 전체의 바깥 사각형(0~1000): 도형 분할이 이미 지도 밖(안내 글자·패널)으로 뺀 도형은 seg 에 없고, 여기서는 범례 칩 줄
-     * (범례 알약·범례 이름 도형·범례 줄로 뺀 구역)만 더 뺀다. 구역에 연결되지 않은 블록·무대·콘솔은 포함한다(화면에서 좌석표 위·아래가 잘리지 않게).
+     * (범례 알약·범례 이름 도형·범례 줄로 뺀 구역)만 더 뺀다. 구역에 연결되지 않은 블록·무대·콘솔은 구역 조각 사각형 근처(NEAR_RATIO)에 있을 때만 포함한다(좌석표 위·아래가 잘리지 않되 이미지 테두리·안내 글자까지 넓어지지 않게).
      * 계산할 수 없으면 null.
      */
     static int[] mapBounds(List<DetailExtractor.RawLabel> beforeLegendRow, List<DetailExtractor.RawLabel> labels, ShapeSegmenter.Result seg) {
@@ -805,12 +808,30 @@ public class DetailExtractionService {
         } catch (RuntimeException e) {
             // 범례 알약을 못 찾아도 사각형은 계산한다
         }
+        // 구역 조각의 바깥 사각형: 다른 도형은 이 사각형을 조금(각 변 폭·높이의 30%) 넓힌 범위 안에 있고 그보다 크지 않을 때만 더한다
+        // (무대·구역에서 뺀 블록·콘솔은 포함, 상세 이미지 테두리·좌석표 위 안내 글자·제목 같은 먼 도형은 제외, 사용자 지적 2026-11-26).
+        int zx0 = Integer.MAX_VALUE, zy0 = Integer.MAX_VALUE, zx1 = Integer.MIN_VALUE, zy1 = Integer.MIN_VALUE;
+        for (ShapeSegmenter.Segment sg : seg.segments()) {
+            if (kept.contains(sg.id()) && !skip.contains(sg.id()) && !sg.pixels().isEmpty()) {
+                int[] b = box(sg);
+                zx0 = Math.min(zx0, b[0]);
+                zy0 = Math.min(zy0, b[1]);
+                zx1 = Math.max(zx1, b[2]);
+                zy1 = Math.max(zy1, b[3]);
+            }
+        }
+        boolean near = zx0 != Integer.MAX_VALUE;
+        int ex = near ? (int) Math.round((zx1 - zx0) * NEAR_RATIO) : 0, ey = near ? (int) Math.round((zy1 - zy0) * NEAR_RATIO) : 0;
         int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE;
         for (ShapeSegmenter.Segment sg : seg.segments()) {
             if (skip.contains(sg.id()) || sg.pixels().isEmpty()) {
                 continue;
             }
             int[] b = box(sg);
+            if (near && !kept.contains(sg.id())
+                    && (b[0] < zx0 - ex || b[1] < zy0 - ey || b[2] > zx1 + ex || b[3] > zy1 + ey)) {
+                continue;
+            }
             minX = Math.min(minX, b[0]);
             minY = Math.min(minY, b[1]);
             maxX = Math.max(maxX, b[2]);

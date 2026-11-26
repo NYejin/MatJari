@@ -1,3 +1,5 @@
+import type { ListingImageRef } from "./listingImage";
+
 // 교환 희망 조건·후보·매칭 (FR-04). 백엔드 계약(MatJari/backend/README.md)과 1:1 대응.
 // 좌석표(좌표) 개념은 없다 — 좌석은 (구역, 열, 번) 텍스트다.
 
@@ -44,6 +46,8 @@ export interface ExchangeRequest {
   wantSeatCount: number;
   createdAt: string;
   updatedAt: string;
+  /** '원하는 자리' 사진 (최대 3장, 없을 수 있음) */
+  images?: ListingImageRef[];
 }
 
 /** PATCH 본문 (POST는 ticketId 추가). 추가금은 요청 단위가 아니라 범위(ranges[i])마다 있다 */
@@ -82,6 +86,9 @@ export interface ExchangeCandidate {
   myExtraAmount: number | null;
   settlementHint: SettlementHint | null;
   requestedAt: string;
+  /** 상대의 '내 자리' 사진 / '원하는 자리' 사진 (교환 후보에게만 보인다) */
+  ticketImages?: ListingImageRef[];
+  requestImages?: ListingImageRef[];
 }
 
 export type MatchStatus = "CHATTING" | "RESERVED" | "COMPLETED" | "CANCELED";
@@ -138,6 +145,10 @@ export interface ExchangeMatch {
   /** 내/상대 티켓이 이 매칭이 아닌 다른 매칭에서 예약 잠금 중인지 (CHATTING 카드에서만 의미) */
   myTicketReservedElsewhere: boolean;
   counterpartTicketReservedElsewhere: boolean;
+  /** 상대의 자리·원하는 자리 사진, 내 자리 사진 (없을 수 있음) */
+  partnerTicketImages?: ListingImageRef[];
+  partnerRequestImages?: ListingImageRef[];
+  myTicketImages?: ListingImageRef[];
   /** 상대가 보낸 안 읽은 채팅 메시지 수 (종료된 매칭도 센다) */
   unreadChatCount: number;
   /** 마지막 채팅 메시지 앞부분(최대 60자, 넘으면 …). 메시지가 없거나 옛 서버 응답이면 null/없음 */

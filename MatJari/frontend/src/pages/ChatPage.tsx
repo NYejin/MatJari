@@ -8,6 +8,7 @@ import { getRealtimeStatus, subscribeNotificationPush } from "../api/realtimeHub
 import { formatSeat } from "../api/seat";
 import ChatImage from "../components/ChatImage";
 import ChatImageRedactDialog from "../components/ChatImageRedactDialog";
+import ListingImageGallery from "../components/ListingImageGallery";
 import ChatSafetyActions from "../components/ChatSafetyActions";
 import Avatar from "../components/Avatar";
 import { badgeTone, button, FOCUS_RING, linkButton, liveRegionClass, matchStatusTone, ui } from "../components/ui";
@@ -732,6 +733,13 @@ export default function ChatPage() {
                       ? formatKstDateTime(match.mySeat.startsAt)
                       : `내 ${formatKstDateTime(match.mySeat.startsAt)} · 상대 ${formatKstDateTime(match.counterpartSeat.startsAt)}`}
                   </p>
+                  {/* 상대 사진은 버튼만 둬서 카드 높이가 늘지 않게 한다. 누르면 크게 보기 */}
+                  {((match.partnerTicketImages ?? []).length > 0 || (match.partnerRequestImages ?? []).length > 0) && (
+                    <div className="flex flex-wrap gap-1.5 pt-0.5">
+                      <ListingImageGallery images={match.partnerTicketImages} label="상대 자리 사진" variant="button" />
+                      <ListingImageGallery images={match.partnerRequestImages} label="상대가 원하는 자리 사진" variant="button" />
+                    </div>
+                  )}
                 </div>
                 {/* 당근마켓의 '거래 후기' 자리: 지금 할 수 있는 예약 동작 하나 */}
                 {reservable && !seatExchanged && proposal === "NONE" && match.status === "CHATTING" && (

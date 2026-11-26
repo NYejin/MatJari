@@ -5,6 +5,10 @@ import { exchangeErrorMessage, summarizeRangeExtras } from "../api/exchangeMessa
 import { formatKstDateTime } from "../api/dateTime";
 import { formatSeat } from "../api/seat";
 import { ticketsApi } from "../api/tickets";
+import { ticketImagesApi } from "../api/listingImages";
+import ListingImageGallery from "../components/ListingImageGallery";
+import ListingImageUploader from "../components/ListingImageUploader";
+import type { ListingImageRef } from "../types/listingImage";
 import { badgeTone, button, linkButton, liveRegionClass, ui } from "../components/ui";
 import type { ExchangeRequest } from "../types/exchange";
 import type { Ticket } from "../types/ticket";
@@ -121,6 +125,8 @@ function TicketCard({
   request: ExchangeRequest | null;
   onRemoved: (ticket: Ticket) => void;
 }) {
+  const [images, setImages] = useState<ListingImageRef[]>(ticket.images ?? []);
+  const [managing, setManaging] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -176,6 +182,28 @@ function TicketCard({
           </>
         ) : (
           <p className={ui.muted}>아직 교환 조건이 없어요.</p>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {images.length > 0 && !managing && <ListingImageGallery images={images} label="내 자리 사진" size={72} />}
+          {!managing && (
+            <button type="button" className={`${button.outline} min-h-10 !px-3 !text-[0.8125rem]`} onClick={() => setManaging(true)}>
+              {images.length > 0 ? "사진 관리" : "사진 추가"}
+            </button>
+          )}
+        </div>
+        {managing && (
+          <div className={`${ui.well} flex flex-col gap-3`}>
+            <p className={ui.label}>내 자리 사진</p>
+            <ListingImageUploader mode="live" idPrefix={`ticket-${ticket.id}-photo`} api={ticketImagesApi} ownerId={ticket.id} images={images} onImagesChange={setImages} />
+            <div>
+              <button type="button" className={button.solid} onClick={() => setManaging(false)}>
+                완료
+              </button>
+            </div>
+          </div>
         )}
       </div>
 

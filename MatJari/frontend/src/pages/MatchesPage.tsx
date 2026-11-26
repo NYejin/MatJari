@@ -5,6 +5,7 @@ import { exchangeErrorMessage, formatExtra } from "../api/exchangeMessages";
 import { formatKstDateTime } from "../api/dateTime";
 import { formatSeat } from "../api/seat";
 import Avatar from "../components/Avatar";
+import ListingImageGallery from "../components/ListingImageGallery";
 import { badgeTone, button, FOCUS_RING, linkButton, liveRegionClass, matchStatusTone, segment, ui } from "../components/ui";
 import { usePagedList } from "../hooks/usePagedList";
 import type { ExchangeMatch, MatchRole, MatchStatus } from "../types/exchange";
@@ -378,9 +379,26 @@ function MatchCard({
         </div>
       </dl>
 
+      {((m.partnerTicketImages ?? []).length > 0 || (m.partnerRequestImages ?? []).length > 0) && (
+        <div className="flex flex-wrap gap-x-5 gap-y-3">
+          {(m.partnerTicketImages ?? []).length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <p className={ui.muted}>상대 자리 사진</p>
+              <ListingImageGallery images={m.partnerTicketImages} label="상대 자리 사진" size={56} />
+            </div>
+          )}
+          {(m.partnerRequestImages ?? []).length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <p className={ui.muted}>상대가 원하는 자리</p>
+              <ListingImageGallery images={m.partnerRequestImages} label="상대가 원하는 자리 사진" size={56} />
+            </div>
+          )}
+        </div>
+      )}
+
       {anyDeleted && (
         <p className="text-sm/[normal] text-gray-700">
-          {m.counterpartRequestDeleted ? "상대가 교환 조건을 삭제했어요." : "내가 교환 조건을 삭제했어요."}
+          {m.counterpartRequestDeleted ?"상대가 교환 조건을 삭제했어요." : "내가 교환 조건을 삭제했어요."}
         </p>
       )}
 

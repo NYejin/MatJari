@@ -41,6 +41,10 @@ export default function ZonePickField({ id, label, value, onValueChange, zoneDat
               {open ? "지도 접기" : "지도 펼치기"}
             </button>
           </div>
+          <p className="rounded-xl border border-accent-100 bg-accent-50 px-3 py-2 text-sm leading-relaxed text-gray-900" role="note">
+            <strong className="font-semibold">AI가 인식한 구역 지도예요.</strong> 참고용으로만 봐 주세요. 지도 모양이 실제 좌석표와 다르면
+            지도 대신 아래 칸에 티켓에 적힌 구역 이름을 직접 입력해 주세요.
+          </p>
           <div id={mapId} hidden={!open}>
             <ZoneMap
               zones={zoneData.zones}
@@ -55,7 +59,7 @@ export default function ZonePickField({ id, label, value, onValueChange, zoneDat
       )}
       <TextField
         id={id}
-        label={showMap ? `${label} (구역 지도가 정확하지 않을 수 있어요. 그럴 땐 구역 번호를 직접 입력해주세요.)` : label}
+        label={label}
         value={value}
         onChange={(e) => onValueChange(e.target.value)}
         error={error}

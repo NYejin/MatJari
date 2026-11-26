@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
-import type { AiQuota, AiSessionsSource, PerformancePreview, SeatmapImage } from "../types/performance";
-import { getConflictPerformanceId, performancesApi } from "../api/performances";
+import type { AiQuota, AiSessionsSource, PerformancePreview, SeatmapImage, SimilarCandidate } from "../types/performance";
+import { findSimilarCandidates, getConflictPerformanceId, getSimilarCandidates, performancesApi } from "../api/performances";
 import { getErrorCode, getErrorNumber, parseApiError } from "../api/errors";
 import { ROW_COL_MAX, ZONE_MAX } from "../api/seat";
 import {
@@ -26,6 +26,7 @@ import ZonePickField from "../components/ZonePickField";
 import SessionDateTimePicker from "../components/SessionDateTimePicker";
 import TimeSelect from "../components/TimeSelect";
 import PosterImage from "../components/PosterImage";
+import SimilarPerformancesBox from "../components/SimilarPerformancesBox";
 import ZoneEditor, { zoneNameInputId } from "../components/ZoneEditor";
 import ZoneMap, { hasShapedZone } from "../components/ZoneMap";
 import SeatmapUpload from "../components/SeatmapUpload";
@@ -198,6 +199,10 @@ export default function PerformanceRegisterPage() {
   const [checking, setChecking] = useState(false);
   const [existingId, setExistingId] = useState<number | null>(null);
   const [lookupError, setLookupError] = useState<string | null>(null);
+  /** 다른 예매처 링크로 등록된 같은 공연 후보(1단계). 비어 있으면 상자를 보이지 않는다 */
+  const [similar, setSimilar] = useState<SimilarCandidate[]>([]);
+  /** '다른 공연이에요'를 확인한 링크 — 최종 등록 요청에 confirmNewPerformance: true 를 보낸다 */
+  const confirmedNew = useRef(false);
   const [reading, setReading] = useState(false);
   const [autoFill, setAutoFill] = useState<AutoFillNote | null>(null);
   /** 링크에서 읽은 포스터 이미지 주소(표시만, 저장하지 않는다) */
@@ -265,6 +270,7 @@ export default function PerformanceRegisterPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<{ message: string; step?: Step; focusId?: string } | null>(null);
   const [conflictId, setConflictId] = useState<number | null>(null);
+  const [submitSimilar, setSubmitSimilar] = useState<SimilarCandidate[]>([]);
 
   // 단계가 바뀌면 단계 제목으로 포커스 (스크린리더가 새 단계를 읽도록)
   useEffect(() => {
@@ -282,6 +288,7 @@ export default function PerformanceRegisterPage() {
     focusTargetId.current = focusId ?? null;
     setSubmitError(null);
     setConflictId(null);
+    setSubmitSimilar([]);
     setStep(next);
   };
 
@@ -342,6 +349,30 @@ export default function PerformanceRegisterPage() {
     });
   };
 
+  /** 중복도 후보도 없거나 '다른 공연'으로 확인된 링크: 링크에서 공연 정보를 읽고 2단계로 (읽기 실패해도 간다) */
+  const proceedNew = async (url: string) => {
+    checkedUrl.current = url;
+    if (url !== previewedUrl.current) await readPreview(url);
+    goTo(1);
+  };
+
+  const confirmNewFromBox = async () => {
+    if (checking || reading) return;
+    confirmedNew.current = true;
+    setSimilar([]);
+    setChecking(true);
+    try {
+      await proceedNew(sourceUrl.trim());
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const linkedTo = (performanceId: number) => {
+    // 관리자는 티켓 없이 등록하므로 관리자 공연 상세로, 일반 사용자는 기존 '이 공연에 티켓 등록하기' 경로로
+    navigate(isAdmin ? `/admin/performances/${performanceId}` : `/tickets/new?performanceId=${performanceId}`, { replace: true });
+  };
+
   const submitUrl = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (checking || reading) return;
@@ -349,6 +380,7 @@ export default function PerformanceRegisterPage() {
     setUrlError(error);
     setExistingId(null);
     setLookupError(null);
+    setSimilar([]);
     if (error) return;
     // 이미 "등록되지 않음"으로 확인한 같은 링크면 조회를 건너뛴다
     const url = sourceUrl.trim();
@@ -364,10 +396,13 @@ export default function PerformanceRegisterPage() {
         setExistingId(result.performanceId);
         return;
       }
-      checkedUrl.current = url;
-      // 중복이 없을 때만 링크에서 공연 정보를 읽는다 (실패해도 2단계로 간다)
-      if (url !== previewedUrl.current) await readPreview(url);
-      goTo(1);
+      // 같은 공연의 다른 예매처 링크가 있는지 본다(실패하면 후보 없음으로 보고 그냥 진행)
+      const candidates = await findSimilarCandidates(performancesApi, url);
+      if (candidates.length > 0 && !confirmedNew.current) {
+        setSimilar(candidates);
+        return;
+      }
+      await proceedNew(url);
     } catch (err) {
       setLookupError(parseApiError(err, "링크를 확인하지 못했습니다.").message);
     } finally {
@@ -684,17 +719,19 @@ export default function PerformanceRegisterPage() {
     goTo(3);
   };
 
-  const submit = async () => {
+  const submit = async (confirmNew = confirmedNew.current) => {
     if (submitting) return;
     setSubmitting(true);
     setSubmitError(null);
     setConflictId(null);
+    setSubmitSimilar([]);
     try {
       const created = await performancesApi.create({
         sourceUrl: sourceUrl.trim(),
         title: title.trim(),
         venueName: venueName.trim(),
         sessions: sessions.map((r) => r.value),
+        ...(confirmNew ? { confirmNewPerformance: true } : {}),
         // 구역은 선택 사항: 없으면 필드를 보내지 않는다. 모양이 하나도 없으면 비율도 보내지 않는다
         ...(zoneRows.length > 0
           ? { zones: toPayloadZones(zoneRows), seatmapAspect: hasAnyShape(zoneRows) ? seatmapAspect : null }
@@ -712,6 +749,14 @@ export default function PerformanceRegisterPage() {
         state: { notice: `'${created.title}' 공연과 내 티켓을 등록했어요. 교환 조건을 설정하면 바꿀 상대를 찾을 수 있어요.` },
       });
     } catch (err) {
+      const similarFromServer = getSimilarCandidates(err);
+      if (similarFromServer && similarFromServer.length > 0) {
+        // 1단계를 건너뛴 경우 등: 같은 후보 상자를 오류 영역에 띄운다
+        setSubmitSimilar(similarFromServer);
+        setSubmitError({ message: "같은 공연일 수 있는 공연이 이미 등록돼 있어요." });
+        setSubmitting(false);
+        return;
+      }
       const existing = getConflictPerformanceId(err);
       const parsed = parseApiError(err, "공연을 등록하지 못했습니다.");
       if (existing !== null) {
@@ -765,6 +810,8 @@ export default function PerformanceRegisterPage() {
           value={sourceUrl}
           onChange={(e) => {
             setSourceUrl(e.target.value);
+            setSimilar([]);
+            confirmedNew.current = false;
             setExistingId(null);
             setLookupError(null);
             setUrlError(undefined);
@@ -794,6 +841,16 @@ export default function PerformanceRegisterPage() {
           <p className={ui.errorBox} role="alert">
             {lookupError}
           </p>
+        )}
+        {similar.length > 0 && (
+          <SimilarPerformancesBox
+            sourceUrl={sourceUrl.trim()}
+            candidates={similar}
+            isAdmin={isAdmin}
+            disabled={checking || reading}
+            onLinked={linkedTo}
+            onNew={() => void confirmNewFromBox()}
+          />
         )}
         <div className="flex justify-end">
           <button type="submit" className={button.solid} disabled={checking || reading} aria-busy={checking || reading}>
@@ -1212,6 +1269,21 @@ export default function PerformanceRegisterPage() {
         {submitError && (
           <div className={`${ui.errorBox} flex flex-col items-start gap-2`} role="alert">
             <span>{submitError.message}</span>
+            {submitSimilar.length > 0 && (
+              <div className="w-full">
+                <SimilarPerformancesBox
+                  sourceUrl={sourceUrl.trim()}
+                  candidates={submitSimilar}
+                  isAdmin={isAdmin}
+                  disabled={submitting}
+                  onLinked={linkedTo}
+                  onNew={() => {
+                    confirmedNew.current = true;
+                    void submit(true);
+                  }}
+                />
+              </div>
+            )}
             {conflictId !== null && (
               <Link to={`/tickets/new?performanceId=${conflictId}`} className={linkButton.outline}>
                 이 공연에 티켓 등록하기
@@ -1229,7 +1301,7 @@ export default function PerformanceRegisterPage() {
           <button type="button" className={button.outline} onClick={() => goTo(isAdmin ? 1 : 2)} disabled={submitting}>
             이전
           </button>
-          <button type="button" className={button.solid} onClick={submit} disabled={submitting} aria-busy={submitting}>
+          <button type="button" className={button.solid} onClick={() => void submit()} disabled={submitting} aria-busy={submitting}>
             {submitting ? "등록 중..." : isAdmin ? "공연 등록" : "공연과 티켓 등록"}
           </button>
         </div>

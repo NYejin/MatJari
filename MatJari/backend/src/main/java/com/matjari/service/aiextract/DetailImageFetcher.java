@@ -186,6 +186,22 @@ public class DetailImageFetcher {
         }
     }
 
+    /**
+     * 저장·응답에 쓸 좌석표 이미지 주소인가: 사이트별 고정 호스트(설정 image-hosts 에도 있어야 함)·경로 규칙을 통과하고 https 인 것만 true.
+     * 사용자가 준 값을 믿지 않으려고 저장 직전과 응답 직전에 다시 확인한다. 네트워크 요청은 하지 않는다.
+     */
+    public boolean isAllowedImageUrl(String url) {
+        if (url == null || !url.startsWith("https://")) {
+            return false;
+        }
+        for (String site : SITE_RULES.keySet()) {
+            if (validate(site, url) != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** 규칙을 모두 통과한 주소만 돌려주고 아니면 null. */
     URI validate(String raw) {
         return validate("melon", raw);

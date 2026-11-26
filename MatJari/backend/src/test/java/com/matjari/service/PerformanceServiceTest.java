@@ -418,4 +418,65 @@ class PerformanceServiceTest {
         when(performanceRepository.findById(9L)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.getZones(9L)).isInstanceOf(NotFoundException.class);
     }
+
+    // ---- 원본 좌석표 이미지 위치 (V31) ----
+
+    private static final com.matjari.dto.response.SeatmapImageResponse IMAGE = new com.matjari.dto.response.SeatmapImageResponse(
+            "https://cdnticket.melon.co.kr/resource/image/upload/product/a.jpg",
+            new java.math.BigDecimal("0.100000"), new java.math.BigDecimal("0.200000"),
+            new java.math.BigDecimal("0.800000"), new java.math.BigDecimal("0.500000"));
+
+    @Test
+    void createStoresSeatmapImageOnlyFromStoredResultWhenShapedZonesExist() {
+        stubInserts();
+        SeatmapImageService images = mock(SeatmapImageService.class);
+        when(images.findStored(eq(KEY), any())).thenReturn(Optional.of(IMAGE));
+        service.setSeatmapImages(images);
+        service.create(1L, zoneRequest(List.of(zone("A", tri(0))), new java.math.BigDecimal("1.5")));
+
+        org.mockito.ArgumentCaptor<Performance> saved = org.mockito.ArgumentCaptor.forClass(Performance.class);
+        verify(performanceRepository).saveAndFlush(saved.capture());
+        assertThat(saved.getValue().getSeatmapImageUrl()).isEqualTo(IMAGE.url());
+        assertThat(saved.getValue().getSeatmapCropLeft()).isEqualByComparingTo("0.1");
+        assertThat(saved.getValue().getSeatmapCropHeight()).isEqualByComparingTo("0.5");
+        verify(images).findStored(eq(KEY), eq(new java.math.BigDecimal("1.500")));
+    }
+
+    @Test
+    void createDoesNotLookUpSeatmapImageWithoutShapedZones() {
+        stubInserts();
+        SeatmapImageService images = mock(SeatmapImageService.class);
+        when(images.findStored(any(), any())).thenReturn(Optional.of(IMAGE));
+        service.setSeatmapImages(images);
+        service.create(1L, zoneRequest(List.of(zone("스탠딩", null)), new java.math.BigDecimal("1.5")));
+
+        org.mockito.ArgumentCaptor<Performance> saved = org.mockito.ArgumentCaptor.forClass(Performance.class);
+        verify(performanceRepository).saveAndFlush(saved.capture());
+        assertThat(saved.getValue().getSeatmapImageUrl()).isNull();
+        verify(images, never()).findStored(any(), any());
+    }
+
+    @Test
+    void createLeavesSeatmapImageNullWhenNoStoredResult() {
+        stubInserts();
+        SeatmapImageService images = mock(SeatmapImageService.class);
+        when(images.findStored(any(), any())).thenReturn(Optional.empty());
+        service.setSeatmapImages(images);
+        service.create(1L, zoneRequest(List.of(zone("A", tri(0))), new java.math.BigDecimal("1.5")));
+
+        org.mockito.ArgumentCaptor<Performance> saved = org.mockito.ArgumentCaptor.forClass(Performance.class);
+        verify(performanceRepository).saveAndFlush(saved.capture());
+        assertThat(saved.getValue().getSeatmapImageUrl()).isNull();
+    }
+
+    @Test
+    void zonesResponseExposesSeatmapImageFromService() {
+        Performance p = performance(100L, kspo, registrant);
+        when(performanceRepository.findById(100L)).thenReturn(Optional.of(p));
+        SeatmapImageService images = mock(SeatmapImageService.class);
+        when(images.expose(p)).thenReturn(IMAGE);
+        service.setSeatmapImages(images);
+
+        assertThat(service.getZones(100L).seatmapImage()).isEqualTo(IMAGE);
+    }
 }

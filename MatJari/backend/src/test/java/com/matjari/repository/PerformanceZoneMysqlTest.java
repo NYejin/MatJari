@@ -163,6 +163,54 @@ class PerformanceZoneMysqlTest {
                 () -> jdbc.update("UPDATE performance SET seatmap_aspect = 0 WHERE id = ?", id));
     }
 
+    /** V31: 좌석표 이미지 위치 다섯 컬럼의 전부-NULL/전부-값 CHECK와 범위 CHECK, 엔티티·보관 JSON 왕복. */
+    @Test
+    void 좌석표_이미지_위치_CHECK와_왕복() {
+        Long id = register("https://ticket.yes24.com/Perf/31", null, null).id();
+        String url = "https://cdnticket.melon.co.kr/resource/image/upload/product/a.jpg";
+        String set = "UPDATE performance SET seatmap_image_url=?, seatmap_crop_left=?, seatmap_crop_top=?, "
+                + "seatmap_crop_width=?, seatmap_crop_height=? WHERE id=?";
+        // 전부 NULL(기본)과 올바른 값
+        assertThat(jdbc.update(set, url, "0.1", "0.2", "0.8", "0.5", id)).isEqualTo(1);
+        assertThat(jdbc.update(set, url, "0", "0", "1", "1", id)).isEqualTo(1);
+        assertThat(jdbc.update(set, url, "0.5", "0.5", "0.5", "0.5", id)).isEqualTo(1);
+        assertThat(jdbc.update(set, null, null, null, null, null, id)).isEqualTo(1);
+        // 섞인 NULL
+        assertRejected("ck_performance_seatmap_image", () -> jdbc.update(set, url, null, "0.2", "0.8", "0.5", id));
+        assertRejected("ck_performance_seatmap_image", () -> jdbc.update(set, null, "0.1", "0.2", "0.8", "0.5", id));
+        // 범위: left·top 은 [0,1), width·height 는 (0,1], 합은 1.000001 이하
+        assertRejected("ck_performance_seatmap_image", () -> jdbc.update(set, url, "-0.1", "0.2", "0.8", "0.5", id));
+        assertRejected("ck_performance_seatmap_image", () -> jdbc.update(set, url, "1", "0.2", "0.5", "0.5", id));
+        assertRejected("ck_performance_seatmap_image", () -> jdbc.update(set, url, "0.1", "1", "0.5", "0.5", id));
+        assertRejected("ck_performance_seatmap_image", () -> jdbc.update(set, url, "0.1", "0.2", "0", "0.5", id));
+        assertRejected("ck_performance_seatmap_image", () -> jdbc.update(set, url, "0.1", "0.2", "0.8", "0", id));
+        assertRejected("ck_performance_seatmap_image", () -> jdbc.update(set, url, "0.1", "0.2", "1.1", "0.5", id));
+        assertRejected("ck_performance_seatmap_image", () -> jdbc.update(set, url, "0.5", "0.2", "0.6", "0.5", id)); // left+width > 1
+        assertRejected("ck_performance_seatmap_image", () -> jdbc.update(set, url, "0.1", "0.6", "0.5", "0.5", id)); // top+height > 1
+        assertThat(jdbc.update(set, url, "0.5", "0.2", "0.500001", "0.5", id)).isEqualTo(1); // 반올림 허용치
+
+        // 엔티티 왕복(스키마 validate 와 매핑 확인) + 응답
+        tx.executeWithoutResult(s -> performanceRepository.findById(id).orElseThrow().changeSeatmapImage(
+                url, new BigDecimal("0.188000"), new BigDecimal("0.362667"), new BigDecimal("0.424000"), new BigDecimal("0.141333")));
+        Performance read = performanceRepository.findById(id).orElseThrow();
+        assertThat(read.getSeatmapImageUrl()).isEqualTo(url);
+        assertThat(read.getSeatmapCropTop()).isEqualByComparingTo("0.362667");
+        assertThat(service.getZones(id).seatmapImage()).isNotNull();
+        assertThat(service.getZones(id).seatmapImage().left()).isEqualByComparingTo("0.188");
+
+        // 보관 결과 JSON 왕복(이미지 위치 포함)과 옛 JSON(필드 없음)은 null
+        jdbc.update("DELETE FROM ai_extract_cache");
+        var image = new com.matjari.dto.response.SeatmapImageResponse(url, new BigDecimal("0.1"), new BigDecimal("0.2"),
+                new BigDecimal("0.8"), new BigDecimal("0.5"));
+        var r = new com.matjari.service.aiextract.DetailExtractionService.Response(List.of(), "NONE",
+                List.of(new com.matjari.service.aiextract.DetailExtractionService.ZoneDto("A", triangle(0))),
+                1.5, true, false, false, false, false, image);
+        aiResultStore.save("melon:31", r, 60_000);
+        assertThat(aiResultStore.find("melon:31").orElseThrow().seatmapImage().url()).isEqualTo(url);
+        jdbc.update("UPDATE ai_extract_cache SET result = JSON_REMOVE(result, '$.seatmapImage') WHERE source_key='melon:31'");
+        assertThat(aiResultStore.find("melon:31").orElseThrow().seatmapImage()).isNull();
+    }
+
     private void assertRejected(String constraint, Runnable statement) {
         assertThatThrownBy(statement::run).isInstanceOf(DataAccessException.class).hasMessageContaining(constraint);
     }

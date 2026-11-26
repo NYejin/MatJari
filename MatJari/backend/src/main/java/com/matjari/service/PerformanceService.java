@@ -7,6 +7,7 @@ import com.matjari.domain.User;
 import com.matjari.dto.request.PerformanceCreateRequest;
 import com.matjari.dto.response.PageResponse;
 import com.matjari.dto.response.PerformanceDetailResponse;
+import com.matjari.dto.response.SeatmapImageResponse;
 import com.matjari.dto.response.PerformanceLookupResponse;
 import com.matjari.dto.response.PerformanceSummaryResponse;
 import com.matjari.dto.response.PerformanceZonesResponse;
@@ -78,6 +79,14 @@ public class PerformanceService {
         this.sourceKeyResolver = sourceKeyResolver;
         this.sessionTimePolicy = sessionTimePolicy;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
+    }
+
+    /** 원본 좌석표 이미지 위치(V31). null 이면 저장도 응답도 하지 않는다(단위 시험). */
+    private SeatmapImageService seatmapImages;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setSeatmapImages(SeatmapImageService seatmapImages) {
+        this.seatmapImages = seatmapImages;
     }
 
     /** 링크로 이미 등록된 공연이 있는지 (등록 화면에서 입력 직후 확인용). 형식 오류는 400 {"sourceUrl": ...}. */
@@ -155,7 +164,7 @@ public class PerformanceService {
     public PerformanceZonesResponse getZones(Long performanceId) {
         Performance performance = performanceRepository.findById(performanceId)
                 .orElseThrow(() -> new NotFoundException(NOT_FOUND_MESSAGE));
-        return new PerformanceZonesResponse(performance.getSeatmapAspect(),
+        return new PerformanceZonesResponse(performance.getSeatmapAspect(), seatmapImages == null ? null : seatmapImages.expose(performance),
                 toZoneResponses(zoneRepository.findByPerformanceIdOrderBySortOrderAscIdAsc(performanceId)));
     }
 
@@ -181,6 +190,9 @@ public class PerformanceService {
         List<LocalDateTime> startsAts = sessionTimePolicy.normalizeAll(request.sessions(), "sessions");
         List<PerformanceZoneSanitizer.Zone> zoneInputs = PerformanceZoneSanitizer.sanitize(request.zones());
         BigDecimal seatmapAspect = PerformanceZoneSanitizer.sanitizeAspect(request.seatmapAspect());
+        // 원본 좌석표 이미지 위치는 요청에서 받지 않는다. 링크(sourceKey)의 AI 보관 결과에서만 얻고, 모양 있는 구역이 있을 때만 저장한다(V31).
+        SeatmapImageResponse seatmapImage = seatmapImages != null && zoneInputs.stream().anyMatch(z -> z.shapePolygons() != null)
+                ? seatmapImages.findStored(sourceKey, seatmapAspect).orElse(null) : null;
         PerformanceCreateRequest.TicketInput ticketInput = request.ticket();
         TicketService.SeatInput seat = ticketInput == null ? null : normalizeTicketSeat(ticketInput);
         LocalDateTime ticketStartsAt = ticketInput == null ? null : PerformanceSession.truncate(ticketInput.sessionStartsAt());
@@ -200,8 +212,11 @@ public class PerformanceService {
                     registrant = requireUser(userId);
                 }
 
-                Performance performance = performanceRepository.saveAndFlush(
-                        Performance.create(venueName, title, sourceUrl, sourceKey, registrant, seatmapAspect));
+                Performance newPerformance = Performance.create(venueName, title, sourceUrl, sourceKey, registrant, seatmapAspect);
+                if (seatmapImage != null) {
+                    SeatmapImageService.apply(newPerformance, seatmapImage);
+                }
+                Performance performance = performanceRepository.saveAndFlush(newPerformance);
                 List<PerformanceSession> sessions = new ArrayList<>();
                 for (LocalDateTime startsAt : startsAts) {
                     sessions.add(sessionRepository.save(PerformanceSession.create(performance, startsAt)));
@@ -264,6 +279,7 @@ public class PerformanceService {
                 performance.getSourceUrl(),
                 performance.getVenueName(),
                 performance.getSeatmapAspect(),
+                seatmapImages == null ? null : seatmapImages.expose(performance),
                 toZoneResponses(zones),
                 new PerformanceDetailResponse.Registrant(registrant.getId(), registrant.getNickname()),
                 performance.isRegisteredBy(userId),

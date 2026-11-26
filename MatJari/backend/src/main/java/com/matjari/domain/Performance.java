@@ -58,6 +58,25 @@ public class Performance {
     @Column(name = "seatmap_aspect", precision = 6, scale = 3)
     private BigDecimal seatmapAspect;
 
+    /**
+     * 원본 좌석표 이미지 위치(V31). 이미지는 저장하지 않고 원 사이트 주소와, 그 이미지 전체에 대한 비율(0~1)로 나타낸 좌석표 사각형만 둔다.
+     * 다섯 값은 함께 NULL 이거나 함께 값이 있다(CHECK). 사각형은 구역 좌표(0~1000)·seatmapAspect 의 기준 영역과 같다.
+     */
+    @Column(name = "seatmap_image_url", length = SOURCE_URL_MAX_LENGTH)
+    private String seatmapImageUrl;
+
+    @Column(name = "seatmap_crop_left", precision = 8, scale = 6)
+    private BigDecimal seatmapCropLeft;
+
+    @Column(name = "seatmap_crop_top", precision = 8, scale = 6)
+    private BigDecimal seatmapCropTop;
+
+    @Column(name = "seatmap_crop_width", precision = 8, scale = 6)
+    private BigDecimal seatmapCropWidth;
+
+    @Column(name = "seatmap_crop_height", precision = 8, scale = 6)
+    private BigDecimal seatmapCropHeight;
+
     /** 내리기(숨김) 정보(V22). hiddenAt 이 NULL 이 아니면 숨김. 셋은 함께 NULL 이거나 함께 값이 있다(CHECK). */
     @Column(name = "hidden_at")
     private LocalDateTime hiddenAt;
@@ -176,6 +195,28 @@ public class Performance {
             throw new IllegalArgumentException("seatmapAspect는 0보다 커야 합니다.");
         }
         this.seatmapAspect = aspect;
+    }
+
+    /** 좌석표 이미지 위치를 바꾼다. url 이 null 이면 다섯 값을 모두 비운다(서비스가 주소·범위를 검증한 값). 공연 행을 잠근 트랜잭션에서 호출. */
+    public void changeSeatmapImage(String url, BigDecimal left, BigDecimal top, BigDecimal width, BigDecimal height) {
+        if (url == null) {
+            this.seatmapImageUrl = null;
+            this.seatmapCropLeft = null;
+            this.seatmapCropTop = null;
+            this.seatmapCropWidth = null;
+            this.seatmapCropHeight = null;
+            return;
+        }
+        if (url.length() > SOURCE_URL_MAX_LENGTH || left == null || top == null || width == null || height == null
+                || left.signum() < 0 || left.compareTo(BigDecimal.ONE) >= 0 || top.signum() < 0 || top.compareTo(BigDecimal.ONE) >= 0
+                || width.signum() <= 0 || width.compareTo(BigDecimal.ONE) > 0 || height.signum() <= 0 || height.compareTo(BigDecimal.ONE) > 0) {
+            throw new IllegalArgumentException("좌석표 이미지 위치가 올바르지 않습니다.");
+        }
+        this.seatmapImageUrl = url;
+        this.seatmapCropLeft = left;
+        this.seatmapCropTop = top;
+        this.seatmapCropWidth = width;
+        this.seatmapCropHeight = height;
     }
 
     /** 등록자 여부. LAZY 프록시의 id만 읽으므로 추가 쿼리가 나가지 않는다. */

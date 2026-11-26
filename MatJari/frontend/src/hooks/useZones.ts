@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { performancesApi } from "../api/performances";
-import type { PerformanceZone } from "../types/performance";
+import type { PerformanceZone, SeatmapImage } from "../types/performance";
 
 export interface ZoneData {
   zones: PerformanceZone[];
   aspect: number | null;
+  seatmapImage?: SeatmapImage | null;
 }
 
 /**
@@ -22,7 +23,7 @@ export function useZones(performanceId: number | null): ZoneData | null {
       .zones(performanceId, controller.signal)
       .then((res) => {
         const zones = (res.zones ?? []).filter((z) => typeof z.name === "string" && z.name.trim() !== "");
-        setData(zones.length > 0 ? { zones, aspect: res.seatmapAspect ?? null } : null);
+        setData(zones.length > 0 ? { zones, aspect: res.seatmapAspect ?? null, seatmapImage: res.seatmapImage ?? null } : null);
       })
       .catch(() => {
         // 실패는 조용히 텍스트 입력으로 되돌린다

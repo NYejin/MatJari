@@ -17,8 +17,9 @@ import { toPayloadZones, toZoneRows, validateZoneRows, type ZoneRow } from "../a
 import SessionEditor, { checkSessionChanges, initialSessionRows, type SessionRow } from "../components/SessionEditor";
 import TextField from "../components/TextField";
 import ZoneEditor from "../components/ZoneEditor";
+import ZoneMap, { hasShapedZone } from "../components/ZoneMap";
 import SeatmapUpload from "../components/SeatmapUpload";
-import type { AiExtractResult } from "../types/performance";
+import type { AiExtractResult, SeatmapImage } from "../types/performance";
 import { button, input, linkButton, liveRegionClass, tbl, tone, ui } from "../components/adminUi";
 
 // 관리자 공연 관리 상세 (/admin/performances/:id): 정보 수정·숨김·회차·구역. 모든 변경은 사유가 필요하다.
@@ -519,6 +520,9 @@ function SessionsCard({ detail, onUpdated }: CardProps) {
 function ZonesCard({ detail, onUpdated }: CardProps) {
   const [rows, setRows] = useState<ZoneRow[]>(() => toZoneRows(detail.zones));
   const [aspect, setAspect] = useState<number | null>(detail.seatmapAspect);
+  const [image, setImage] = useState<SeatmapImage | null>(detail.seatmapImage ?? null);
+  // 저장 때 원본 좌석표를 어떻게 할지: 링크에서 다시 인식 = LINK, 이미지로 인식 = CLEAR, 그 외 편집은 보내지 않는다(KEEP)
+  const [imageMode, setImageMode] = useState<"KEEP" | "LINK" | "CLEAR">("KEEP");
   const [aiBusy, setAiBusy] = useState<"link" | "image" | null>(null);
   const [aiNote, setAiNote] = useState("");
 
@@ -538,6 +542,8 @@ function ZonesCard({ detail, onUpdated }: CardProps) {
       }
       setRows(toZoneRows(zones));
       setAspect(typeof r.seatmapAspect === "number" && r.seatmapAspect > 0 ? r.seatmapAspect : null);
+      setImage(kind === "link" ? (r.seatmapImage ?? null) : null);
+      setImageMode(kind === "link" ? "LINK" : "CLEAR");
       const shaped = zones.filter((z) => z.shapePolygons && z.shapePolygons.length > 0).length;
       setAiNote(`구역 ${zones.length}개(모양 ${shaped}개)를 읽어 아래 목록을 바꿨어요. 아직 저장 전이에요 — 지도를 확인하고 사유를 적어 저장하세요.`);
     } catch (err) {
@@ -574,9 +580,12 @@ function ZonesCard({ detail, onUpdated }: CardProps) {
         zones: toPayloadZones(rows),
         seatmapAspect: aspect,
         reason: reason.trim(),
+        ...(imageMode !== "KEEP" ? { seatmapImageMode: imageMode } : {}),
       });
       setRows(toZoneRows(saved.zones));
       setAspect(saved.seatmapAspect);
+      setImage(saved.seatmapImage ?? null);
+      setImageMode("KEEP");
       setAiNote("");
       setReason("");
       setDone("구역을 저장했어요.");
@@ -622,6 +631,12 @@ function ZonesCard({ detail, onUpdated }: CardProps) {
             </p>
           )}
         </div>
+        {image && hasShapedZone(toPayloadZones(rows)) && (
+          <ZoneMap zones={toPayloadZones(rows)} aspect={aspect} seatmapImage={image} />
+        )}
+        {image && hasShapedZone(toPayloadZones(rows)) && (
+          <ZoneMap zones={toPayloadZones(rows)} aspect={aspect} seatmapImage={image} />
+        )}
         <ZoneEditor rows={rows} aspect={aspect} onChange={setRows} disabled={busy || aiBusy !== null} />
         <ReasonField id="admin-perf-zones-reason" value={reason} onChange={setReason} disabled={busy} error={reasonError} />
         <Feedback done={done} error={error} />

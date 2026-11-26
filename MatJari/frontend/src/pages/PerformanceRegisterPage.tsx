@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
-import type { AiQuota, AiSessionsSource, PerformancePreview } from "../types/performance";
+import type { AiQuota, AiSessionsSource, PerformancePreview, SeatmapImage } from "../types/performance";
 import { getConflictPerformanceId, performancesApi } from "../api/performances";
 import { getErrorCode, getErrorNumber, parseApiError } from "../api/errors";
 import { ROW_COL_MAX, ZONE_MAX } from "../api/seat";
@@ -226,6 +226,8 @@ export default function PerformanceRegisterPage() {
   // 구역 확인 (선택 사항): AI가 읽은 구역과 직접 추가한 구역
   const [zoneRows, setZoneRows] = useState<ZoneRow[]>([]);
   const [seatmapAspect, setSeatmapAspect] = useState<number | null>(null);
+  // 원본 좌석표(인라인 링크). 구역 지도 비율과 같은 때 함께 정해지며 등록 요청에는 보내지 않는다(서버가 보관 결과에서 붙인다)
+  const [seatmapImage, setSeatmapImage] = useState<SeatmapImage | null>(null);
   const [zoneError, setZoneError] = useState<string>();
   /** 회차·구역 입력 방식: 고르기 전(choose) → [불러오기](ai) 또는 [직접 입력](manual). 남은 횟수가 0이면 바로 manual */
   const [infoMode, setInfoMode] = useState<"choose" | "ai" | "manual">("choose");
@@ -435,7 +437,10 @@ export default function PerformanceRegisterPage() {
         const z = mergeAiZones(zoneRowsRef.current, incoming);
         setZoneRows(z.rows);
         setZoneError(undefined);
-        if (typeof r.seatmapAspect === "number" && r.seatmapAspect > 0 && aspectRef.current === null) setSeatmapAspect(r.seatmapAspect);
+        if (typeof r.seatmapAspect === "number" && r.seatmapAspect > 0 && aspectRef.current === null) {
+          setSeatmapAspect(r.seatmapAspect);
+          setSeatmapImage(r.seatmapImage ?? null);
+        }
         setAiZonesShown(!r.verifiedZones);
         parts.push(
           r.verifiedZones
@@ -484,6 +489,7 @@ export default function PerformanceRegisterPage() {
       setZoneError(undefined);
       if (typeof r.seatmapAspect === "number" && r.seatmapAspect > 0 && !hasShapedZone(toPayloadZones(zoneRowsRef.current))) {
         setSeatmapAspect(r.seatmapAspect);
+        setSeatmapImage(null); // 좌석표 이미지 올리기 결과는 원본 링크가 없다
       }
       setAiZonesShown(true);
       const shaped = incoming.filter((zz) => zz.shapePolygons && zz.shapePolygons.length > 0).length;
@@ -1045,7 +1051,7 @@ export default function PerformanceRegisterPage() {
     );
   } else if (step === 2) {
     const namedZones = toPayloadZones(zoneRows.filter((r) => r.name.trim() !== ""));
-    const ticketZoneData = namedZones.length > 0 ? { zones: namedZones, aspect: seatmapAspect } : null;
+    const ticketZoneData = namedZones.length > 0 ? { zones: namedZones, aspect: seatmapAspect, seatmapImage } : null;
     body = (
       <div className={cls.stepBody}>
         <p className={ui.notice}>
@@ -1198,7 +1204,7 @@ export default function PerformanceRegisterPage() {
         {hasShapedZone(toPayloadZones(zoneRows)) && (
           <div className="flex flex-col gap-1.5">
             <span className={ui.label}>구역 지도</span>
-            <ZoneMap zones={toPayloadZones(zoneRows)} aspect={seatmapAspect} />
+            <ZoneMap zones={toPayloadZones(zoneRows)} aspect={seatmapAspect} seatmapImage={seatmapImage} />
           </div>
         )}
         {(aiSessionsShown || (aiZonesShown && zoneRows.length > 0)) && <p className={ui.notice}>{AI_NOTICE}</p>}

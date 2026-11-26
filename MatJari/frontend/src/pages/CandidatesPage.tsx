@@ -6,6 +6,7 @@ import { getErrorStatus } from "../api/performances";
 import { formatKstDateTime } from "../api/dateTime";
 import { formatSeat } from "../api/seat";
 import Avatar from "../components/Avatar";
+import ListingImageGallery from "../components/ListingImageGallery";
 import { badgeTone, button, linkButton, liveRegionClass, ui } from "../components/ui";
 import { useCursorList } from "../hooks/useCursorList";
 import type { ExchangeCandidate, ExchangeRequest } from "../types/exchange";
@@ -247,6 +248,23 @@ function CandidateCard({
         <p className="mt-0.5 text-base/[1.5] font-extrabold break-keep text-primary-800">{formatSeat(c)}</p>
         <p className="text-sm/[normal] text-gray-600">{formatKstDateTime(c.startsAt)}</p>
       </div>
+
+      {((c.ticketImages ?? []).length > 0 || (c.requestImages ?? []).length > 0) && (
+        <div className="flex flex-wrap gap-x-5 gap-y-3">
+          {(c.ticketImages ?? []).length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <p className={ui.muted}>자리 사진</p>
+              <ListingImageGallery images={c.ticketImages} label="상대 자리 사진" size={56} />
+            </div>
+          )}
+          {(c.requestImages ?? []).length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <p className={ui.muted}>원하는 자리</p>
+              <ListingImageGallery images={c.requestImages} label="상대가 원하는 자리 사진" size={56} />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 추가금이 실제로 있는 조건(받고/낼)만 보인다 */}
       {(c.myExtraType === "POS" || c.myExtraType === "NEG" || c.extraType === "POS" || c.extraType === "NEG" || c.settlementHint) && (

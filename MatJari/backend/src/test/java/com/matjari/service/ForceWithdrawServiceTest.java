@@ -59,7 +59,7 @@ class ForceWithdrawServiceTest {
         when(tm.getTransaction(any())).thenReturn(mock(TransactionStatus.class));
         service = new WithdrawService(userRepository, ticketRepository, requestRepository, socialRepository, mock(com.matjari.repository.RefreshTokenRepository.class), mock(com.matjari.repository.PasswordResetTokenRepository.class), notificationRepository, mock(com.matjari.repository.UserNotificationSettingRepository.class),
                 canceller, claimService, new SocialLinkConfirmStore(clock, socialProps), socialProps, mock(WebSocketSessionRegistry.class),
-                new BCryptPasswordEncoder(4), new SessionTimePolicy(clock), clock, tm);
+                new BCryptPasswordEncoder(4), new SessionTimePolicy(clock), clock, tm, com.matjari.testsupport.ListingImageMocks.noImages());
         when(userRepository.saveAndFlush(any(User.class))).thenAnswer(i -> i.getArgument(0));
     }
 

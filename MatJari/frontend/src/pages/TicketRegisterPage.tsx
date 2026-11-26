@@ -5,6 +5,9 @@ import { compareLocalDateTime, formatKstDateTime, isSessionClosed, kstMinuteStri
 import { ROW_COL_MAX, ZONE_MAX } from "../api/seat";
 import { getErrorStatus, performancesApi } from "../api/performances";
 import { ticketsApi } from "../api/tickets";
+import { ticketImagesApi } from "../api/listingImages";
+import { partialFailureNotice, uploadPending } from "../api/pendingImages";
+import ListingImageUploader from "../components/ListingImageUploader";
 import TextField from "../components/TextField";
 import ZonePickField from "../components/ZonePickField";
 import { button, input, linkButton, liveRegionClass, ui } from "../components/ui";
@@ -193,6 +196,8 @@ function TicketForm({ performanceId, presetSessionId, canChangePerformance, onCh
   const [zone, setZone] = useState("");
   const [row, setRow] = useState("");
   const [col, setCol] = useState("");
+  /** 가리기까지 마친 '내 자리' 사진(티켓 생성 성공 뒤 올린다) */
+  const [photos, setPhotos] = useState<Blob[]>([]);
   const [errors, setErrors] = useState<Partial<Record<SeatField | "sessionId", string>>>({});
   const [submitError, setSubmitError] = useState<{ message: string; code: string | null } | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -295,8 +300,12 @@ function TicketForm({ performanceId, presetSessionId, canChangePerformance, onCh
     submittingRef.current = true;
     setSubmitting(true);
     try {
-      await ticketsApi.create({ sessionId, zone: z, row: r, col: c });
-      navigate("/tickets", { replace: true, state: { notice: "티켓을 등록했어요. 교환 조건을 설정하면 바꿀 상대를 찾을 수 있어요." } });
+      const created = await ticketsApi.create({ sessionId, zone: z, row: r, col: c });
+      // 티켓은 이미 등록됐다. 사진은 순서대로 올리고, 일부 실패해도 등록은 성공으로 둔다
+      const { failed } = await uploadPending(photos, (blob) => ticketImagesApi.upload(created.id, blob));
+      const base = "티켓을 등록했어요. 교환 조건을 설정하면 바꿀 상대를 찾을 수 있어요.";
+      const photoNotice = partialFailureNotice(failed, "내 티켓");
+      navigate("/tickets", { replace: true, state: { notice: photoNotice ? `${base} ${photoNotice}` : base } });
     } catch (err) {
       const parsed = exchangeErrorMessage(err, "티켓을 등록하지 못했습니다.");
       const fe = parsed.fieldErrors;
@@ -477,6 +486,20 @@ function TicketForm({ performanceId, presetSessionId, canChangePerformance, onCh
           />
         </div>
       </fieldset>
+
+      <section className={`${ui.card} flex flex-col gap-3`} aria-labelledby="ticket-photo-title">
+        <h2 id="ticket-photo-title" className={ui.sectionTitle}>
+          내 자리 사진 <span className="text-sm font-normal text-gray-500">(선택, 최대 3장)</span>
+        </h2>
+        <ListingImageUploader
+          mode="pending"
+          idPrefix="ticket-photo"
+          pending={photos}
+          onPendingChange={setPhotos}
+          disabled={submitting}
+          guide="예매내역이나 좌석에서 본 모습처럼 내 자리를 보여 주는 사진이면 돼요."
+        />
+      </section>
 
       {errorBlock}
 

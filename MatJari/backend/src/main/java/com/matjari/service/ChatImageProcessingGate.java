@@ -65,6 +65,14 @@ public class ChatImageProcessingGate {
     /** 시도 1회를 세고 동시 처리 자리를 잡아 {@code work} 를 실행한다. 한도를 넘으면 work 는 실행되지 않는다. */
     public <T> T run(Long userId, Supplier<T> work) {
         countAttempt(userId);
+        return runWithPermit(work);
+    }
+
+    /**
+     * 사용자별 시도 수는 세지 않고 전역 동시 처리 자리만 잡아 {@code work} 를 실행한다(티켓·희망 조건 사진도 같은 세마포어를 공유한다, V33).
+     * 자리가 없으면 기다리지 않고 바로 503 SERVER_BUSY.
+     */
+    public <T> T runWithPermit(Supplier<T> work) {
         if (!permits.tryAcquire()) {
             throw new ChatImageBusyException(BUSY_RETRY_SECONDS);
         }

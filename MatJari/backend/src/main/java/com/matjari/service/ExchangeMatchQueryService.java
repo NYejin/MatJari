@@ -22,6 +22,7 @@ public class ExchangeMatchQueryService {
     static final int MAX_PAGE_SIZE = 100;
 
     private final ExchangeMatchQueryRepository queryRepository;
+    private final ListingImageService listingImageService;
 
     @Transactional(readOnly = true)
     public PageResponse<ExchangeMatchResponse> findMine(Long userId, String role, List<String> status, int page, int size) {
@@ -36,16 +37,33 @@ public class ExchangeMatchQueryService {
         int pageSize = Math.min(size, MAX_PAGE_SIZE);
         long total = queryRepository.countMine(userId, roleFilter, statuses);
         List<ExchangeMatchResponse> content = total == 0 ? List.of()
-                : queryRepository.findMine(userId, roleFilter, statuses, pageSize, (long) page * pageSize).stream()
-                        .map(r -> r.toResponse(userId)).toList();
+                : toResponses(userId, queryRepository.findMine(userId, roleFilter, statuses, pageSize, (long) page * pageSize));
         int totalPages = (int) ((total + pageSize - 1) / pageSize);
         return new PageResponse<>(content, page, pageSize, total, totalPages);
     }
 
     @Transactional(readOnly = true)
     public ExchangeMatchResponse findOne(Long userId, Long matchId) {
-        return queryRepository.findOne(matchId, userId).map(r -> r.toResponse(userId))
+        ExchangeMatchQueryRepository.Row row = queryRepository.findOne(matchId, userId)
                 .orElseThrow(() -> new NotFoundException(ExchangeMatchService.MATCH_NOT_FOUND_MESSAGE));
+        return toResponses(userId, List.of(row)).get(0);
+    }
+
+    /** 페이지의 티켓·요청 id 를 모아 사진 참조(V33)를 한 번에 읽어 응답에 담는다(N+1 없음). */
+    private List<ExchangeMatchResponse> toResponses(Long userId, List<ExchangeMatchQueryRepository.Row> rows) {
+        if (rows.isEmpty()) {
+            return List.of();
+        }
+        java.util.Set<Long> ticketIds = new java.util.HashSet<>();
+        java.util.Set<Long> requestIds = new java.util.HashSet<>();
+        for (ExchangeMatchQueryRepository.Row r : rows) {
+            ticketIds.add(r.ticketAId());
+            ticketIds.add(r.ticketBId());
+            requestIds.add(r.requestAId());
+            requestIds.add(r.requestBId());
+        }
+        com.matjari.repository.ListingImageIndex images = listingImageService.index(ticketIds, requestIds);
+        return rows.stream().map(r -> r.toResponse(userId, images)).toList();
     }
 
     private static Role parseRole(String role) {

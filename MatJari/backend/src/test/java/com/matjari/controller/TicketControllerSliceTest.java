@@ -72,13 +72,13 @@ class TicketControllerSliceTest {
     private static TicketResponse ticket() {
         return new TicketResponse(500L, 10L, "두아 리파 내한", "KSPO DOME", 7L,
                 LocalDateTime.of(2026, 11, 1, 19, 0), "1층 A", "3", "5", "ACTIVE",
-                LocalDateTime.of(2026, 10, 6, 14, 3, 21));
+                LocalDateTime.of(2026, 10, 6, 14, 3, 21), List.of());
     }
 
     private static final String TICKET_JSON = """
             {"id":500,"performanceId":10,"performanceTitle":"두아 리파 내한","venueName":"KSPO DOME",
              "sessionId":7,"startsAt":"2026-11-01T19:00","zone":"1층 A","row":"3","col":"5","status":"ACTIVE",
-             "createdAt":"2026-10-06T14:03:21"}
+             "createdAt":"2026-10-06T14:03:21","images":[]}
             """;
 
     @Test

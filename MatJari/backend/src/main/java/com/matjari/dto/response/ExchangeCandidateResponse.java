@@ -3,6 +3,7 @@ package com.matjari.dto.response;
 import com.fasterxml.jackson.annotation.JsonFormat;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 매칭 후보 1건 = 조건이 서로 맞는 상대의 교환 요청 1건. 점수·랭킹·신뢰도 없음, 개인정보(이메일 등) 없음.
@@ -30,7 +31,19 @@ public record ExchangeCandidateResponse(
         Integer myExtraAmount,
         SettlementHint settlementHint,
         @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = DateTimeFormats.SECOND)
-        LocalDateTime requestedAt
+        LocalDateTime requestedAt,
+        List<ListingImageRef> ticketImages,
+        List<ListingImageRef> requestImages
 ) {
+    /**
+     * 사진 참조(V33)를 채운 사본: 상대 티켓('내 자리') 사진과 상대 요청('원하는 자리') 사진(각 최대 3장).
+     * 후보 관계인 사용자에게만 보이는 정보라 사진을 열 때도 후보 관계를 다시 확인한다.
+     */
+    public ExchangeCandidateResponse withImages(List<ListingImageRef> ticketImages, List<ListingImageRef> requestImages) {
+        return new ExchangeCandidateResponse(requestId, ticketId, zone, row, col, sessionId, startsAt, nickname, wantPriority,
+                extraType, extraAmount, myExtraType, myExtraAmount, settlementHint, requestedAt,
+                ticketImages == null ? List.of() : ticketImages, requestImages == null ? List.of() : requestImages);
+    }
+
     public record SettlementHint(long min, long max) {}
 }

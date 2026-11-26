@@ -63,12 +63,16 @@ interface Props {
   /** 가린 JPEG를 올린다. 실패하면 사용자에게 보일 문구를 담은 Error를 throw한다 */
   onSend: (blob: Blob, signal: AbortSignal, contentKey: string) => Promise<void>;
   onClose: () => void;
+  /** 제목·버튼 문구 (기본: 채팅 사진 보내기) */
+  title?: string;
+  sendLabel?: string;
+  busyLabel?: string;
 }
 
 const PREVIEW_MAX_SIDE = 1600;
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-export default function ChatImageRedactDialog({ file, onSend, onClose }: Props) {
+export default function ChatImageRedactDialog({ file, onSend, onClose, title = "사진 보내기", sendLabel = "보내기", busyLabel = "사진을 보내는 중..." }: Props) {
   const [bitmap, setBitmap] = useState<ImageBitmap | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [rects, setRects] = useState<Rect[]>([]);
@@ -227,7 +231,7 @@ export default function ChatImageRedactDialog({ file, onSend, onClose }: Props) 
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 sm:items-center" role="presentation">
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="redact-title" className="flex max-h-[95dvh] w-full max-w-lg flex-col gap-3 overflow-y-auto rounded-t-[24px] bg-white p-5 pb-[calc(20px+env(safe-area-inset-bottom))] shadow-[0_-8px_40px_-12px_rgba(17,24,39,0.35)] sm:rounded-[24px]">
         <h2 id="redact-title" ref={titleRef} tabIndex={-1} className="text-base font-semibold text-gray-900 outline-none">
-          사진 보내기
+          {title}
         </h2>
         <p className={ui.hint}>이름·연락처·결제 정보·예매번호 일부는 가려 주세요. 공연명·회차·구역·열·번은 보이게 해 주세요.</p>
         <p className={ui.hint}>
@@ -273,7 +277,7 @@ export default function ChatImageRedactDialog({ file, onSend, onClose }: Props) 
 
         {busy && (
           <p className={ui.status} role="status">
-            사진을 보내는 중...
+            {busyLabel}
           </p>
         )}
         {error && (
@@ -293,7 +297,7 @@ export default function ChatImageRedactDialog({ file, onSend, onClose }: Props) 
             {cancelWarn ? "그래도 취소" : "취소"}
           </button>
           <button type="button" className={button.solid} disabled={busy || !bitmap} aria-busy={busy} onClick={() => void send()}>
-            {error ? "다시 보내기" : "보내기"}
+            {error ? `다시 ${sendLabel}` : sendLabel}
           </button>
         </div>
       </div>

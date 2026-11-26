@@ -72,7 +72,7 @@ class TicketServiceTest {
         lockRepository = mock(ExchangeTicketLockRepository.class);
         service = new TicketService(ticketRepository, sessionRepository, userRepository, exchangeRequestRepository,
                 matchRepository, lockRepository,
-                PerformanceFixtures.timePolicy(), PerformanceFixtures.noopTransactionManager(), 20, 999, 999);
+                PerformanceFixtures.timePolicy(), PerformanceFixtures.noopTransactionManager(), com.matjari.testsupport.ListingImageMocks.noImages(), 20, 999, 999);
 
         when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(me));
         when(sessionRepository.findWithPerformanceById(7L)).thenReturn(Optional.of(today));
@@ -336,7 +336,7 @@ class TicketServiceTest {
         java.time.Clock clock = java.time.Clock.fixed(now.atZone(PerformanceFixtures.KST).toInstant(),
                 PerformanceFixtures.KST);
         return new TicketService(ticketRepository, sessionRepository, userRepository, exchangeRequestRepository,
-                matchRepository, lockRepository, new SessionTimePolicy(clock), PerformanceFixtures.noopTransactionManager(), 20, 999, 999);
+                matchRepository, lockRepository, new SessionTimePolicy(clock), PerformanceFixtures.noopTransactionManager(), com.matjari.testsupport.ListingImageMocks.noImages(), 20, 999, 999);
     }
 
     @Test

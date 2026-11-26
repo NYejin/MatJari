@@ -144,6 +144,7 @@ public class ExchangeMatchService {
     private final NotificationService notificationService;
     private final SessionTimePolicy timePolicy;
     private final TransactionTemplate tx;
+    private final ListingImageService listingImageService;
 
     public ExchangeMatchService(ExchangeMatchRepository matchRepository,
                                 ExchangeRequestRepository requestRepository,
@@ -154,7 +155,9 @@ public class ExchangeMatchService {
                                 ExchangeMatchQueryRepository queryRepository,
                                 NotificationService notificationService,
                                 SessionTimePolicy timePolicy,
-                                PlatformTransactionManager transactionManager) {
+                                PlatformTransactionManager transactionManager,
+                                ListingImageService listingImageService) {
+        this.listingImageService = listingImageService;
         this.matchRepository = matchRepository;
         this.requestRepository = requestRepository;
         this.ticketRepository = ticketRepository;
@@ -611,8 +614,10 @@ public class ExchangeMatchService {
 
     /** 호출 전 flush 필수(변경 후 saveAndFlush 로 반영된 상태여야 조인 조회가 읽는다). 응답은 조인 한 번으로 만든다(닉네임·좌석·회차·추가금 포함, 추가 쿼리 없음). 트랜잭션 안에서 호출해 방금 쓴 상태를 그대로 읽는다. */
     private ExchangeMatchResponse view(Long matchId, Long userId) {
-        return queryRepository.findOne(matchId, userId)
-                .orElseThrow(() -> new NotFoundException(MATCH_NOT_FOUND_MESSAGE))
-                .toResponse(userId);
+        ExchangeMatchQueryRepository.Row row = queryRepository.findOne(matchId, userId)
+                .orElseThrow(() -> new NotFoundException(MATCH_NOT_FOUND_MESSAGE));
+        // 사진 참조(V33): 잠금 없는 일반 읽기라 잠금 순서에 영향이 없다
+        return row.toResponse(userId, listingImageService.index(
+                List.of(row.ticketAId(), row.ticketBId()), List.of(row.requestAId(), row.requestBId())));
     }
 }

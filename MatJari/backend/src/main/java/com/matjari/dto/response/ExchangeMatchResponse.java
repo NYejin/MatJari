@@ -3,6 +3,7 @@ package com.matjari.dto.response;
 import com.fasterxml.jackson.annotation.JsonFormat;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 호출자 기준으로 본 매칭 (POST 응답, 내 매칭 목록, 단건 조회가 같은 모양). my / counterpart 접두어로 나눠 담고
@@ -22,6 +23,7 @@ import java.time.LocalDateTime;
  * (CHATTING 카드에서만 의미가 있다. 이 매칭이 RESERVED 일 때 자기 잠금은 세지 않는다).
  * unreadChatCount 는 상대가 보낸 채팅 메시지 중 내가 아직 읽지 않은 수(읽음 포인터 기준, CANCELED·COMPLETED 매칭도 센다).
  * lastMessagePreview / lastMessageAt / lastMessageMine 은 이 매칭의 마지막 채팅 메시지(가장 큰 id) 요약이다: 본문 앞 60 코드 포인트(넘으면 끝에 '…', 줄바꿈은 공백 하나), 보낸 시각, 호출자가 보냈는지(메시지가 없으면 null / null / false).
+ * myTicketImages / partnerTicketImages / partnerRequestImages 는 내 티켓·상대 티켓·상대 요청에 붙은 사진 참조다(V33, 각 최대 3장; 상대 요청이 삭제됐으면 빈 목록).
  * status 가 RESERVED 이면 두 티켓이 잠겨 있다. canceledBy 는 CANCELED 일 때만: ME / COUNTERPART / SYSTEM.
  */
 public record ExchangeMatchResponse(
@@ -63,7 +65,10 @@ public record ExchangeMatchResponse(
         String lastMessagePreview,
         @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = DateTimeFormats.SECOND)
         LocalDateTime lastMessageAt,
-        boolean lastMessageMine
+        boolean lastMessageMine,
+        List<ListingImageRef> myTicketImages,
+        List<ListingImageRef> partnerTicketImages,
+        List<ListingImageRef> partnerRequestImages
 ) {
     /** 좌석 한 곳: 표시용 구역·열·번 + 회차 id·시작 시각. */
     public record Seat(

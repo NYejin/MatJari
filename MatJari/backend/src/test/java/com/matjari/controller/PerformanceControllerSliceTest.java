@@ -19,6 +19,7 @@ import com.matjari.security.SecurityErrorResponseWriter;
 import com.matjari.dto.response.PerformancePreviewResponse;
 import com.matjari.exception.FieldValidationException;
 import com.matjari.service.PerformanceService;
+import com.matjari.service.PerformanceSourceService;
 import com.matjari.service.linkinfo.PerformancePreviewService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -37,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -69,6 +71,8 @@ class PerformanceControllerSliceTest {
     private PerformanceService performanceService;
     @MockBean
     private PerformancePreviewService previewService;
+    @MockBean
+    private PerformanceSourceService sourceService;
 
     @BeforeEach
     void setUp() {
@@ -87,7 +91,7 @@ class PerformanceControllerSliceTest {
                 "KSPO DOME", null, null, List.of(),
                 new PerformanceDetailResponse.Registrant(1L, "등록자"), canEdit,
                 List.of(new SessionResponse(7L, SHOW)),
-                LocalDateTime.of(2026, 10, 6, 14, 3, 21), false);
+                LocalDateTime.of(2026, 10, 6, 14, 3, 21), false, List.of());
     }
 
     @Test
@@ -144,7 +148,7 @@ class PerformanceControllerSliceTest {
                          "venueName":"KSPO DOME","seatmapAspect":null,"seatmapImage":null,"zones":[],
                          "registrant":{"id":1,"nickname":"등록자"},"canEdit":true,
                          "sessions":[{"id":7,"startsAt":"2026-11-01T19:00"}],
-                         "createdAt":"2026-10-06T14:03:21","hidden":false}
+                         "createdAt":"2026-10-06T14:03:21","hidden":false,"sources":[]}
                         """, true));
     }
 
@@ -173,7 +177,7 @@ class PerformanceControllerSliceTest {
 
     @Test
     void createAcceptsZonesAndRejectsOverHundred() throws Exception {
-        when(performanceService.create(eq(1L), any(PerformanceCreateRequest.class))).thenReturn(detail(true));
+        when(performanceService.create(eq(1L), any(PerformanceCreateRequest.class), anyBoolean())).thenReturn(detail(true));
         mockMvc.perform(auth(post("/api/performances")).contentType(MediaType.APPLICATION_JSON).content("""
                         {"sourceUrl":"https://tickets.interpark.com/goods/1","title":"t","venueName":"V",
                          "sessions":["2026-11-01T19:00"],"seatmapAspect":1.25,"ticket":{"sessionStartsAt":"2026-11-01T19:00","zone":"A","row":"1","col":"2"},
@@ -183,7 +187,7 @@ class PerformanceControllerSliceTest {
                 .andExpect(status().isCreated());
         verify(performanceService).create(eq(1L), argThat(r -> r.zones().size() == 3
                 && r.zones().get(1).shapePolygons() == null
-                && r.seatmapAspect().compareTo(new java.math.BigDecimal("1.25")) == 0));
+                && r.seatmapAspect().compareTo(new java.math.BigDecimal("1.25")) == 0), eq(false));
 
         StringBuilder many = new StringBuilder("[");
         for (int i = 0; i < 1001; i++) {
@@ -210,7 +214,7 @@ class PerformanceControllerSliceTest {
 
     @Test
     void createReturns201AndAcceptsMinuteFormat() throws Exception {
-        when(performanceService.create(eq(1L), any(PerformanceCreateRequest.class))).thenReturn(detail(true));
+        when(performanceService.create(eq(1L), any(PerformanceCreateRequest.class), anyBoolean())).thenReturn(detail(true));
 
         mockMvc.perform(auth(post("/api/performances")).contentType(MediaType.APPLICATION_JSON).content("""
                         {"sourceUrl":"https://tickets.interpark.com/goods/1","title":"두아 리파 내한",
@@ -219,12 +223,12 @@ class PerformanceControllerSliceTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(100));
         verify(performanceService).create(eq(1L), argThat(r ->
-                r.sessions().equals(List.of(SHOW, LocalDateTime.of(2026, 11, 2, 18, 0)))));
+                r.sessions().equals(List.of(SHOW, LocalDateTime.of(2026, 11, 2, 18, 0)))), eq(false));
     }
 
     @Test
     void createDuplicateIs409WithPerformanceId() throws Exception {
-        when(performanceService.create(eq(1L), any(PerformanceCreateRequest.class)))
+        when(performanceService.create(eq(1L), any(PerformanceCreateRequest.class), anyBoolean()))
                 .thenThrow(new ConflictException("이미 등록된 공연입니다.", Map.of("performanceId", 77L)));
 
         mockMvc.perform(auth(post("/api/performances")).contentType(MediaType.APPLICATION_JSON).content("""
@@ -241,11 +245,97 @@ class PerformanceControllerSliceTest {
         when(tokenProvider.isRefreshToken("admin")).thenReturn(false);
         when(tokenProvider.getUserId("admin")).thenReturn(9L);
         when(userDetailsService.loadUserById(9L)).thenReturn(AuthUserPrincipal.of(9L, "admin@b.com", com.matjari.domain.UserRole.ADMIN));
-        when(performanceService.create(any(), any())).thenReturn(detail(false));
+        when(performanceService.create(any(), any(), anyBoolean())).thenReturn(detail(false));
         mockMvc.perform(post("/api/performances").header("Authorization", "Bearer admin").contentType(MediaType.APPLICATION_JSON).content("""
                         {"sourceUrl":"https://a.com","title":"t","venueName":"V","sessions":["2026-11-01T19:00"]}
                         """))
                 .andExpect(status().isCreated());
+        verify(performanceService).create(eq(9L), any(PerformanceCreateRequest.class), eq(true)); // 관리자는 같은 공연 후보 검사를 건너뛴다
+    }
+
+    @Test
+    void createPassesConfirmNewPerformanceAndSurfacesSimilarCandidatesAs409() throws Exception {
+        var candidate = new com.matjari.dto.response.PerformanceSourceDtos.Candidate(7L, "아이유 콘서트", "코엑스 D홀",
+                LocalDateTime.of(2026, 12, 10, 19, 0), LocalDateTime.of(2026, 12, 20, 19, 0), 5, List.of("melon"));
+        Map<String, Object> details = new java.util.LinkedHashMap<>();
+        details.put("code", "SIMILAR_PERFORMANCE_EXISTS");
+        details.put("candidates", List.of(candidate));
+        when(performanceService.create(eq(1L), any(PerformanceCreateRequest.class), anyBoolean()))
+                .thenThrow(new ConflictException("같은 공연일 수 있는 공연이 이미 있어요.", details));
+        String body = """
+                {"sourceUrl":"https://a.com","title":"t","venueName":"V","sessions":["2026-11-01T19:00"],
+                 "ticket":{"sessionStartsAt":"2026-11-01T19:00","zone":"A","row":"1","col":"2"},"confirmNewPerformance":%s}
+                """;
+        mockMvc.perform(auth(post("/api/performances")).contentType(MediaType.APPLICATION_JSON).content(body.formatted("false")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("SIMILAR_PERFORMANCE_EXISTS"))
+                .andExpect(jsonPath("$.candidates[0].id").value(7))
+                .andExpect(jsonPath("$.candidates[0].firstSessionAt").value("2026-12-10T19:00"))
+                .andExpect(jsonPath("$.candidates[0].sites[0]").value("melon"));
+
+        when(performanceService.create(eq(1L), argThat(r -> Boolean.TRUE.equals(r.confirmNewPerformance())), anyBoolean()))
+                .thenReturn(detail(true));
+        mockMvc.perform(auth(post("/api/performances")).contentType(MediaType.APPLICATION_JSON).content(body.formatted("true")))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    void similarReturnsPreviewExistingIdAndCandidates() throws Exception {
+        var candidate = new com.matjari.dto.response.PerformanceSourceDtos.Candidate(7L, "아이유 콘서트", "코엑스 D홀",
+                LocalDateTime.of(2026, 12, 10, 19, 0), LocalDateTime.of(2026, 12, 20, 19, 0), 5, List.of("melon", "interpark"));
+        when(sourceService.similar(1L, "https://nol.yanolja.com/ticket/products/1")).thenReturn(
+                new com.matjari.dto.response.PerformanceSourceDtos.SimilarResponse(
+                        new com.matjari.dto.response.PerformanceSourceDtos.PreviewInfo("OK", "아이유 콘서트", "코엑스 D홀",
+                                java.time.LocalDate.of(2026, 12, 10), java.time.LocalDate.of(2026, 12, 20)),
+                        null, List.of(candidate)));
+
+        mockMvc.perform(auth(get("/api/performances/similar")).param("sourceUrl", "https://nol.yanolja.com/ticket/products/1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.preview.status").value("OK"))
+                .andExpect(jsonPath("$.preview.periodStart").value("2026-12-10"))
+                .andExpect(jsonPath("$.existingPerformanceId").doesNotExist())
+                .andExpect(jsonPath("$.candidates[0].title").value("아이유 콘서트"))
+                .andExpect(jsonPath("$.candidates[0].sessionCount").value(5))
+                .andExpect(jsonPath("$.candidates[0].sites[1]").value("interpark"));
+        mockMvc.perform(get("/api/performances/similar").param("sourceUrl", "x")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void addSourceReturns201ForNewAnd200ForIdempotentAndPassesErrors() throws Exception {
+        var item = new com.matjari.dto.response.PerformanceSourceDtos.SourceItem(2L, "interpark", "인터파크(NOL)", "https://nol", false);
+        when(sourceService.addByUser(1L, 100L, "https://nol")).thenReturn(
+                new PerformanceSourceService.AddResult(List.of(item), true, null));
+        when(sourceService.addByUser(1L, 100L, "https://again")).thenReturn(
+                new PerformanceSourceService.AddResult(List.of(item), false, null));
+        when(sourceService.addByUser(1L, 100L, "https://other")).thenThrow(new ConflictException(
+                "이미 다른 공연에 등록된 링크입니다.", Map.of("code", "SOURCE_ALREADY_REGISTERED", "performanceId", 200L)));
+        when(sourceService.addByUser(1L, 100L, "https://mismatch")).thenThrow(
+                new com.matjari.exception.BusinessRuleException("SOURCE_NOT_SAME_PERFORMANCE", "같은 공연으로 확인되지 않아요."));
+
+        mockMvc.perform(auth(post("/api/performances/100/sources")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sourceUrl\":\"https://nol\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.sources[0].siteName").value("인터파크(NOL)"))
+                .andExpect(jsonPath("$.sources[0].primary").value(false));
+        mockMvc.perform(auth(post("/api/performances/100/sources")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sourceUrl\":\"https://again\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(auth(post("/api/performances/100/sources")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sourceUrl\":\"https://other\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("SOURCE_ALREADY_REGISTERED"))
+                .andExpect(jsonPath("$.performanceId").value(200));
+        mockMvc.perform(auth(post("/api/performances/100/sources")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sourceUrl\":\"https://mismatch\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("SOURCE_NOT_SAME_PERFORMANCE"));
+        mockMvc.perform(auth(post("/api/performances/100/sources")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sourceUrl\":\" \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.sourceUrl").value("티켓팅 링크를 입력해주세요."));
+        mockMvc.perform(post("/api/performances/100/sources").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sourceUrl\":\"https://nol\"}"))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -278,7 +368,7 @@ class PerformanceControllerSliceTest {
                         """))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().json("{\"message\":\"요청 형식이 올바르지 않습니다.\"}", true));
-        verify(performanceService, never()).create(any(), any());
+        verify(performanceService, never()).create(any(), any(), anyBoolean());
     }
 
     @Test
@@ -296,7 +386,7 @@ class PerformanceControllerSliceTest {
 
     @Test
     void unclassifiedIntegrityViolationIs409GenericMessage() throws Exception {
-        when(performanceService.create(eq(1L), any(PerformanceCreateRequest.class)))
+        when(performanceService.create(eq(1L), any(PerformanceCreateRequest.class), anyBoolean()))
                 .thenThrow(new DataIntegrityViolationException("fk"));
         mockMvc.perform(auth(post("/api/performances")).contentType(MediaType.APPLICATION_JSON).content("""
                         {"sourceUrl":"https://tickets.interpark.com/goods/1","title":"두아 리파 내한",

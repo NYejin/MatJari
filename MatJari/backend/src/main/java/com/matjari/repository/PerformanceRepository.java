@@ -10,12 +10,28 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 public interface PerformanceRepository extends JpaRepository<Performance, Long> {
 
     @Query("select p.id from Performance p where p.sourceKey = :sourceKey")
     Optional<Long> findIdBySourceKey(@Param("sourceKey") String sourceKey);
+
+    /**
+     * 같은 공연 후보 찾기용(숨기지 않은 공연). 회차 범위(첫 회차 ~ 마지막 회차)가 [start, endExclusive) 와 겹치는 공연, 최신 등록순.
+     * 공연장·제목 비교는 정규화가 필요해 서비스가 자바에서 한다. 개수는 Pageable 로 막는다.
+     */
+    @Query("""
+            select p from Performance p
+            where p.hiddenAt is null
+              and p.id in (select s.performance.id from PerformanceSession s group by s.performance.id
+                           having min(s.startsAt) < :endExclusive and max(s.startsAt) >= :start)
+            order by p.id desc
+            """)
+    List<Performance> findVisibleWithSessionsOverlapping(@Param("start") LocalDateTime start,
+                                                         @Param("endExclusive") LocalDateTime endExclusive,
+                                                         Pageable pageable);
 
     /** 공연 행 잠금(SELECT ... FOR UPDATE). 수정 제안 승인에서만 쓴다(제안 행 잠금 다음에 호출). */
     @Lock(LockModeType.PESSIMISTIC_WRITE)

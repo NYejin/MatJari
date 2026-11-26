@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { getErrorStatus, performancesApi } from "../api/performances";
 import { parseApiError } from "../api/errors";
 import { compareLocalDateTime, formatKstDateTime, isPastKst } from "../api/dateTime";
-import type { PerformanceDetail } from "../types/performance";
+import type { PerformanceDetail, PerformanceSource } from "../types/performance";
 import { button, input, linkButton, liveRegionClass, ui } from "../components/ui";
 import TextField from "../components/TextField";
 import PosterImage from "../components/PosterImage";
@@ -135,8 +135,35 @@ export default function PerformanceDetailPage() {
 
 // ---- 공연 정보 (읽기 전용) ----
 
+/** 예매처 링크 나열 (새 탭). http(s)가 아닌 주소는 링크로 만들지 않고 이름만 보인다 */
+function SourceLinks({ sources }: { sources: PerformanceSource[] }) {
+  return (
+    <>
+      <span className="flex flex-wrap gap-x-3 gap-y-1">
+        {sources.map((s) => {
+          const parsed = parseTicketingLink(s.url);
+          return parsed ? (
+            <a key={s.id} href={parsed.href} target="_blank" rel="noopener noreferrer" className={ui.link}>
+              {s.siteName}
+              <span aria-hidden="true"> ↗</span>
+              <span className="sr-only"> 예매 페이지 (새 창에서 열림)</span>
+            </a>
+          ) : (
+            <span key={s.id}>{s.siteName}</span>
+          );
+        })}
+      </span>
+      {sources.length >= 2 && (
+        <span className={cls.descSub}>여러 예매처에서 나눠 파는 공연이에요. 어느 예매처 티켓이든 같은 공연으로 교환할 수 있어요.</span>
+      )}
+    </>
+  );
+}
+
 function InfoSection({ detail }: { detail: PerformanceDetail }) {
   const link = parseTicketingLink(detail.sourceUrl);
+  // 예매처 링크 목록(대표 먼저). 구 응답에는 없다 → 기존 sourceUrl 표시
+  const sources = detail.sources ?? [];
   // 포스터는 부가 정보 — 못 가져오면 조용히 없는 것으로 둔다(오류 표시·대체 링크 없음)
   const [posterUrl, setPosterUrl] = useState<string | null>(null);
   useEffect(() => {
@@ -163,9 +190,11 @@ function InfoSection({ detail }: { detail: PerformanceDetail }) {
       <dl className={`${ui.well} ${cls.infoList} !gap-y-3`}>
         <dt className={cls.term}>공연장</dt>
         <dd className={cls.desc}>{detail.venueName}</dd>
-        <dt className={cls.term}>티켓팅</dt>
+        <dt className={cls.term}>{sources.length > 0 ? "예매처" : "티켓팅"}</dt>
         <dd className={cls.desc}>
-          {link ? (
+          {sources.length > 0 ? (
+            <SourceLinks sources={sources} />
+          ) : link ? (
             <>
               <a href={link.href} target="_blank" rel="noopener noreferrer" className={ui.link}>
                 {link.host}

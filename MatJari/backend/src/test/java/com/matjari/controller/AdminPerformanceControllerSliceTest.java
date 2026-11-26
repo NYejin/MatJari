@@ -35,6 +35,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -82,7 +83,7 @@ class AdminPerformanceControllerSliceTest {
         return new Detail(100L, "제목", "공연장", "https://x", true, AT, "사유", "관리자",
                 new AdminPerformanceService.Registrant(1L, "등록자"),
                 List.of(new AdminPerformanceService.SessionItem(7L, LocalDateTime.of(2026, 11, 1, 19, 0), true)),
-                List.of(new AdminPerformanceService.ZoneItem("A구역", null)), null, null, AT);
+                List.of(new AdminPerformanceService.ZoneItem("A구역", null)), null, null, List.of(), AT);
     }
 
     @Test
@@ -163,5 +164,35 @@ class AdminPerformanceControllerSliceTest {
         mockMvc.perform(as("admin", post("/api/admin/performances/100/session-changes")).content("{}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("SESSION_EDIT_CONFLICT"));
+    }
+
+    @Test
+    void 링크_추가와_삭제는_관리자만이고_상태_코드와_오류_코드를_돌려준다() throws Exception {
+        var item = new com.matjari.dto.response.PerformanceSourceDtos.SourceItem(2L, "interpark", "인터파크(NOL)", "https://nol", false);
+        when(service.addSource(eq(2L), eq(100L), any())).thenReturn(
+                new com.matjari.service.PerformanceSourceService.AddResult(List.of(item), true, null),
+                new com.matjari.service.PerformanceSourceService.AddResult(List.of(item), false, null));
+        when(service.removeSource(2L, 100L, 2L, "잘못 붙임")).thenReturn(List.of());
+        when(service.removeSource(2L, 100L, 1L, "x")).thenThrow(
+                new ConflictException("대표 링크는 삭제할 수 없어요.", Map.of("code", "PRIMARY_SOURCE")));
+
+        mockMvc.perform(as("user", post("/api/admin/performances/100/sources")).content("{}")).andExpect(status().isForbidden());
+        mockMvc.perform(as("user", delete("/api/admin/performances/100/sources/2"))).andExpect(status().isForbidden());
+        mockMvc.perform(as("admin", post("/api/admin/performances/100/sources"))
+                        .content("{\"sourceUrl\":\"https://nol\",\"reason\":\"판매처 추가\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.sources[0].site").value("interpark"));
+        mockMvc.perform(as("admin", post("/api/admin/performances/100/sources"))
+                        .content("{\"sourceUrl\":\"https://nol\",\"reason\":\"판매처 추가\"}"))
+                .andExpect(status().isOk());
+        // 사유는 본문 또는 쿼리로
+        mockMvc.perform(as("admin", delete("/api/admin/performances/100/sources/2")).content("{\"reason\":\"잘못 붙임\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sources").isEmpty());
+        mockMvc.perform(as("admin", delete("/api/admin/performances/100/sources/2")).param("reason", "잘못 붙임"))
+                .andExpect(status().isOk());
+        mockMvc.perform(as("admin", delete("/api/admin/performances/100/sources/1")).param("reason", "x"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PRIMARY_SOURCE"));
     }
 }

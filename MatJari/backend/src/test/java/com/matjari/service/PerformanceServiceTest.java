@@ -479,4 +479,131 @@ class PerformanceServiceTest {
 
         assertThat(service.getZones(100L).seatmapImage()).isEqualTo(IMAGE);
     }
+
+    // ---- 여러 예매처 링크 묶기(V32) ----
+
+    private PerformanceSourceService sourceService() {
+        PerformanceSourceService sources = mock(PerformanceSourceService.class);
+        when(sources.findSimilar(any(), any(), any(), any())).thenReturn(List.of());
+        when(sources.list(any(Performance.class))).thenReturn(List.of());
+        service.setSources(sources);
+        return sources;
+    }
+
+    private static com.matjari.dto.response.PerformanceSourceDtos.Candidate candidate(long id) {
+        return new com.matjari.dto.response.PerformanceSourceDtos.Candidate(id, "공연 " + id, "KSPO DOME",
+                NOW.plusDays(10), NOW.plusDays(12), 3, List.of("melon"));
+    }
+
+    @Test
+    void lookupFindsLinkAddedToAnotherPerformance() {
+        PerformanceSourceService sources = sourceService();
+        when(performanceRepository.findIdBySourceKey(KEY)).thenReturn(Optional.empty());
+        when(sources.findPerformanceIdBySourceKey(KEY)).thenReturn(Optional.of(55L));
+
+        var found = service.lookup(URL);
+        assertThat(found.exists()).isTrue();
+        assertThat(found.performanceId()).isEqualTo(55L);
+
+        when(sources.findPerformanceIdBySourceKey(KEY)).thenReturn(Optional.empty());
+        assertThat(service.lookup(URL).exists()).isFalse();
+    }
+
+    @Test
+    void createWithLinkAddedToAnotherPerformanceIs409() {
+        PerformanceSourceService sources = sourceService();
+        when(performanceRepository.findIdBySourceKey(KEY)).thenReturn(Optional.empty());
+        when(sources.findPerformanceIdBySourceKey(KEY)).thenReturn(Optional.of(55L));
+
+        assertThatThrownBy(() -> service.create(1L, request(List.of(NOW.plusDays(3)))))
+                .isInstanceOfSatisfying(ConflictException.class,
+                        e -> assertThat(e.getDetails()).containsEntry("performanceId", 55L));
+        verify(performanceRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void createWritesPrimarySourceRowAfterPerformanceInsert() {
+        PerformanceSourceService sources = sourceService();
+        stubInserts();
+
+        service.create(1L, request(List.of(NOW.plusDays(3))));
+
+        var order = inOrder(performanceRepository, sources);
+        order.verify(performanceRepository).saveAndFlush(any(Performance.class));
+        order.verify(sources).insertPrimary(any(Performance.class), eq(1L));
+    }
+
+    @Test
+    void createWithSimilarPerformanceIs409WithCandidatesUnlessConfirmedOrAdmin() {
+        PerformanceSourceService sources = sourceService();
+        stubInserts();
+        LocalDateTime d1 = NOW.plusDays(5).withHour(19).withMinute(0);
+        when(sources.findSimilar(any(), any(), any(), any())).thenReturn(List.of(candidate(7L)));
+
+        assertThatThrownBy(() -> service.create(1L, request(List.of(d1.plusDays(2), d1))))
+                .isInstanceOfSatisfying(ConflictException.class, e -> {
+                    assertThat(e.getDetails()).containsEntry("code", "SIMILAR_PERFORMANCE_EXISTS");
+                    assertThat((List<?>) e.getDetails().get("candidates")).hasSize(1);
+                });
+        // 사용자가 확인한 제목·공연장·회차 날짜 범위(첫~마지막)로 찾는다
+        verify(sources).findSimilar("두아 리파 내한", "KSPO DOME", d1.toLocalDate(), d1.plusDays(2).toLocalDate());
+        verify(performanceRepository, never()).saveAndFlush(any());
+
+        // confirmNewPerformance=true 면 통과
+        PerformanceCreateRequest confirmed = new PerformanceCreateRequest(URL, "제목", kspo, List.of(d1), null, null, null, true);
+        assertThat(service.create(1L, confirmed).id()).isEqualTo(100L);
+        // false 는 통과하지 못한다
+        PerformanceCreateRequest notConfirmed = new PerformanceCreateRequest(URL, "제목", kspo, List.of(d1), null, null, null, false);
+        assertThatThrownBy(() -> service.create(1L, notConfirmed)).isInstanceOf(ConflictException.class);
+    }
+
+    @Test
+    void adminSkipsSimilarPerformanceCheck() {
+        PerformanceSourceService sources = sourceService();
+        stubInserts();
+        when(sources.findSimilar(any(), any(), any(), any())).thenReturn(List.of(candidate(7L)));
+
+        assertThat(service.create(1L, request(List.of(NOW.plusDays(3))), true).id()).isEqualTo(100L);
+        verify(sources, never()).findSimilar(any(), any(), any(), any());
+    }
+
+    @Test
+    void createWithNoSimilarPerformanceNeedsNoConfirmation() {
+        sourceService();
+        stubInserts();
+        assertThat(service.create(1L, request(List.of(NOW.plusDays(3)))).id()).isEqualTo(100L);
+    }
+
+    @Test
+    void createRaceOnAddedLinkUniqueIs409WithWinnerId() {
+        PerformanceSourceService sources = sourceService();
+        stubInserts();
+        when(performanceRepository.findIdBySourceKey(KEY)).thenReturn(Optional.empty());
+        when(sources.findPerformanceIdBySourceKey(KEY))
+                .thenReturn(Optional.empty())    // 사전 확인
+                .thenReturn(Optional.empty())    // 트랜잭션 안 확인
+                .thenReturn(Optional.of(99L));   // 레이스 뒤 재조회
+        org.mockito.Mockito.doThrow(uniqueViolation("performance_source", "uk_performance_source_source_key"))
+                .when(sources).insertPrimary(any(Performance.class), anyLong());
+
+        assertThatThrownBy(() -> service.create(1L, request(List.of(NOW.plusDays(3)))))
+                .isInstanceOfSatisfying(ConflictException.class,
+                        e -> assertThat(e.getDetails()).containsEntry("performanceId", 99L));
+    }
+
+    @Test
+    void detailExposesSourcesFromSourceServiceOrPrimaryOnly() {
+        Performance p = performance(100L, kspo, registrant);
+        when(performanceRepository.findDetailById(100L)).thenReturn(Optional.of(p));
+        assertThat(service.get(100L, 1L).sources()).singleElement().satisfies(s -> {
+            assertThat(s.primary()).isTrue();
+            assertThat(s.site()).isEqualTo("interpark");
+            assertThat(s.siteName()).isEqualTo("인터파크(NOL)");
+        });
+
+        PerformanceSourceService sources = sourceService();
+        var item = new com.matjari.dto.response.PerformanceSourceDtos.SourceItem(1L, "melon", "멜론티켓", "https://m", true);
+        when(sources.list(p)).thenReturn(List.of(item));
+        assertThat(service.get(100L, 1L).sources()).containsExactly(item);
+    }
 }

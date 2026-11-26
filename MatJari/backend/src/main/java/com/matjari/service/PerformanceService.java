@@ -2,11 +2,13 @@ package com.matjari.service;
 
 import com.matjari.domain.Performance;
 import com.matjari.domain.PerformanceSession;
+import com.matjari.domain.PerformanceSource;
 import com.matjari.domain.PerformanceZone;
 import com.matjari.domain.User;
 import com.matjari.dto.request.PerformanceCreateRequest;
 import com.matjari.dto.response.PageResponse;
 import com.matjari.dto.response.PerformanceDetailResponse;
+import com.matjari.dto.response.PerformanceSourceDtos;
 import com.matjari.dto.response.SeatmapImageResponse;
 import com.matjari.dto.response.PerformanceLookupResponse;
 import com.matjari.dto.response.PerformanceSummaryResponse;
@@ -35,6 +37,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -89,11 +92,28 @@ public class PerformanceService {
         this.seatmapImages = seatmapImages;
     }
 
-    /** 링크로 이미 등록된 공연이 있는지 (등록 화면에서 입력 직후 확인용). 형식 오류는 400 {"sourceUrl": ...}. */
+    /** 여러 예매처 링크 묶기(V32). null 이면 대표 링크(performance.source_key)만 보고 후보 검사·링크 행 기록도 하지 않는다(단위 시험). */
+    private PerformanceSourceService sources;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setSources(PerformanceSourceService sources) {
+        this.sources = sources;
+    }
+
+    /** 링크로 이미 등록된 공연 id: 대표 링크가 아니라 다른 공연에 추가 링크로 달린 것도 찾는다. */
+    private Optional<Long> findExistingId(String sourceKey) {
+        Optional<Long> primary = performanceRepository.findIdBySourceKey(sourceKey);
+        if (primary.isPresent() || sources == null) {
+            return primary;
+        }
+        return sources.findPerformanceIdBySourceKey(sourceKey);
+    }
+
+    /** 링크로 이미 등록된 공연이 있는지 (등록 화면에서 입력 직후 확인용). 형식 오류는 400 {"sourceUrl": ...}. 추가 링크도 찾는다. */
     @Transactional(readOnly = true)
     public PerformanceLookupResponse lookup(String sourceUrl) {
         String sourceKey = sourceKeyResolver.resolve(sourceUrl);
-        return performanceRepository.findIdBySourceKey(sourceKey)
+        return findExistingId(sourceKey)
                 .map(PerformanceLookupResponse::found)
                 .orElseGet(PerformanceLookupResponse::notFound);
     }
@@ -177,11 +197,18 @@ public class PerformanceService {
      * 기존 공연 id를 조회해 같은 409로 응답한다 (메서드 전체를 @Transactional로 묶지 않는 이유).
      */
     public PerformanceDetailResponse create(Long userId, PerformanceCreateRequest request) {
+        return create(userId, request, false);
+    }
+
+    /**
+     * admin=true 이면 같은 공연 후보 검사(409 SIMILAR_PERFORMANCE_EXISTS)를 건너뛴다. 일반 사용자는 이미 비슷한 공연(공연장이 같고 회차 기간이 겹침)이 있으면
+     * confirmNewPerformance=true 로 다시 보내야 등록된다. 검사는 사용자가 확인한 제목·공연장·회차 날짜 범위로 하므로 외부 요청이 없다(트랜잭션 밖 읽기).
+     */
+    public PerformanceDetailResponse create(Long userId, PerformanceCreateRequest request, boolean admin) {
         String sourceUrl = request.sourceUrl() == null ? null : request.sourceUrl().strip();
         String sourceKey = sourceKeyResolver.resolve(sourceUrl);
         // 같은 링크의 공연이 이미 있으면 제목/회차 검증보다 409를 먼저 - 프론트가 기존 공연으로 안내할 수 있게
-        Long existingId = transactionTemplate.execute(
-                status -> performanceRepository.findIdBySourceKey(sourceKey).orElse(null));
+        Long existingId = transactionTemplate.execute(status -> findExistingId(sourceKey).orElse(null));
         if (existingId != null) {
             throw duplicatePerformance(existingId);
         }
@@ -193,6 +220,13 @@ public class PerformanceService {
         // 원본 좌석표 이미지 위치는 요청에서 받지 않는다. 링크(sourceKey)의 AI 보관 결과에서만 얻고, 모양 있는 구역이 있을 때만 저장한다(V31).
         SeatmapImageResponse seatmapImage = seatmapImages != null && zoneInputs.stream().anyMatch(z -> z.shapePolygons() != null)
                 ? seatmapImages.findStored(sourceKey, seatmapAspect).orElse(null) : null;
+        if (sources != null && !admin && !Boolean.TRUE.equals(request.confirmNewPerformance()) && !startsAts.isEmpty()) {
+            List<PerformanceSourceDtos.Candidate> similar = sources.findSimilar(title, venueName,
+                    startsAts.get(0).toLocalDate(), startsAts.get(startsAts.size() - 1).toLocalDate());
+            if (!similar.isEmpty()) {
+                throw similarExists(similar);
+            }
+        }
         PerformanceCreateRequest.TicketInput ticketInput = request.ticket();
         TicketService.SeatInput seat = ticketInput == null ? null : normalizeTicketSeat(ticketInput);
         LocalDateTime ticketStartsAt = ticketInput == null ? null : PerformanceSession.truncate(ticketInput.sessionStartsAt());
@@ -205,7 +239,7 @@ public class PerformanceService {
                 // 티켓 등록과 같은 규칙: users 행 FOR UPDATE 가 트랜잭션의 첫 쿼리(활성 티켓 상한 직렬화, 탈퇴 겹침 차단)
                 User registrant = seat != null ? ticketService.lockActiveUser(userId) : null;
                 // 사전 확인과 insert 사이에 등록된 경우 (unique 제약이 최종 방어)
-                performanceRepository.findIdBySourceKey(sourceKey).ifPresent(id -> {
+                findExistingId(sourceKey).ifPresent(id -> {
                     throw duplicatePerformance(id);
                 });
                 if (registrant == null) {
@@ -217,6 +251,9 @@ public class PerformanceService {
                     SeatmapImageService.apply(newPerformance, seatmapImage);
                 }
                 Performance performance = performanceRepository.saveAndFlush(newPerformance);
+                if (sources != null) {
+                    sources.insertPrimary(performance, registrant.getId()); // 대표 링크도 performance_source 에 한 행
+                }
                 List<PerformanceSession> sessions = new ArrayList<>();
                 for (LocalDateTime startsAt : startsAts) {
                     sessions.add(sessionRepository.save(PerformanceSession.create(performance, startsAt)));
@@ -242,13 +279,13 @@ public class PerformanceService {
                 return toDetail(performance, sessions, zones, userId);
             });
         } catch (DataIntegrityViolationException e) {
-            if (!DataIntegrityViolations.isViolationOf(e, UNIQUE_SOURCE_KEY)) {
+            if (!DataIntegrityViolations.isViolationOf(e, UNIQUE_SOURCE_KEY)
+                    && !DataIntegrityViolations.isViolationOf(e, PerformanceSource.UNIQUE_SOURCE_KEY)) {
                 throw e;
             }
             // 실패한 insert 트랜잭션은 이미 롤백됐다. open-in-view=false라 아래 재조회는 새 트랜잭션/새 세션에서 돈다.
             log.info("Performance create race on sourceKey '{}'", sourceKey);
-            Long winnerId = transactionTemplate.execute(
-                    status -> performanceRepository.findIdBySourceKey(sourceKey).orElse(null));
+            Long winnerId = transactionTemplate.execute(status -> findExistingId(sourceKey).orElse(null));
             throw duplicatePerformance(winnerId);
         }
     }
@@ -285,7 +322,8 @@ public class PerformanceService {
                 performance.isRegisteredBy(userId),
                 sessions.stream().map(SessionResponse::from).toList(),
                 performance.getCreatedAt(),
-                performance.isHidden());
+                performance.isHidden(),
+                sources == null ? PerformanceSourceService.primaryOnly(performance) : sources.list(performance));
     }
 
     /** 토큰은 유효하나 사용자가 없는 경우 → 401 (spring-boot-conventions 예외 조항). */
@@ -314,6 +352,13 @@ public class PerformanceService {
             throw new FieldValidationException("venueName", "공연장 이름은 100자 이하로 입력해주세요.");
         }
         return cleaned;
+    }
+
+    private static ConflictException similarExists(List<PerformanceSourceDtos.Candidate> candidates) {
+        Map<String, Object> details = new java.util.LinkedHashMap<>();
+        details.put("code", "SIMILAR_PERFORMANCE_EXISTS");
+        details.put("candidates", candidates);
+        return new ConflictException("같은 공연일 수 있는 공연이 이미 있어요. 그 공연에 링크를 추가하거나, 다른 공연이라면 새 공연으로 등록해 주세요.", details);
     }
 
     private static ConflictException duplicatePerformance(Long existingId) {

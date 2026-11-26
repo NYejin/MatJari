@@ -43,16 +43,27 @@ public record PerformanceCreateRequest(
 
         /** 등록자의 티켓. 일반 사용자는 필수(컨트롤러가 400 ticket), 관리자는 선택(2026-10-22). 회차는 sessions 중 하나의 시각으로 고른다. */
         @Valid
-        TicketInput ticket
+        TicketInput ticket,
+
+        /**
+         * 선택. 같은 공연일 수 있는 기존 공연(공연장이 같고 회차 기간이 겹침)이 있으면 true 로 다시 보내야 새 공연으로 등록된다
+         * (아니면 409 SIMILAR_PERFORMANCE_EXISTS + candidates). 관리자는 이 검사를 건너뛴다.
+         */
+        Boolean confirmNewPerformance
 ) {
     /** 구역·좌석표·티켓 필드가 없던 기존 호출용 (서비스 단위 시험). */
     public PerformanceCreateRequest(String sourceUrl, String title, String venueName, List<LocalDateTime> sessions) {
-        this(sourceUrl, title, venueName, sessions, null, null, null);
+        this(sourceUrl, title, venueName, sessions, null, null, null, null);
     }
 
     public PerformanceCreateRequest(String sourceUrl, String title, String venueName, List<LocalDateTime> sessions,
                                     List<ZoneInput> zones, BigDecimal seatmapAspect) {
-        this(sourceUrl, title, venueName, sessions, zones, seatmapAspect, null);
+        this(sourceUrl, title, venueName, sessions, zones, seatmapAspect, null, null);
+    }
+
+    public PerformanceCreateRequest(String sourceUrl, String title, String venueName, List<LocalDateTime> sessions,
+                                    List<ZoneInput> zones, BigDecimal seatmapAspect, TicketInput ticket) {
+        this(sourceUrl, title, venueName, sessions, zones, seatmapAspect, ticket, null);
     }
 
     /**

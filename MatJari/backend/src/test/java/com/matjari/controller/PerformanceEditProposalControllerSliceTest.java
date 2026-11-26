@@ -67,6 +67,8 @@ class PerformanceEditProposalControllerSliceTest {
     private PerformanceService performanceService;
     @MockBean
     private PerformancePreviewService previewService;
+    @MockBean
+    private com.matjari.service.PerformanceSourceService sourceService;
 
     @BeforeEach
     void setUp() {

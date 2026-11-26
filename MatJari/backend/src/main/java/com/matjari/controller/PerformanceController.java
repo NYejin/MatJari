@@ -8,9 +8,13 @@ import com.matjari.dto.response.PerformancePreviewResponse;
 import com.matjari.dto.response.PerformanceSummaryResponse;
 import com.matjari.dto.response.PerformanceZonesResponse;
 import com.matjari.security.AuthUserPrincipal;
+import com.matjari.dto.response.PerformanceSourceDtos;
 import com.matjari.service.PerformanceService;
+import com.matjari.service.PerformanceSourceService;
 import com.matjari.service.linkinfo.PerformancePreviewService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
@@ -37,6 +41,7 @@ public class PerformanceController {
 
     private final PerformanceService performanceService;
     private final PerformancePreviewService previewService;
+    private final PerformanceSourceService sourceService;
 
     /** 목록. asOf("yyyy-MM-ddTHH:mm", 선택): 페이지를 넘기는 동안 정렬 기준 시각 고정. 형식 오류는 400. */
     @GetMapping
@@ -53,6 +58,36 @@ public class PerformanceController {
     public PerformanceLookupResponse lookup(@RequestParam String sourceUrl) {
         return performanceService.lookup(sourceUrl);
     }
+
+    /**
+     * 같은 공연 후보 찾기(V32): 링크 미리보기로 읽은 제목·공연장·기간으로, 공연장이 같고 회차 기간이 겹치는 공연을 최대 3개.
+     * 이미 그 링크가 등록돼 있으면 existingPerformanceId. 형식 오류 400, 미리보기 속도 제한 429 PREVIEW_RATE_LIMITED(미리보기와 같은 제한).
+     */
+    @GetMapping("/similar")
+    public PerformanceSourceDtos.SimilarResponse similar(@RequestParam String sourceUrl,
+                                                         @AuthenticationPrincipal AuthUserPrincipal principal) {
+        return sourceService.similar(principal.userId(), sourceUrl);
+    }
+
+    /**
+     * 공연에 예매처 링크 추가(일반 사용자 가능). 새로 달면 201, 이미 이 공연에 달려 있으면 멱등 200, 응답 {sources}.
+     * 400 sourceUrl(형식·미지원 사이트), 404, 409 SOURCE_ALREADY_REGISTERED(+performanceId)·PERFORMANCE_HIDDEN,
+     * 422 SOURCE_NOT_SAME_PERFORMANCE·SOURCE_LIMIT_REACHED(공연당 6개).
+     */
+    @PostMapping("/{id}/sources")
+    public ResponseEntity<PerformanceSourceDtos.SourcesResponse> addSource(
+            @PathVariable Long id, @Valid @RequestBody SourceAddRequest request,
+            @AuthenticationPrincipal AuthUserPrincipal principal) {
+        PerformanceSourceService.AddResult result = sourceService.addByUser(principal.userId(), id, request.sourceUrl());
+        return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK)
+                .body(new PerformanceSourceDtos.SourcesResponse(result.sources()));
+    }
+
+    /** 링크 추가 요청 본문. */
+    public record SourceAddRequest(
+            @NotBlank(message = "티켓팅 링크를 입력해주세요.")
+            @Size(max = 2048, message = "티켓팅 링크는 2048자 이하로 입력해주세요.")
+            String sourceUrl) {}
 
     /**
      * 링크 페이지의 공개 HTML에서 제목·공연장·기간 미리보기 (회차 시각은 읽을 수 없다). 항상 200 + status,
@@ -98,6 +133,6 @@ public class PerformanceController {
             throw new com.matjari.exception.FieldValidationException("ticket", "내 티켓 정보를 입력해주세요.");
         }
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(performanceService.create(principal.userId(), request));
+                .body(performanceService.create(principal.userId(), request, principal.isAdmin()));
     }
 }

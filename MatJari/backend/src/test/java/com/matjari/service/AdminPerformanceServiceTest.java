@@ -310,4 +310,91 @@ class AdminPerformanceServiceTest {
         verify(logger).log(eq(9L), eq(AdminActionLog.Action.PERFORMANCE_ZONES), any(), eq(100L), eq("x"), summary.capture());
         assertThat(summary.getValue()).contains("\"seatmapImageMode\":\"LINK\"").contains(IMAGE.url());
     }
+
+    // ---- 여러 예매처 링크 묶기(V32) ----
+
+    private static final String NOL = "https://nol.yanolja.com/ticket/products/26014836";
+    private static final String NOL_KEY = "interpark:26014836";
+
+    private PerformanceSourceService withSources() {
+        PerformanceSourceService sources = mock(PerformanceSourceService.class);
+        when(sources.requireSupportedKey(NOL)).thenReturn(NOL_KEY);
+        when(sources.list(any(Performance.class))).thenReturn(List.of());
+        service.setSources(sources);
+        return sources;
+    }
+
+    private static com.matjari.domain.PerformanceSource added(long id) {
+        com.matjari.domain.PerformanceSource s = com.matjari.domain.PerformanceSource.create(100L, NOL_KEY, NOL, 9L);
+        org.springframework.test.util.ReflectionTestUtils.setField(s, "id", id);
+        return s;
+    }
+
+    @Test
+    void 링크를_추가하면_같은_공연_검증_없이_만들고_PERFORMANCE_EDIT_기록을_남긴다() {
+        PerformanceSourceService sources = withSources();
+        when(sources.addLocked(performance, NOL, NOL_KEY, 9L, null, false))
+                .thenReturn(new PerformanceSourceService.AddResult(List.of(), true, added(5L)));
+
+        var result = service.addSource(9L, 100L, new AdminPerformanceService.SourceAddRequest("  " + NOL + " ", " 판매처 추가 "));
+
+        assertThat(result.created()).isTrue();
+        ArgumentCaptor<String> summary = ArgumentCaptor.forClass(String.class);
+        verify(logger).log(eq(9L), eq(AdminActionLog.Action.PERFORMANCE_EDIT), eq(AdminActionLog.TargetType.PERFORMANCE),
+                eq(100L), eq("판매처 추가"), summary.capture());
+        assertThat(summary.getValue()).contains("\"addedSource\"").contains("\"sourceId\":5").contains(NOL_KEY);
+    }
+
+    @Test
+    void 이미_이_공연에_있는_링크_추가는_멱등이라_기록이_없다() {
+        PerformanceSourceService sources = withSources();
+        when(sources.addLocked(performance, NOL, NOL_KEY, 9L, null, false))
+                .thenReturn(new PerformanceSourceService.AddResult(List.of(), false, null));
+
+        assertThat(service.addSource(9L, 100L, new AdminPerformanceService.SourceAddRequest(NOL, "x")).created()).isFalse();
+        verify(logger, never()).log(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void 링크_추가는_사유가_필수이고_검증은_공연_잠금_전에_한다() {
+        withSources();
+        assertThatThrownBy(() -> service.addSource(9L, 100L, new AdminPerformanceService.SourceAddRequest(NOL, " ")))
+                .isInstanceOf(FieldValidationException.class);
+        verify(performanceRepository, never()).findByIdForUpdate(any());
+        verify(logger, never()).log(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void 링크_삭제는_사유가_필수이고_기록에_removedSource가_들어간다() {
+        PerformanceSourceService sources = withSources();
+        when(sources.removeLocked(performance, 5L)).thenReturn(added(5L));
+
+        assertThatThrownBy(() -> service.removeSource(9L, 100L, 5L, null)).isInstanceOf(FieldValidationException.class);
+        service.removeSource(9L, 100L, 5L, "잘못 붙임");
+
+        ArgumentCaptor<String> summary = ArgumentCaptor.forClass(String.class);
+        verify(logger).log(eq(9L), eq(AdminActionLog.Action.PERFORMANCE_EDIT), any(), eq(100L), eq("잘못 붙임"), summary.capture());
+        assertThat(summary.getValue()).contains("\"removedSource\"").contains("\"sourceId\":5");
+    }
+
+    @Test
+    void 대표_링크_삭제가_거절되면_기록이_없다() {
+        PerformanceSourceService sources = withSources();
+        when(sources.removeLocked(performance, 1L))
+                .thenThrow(new ConflictException("대표 링크는 삭제할 수 없어요.", java.util.Map.of("code", "PRIMARY_SOURCE")));
+
+        assertThatThrownBy(() -> service.removeSource(9L, 100L, 1L, "x")).isInstanceOf(ConflictException.class);
+        verify(logger, never()).log(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void 상세는_링크_목록을_담고_연결이_없으면_대표_링크만_합성한다() {
+        when(performanceRepository.findDetailById(100L)).thenReturn(Optional.of(performance));
+        assertThat(service.get(100L).sources()).singleElement().satisfies(s -> assertThat(s.primary()).isTrue());
+
+        PerformanceSourceService sources = withSources();
+        var item = new com.matjari.dto.response.PerformanceSourceDtos.SourceItem(1L, "interpark", "인터파크(NOL)", "u", true);
+        when(sources.list(performance)).thenReturn(List.of(item));
+        assertThat(service.get(100L).sources()).containsExactly(item);
+    }
 }

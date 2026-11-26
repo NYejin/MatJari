@@ -21,6 +21,8 @@ export interface PerformanceDetail {
   id: number;
   title: string;
   sourceUrl: string;
+  /** 예매처 링크 목록(대표 먼저). 구 응답에는 없을 수 있다 */
+  sources?: PerformanceSource[];
   venueName: string;
   registrant: { id: number; nickname: string };
   sessions: PerformanceSession[];
@@ -141,6 +143,36 @@ export interface PerformanceCreateRequest {
   /** 등록자의 티켓(필수). 공연은 티켓 등록과 함께만 등록되고, 공연에는 이 티켓이 연결·표시되지 않는다 */
   /** 일반 사용자는 필수, 관리자는 생략 가능(공연만 등록) */
   ticket?: PerformanceTicketInput;
+  /** 비슷한 공연 후보를 보고도 '다른 공연'이라고 확인했을 때 true (없으면 서버가 후보를 검사해 409 SIMILAR_PERFORMANCE_EXISTS) */
+  confirmNewPerformance?: boolean;
+}
+
+/** 공연의 예매처 링크 한 개 */
+export interface PerformanceSource {
+  id: number;
+  /** "melon" | "interpark" | "ticketlink" | "yes24" */
+  site: string;
+  siteName: string;
+  url: string;
+  primary: boolean;
+}
+
+/** GET /performances/similar 후보·409 SIMILAR_PERFORMANCE_EXISTS 의 candidates 항목 */
+export interface SimilarCandidate {
+  id: number;
+  title: string;
+  venueName: string;
+  firstSessionAt: string | null;
+  lastSessionAt: string | null;
+  sessionCount: number;
+  sites: string[];
+}
+
+/** GET /api/performances/similar?sourceUrl= */
+export interface SimilarResponse {
+  preview: { status: string; title: string | null; venueName: string | null; periodStart: string | null; periodEnd: string | null } | null;
+  existingPerformanceId: number | null;
+  candidates: SimilarCandidate[];
 }
 
 /** 공연 등록과 함께 만드는 내 티켓. sessionStartsAt 은 sessions 중 하나 */

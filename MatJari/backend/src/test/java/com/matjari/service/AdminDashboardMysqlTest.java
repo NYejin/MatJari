@@ -59,7 +59,7 @@ class AdminDashboardMysqlTest {
     void setUp() {
         assertThat(jdbc.queryForObject("SELECT DATABASE()", String.class)).endsWith("_dash_it");
         for (String t : List.of("ai_call_log", "ai_extract_usage", "ai_extract_cache", "admin_action_log", "abuse_report", "exchange_request",
-                "ticket", "performance_zone", "performance_session", "performance", "users")) {
+                "ticket", "performance_zone", "performance_session", "performance_source", "performance", "users")) {
             jdbc.update("DELETE FROM " + t);
         }
         // 앱은 KST 현지 시각을 저장한다(MySQL NOW() 는 UTC 라 자정 무렵 날짜가 어긋난다)

@@ -95,14 +95,14 @@ class ExchangeRequestControllerSliceTest {
                 List.of(new ExchangeRequestResponse.WantRangeItem("B", "1", "2", "3", "5", "NEG", -10000)),
                 6,
                 LocalDateTime.of(2026, 10, 6, 14, 3, 21),
-                LocalDateTime.of(2026, 10, 6, 14, 3, 21));
+                LocalDateTime.of(2026, 10, 6, 14, 3, 21), List.of());
     }
 
     private static final String RESPONSE_JSON = """
             {"id":900,"ticketId":500,"status":"OPEN",
              "wantSessions":[{"sessionId":8,"priority":1,"startsAt":"2026-11-02T19:00"}],
              "ranges":[{"zone":"B","rowFrom":"1","rowTo":"2","colFrom":"3","colTo":"5","extraType":"NEG","extraAmount":-10000}],
-             "wantSeatCount":6,"createdAt":"2026-10-06T14:03:21","updatedAt":"2026-10-06T14:03:21"}
+             "wantSeatCount":6,"createdAt":"2026-10-06T14:03:21","updatedAt":"2026-10-06T14:03:21","images":[]}
             """;
 
     @Test
@@ -115,7 +115,7 @@ class ExchangeRequestControllerSliceTest {
     void candidatesReturnPageShapeWithDefaults() throws Exception {
         var item = new ExchangeCandidateResponse(901L, 1001L, "B", "2", "3", 8L,
                 LocalDateTime.of(2026, 11, 2, 19, 0), "닉", 1, "NEG", -8000, "POS", 5000,
-                new ExchangeCandidateResponse.SettlementHint(5000, 8000), LocalDateTime.of(2026, 10, 5, 9, 0, 1));
+                new ExchangeCandidateResponse.SettlementHint(5000, 8000), LocalDateTime.of(2026, 10, 5, 9, 0, 1), List.of(), List.of());
         when(exchangeCandidateService.findCandidates(1L, 900L, 0, 20))
                 .thenReturn(new PageResponse<>(List.of(item), 0, 20, 1, 1));
 
@@ -125,7 +125,7 @@ class ExchangeRequestControllerSliceTest {
                         {"content":[{"requestId":901,"ticketId":1001,"zone":"B","row":"2","col":"3","sessionId":8,
                           "startsAt":"2026-11-02T19:00","nickname":"닉","wantPriority":1,
                           "extraType":"NEG","extraAmount":-8000,"myExtraType":"POS","myExtraAmount":5000,
-                          "settlementHint":{"min":5000,"max":8000},"requestedAt":"2026-10-05T09:00:01"}],
+                          "settlementHint":{"min":5000,"max":8000},"requestedAt":"2026-10-05T09:00:01","ticketImages":[],"requestImages":[]}],
                          "page":0,"size":20,"totalElements":1,"totalPages":1}
                         """, true));
     }
@@ -134,7 +134,7 @@ class ExchangeRequestControllerSliceTest {
     void candidatesPassPageAndSizeAndNullHint() throws Exception {
         var item = new ExchangeCandidateResponse(901L, 1001L, "B", "2", "3", 8L,
                 LocalDateTime.of(2026, 11, 2, 19, 0), "닉", 1, "X", null, "ANY", null, null,
-                LocalDateTime.of(2026, 10, 5, 9, 0, 1));
+                LocalDateTime.of(2026, 10, 5, 9, 0, 1), List.of(), List.of());
         when(exchangeCandidateService.findCandidates(1L, 900L, 2, 50))
                 .thenReturn(new PageResponse<>(List.of(item), 2, 50, 101, 3));
 
@@ -148,7 +148,7 @@ class ExchangeRequestControllerSliceTest {
     void candidateScrollReturnsSliceShapeAndPassesCursorAndSize() throws Exception {
         var item = new ExchangeCandidateResponse(901L, 1001L, "B", "2", "3", 8L,
                 LocalDateTime.of(2026, 11, 2, 19, 0), "닉", 1, "X", null, "ANY", null, null,
-                LocalDateTime.of(2026, 10, 5, 9, 0, 1));
+                LocalDateTime.of(2026, 10, 5, 9, 0, 1), List.of(), List.of());
         when(exchangeCandidateService.findCandidateSlice(1L, 900L, "abc", 5))
                 .thenReturn(new com.matjari.dto.response.CandidateSliceResponse(List.of(item), 5, true, "next-cursor"));
 

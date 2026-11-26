@@ -14,6 +14,7 @@ import com.matjari.exception.NotFoundException;
 import com.matjari.repository.ExchangeCandidateRepository;
 import com.matjari.repository.ExchangeRequestRepository;
 import com.matjari.repository.ExchangeTicketLockRepository;
+import com.matjari.repository.ListingImageIndex;
 import com.matjari.repository.TicketRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -47,6 +48,7 @@ public class ExchangeCandidateService {
     private final ExchangeCandidateRepository candidateRepository;
     private final SessionTimePolicy timePolicy;
     private final ExchangeTicketLockRepository lockRepository;
+    private final ListingImageService listingImageService;
 
     @Transactional(readOnly = true)
     public PageResponse<ExchangeCandidateResponse> findCandidates(Long userId, Long requestId, int page, int size) {
@@ -59,7 +61,7 @@ public class ExchangeCandidateService {
         List<ExchangeCandidateRepository.Row> rows =
                 candidateRepository.findCandidates(requestId, todayStart, pageSize, offset);
         long total = candidateRepository.countCandidates(requestId, todayStart);
-        List<ExchangeCandidateResponse> content = rows.stream().map(ExchangeCandidateService::toResponse).toList();
+        List<ExchangeCandidateResponse> content = toResponses(rows);
         int totalPages = (int) ((total + pageSize - 1) / pageSize);
         return new PageResponse<>(content, page, pageSize, total, totalPages);
     }
@@ -85,7 +87,7 @@ public class ExchangeCandidateService {
         boolean hasNext = rows.size() > pageSize;
         List<ExchangeCandidateRepository.Row> page = hasNext ? rows.subList(0, pageSize) : rows;
         String next = hasNext ? ExchangeCandidateRepository.Cursor.of(page.get(page.size() - 1)).encode() : null;
-        return new CandidateSliceResponse(page.stream().map(ExchangeCandidateService::toResponse).toList(), pageSize, hasNext, next);
+        return new CandidateSliceResponse(toResponses(page), pageSize, hasNext, next);
     }
 
     /** 권한·상태 검증(남의 요청 403, 없음 404, 삭제 409, 닫힘·마감 422, 내 티켓 잠김 422). 통과하면 오늘 0시(KST)를 돌려준다. */
@@ -115,12 +117,23 @@ public class ExchangeCandidateService {
         return now.toLocalDate().atStartOfDay();
     }
 
+    /** 후보 페이지의 티켓·요청 id 를 모아 사진 참조를 한 번에 읽는다(V33, 후보 SQL 은 건드리지 않는다). */
+    private List<ExchangeCandidateResponse> toResponses(List<ExchangeCandidateRepository.Row> rows) {
+        if (rows.isEmpty()) {
+            return List.of();
+        }
+        ListingImageIndex images = listingImageService.index(
+                rows.stream().map(ExchangeCandidateRepository.Row::ticketId).toList(),
+                rows.stream().map(ExchangeCandidateRepository.Row::requestId).toList());
+        return rows.stream().map(r -> toResponse(r).withImages(images.ticket(r.ticketId()), images.request(r.requestId()))).toList();
+    }
+
     static ExchangeCandidateResponse toResponse(ExchangeCandidateRepository.Row r) {
         return new ExchangeCandidateResponse(r.requestId(), r.ticketId(), r.zone(), r.row(), r.col(),
                 r.sessionId(), r.startsAt(), r.nickname(), r.wantPriority(),
                 r.extraType(), r.extraAmount(), r.myExtraType(), r.myExtraAmount(),
                 settlementHint(r.myExtraType(), r.myExtraAmount(), r.extraType(), r.extraAmount()),
-                r.requestedAt());
+                r.requestedAt(), List.of(), List.of());
     }
 
     /**

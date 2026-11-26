@@ -93,6 +93,19 @@ matjari:
       initial-delay-ms: ${MATJARI_CHAT_IMAGE_CLEANUP_INITIAL_DELAY_MS:300000}
       grace-minutes: ${MATJARI_CHAT_IMAGE_CLEANUP_GRACE_MINUTES:60}
       batch: ${MATJARI_CHAT_IMAGE_CLEANUP_BATCH:200}
+  listing-image:
+    # 티켓('내 자리')·교환 희망 조건('원하는 자리') 사진(V33): 파일은 matjari.upload.dir/listing/ 에 저장. 티켓이 내려가거나 요청이 닫힌·삭제된 뒤
+    # 이 일수가 지나면 지운다(그 티켓·요청이 걸린 매칭에 처리 전 신고가 있으면 보관)
+    retention-days: ${MATJARI_LISTING_IMAGE_RETENTION_DAYS:30}
+    # 사용자당 KST 하루 사진 올리기 상한(초과 429 LISTING_IMAGE_RATE_LIMITED)과 1분당 처리 시도 상한(검증 실패 포함)
+    daily-limit: ${MATJARI_LISTING_IMAGE_DAILY_LIMIT:30}
+    process-per-minute: ${MATJARI_LISTING_IMAGE_PROCESS_PER_MINUTE:10}
+    cleanup:
+      enabled: ${MATJARI_LISTING_IMAGE_CLEANUP_ENABLED:true}
+      interval-ms: ${MATJARI_LISTING_IMAGE_CLEANUP_INTERVAL_MS:3600000}
+      initial-delay-ms: ${MATJARI_LISTING_IMAGE_CLEANUP_INITIAL_DELAY_MS:300000}
+      grace-minutes: ${MATJARI_LISTING_IMAGE_CLEANUP_GRACE_MINUTES:60}
+      batch: ${MATJARI_LISTING_IMAGE_CLEANUP_BATCH:200}
   notification-mail:
     # 안 읽은 알림을 사용자당 메일 1통(요약)으로 알린다. 단일 인스턴스 전제. mail mode 가 log 면 로그로만 나간다(개발)
     enabled: ${MATJARI_NOTIFICATION_MAIL_ENABLED:true}

@@ -104,6 +104,7 @@ public class WithdrawService {
     private final SessionTimePolicy timePolicy;
     private final Clock clock;
     private final TransactionTemplate transactionTemplate;
+    private final ListingImageService listingImageService;
     private final SecureRandom random = new SecureRandom();
     private final ConcurrentHashMap<Long, ArrayDeque<Long>> attempts = new ConcurrentHashMap<>();
 
@@ -117,7 +118,9 @@ public class WithdrawService {
                            OpenMatchCanceller matchCanceller, SeatClaimService seatClaimService,
                            SocialLinkConfirmStore reauthStore, SocialProperties socialProperties,
                            WebSocketSessionRegistry sessionRegistry, PasswordEncoder passwordEncoder,
-                           SessionTimePolicy timePolicy, Clock clock, PlatformTransactionManager transactionManager) {
+                           SessionTimePolicy timePolicy, Clock clock, PlatformTransactionManager transactionManager,
+                           ListingImageService listingImageService) {
+        this.listingImageService = listingImageService;
         this.userRepository = userRepository;
         this.ticketRepository = ticketRepository;
         this.exchangeRequestRepository = exchangeRequestRepository;
@@ -202,6 +205,7 @@ public class WithdrawService {
             passwordResetTokenRepository.deleteAllByUserId(userId);
             user.anonymizeForWithdrawal(unknownPassword, timePolicy.now());
             userRepository.saveAndFlush(user);
+            listingImageService.purgeForUser(userId);   // 티켓·희망 조건 사진(V33): 파일은 커밋 뒤 즉시 삭제, 행은 deleted_at 기록. 정리로 티켓이 INACTIVE·요청이 CLOSED 가 돼 새 사진은 409 로 막힌다
 
             deleteNotificationsOf(userId);   // 알림 삭제
             notificationSettingRepository.deleteByUserIdNative(userId);   // 알림 설정(메일 켜짐 여부·마지막 메일 시각) 삭제

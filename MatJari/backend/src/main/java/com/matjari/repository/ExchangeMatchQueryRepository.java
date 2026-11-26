@@ -84,6 +84,11 @@ public class ExchangeMatchQueryRepository {
                       String lastMessageHead, LocalDateTime lastMessageAt, Long lastMessageSenderId) {
 
         public ExchangeMatchResponse toResponse(Long userId) {
+            return toResponse(userId, ListingImageIndex.EMPTY);
+        }
+
+        /** 사진 참조(V33)까지 채운 응답. 상대 요청이 삭제됐으면 상대 요청 사진은 빈 목록이다. */
+        public ExchangeMatchResponse toResponse(Long userId, ListingImageIndex images) {
             boolean mineIsA = userId.equals(userAId);
             String canceledBy = null;
             if ("CANCELED".equals(status)) {
@@ -109,7 +114,10 @@ public class ExchangeMatchQueryRepository {
                     mineIsA ? aReservedElsewhere : bReservedElsewhere, mineIsA ? bReservedElsewhere : aReservedElsewhere,
                     reservedBy, reservedAt, mineIsA ? aAccepted : bAccepted, mineIsA ? bAccepted : aAccepted,
                     canceledBy, canceledAt, createdAt, updatedAt, unreadChatCount, reservationProposal,
-                    preview(lastMessageHead), lastMessageAt, lastMessageSenderId != null && userId.equals(lastMessageSenderId));
+                    preview(lastMessageHead), lastMessageAt, lastMessageSenderId != null && userId.equals(lastMessageSenderId),
+                    images.ticket(mineIsA ? ticketAId : ticketBId),
+                    images.ticket(mineIsA ? ticketBId : ticketAId),
+                    (mineIsA ? bRequestDeleted : aRequestDeleted) ? java.util.List.of() : images.request(mineIsA ? requestBId : requestAId));
         }
     }
 

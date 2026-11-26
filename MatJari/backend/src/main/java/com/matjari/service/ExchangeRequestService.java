@@ -96,6 +96,7 @@ public class ExchangeRequestService {
     private final WantSeatExpander expander;
     private final ExchangeMatchRepository matchRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final ListingImageService listingImageService;
 
     public ExchangeRequestService(ExchangeRequestRepository requestRepository,
                                   ExchangeWantRangeRepository rangeRepository,
@@ -110,7 +111,8 @@ public class ExchangeRequestService {
                                   @Value("${exchange.want.max-ranges:50}") int maxRanges,
                                   @Value("${ticket.max-row-number:999}") int maxRowNumber,
                                   @Value("${ticket.max-col-number:999}") int maxColNumber,
-                                  ApplicationEventPublisher eventPublisher) {
+                                  ApplicationEventPublisher eventPublisher,
+                                  ListingImageService listingImageService) {
         this.requestRepository = requestRepository;
         this.rangeRepository = rangeRepository;
         this.wantSessionRepository = wantSessionRepository;
@@ -119,6 +121,7 @@ public class ExchangeRequestService {
         this.sessionRepository = sessionRepository;
         this.matchRepository = matchRepository;
         this.eventPublisher = eventPublisher;
+        this.listingImageService = listingImageService;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.timePolicy = timePolicy;
         this.expander = new WantSeatExpander(maxRanges, maxSeats, maxRowNumber, maxColNumber);
@@ -182,6 +185,7 @@ public class ExchangeRequestService {
                 .collect(Collectors.groupingBy(ExchangeWantSessionRepository.Row::requestId));
         Map<Long, Integer> counts = seatRepository.countByRequestIds(ids);
 
+        com.matjari.repository.ListingImageIndex images = listingImageService.index(List.of(), ids);   // 사진 참조(V33)
         List<ExchangeRequestResponse> result = new ArrayList<>(requests.size());
         for (ExchangeRequest r : requests) {
             result.add(toResponse(r,
@@ -190,7 +194,7 @@ public class ExchangeRequestService {
                             .map(row -> new ExchangeRequestResponse.WantSessionItem(
                                     row.sessionId(), row.priority(), row.startsAt()))
                             .toList(),
-                    counts.getOrDefault(r.getId(), 0)));
+                    counts.getOrDefault(r.getId(), 0)).withImages(images.request(r.getId())));
         }
         return result;
     }
@@ -251,6 +255,7 @@ public class ExchangeRequestService {
         wantSessionRepository.deleteByRequestId(locked.getId());
         locked.markDeleted(now);
         requestRepository.saveAndFlush(locked);
+        listingImageService.purgeForRequest(locked.getId());   // 희망 조건이 사라지므로 사진도 곧바로 지운다(파일은 커밋 뒤, V33)
     }
 
     /**
@@ -374,7 +379,8 @@ public class ExchangeRequestService {
                         w.getExtraType().name(), w.getExtraAmount())).toList(),
                 seatCount,
                 r.getCreatedAt(),
-                r.getUpdatedAt());
+                r.getUpdatedAt(),
+                List.of());
     }
 
     private static ConflictException requestAlreadyExists() {

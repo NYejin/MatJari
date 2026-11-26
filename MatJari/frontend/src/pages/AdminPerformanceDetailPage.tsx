@@ -113,6 +113,7 @@ export default function AdminPerformanceDetailPage() {
         <div className="grid grid-cols-1 items-start gap-2 xl:grid-cols-3">
           <div className="flex min-w-0 flex-col gap-2">
             <InfoCard detail={d} onUpdated={updated} />
+            <SourcesCard detail={d} onUpdated={updated} />
             <HideCard detail={d} onUpdated={updated} />
             {d.hidden && <DeleteCard detail={d} />}
           </div>
@@ -277,6 +278,167 @@ function InfoCard({ detail, onUpdated }: CardProps) {
         <Feedback done={done} error={error} />
         <button type="submit" className={`${button.solid} self-start`} disabled={busy} aria-busy={busy}>
           {busy ? "저장 중..." : "정보 저장"}
+        </button>
+      </form>
+    </SectionCard>
+  );
+}
+
+// ---- 예매처 링크 ----
+
+/** 한 공연을 여러 예매처가 나눠 파는 경우 링크를 더 붙인다. 추가·삭제 모두 사유 필수, 대표 링크는 삭제 불가 */
+function SourcesCard({ detail, onUpdated }: CardProps) {
+  const sources = detail.sources ?? [];
+  const [url, setUrl] = useState("");
+  const [addReason, setAddReason] = useState("");
+  const [urlError, setUrlError] = useState<string>();
+  const [addReasonError, setAddReasonError] = useState<string>();
+  const [removing, setRemoving] = useState<number | null>(null); // 사유를 받는 중인 링크 id
+  const [removeReason, setRemoveReason] = useState("");
+  const [removeReasonError, setRemoveReasonError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState("");
+
+  const reload = async () => {
+    onUpdated(await adminPerformancesApi.get(detail.id));
+  };
+
+  const add = async (e: FormEvent) => {
+    e.preventDefault();
+    if (busyRef.current) return;
+    setDone("");
+    setError(null);
+    const u = url.trim();
+    const hasError = !u || !addReason.trim();
+    setUrlError(u ? undefined : "링크를 입력해 주세요.");
+    setAddReasonError(addReason.trim() ? undefined : "사유를 입력해 주세요.");
+    if (hasError) return;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await adminPerformancesApi.addSource(detail.id, u, addReason.trim());
+      setUrl("");
+      setAddReason("");
+      setDone("예매처 링크를 추가했어요.");
+      await reload();
+    } catch (err) {
+      const fe = parseApiError(err, "").fieldErrors;
+      if (fe.sourceUrl) setUrlError(fe.sourceUrl);
+      else setError(errorText(err, "링크를 추가하지 못했습니다."));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  };
+
+  const remove = async (sourceId: number) => {
+    if (busyRef.current) return;
+    if (!removeReason.trim()) {
+      setRemoveReasonError("사유를 입력해 주세요.");
+      return;
+    }
+    setRemoveReasonError(undefined);
+    setDone("");
+    setError(null);
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await adminPerformancesApi.removeSource(detail.id, sourceId, removeReason.trim());
+      setRemoving(null);
+      setRemoveReason("");
+      setDone("예매처 링크를 삭제했어요.");
+      await reload();
+    } catch (err) {
+      setError(errorText(err, "링크를 삭제하지 못했습니다."));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SectionCard titleId="admin-perf-sources" title="예매처 링크">
+      {sources.length === 0 ? (
+        <p className={ui.muted}>링크 목록 정보가 없어요. (대표 링크: {detail.sourceUrl})</p>
+      ) : (
+        <div className={tbl.wrap}>
+          <table className={tbl.table}>
+            <thead>
+              <tr>
+                <th className={tbl.th}>예매처</th>
+                <th className={tbl.th}>주소</th>
+                <th className={tbl.th}>대표</th>
+                <th className={tbl.th}>삭제</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sources.map((s) => (
+                <tr key={s.id} className={tbl.tr}>
+                  <td className={tbl.td}>{s.siteName}</td>
+                  <td className={`${tbl.td} break-all`}>{s.url}</td>
+                  <td className={tbl.td}>{s.primary ? <span className={tone.ok}>대표</span> : "-"}</td>
+                  <td className={tbl.td}>
+                    {s.primary ? (
+                      <span className={ui.hint}>삭제 불가</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className={button.outline}
+                        disabled={busy}
+                        onClick={() => {
+                          setRemoving(removing === s.id ? null : s.id);
+                          setRemoveReason("");
+                          setRemoveReasonError(undefined);
+                        }}
+                      >
+                        삭제
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {removing !== null && (
+        <div className="flex flex-col gap-2 rounded-md border border-red-200 bg-red-50 p-2">
+          <p className={ui.warning}>이 링크를 삭제하면 이 주소로는 이 공연을 찾을 수 없어요. 티켓·교환은 그대로예요.</p>
+          <ReasonField id="admin-perf-source-remove-reason" value={removeReason} onChange={setRemoveReason} disabled={busy} error={removeReasonError} />
+          <div className="flex gap-2">
+            <button type="button" className={button.solid} disabled={busy} aria-busy={busy} onClick={() => void remove(removing)}>
+              {busy ? "삭제 중..." : "삭제 확정"}
+            </button>
+            <button type="button" className={button.outline} disabled={busy} onClick={() => setRemoving(null)}>
+              취소
+            </button>
+          </div>
+        </div>
+      )}
+      <form className="flex flex-col gap-2" onSubmit={(e) => void add(e)} noValidate>
+        <TextField
+          dense
+          id="admin-perf-source-url"
+          label="링크 추가"
+          type="url"
+          inputMode="url"
+          autoCapitalize="none"
+          spellCheck={false}
+          placeholder="https://"
+          value={url}
+          disabled={busy}
+          error={urlError}
+          onChange={(e) => {
+            setUrl(e.target.value);
+            setUrlError(undefined);
+          }}
+        />
+        <ReasonField id="admin-perf-source-add-reason" value={addReason} onChange={setAddReason} disabled={busy} error={addReasonError} />
+        <Feedback done={done} error={error} />
+        <button type="submit" className={`${button.solid} self-start`} disabled={busy} aria-busy={busy}>
+          {busy ? "처리 중..." : "링크 추가"}
         </button>
       </form>
     </SectionCard>

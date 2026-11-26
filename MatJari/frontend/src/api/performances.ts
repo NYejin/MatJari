@@ -9,7 +9,10 @@ import type {
   PerformanceListParams,
   PerformanceLookup,
   PerformancePreview,
+  PerformanceSource,
   PerformanceSummary,
+  SimilarCandidate,
+  SimilarResponse,
   PerformanceZonesResponse,
 } from "../types/performance";
 
@@ -88,6 +91,21 @@ export const performancesApi = {
     return data;
   },
 
+  /** GET /api/performances/similar?sourceUrl= — 다른 예매처 링크로 이미 등록된 같은 공연 후보 */
+  async similar(sourceUrl: string, signal?: AbortSignal): Promise<SimilarResponse> {
+    const { data } = await apiClient.get<SimilarResponse>("/performances/similar", { params: { sourceUrl }, signal });
+    return data;
+  },
+
+  /**
+   * POST /api/performances/{id}/sources — 공연에 예매처 링크 추가(201 또는 같은 공연이면 200).
+   * 409 SOURCE_ALREADY_REGISTERED·PERFORMANCE_HIDDEN, 422 SOURCE_NOT_SAME_PERFORMANCE·SOURCE_LIMIT_REACHED, 400 sourceUrl
+   */
+  async addSource(id: number, sourceUrl: string): Promise<{ sources: PerformanceSource[] }> {
+    const { data } = await apiClient.post<{ sources: PerformanceSource[] }>(`/performances/${id}/sources`, { sourceUrl });
+    return data;
+  },
+
   // 공연은 등록 후 아무도 수정·삭제할 수 없다 (수정은 추후 관리자 수정 제안으로만)
 };
 
@@ -103,4 +121,30 @@ export function getConflictPerformanceId(error: unknown): number | null {
 /** 응답 상태 코드 (axios 오류가 아니거나 응답이 없으면 null) */
 export function getErrorStatus(error: unknown): number | null {
   return axios.isAxiosError(error) ? (error.response?.status ?? null) : null;
+}
+
+/** 409 SIMILAR_PERFORMANCE_EXISTS 본문의 candidates (해당 없으면 null) */
+export function getSimilarCandidates(error: unknown): SimilarCandidate[] | null {
+  if (!axios.isAxiosError(error) || error.response?.status !== 409) return null;
+  const data: unknown = error.response.data;
+  if (typeof data !== "object" || data === null) return null;
+  const rec = data as Record<string, unknown>;
+  if (rec.code !== "SIMILAR_PERFORMANCE_EXISTS" || !Array.isArray(rec.candidates)) return null;
+  return rec.candidates as SimilarCandidate[];
+}
+
+/**
+ * 비슷한 공연 후보 조회. 실패하거나 후보가 없으면 빈 배열(등록을 막지 않는다).
+ * api 를 인자로 받아 목으로 시험할 수 있게 했다.
+ */
+export async function findSimilarCandidates(
+  api: { similar: (url: string) => Promise<SimilarResponse> },
+  sourceUrl: string
+): Promise<SimilarCandidate[]> {
+  try {
+    const r = await api.similar(sourceUrl);
+    return Array.isArray(r.candidates) ? r.candidates : [];
+  } catch {
+    return [];
+  }
 }

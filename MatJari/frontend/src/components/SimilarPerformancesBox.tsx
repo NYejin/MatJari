@@ -27,7 +27,9 @@ function periodText(c: SimilarCandidate): string {
   const first = formatKstDateTime(c.firstSessionAt);
   const date = (s: string) => s.slice(0, 10);
   if (!c.lastSessionAt || date(c.lastSessionAt) === date(c.firstSessionAt)) return first;
-  return `${date(first)} ~ ${date(formatKstDateTime(c.lastSessionAt))}`;
+  // formatKstDateTime 결과("2026년 12월 31일 (목) 오후 9:00")에서 날짜 부분만 쓴다
+  const day = (s: string) => s.replace(/\s*\(.*$/, "");
+  return `${day(first)} ~ ${day(formatKstDateTime(c.lastSessionAt))}`;
 }
 
 export default function SimilarPerformancesBox({ sourceUrl, candidates, onLinked, onNew, isAdmin, disabled }: Props) {

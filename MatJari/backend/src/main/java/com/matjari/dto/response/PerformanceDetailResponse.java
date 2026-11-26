@@ -2,6 +2,8 @@ package com.matjari.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 
+import com.matjari.dto.response.PerformanceSourceDtos.SourceItem;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -25,7 +27,9 @@ public record PerformanceDetailResponse(
         @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = DateTimeFormats.SECOND)
         LocalDateTime createdAt,
         /** 관리자가 내린 공연이면 true(새 티켓 등록·교환 요청·제안이 막힌다). */
-        boolean hidden
+        boolean hidden,
+        /** 이 공연에 달린 예매처 링크(대표 먼저, 그다음 추가 순, V32). sourceUrl 은 대표 링크와 같다. */
+        List<PerformanceSourceDtos.SourceItem> sources
 ) {
     public record Registrant(Long id, String nickname) {}
 

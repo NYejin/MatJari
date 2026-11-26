@@ -1,6 +1,7 @@
 package com.matjari.controller;
 
 import com.matjari.dto.response.PageResponse;
+import com.matjari.dto.response.PerformanceSourceDtos;
 import com.matjari.security.AuthUserPrincipal;
 import com.matjari.service.AdminPerformanceService;
 import com.matjari.service.AdminPerformanceService.Detail;
@@ -8,12 +9,15 @@ import com.matjari.service.AdminPerformanceService.EditRequest;
 import com.matjari.service.AdminPerformanceService.ListItem;
 import com.matjari.service.AdminPerformanceService.ReasonRequest;
 import com.matjari.service.AdminPerformanceService.SessionChangesRequest;
+import com.matjari.service.AdminPerformanceService.SourceAddRequest;
 import com.matjari.service.AdminPerformanceService.ZonesRequest;
 import com.matjari.service.aiextract.DetailExtractionService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -106,6 +110,29 @@ public class AdminPerformanceController {
             throws IOException {
         service.get(id); // 없는 공연은 404
         return extractionService.extractSeatMapForAdmin(image == null ? null : image.getBytes());
+    }
+
+    /**
+     * 예매처 링크 추가(같은 공연 검증 없음, 사유 필수). 새로 달면 201, 이미 이 공연에 있으면 멱등 200 {sources}.
+     * 400 sourceUrl·reason, 409 SOURCE_ALREADY_REGISTERED·PERFORMANCE_HIDDEN, 422 SOURCE_LIMIT_REACHED. 조치 기록 PERFORMANCE_EDIT.
+     */
+    @PostMapping("/{id}/sources")
+    public ResponseEntity<PerformanceSourceDtos.SourcesResponse> addSource(
+            @PathVariable Long id, @RequestBody SourceAddRequest request,
+            @AuthenticationPrincipal AuthUserPrincipal principal) {
+        var result = service.addSource(principal.userId(), id, request);
+        return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK)
+                .body(new PerformanceSourceDtos.SourcesResponse(result.sources()));
+    }
+
+    /** 링크 삭제. 사유는 본문 {"reason"} 또는 쿼리 reason. 대표 링크는 409 PRIMARY_SOURCE, 다른 공연의 링크·없는 링크는 404. */
+    @DeleteMapping("/{id}/sources/{sourceId}")
+    public PerformanceSourceDtos.SourcesResponse removeSource(
+            @PathVariable Long id, @PathVariable Long sourceId,
+            @RequestBody(required = false) ReasonRequest request, @RequestParam(required = false) String reason,
+            @AuthenticationPrincipal AuthUserPrincipal principal) {
+        String text = request != null && request.reason() != null ? request.reason() : reason;
+        return new PerformanceSourceDtos.SourcesResponse(service.removeSource(principal.userId(), id, sourceId, text));
     }
 
     @PutMapping("/{id}/zones")

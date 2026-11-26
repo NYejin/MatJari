@@ -11,6 +11,7 @@ import com.matjari.domain.PerformanceZone;
 import com.matjari.dto.request.PerformanceCreateRequest;
 import com.matjari.dto.response.DateTimeFormats;
 import com.matjari.dto.response.PageResponse;
+import com.matjari.dto.response.PerformanceSourceDtos;
 import com.matjari.dto.response.SeatmapImageResponse;
 import com.matjari.dto.response.PerformanceEditProposalDtos.SessionChangeRequest;
 import com.matjari.exception.BusinessRuleException;
@@ -71,7 +72,7 @@ public class AdminPerformanceService {
                          @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = DateTimeFormats.SECOND) LocalDateTime hiddenAt,
                          String hiddenReason, String hiddenByNickname, Registrant registrant,
                          List<SessionItem> sessions, List<ZoneItem> zones, BigDecimal seatmapAspect,
-                         SeatmapImageResponse seatmapImage,
+                         SeatmapImageResponse seatmapImage, List<PerformanceSourceDtos.SourceItem> sources,
                          @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = DateTimeFormats.SECOND) LocalDateTime createdAt) {}
 
     public record ReasonRequest(String reason) {}
@@ -97,6 +98,63 @@ public class AdminPerformanceService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setSeatmapImages(SeatmapImageService seatmapImages) {
         this.seatmapImages = seatmapImages;
+    }
+
+    /** 예매처 링크 묶기(V32). null 이면 대표 링크만 응답하고 링크 추가·삭제는 쓸 수 없다(단위 시험). */
+    private PerformanceSourceService sources;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setSources(PerformanceSourceService sources) {
+        this.sources = sources;
+    }
+
+    /** 링크 추가 요청. 일반 사용자 추가와 달리 같은 공연인지 검증하지 않는다(관리자 판단). */
+    public record SourceAddRequest(String sourceUrl, String reason) {}
+
+    private static Map<String, Object> sourceSummary(com.matjari.domain.PerformanceSource s) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("sourceId", s.getId());
+        m.put("sourceKey", s.getSourceKey());
+        m.put("sourceUrl", s.getSourceUrl());
+        return m;
+    }
+
+    private PerformanceSourceService requireSources() {
+        if (sources == null) {
+            throw new IllegalStateException("PerformanceSourceService 가 연결되지 않았습니다.");
+        }
+        return sources;
+    }
+
+    /**
+     * 관리자 링크 추가(같은 공연 검증 없음). 규칙은 사용자 추가와 같다: 지원 사이트 400 sourceUrl, 다른 공연에 있으면 409 SOURCE_ALREADY_REGISTERED,
+     * 같은 공연이면 멱등(기록 없음), 숨긴 공연 409 PERFORMANCE_HIDDEN, 공연당 6개 422 SOURCE_LIMIT_REACHED. 새로 달면 PERFORMANCE_EDIT 기록(addedSource).
+     */
+    @Transactional
+    public PerformanceSourceService.AddResult addSource(Long adminId, Long id, SourceAddRequest request) {
+        PerformanceSourceService svc = requireSources();
+        String url = request.sourceUrl() == null ? null : request.sourceUrl().strip();
+        String key = svc.requireSupportedKey(url);
+        String reason = requiredReason(request.reason());
+        Performance performance = lock(id);
+        PerformanceSourceService.AddResult result = svc.addLocked(performance, url, key, adminId, null, false);
+        if (result.created()) {
+            actionLogger.log(adminId, AdminActionLog.Action.PERFORMANCE_EDIT, AdminActionLog.TargetType.PERFORMANCE, id,
+                    reason, json(Map.of("addedSource", sourceSummary(result.added()))));
+        }
+        return result;
+    }
+
+    /** 관리자 링크 삭제(사유 필수). 대표 링크는 409 PRIMARY_SOURCE, 이 공연의 링크가 아니면 404. 지운 뒤 남은 링크 목록을 돌려준다. */
+    @Transactional
+    public List<PerformanceSourceDtos.SourceItem> removeSource(Long adminId, Long id, Long sourceId, String reasonText) {
+        PerformanceSourceService svc = requireSources();
+        String reason = requiredReason(reasonText);
+        Performance performance = lock(id);
+        com.matjari.domain.PerformanceSource removed = svc.removeLocked(performance, sourceId);
+        actionLogger.log(adminId, AdminActionLog.Action.PERFORMANCE_EDIT, AdminActionLog.TargetType.PERFORMANCE, id,
+                reason, json(Map.of("removedSource", sourceSummary(removed))));
+        return svc.list(performance);
     }
 
     private static String imageMode(String raw) {
@@ -312,6 +370,7 @@ public class AdminPerformanceService {
                             + details.get("histories") + "). 숨김 상태로 두세요.",
                     Map.of("code", "PERFORMANCE_IN_USE", "inUse", details));
         }
+        int sourceLinks = jdbc.update("DELETE FROM performance_source WHERE performance_id = ?", id);
         int proposals = jdbc.update("DELETE FROM performance_edit_proposal WHERE performance_id = ?", id);
         int zones = jdbc.update("DELETE FROM performance_zone WHERE performance_id = ?", id);
         int sessions = jdbc.update("DELETE FROM performance_session WHERE performance_id = ?", id);
@@ -320,7 +379,7 @@ public class AdminPerformanceService {
         detail.put("venueName", performance.getVenueName());
         detail.put("sourceUrl", performance.getSourceUrl());
         detail.put("hiddenReason", performance.getHiddenReason());
-        detail.put("deleted", Map.of("sessions", sessions, "zones", zones, "editProposals", proposals));
+        detail.put("deleted", Map.of("sessions", sessions, "zones", zones, "editProposals", proposals, "sources", sourceLinks));
         jdbc.update("DELETE FROM performance WHERE id = ?", id); // 엔티티는 바꾸지 않았으므로 영속성 컨텍스트가 다시 쓰지 않는다
         actionLogger.log(adminId, AdminActionLog.Action.PERFORMANCE_DELETE, AdminActionLog.TargetType.PERFORMANCE, id,
                 cleaned, json(detail));
@@ -487,6 +546,7 @@ public class AdminPerformanceService {
                 new Registrant(registrant.getId(), registrant.getNickname()),
                 sessions.stream().map(s -> new SessionItem(s.getId(), s.getStartsAt(), inUse.contains(s.getId()))).toList(),
                 zones, performance.getSeatmapAspect(), seatmapImages == null ? null : seatmapImages.expose(performance),
+                sources == null ? PerformanceSourceService.primaryOnly(performance) : sources.list(performance),
                 performance.getCreatedAt());
     }
 

@@ -81,6 +81,7 @@ class PerformanceZoneMysqlTest {
         jdbc.update("DELETE FROM ticket");
         jdbc.update("DELETE FROM performance_zone");
         jdbc.update("DELETE FROM performance_session");
+        jdbc.update("DELETE FROM performance_source");
         jdbc.update("DELETE FROM performance");
         jdbc.update("DELETE FROM refresh_token");
         jdbc.update("DELETE FROM users");
@@ -92,7 +93,7 @@ class PerformanceZoneMysqlTest {
     }
 
     private PerformanceDetailResponse register(String url, List<ZoneInput> zones, BigDecimal aspect) {
-        return service.create(1L, new PerformanceCreateRequest(url, "제목", "공연장", List.of(SHOW), zones, aspect));
+        return service.create(1L, new PerformanceCreateRequest(url, "제목", "공연장", List.of(SHOW), zones, aspect, null, true));
     }
 
     @Test
@@ -305,7 +306,7 @@ class PerformanceZoneMysqlTest {
         // 티켓이 걸린 공연은 숨겨도 지우지 못한다
         PerformanceDetailResponse used = service.create(1L, new PerformanceCreateRequest(
                 "https://ticket.melon.com/performance/index.htm?prodId=802", "제목", "공연장", List.of(SHOW), null, null,
-                new PerformanceCreateRequest.TicketInput(SHOW, "A", "1", "1")));
+                new PerformanceCreateRequest.TicketInput(SHOW, "A", "1", "1"), true));
         adminPerformanceService.hide(1L, used.id(), "점검");
         assertThatThrownBy(() -> adminPerformanceService.delete(1L, used.id(), "점검"))
                 .isInstanceOfSatisfying(com.matjari.exception.ConflictException.class,

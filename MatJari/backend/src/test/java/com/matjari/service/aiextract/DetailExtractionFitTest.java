@@ -84,16 +84,18 @@ class DetailExtractionFitTest {
     }
 
     @Test
-    void 지도_블록_사각형은_구역에_안_붙은_블록과_무대는_포함하고_범례_칩은_뺀다() {
+    void 지도_블록_사각형은_구역_근처의_무대는_포함하고_범례_칩과_먼_글자와_테두리는_뺀다() {
         ShapeSegmenter.Result seg = new ShapeSegmenter.Result(1001, 1001, List.of(
                 new ShapeSegmenter.Segment(1, rect(300, 400, 700, 700), 120000, 500, 550, 0.6, 0.8),
-                new ShapeSegmenter.Segment(2, rect(350, 60, 650, 150), 27000, 500, 100, 0.1, 0.5), // 구역에 연결되지 않은 무대
-                new ShapeSegmenter.Segment(3, rect(100, 950, 160, 975), 1500, 130, 962, 0.6, 0.8)), null, null); // 'R석' 범례 칩
+                new ShapeSegmenter.Segment(2, rect(350, 320, 650, 390), 21000, 500, 355, 0.1, 0.5), // 구역에 연결되지 않은 무대(구역 바로 위)
+                new ShapeSegmenter.Segment(3, rect(100, 950, 160, 975), 1500, 130, 962, 0.6, 0.8), // 'R석' 범례 칩
+                new ShapeSegmenter.Segment(4, rect(200, 40, 800, 90), 30000, 500, 65, 0.6, 0.8), // 좌석표 위 먼 안내 글자
+                new ShapeSegmenter.Segment(5, rect(0, 300, 1000, 990), 90000, 500, 600, 0.6, 0.8)), null, null); // 상세 이미지 테두리
         List<DetailExtractor.RawLabel> before = List.of(
                 new DetailExtractor.RawLabel("A", List.of(1)),
                 new DetailExtractor.RawLabel("R석", List.of(3)));
         int[] b = DetailExtractionService.mapBounds(before, List.of(before.get(0)), seg);
-        assertThat(b).containsExactly(300, 60, 700, 700);
+        assertThat(b).containsExactly(300, 320, 700, 700);
     }
 
     private static List<int[]> rect(int x0, int y0, int x1, int y1) {

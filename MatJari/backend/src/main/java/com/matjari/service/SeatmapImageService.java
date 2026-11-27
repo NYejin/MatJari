@@ -56,6 +56,26 @@ public class SeatmapImageService {
         return Optional.of(image);
     }
 
+    /**
+     * 방금 서버가 링크에서 읽은 결과(보관 결과 포함)의 좌석표 이미지 위치를 저장해도 되는지 검사한다(V34 추가 링크 지도).
+     * 사용자 입력이 아니라 서버가 읽은 값이지만, 범위·허용 호스트·https 를 한 번 더 확인한다. 모양 있는 구역이 있는지는 호출한 쪽이 확인한다.
+     */
+    public Optional<SeatmapImageResponse> acceptRead(SeatmapImageResponse image) {
+        if (image == null || !image.rectValid() || !imageFetcher.isAllowedImageUrl(image.url())) {
+            return Optional.empty();
+        }
+        return Optional.of(image);
+    }
+
+    /** 추가 링크 지도에 저장된 값을 응답용으로. 스위치가 꺼져 있거나 값이 없으면 null. */
+    public SeatmapImageResponse expose(com.matjari.domain.PerformanceSource source) {
+        if (!enabled || source == null || source.getSeatmapImageUrl() == null) {
+            return null;
+        }
+        return new SeatmapImageResponse(source.getSeatmapImageUrl(), source.getSeatmapCropLeft(),
+                source.getSeatmapCropTop(), source.getSeatmapCropWidth(), source.getSeatmapCropHeight());
+    }
+
     /** 공연에 저장된 값을 응답용으로. 스위치가 꺼져 있거나 값이 없으면 null. */
     public SeatmapImageResponse expose(Performance performance) {
         if (!enabled || performance == null || performance.getSeatmapImageUrl() == null) {

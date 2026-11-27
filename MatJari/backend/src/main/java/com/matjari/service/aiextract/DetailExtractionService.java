@@ -207,7 +207,7 @@ public class DetailExtractionService {
 
     /** 관리자의 공연 등록 중 [불러오기]: 보관 결과·공연장 참고는 그대로 쓰고 월 횟수만 세지 않는다. */
     public Response extractUnlimited(String sourceUrl) {
-        return extract(null, sourceUrl, false, true);
+        return extract(null, sourceUrl, false, true, false);
     }
 
     /** 관리자의 등록 중 좌석표 이미지 올리기: 월 횟수를 세지 않는다. */
@@ -230,16 +230,24 @@ public class DetailExtractionService {
      * (다시 읽는 공연 자신의 잘못된 구역이 참고로 들어갈 수 있다). 결과는 화면에서 확인한 뒤 구역 교체 API 로만 저장된다.
      */
     public Response extractForAdmin(String sourceUrl) {
-        return extract(null, sourceUrl, true, true);
+        return extract(null, sourceUrl, true, true, false);
+    }
+
+    /**
+     * 추가 예매처 링크의 지도 읽기(V34, 링크를 붙인 뒤 백그라운드): 보관 결과·검수 정답은 그대로 재사용하고, 사용자 월 횟수는 세지 않으며
+     * (전체 하루 상한·동시 실행 상한만 적용), 같은 공연장 참고 구역 이름은 쓰지 않는다(다른 예매처가 파는 구역이라 목록이 맞지 않는다).
+     */
+    public Response extractForSourceMap(String sourceUrl) {
+        return extract(null, sourceUrl, false, true, true);
     }
 
     private Response extract(Long userId, String sourceUrl, boolean admin) {
-        return extract(userId, sourceUrl, admin, admin);
+        return extract(userId, sourceUrl, admin, admin, false);
     }
 
     /** admin: 보관 결과를 쓰지 않고 새로 읽음(다시 인식). unlimited: 월 횟수를 세지 않음(관리자). */
-    private Response extract(Long userId, String sourceUrl, boolean admin, boolean unlimited) {
-        Response r = extractCore(userId, sourceUrl, admin, unlimited);
+    private Response extract(Long userId, String sourceUrl, boolean admin, boolean unlimited, boolean noHints) {
+        Response r = extractCore(userId, sourceUrl, admin, unlimited, noHints);
         // 스위치(matjari.seatmap-image.enabled)가 꺼져 있으면 응답에서만 뺀다(보관 결과에는 그대로 남는다)
         return seatmapImageEnabled || r.seatmapImage() == null ? r : r.withSeatmapImage(null);
     }
@@ -252,7 +260,7 @@ public class DetailExtractionService {
         return java.util.Optional.ofNullable(cacheGet(sourceKey));
     }
 
-    private Response extractCore(Long userId, String sourceUrl, boolean admin, boolean unlimited) {
+    private Response extractCore(Long userId, String sourceUrl, boolean admin, boolean unlimited, boolean noHints) {
         String key = sourceKeyResolver.resolve(sourceUrl); // 형식 오류는 400(FieldValidationException)
         Matcher m = KEY.matcher(key);
         if (!m.matches()) {
@@ -345,7 +353,7 @@ public class DetailExtractionService {
         boolean truncated = sliced.stream().anyMatch(ImageSlicer.SliceResult::truncated);
         List<DetailExtractor.Part> parts = new ArrayList<>();
         // 구역이 많은 공연장: 같은 공연장에 등록된 공연의 구역 이름을 참고로 준다(배치가 다를 수 있어 이미지에 보이는 것만 적게 한다)
-        List<String> hint = admin || venueHints == null ? List.of() : venueHints.namesFor(page.venue());
+        List<String> hint = admin || noHints || venueHints == null ? List.of() : venueHints.namesFor(page.venue());
         if (!hint.isEmpty()) {
             parts.add(DetailExtractor.Part.ofText("[참고] 같은 공연장에서 이전에 등록된 공연의 좌석 구역 이름: " + String.join(", ", hint)
                     + " / 공연마다 무대·좌석 배치가 다를 수 있으니 이 목록은 철자와 번호 체계 참고용이다. 이미지의 좌석표에 실제로 보이는 구역만 적어라."));

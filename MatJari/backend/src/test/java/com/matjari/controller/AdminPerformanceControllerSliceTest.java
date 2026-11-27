@@ -195,4 +195,27 @@ class AdminPerformanceControllerSliceTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("PRIMARY_SOURCE"));
     }
+
+    @Test
+    void 추가_링크_지도_다시_읽기와_삭제는_관리자만이고_오류_코드를_돌려준다() throws Exception {
+        var map = new com.matjari.dto.response.PerformanceZonesResponse.MapItem(2L, "interpark", "인터파크(NOL)", false, "READY",
+                null, null, List.of());
+        when(service.reextractSourceMap(2L, 100L, 2L, "다시 읽기")).thenReturn(map);
+        when(service.reextractSourceMap(2L, 100L, 1L, "x")).thenThrow(
+                new com.matjari.exception.FieldValidationException("sourceId", "대표 링크의 지도는 기존 구역 API를 사용해 주세요."));
+        when(service.clearSourceMap(2L, 100L, 2L, "지도 삭제")).thenReturn(List.of());
+
+        mockMvc.perform(as("user", post("/api/admin/performances/100/sources/2/zones/ai-extract")).content("{}"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(as("user", delete("/api/admin/performances/100/sources/2/zones"))).andExpect(status().isForbidden());
+        mockMvc.perform(as("admin", post("/api/admin/performances/100/sources/2/zones/ai-extract")).content("{\"reason\":\"다시 읽기\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourceId").value(2))
+                .andExpect(jsonPath("$.status").value("READY"));
+        mockMvc.perform(as("admin", post("/api/admin/performances/100/sources/1/zones/ai-extract")).content("{\"reason\":\"x\"}"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(as("admin", delete("/api/admin/performances/100/sources/2/zones")).content("{\"reason\":\"지도 삭제\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sources").isEmpty());
+    }
 }

@@ -135,6 +135,31 @@ public class AdminPerformanceController {
         return new PerformanceSourceDtos.SourcesResponse(service.removeSource(principal.userId(), id, sourceId, text));
     }
 
+    /**
+     * 추가 링크의 지도 다시 읽기(동기, 사유 필수 본문 {"reason"}). 보관 결과를 쓰지 않고 새로 읽어 그 링크의 구역·지도를 덮어쓴다(월 횟수 없음, 전체 하루 상한만).
+     * 응답은 그 지도 {sourceId, site, siteName, primary, status, aspect, seatmapImage, zones}. 400 reason·sourceId(대표 링크),
+     * 404 공연·링크 없음, 429 AI_RATE_LIMITED, 503 AI_UNAVAILABLE(기존 지도 유지). 조치 기록 PERFORMANCE_ZONES(detail.sourceId).
+     */
+    @PostMapping("/{id}/sources/{sourceId}/zones/ai-extract")
+    public com.matjari.dto.response.PerformanceZonesResponse.MapItem reextractSourceZones(
+            @PathVariable Long id, @PathVariable Long sourceId, @RequestBody(required = false) ReasonRequest request,
+            @AuthenticationPrincipal AuthUserPrincipal principal) {
+        return service.reextractSourceMap(principal.userId(), id, sourceId, request == null ? null : request.reason());
+    }
+
+    /**
+     * 추가 링크의 지도 삭제(그 링크의 구역·지도 정보 삭제, 상태 NONE, 링크는 남음). 사유는 본문 {"reason"} 또는 쿼리 reason.
+     * 400 reason·sourceId(대표 링크), 404. 응답은 남은 링크 목록 {sources}. 조치 기록 PERFORMANCE_ZONES(detail.sourceId).
+     */
+    @DeleteMapping("/{id}/sources/{sourceId}/zones")
+    public PerformanceSourceDtos.SourcesResponse deleteSourceZones(
+            @PathVariable Long id, @PathVariable Long sourceId,
+            @RequestBody(required = false) ReasonRequest request, @RequestParam(required = false) String reason,
+            @AuthenticationPrincipal AuthUserPrincipal principal) {
+        String text = request != null && request.reason() != null ? request.reason() : reason;
+        return new PerformanceSourceDtos.SourcesResponse(service.clearSourceMap(principal.userId(), id, sourceId, text));
+    }
+
     @PutMapping("/{id}/zones")
     public Detail replaceZones(@PathVariable Long id, @RequestBody ZonesRequest request,
                                @AuthenticationPrincipal AuthUserPrincipal principal) {

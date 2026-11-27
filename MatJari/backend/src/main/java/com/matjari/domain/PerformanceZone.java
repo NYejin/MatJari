@@ -46,6 +46,10 @@ public class PerformanceZone {
     @JoinColumn(name = "performance_id", nullable = false, updatable = false)
     private Performance performance;
 
+    /** 이 구역이 속한 추가 링크의 지도(V34). NULL 이면 대표 지도. */
+    @Column(name = "source_id", updatable = false)
+    private Long sourceId;
+
     @Column(name = "name", nullable = false, updatable = false, length = NAME_MAX_LENGTH)
     private String name;
 
@@ -68,6 +72,12 @@ public class PerformanceZone {
 
     public static PerformanceZone create(Performance performance, String name, String nameKey, int sortOrder,
                                          List<List<List<Integer>>> shapePolygons) {
+        return create(performance, null, name, nameKey, sortOrder, shapePolygons);
+    }
+
+    /** sourceId: 추가 링크 지도의 구역이면 그 링크 행 id, 대표 지도면 null. */
+    public static PerformanceZone create(Performance performance, Long sourceId, String name, String nameKey, int sortOrder,
+                                         List<List<List<Integer>>> shapePolygons) {
         if (performance == null) {
             throw new IllegalArgumentException("performance는 필수입니다.");
         }
@@ -82,6 +92,7 @@ public class PerformanceZone {
         }
         PerformanceZone zone = new PerformanceZone();
         zone.performance = performance;
+        zone.sourceId = sourceId;
         zone.name = name;
         zone.nameKey = nameKey;
         zone.sortOrder = (short) sortOrder;

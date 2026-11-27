@@ -14,8 +14,10 @@ import com.matjari.exception.NotFoundException;
 import com.matjari.repository.PerformanceRepository;
 import com.matjari.repository.PerformanceSessionRepository;
 import com.matjari.repository.PerformanceSourceRepository;
+import com.matjari.repository.PerformanceZoneRepository;
 import com.matjari.service.linkinfo.PerformancePreviewService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -72,6 +74,8 @@ public class PerformanceSourceService {
     private final TicketService ticketService;
     private final SessionTimePolicy sessionTimePolicy;
     private final TransactionTemplate transactionTemplate;
+    private final PerformanceZoneRepository zoneRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     public PerformanceSourceService(PerformanceRepository performanceRepository,
                                     PerformanceSessionRepository sessionRepository,
@@ -80,7 +84,11 @@ public class PerformanceSourceService {
                                     PerformancePreviewService previewService,
                                     TicketService ticketService,
                                     SessionTimePolicy sessionTimePolicy,
-                                    PlatformTransactionManager transactionManager) {
+                                    PlatformTransactionManager transactionManager,
+                                    PerformanceZoneRepository zoneRepository,
+                                    ApplicationEventPublisher eventPublisher) {
+        this.zoneRepository = zoneRepository;
+        this.eventPublisher = eventPublisher;
         this.performanceRepository = performanceRepository;
         this.sessionRepository = sessionRepository;
         this.sourceRepository = sourceRepository;
@@ -114,8 +122,12 @@ public class PerformanceSourceService {
     }
 
     static SourceItem toItem(Long id, String sourceKey, String url, boolean primary) {
+        return toItem(id, sourceKey, url, primary, "NONE", 0L);
+    }
+
+    static SourceItem toItem(Long id, String sourceKey, String url, boolean primary, String mapStatus, long zoneCount) {
         String site = siteOf(sourceKey);
-        return new SourceItem(id, site, siteNameOf(site), url, primary);
+        return new SourceItem(id, site, siteNameOf(site), url, primary, mapStatus, zoneCount);
     }
 
     /** 저장된 링크 행이 없을 때(단위 시험 등)의 합성 응답: 대표 링크만. */
@@ -137,18 +149,29 @@ public class PerformanceSourceService {
         return toItems(performance, sourceRepository.findByPerformanceIdOrderByIdAsc(performance.getId()));
     }
 
-    private static List<SourceItem> toItems(Performance performance, List<PerformanceSource> rows) {
+    private List<SourceItem> toItems(Performance performance, List<PerformanceSource> rows) {
         List<SourceItem> items = new ArrayList<>();
         PerformanceSource primary = rows.stream()
                 .filter(s -> s.getSourceKey().equals(performance.getSourceKey())).findFirst().orElse(null);
+        // 대표 링크: 대표 지도(source_id NULL)의 구역 수. 추가 링크: 링크별 지도 구역 수와 상태
+        long primaryZones = performance.getId() == null ? 0L : zoneRepository.countByPerformanceId(performance.getId());
+        String primaryStatus = primaryZones > 0 ? "READY" : "NONE";
         if (primary != null) {
-            items.add(toItem(primary.getId(), primary.getSourceKey(), primary.getSourceUrl(), true));
+            items.add(toItem(primary.getId(), primary.getSourceKey(), primary.getSourceUrl(), true, primaryStatus, primaryZones));
         } else {
-            items.add(toItem(null, performance.getSourceKey(), performance.getSourceUrl(), true));
+            items.add(toItem(null, performance.getSourceKey(), performance.getSourceUrl(), true, primaryStatus, primaryZones));
+        }
+        List<Long> extraIds = rows.stream().filter(s -> s != primary).map(PerformanceSource::getId).toList();
+        Map<Long, Long> counts = new LinkedHashMap<>();
+        if (!extraIds.isEmpty()) {
+            for (PerformanceZoneRepository.SourceZoneCount c : zoneRepository.countBySourceIds(extraIds)) {
+                counts.put(c.getSourceId(), c.getZoneCount());
+            }
         }
         for (PerformanceSource s : rows) {
             if (s != primary) {
-                items.add(toItem(s.getId(), s.getSourceKey(), s.getSourceUrl(), false));
+                items.add(toItem(s.getId(), s.getSourceKey(), s.getSourceUrl(), false, s.getMapStatus().name(),
+                        counts.getOrDefault(s.getId(), 0L)));
             }
         }
         return items;
@@ -345,8 +368,10 @@ public class PerformanceSourceService {
             throw new BusinessRuleException("SOURCE_LIMIT_REACHED",
                     "한 공연에 달 수 있는 링크는 최대 " + MAX_SOURCES + "개예요.", Map.of("limit", MAX_SOURCES));
         }
+        // 추가 링크는 지도를 읽는 중(PENDING)으로 INSERT 하고, 커밋 뒤 SourceMapService 가 읽는다(롤백이면 이벤트도 버려진다)
         PerformanceSource saved = sourceRepository.saveAndFlush(
-                PerformanceSource.create(locked.getId(), key, url, addedById));
+                PerformanceSource.createAdditional(locked.getId(), key, url, addedById, sessionTimePolicy.now()));
+        eventPublisher.publishEvent(new SourceMapRequestedEvent(locked.getId(), saved.getId()));
         return new AddResult(list(locked), true, saved);
     }
 
@@ -387,6 +412,7 @@ public class PerformanceSourceService {
         if (source.getSourceKey().equals(locked.getSourceKey())) {
             throw new ConflictException("대표 링크는 삭제할 수 없어요.", Map.of("code", "PRIMARY_SOURCE"));
         }
+        zoneRepository.deleteBySourceId(source.getId()); // 그 링크의 지도 구역을 먼저 지운다(FK)
         sourceRepository.delete(source);
         sourceRepository.flush();
         return source;

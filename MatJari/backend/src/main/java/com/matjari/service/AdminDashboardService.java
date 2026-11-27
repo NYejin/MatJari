@@ -75,7 +75,7 @@ public class AdminDashboardService {
                 WHERE revoked_at IS NULL AND (ends_at IS NULL OR ends_at > ?)""", tn));
         k.put("performances", row("""
                 SELECT COUNT(*) total, SUM(hidden_at IS NOT NULL) hidden,
-                       SUM(EXISTS (SELECT 1 FROM performance_zone z WHERE z.performance_id = p.id)) withZones,
+                       SUM(EXISTS (SELECT 1 FROM performance_zone z WHERE z.performance_id = p.id AND z.source_id IS NULL)) withZones,
                        SUM(EXISTS (SELECT 1 FROM performance_session s WHERE s.performance_id = p.id AND s.starts_at >= ?)) upcoming,
                        SUM(created_at >= ?) new7d
                 FROM performance p""", t0, t7));
@@ -170,7 +170,7 @@ public class AdminDashboardService {
                        COUNT(DISTINCT t.id) activeTickets,
                        COUNT(DISTINCT r.id) openRequests,
                        (SELECT MIN(s2.starts_at) FROM performance_session s2 WHERE s2.performance_id = p.id AND s2.starts_at >= ?) nextSession,
-                       (SELECT COUNT(*) FROM performance_zone z WHERE z.performance_id = p.id) zones
+                       (SELECT COUNT(*) FROM performance_zone z WHERE z.performance_id = p.id AND z.source_id IS NULL) zones
                 FROM performance p
                 JOIN performance_session s ON s.performance_id = p.id
                 JOIN ticket t ON t.performance_session_id = s.id AND t.status = 'ACTIVE'

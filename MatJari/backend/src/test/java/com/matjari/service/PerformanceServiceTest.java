@@ -480,6 +480,33 @@ class PerformanceServiceTest {
         assertThat(service.getZones(100L).seatmapImage()).isEqualTo(IMAGE);
     }
 
+    @Test
+    void zonesResponseListsPrimaryMapFirstThenAdditionalMapsAndSkipsEmptyPrimary() {
+        Performance p = performance(100L, kspo, registrant);
+        when(performanceRepository.findById(100L)).thenReturn(Optional.of(p));
+        SourceMapService maps = mock(SourceMapService.class);
+        var nol = new com.matjari.dto.response.PerformanceZonesResponse.MapItem(7L, "interpark", "인터파크(NOL)", false,
+                "PENDING", null, null, List.of());
+        when(maps.additionalMaps(p)).thenReturn(List.of(nol));
+        service.setSourceMaps(maps);
+
+        // 대표 지도에 구역이 없으면 대표 지도는 maps 에 넣지 않는다
+        when(zoneRepository.findByPerformanceIdOrderBySortOrderAscIdAsc(100L)).thenReturn(List.of());
+        assertThat(service.getZones(100L).maps()).containsExactly(nol);
+
+        // 구역이 있으면 대표 지도가 먼저(sourceId null, primary true, READY)
+        when(zoneRepository.findByPerformanceIdOrderBySortOrderAscIdAsc(100L)).thenReturn(List.of(
+                com.matjari.domain.PerformanceZone.create(p, "A", "A", 0, null)));
+        var response = service.getZones(100L);
+        assertThat(response.zones()).hasSize(1);
+        assertThat(response.maps()).hasSize(2);
+        assertThat(response.maps().get(0).sourceId()).isNull();
+        assertThat(response.maps().get(0).primary()).isTrue();
+        assertThat(response.maps().get(0).status()).isEqualTo("READY");
+        assertThat(response.maps().get(0).zones()).hasSize(1);
+        assertThat(response.maps().get(1)).isEqualTo(nol);
+    }
+
     // ---- 여러 예매처 링크 묶기(V32) ----
 
     private PerformanceSourceService sourceService() {

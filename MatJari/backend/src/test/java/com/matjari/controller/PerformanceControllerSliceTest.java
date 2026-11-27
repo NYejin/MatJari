@@ -160,7 +160,8 @@ class PerformanceControllerSliceTest {
                         new java.math.BigDecimal("0.100000"), new java.math.BigDecimal("0.250000"),
                         new java.math.BigDecimal("0.800000"), new java.math.BigDecimal("0.500000")), List.of(
                 new PerformanceDetailResponse.Zone("A구역", List.of(List.of(List.of(0, 0), List.of(10, 0), List.of(10, 10)))),
-                new PerformanceDetailResponse.Zone("스탠딩", null))));
+                new PerformanceDetailResponse.Zone("스탠딩", null)),
+                List.of(new PerformanceZonesResponse.MapItem(7L, "interpark", "인터파크(NOL)", false, "PENDING", null, null, List.of()))));
         when(performanceService.getZones(404L)).thenThrow(new NotFoundException("공연을 찾을 수 없습니다."));
 
         mockMvc.perform(auth(get("/api/performances/100/zones")))
@@ -169,7 +170,9 @@ class PerformanceControllerSliceTest {
                         {"seatmapAspect":1.5,"seatmapImage":{"url":"https://cdnticket.melon.co.kr/resource/image/upload/product/a.jpg",
                           "left":0.1,"top":0.25,"width":0.8,"height":0.5},"zones":[
                           {"name":"A구역","shapePolygons":[[[0,0],[10,0],[10,10]]]},
-                          {"name":"스탠딩","shapePolygons":null}]}
+                          {"name":"스탠딩","shapePolygons":null}],
+                          "maps":[{"sourceId":7,"site":"interpark","siteName":"인터파크(NOL)","primary":false,"status":"PENDING",
+                            "aspect":null,"seatmapImage":null,"zones":[]}]}
                         """, true));
         mockMvc.perform(auth(get("/api/performances/404/zones"))).andExpect(status().isNotFound());
         mockMvc.perform(get("/api/performances/100/zones")).andExpect(status().isUnauthorized());

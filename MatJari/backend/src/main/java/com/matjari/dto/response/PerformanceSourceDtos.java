@@ -15,8 +15,14 @@ public final class PerformanceSourceDtos {
      * 공연에 달린 링크 하나. site: melon / interpark / ticketlink / yes24 (그 밖의 링크는 etc),
      * siteName: 멜론티켓 / 인터파크(NOL) / 티켓링크 / YES24 (그 밖은 기타). primary: 공연의 대표 링크.
      * id 는 저장되지 않은 대표 링크 합성 응답(단위 시험)에서만 null.
+     * mapStatus·zoneCount(V34): 그 링크의 지도 상태(NONE·PENDING·READY·FAILED)와 구역 수. 대표 링크는 대표 지도에 구역이 있으면 READY, 없으면 NONE.
      */
-    public record SourceItem(Long id, String site, String siteName, String url, boolean primary) {}
+    public record SourceItem(Long id, String site, String siteName, String url, boolean primary, String mapStatus, long zoneCount) {
+        /** 지도 정보 없이(NONE, 구역 0개). */
+        public SourceItem(Long id, String site, String siteName, String url, boolean primary) {
+            this(id, site, siteName, url, primary, "NONE", 0L);
+        }
+    }
 
     public record SourcesResponse(List<SourceItem> sources) {}
 

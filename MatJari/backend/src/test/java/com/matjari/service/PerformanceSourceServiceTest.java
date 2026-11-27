@@ -14,6 +14,7 @@ import com.matjari.exception.NotFoundException;
 import com.matjari.repository.PerformanceRepository;
 import com.matjari.repository.PerformanceSessionRepository;
 import com.matjari.repository.PerformanceSourceRepository;
+import com.matjari.repository.PerformanceZoneRepository;
 import com.matjari.service.linkinfo.PerformancePreviewService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,6 +52,7 @@ class PerformanceSourceServiceTest {
     private PerformanceSourceRepository sourceRepository;
     private PerformancePreviewService previewService;
     private TicketService ticketService;
+    private PerformanceZoneRepository zoneRepository;
     private PerformanceSourceService service;
 
     private final User owner = user(1L, "등록자");
@@ -63,9 +65,10 @@ class PerformanceSourceServiceTest {
         sourceRepository = mock(PerformanceSourceRepository.class);
         previewService = mock(PerformancePreviewService.class);
         ticketService = mock(TicketService.class);
+        zoneRepository = mock(PerformanceZoneRepository.class);
         service = new PerformanceSourceService(performanceRepository, sessionRepository, sourceRepository,
                 new SourceKeyResolver(), previewService, ticketService, PerformanceFixtures.timePolicy(),
-                PerformanceFixtures.noopTransactionManager());
+                PerformanceFixtures.noopTransactionManager(), zoneRepository, mock(org.springframework.context.ApplicationEventPublisher.class));
 
         performance = performance(100L, "코엑스 D홀", "melon:100", "아이유 콘서트 HEAVEN");
         when(performanceRepository.findById(100L)).thenReturn(Optional.of(performance));

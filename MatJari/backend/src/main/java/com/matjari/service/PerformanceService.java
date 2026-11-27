@@ -184,8 +184,28 @@ public class PerformanceService {
     public PerformanceZonesResponse getZones(Long performanceId) {
         Performance performance = performanceRepository.findById(performanceId)
                 .orElseThrow(() -> new NotFoundException(NOT_FOUND_MESSAGE));
-        return new PerformanceZonesResponse(performance.getSeatmapAspect(), seatmapImages == null ? null : seatmapImages.expose(performance),
-                toZoneResponses(zoneRepository.findByPerformanceIdOrderBySortOrderAscIdAsc(performanceId)));
+        List<PerformanceDetailResponse.Zone> zones =
+                toZoneResponses(zoneRepository.findByPerformanceIdOrderBySortOrderAscIdAsc(performanceId));
+        SeatmapImageResponse image = seatmapImages == null ? null : seatmapImages.expose(performance);
+        // 예매처별 지도(V34): 대표 지도(구역이 있을 때만) 먼저, 그다음 추가 링크 순
+        List<PerformanceZonesResponse.MapItem> maps = new ArrayList<>();
+        if (!zones.isEmpty()) {
+            String site = PerformanceSourceService.siteOf(performance.getSourceKey());
+            maps.add(new PerformanceZonesResponse.MapItem(null, site, PerformanceSourceService.siteNameOf(site), true, "READY",
+                    performance.getSeatmapAspect(), image, zones));
+        }
+        if (sourceMaps != null) {
+            maps.addAll(sourceMaps.additionalMaps(performance));
+        }
+        return new PerformanceZonesResponse(performance.getSeatmapAspect(), image, zones, List.copyOf(maps));
+    }
+
+    /** 추가 링크의 지도(V34). null 이면 대표 지도만 응답한다(단위 시험). */
+    private SourceMapService sourceMaps;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setSourceMaps(SourceMapService sourceMaps) {
+        this.sourceMaps = sourceMaps;
     }
 
     /**

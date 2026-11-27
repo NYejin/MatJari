@@ -57,8 +57,22 @@ export interface SeatmapImage {
   height: number;
 }
 
+/** 예매처별 구역 지도 한 개(대표 먼저). PENDING이면 zones 는 빈 배열 */
+export interface ZoneMapInfo {
+  sourceId: number | null;
+  site: string;
+  siteName: string;
+  primary: boolean;
+  status: "READY" | "PENDING" | "FAILED" | "NONE";
+  aspect: number | null;
+  seatmapImage: SeatmapImage | null;
+  zones: PerformanceZone[];
+}
+
 /** GET /api/performances/{id}/zones */
 export interface PerformanceZonesResponse {
+  /** 예매처별 지도. 구 응답에는 없다 */
+  maps?: ZoneMapInfo[];
   seatmapImage?: SeatmapImage | null;
   seatmapAspect: number | null;
   zones: PerformanceZone[];
@@ -155,6 +169,9 @@ export interface PerformanceSource {
   siteName: string;
   url: string;
   primary: boolean;
+  /** 이 예매처 지도 상태(대표는 대표 지도) */
+  mapStatus?: "READY" | "PENDING" | "FAILED" | "NONE";
+  zoneCount?: number;
 }
 
 /** GET /performances/similar 후보·409 SIMILAR_PERFORMANCE_EXISTS 의 candidates 항목 */

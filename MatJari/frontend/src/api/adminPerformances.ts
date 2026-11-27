@@ -131,6 +131,16 @@ export const adminPerformancesApi = {
     await apiClient.delete(`/admin/performances/${id}/sources/${sourceId}`, { data: { reason } });
   },
 
+  /** POST /api/admin/performances/{id}/sources/{sourceId}/zones/ai-extract — 이 예매처 좌석표 동기 재인식(대표 링크는 400) */
+  async extractSourceZones(id: number, sourceId: number, reason: string): Promise<void> {
+    await apiClient.post(`/admin/performances/${id}/sources/${sourceId}/zones/ai-extract`, { reason });
+  },
+
+  /** DELETE /api/admin/performances/{id}/sources/{sourceId}/zones — 이 예매처 지도 지우기(사유는 본문) */
+  async clearSourceZones(id: number, sourceId: number, reason: string): Promise<void> {
+    await apiClient.delete(`/admin/performances/${id}/sources/${sourceId}/zones`, { data: { reason } });
+  },
+
   async changeSessions(id: number, changes: SessionChangeRequest[], reason: string): Promise<AdminPerformanceDetail> {
     const { data } = await apiClient.post<AdminPerformanceDetail>(`/admin/performances/${id}/session-changes`, { changes, reason });
     return data;

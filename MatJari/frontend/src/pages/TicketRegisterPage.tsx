@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { exchangeErrorMessage } from "../api/exchangeMessages";
 import { compareLocalDateTime, formatKstDateTime, isSessionClosed, kstMinuteString } from "../api/dateTime";
 import { ROW_COL_MAX, ZONE_MAX } from "../api/seat";
@@ -34,6 +34,8 @@ export default function TicketRegisterPage() {
   const presetSessionId = parseId(params.get("sessionId"));
   const [pickedId, setPickedId] = useState<number | null>(null);
   const performanceId = fixedPerformanceId ?? pickedId;
+  // 등록 1단계에서 링크를 기존 공연에 붙이고 넘어온 경우 한 번 안내
+  const showMapNotice = !!(useLocation().state as { sourceMapNotice?: boolean } | null)?.sourceMapNotice;
 
   return (
     <div className={ui.page}>
@@ -45,6 +47,11 @@ export default function TicketRegisterPage() {
             <p className={ui.pageLead}>공연을 고르고 가지고 있는 좌석을 입력해 주세요.</p>
           </div>
         </div>
+        {showMapNotice && (
+          <p className={ui.notice} role="status">
+            이 예매처 좌석표도 읽고 있어요. 잠시 뒤 구역 지도에 나타나요.
+          </p>
+        )}
         {performanceId === null ? (
           <PerformancePicker onPick={setPickedId} />
         ) : (

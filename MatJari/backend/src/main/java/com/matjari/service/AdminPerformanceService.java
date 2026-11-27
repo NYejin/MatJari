@@ -157,6 +157,56 @@ public class AdminPerformanceService {
         return svc.list(performance);
     }
 
+    /** 추가 링크 지도(V34). null 이면 연결되지 않은 것이다(단위 시험). */
+    private SourceMapService sourceMaps;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setSourceMaps(SourceMapService sourceMaps) {
+        this.sourceMaps = sourceMaps;
+    }
+
+    private SourceMapService requireSourceMaps() {
+        if (sourceMaps == null) {
+            throw new IllegalStateException("SourceMapService 가 연결되지 않았습니다.");
+        }
+        return sourceMaps;
+    }
+
+    /**
+     * 추가 링크의 지도 다시 읽기(동기, 사유 필수). 보관 결과를 쓰지 않고 새로 읽어 그 링크의 구역·지도를 덮어쓴다(월 횟수 없음).
+     * 대표 링크면 400 sourceId(대표 지도는 기존 구역 API), 이 공연의 링크가 아니면 404, AI 가 읽지 못하면 503 AI_UNAVAILABLE(기존 지도 유지).
+     * AI 호출 동안은 트랜잭션·공연 행 잠금이 없고, 저장 트랜잭션 맨 끝에서 조치 기록(PERFORMANCE_ZONES, detail.sourceId)을 남긴다.
+     */
+    public com.matjari.dto.response.PerformanceZonesResponse.MapItem reextractSourceMap(Long adminId, Long id, Long sourceId,
+                                                                                         String reasonText) {
+        String reason = requiredReason(reasonText);
+        return requireSourceMaps().reextract(id, sourceId, r -> {
+            Map<String, Object> detail = new LinkedHashMap<>();
+            detail.put("sourceId", sourceId);
+            detail.put("mode", "REEXTRACT");
+            detail.put("before", r.before());
+            detail.put("after", r.after());
+            actionLogger.log(adminId, AdminActionLog.Action.PERFORMANCE_ZONES, AdminActionLog.TargetType.PERFORMANCE, id,
+                    reason, json(detail));
+        });
+    }
+
+    /** 추가 링크의 지도 삭제(사유 필수): 그 링크의 구역·지도 정보를 지우고 상태를 NONE 으로 둔다. 링크는 남는다. 대표 링크면 400, 다른 공연의 링크면 404. */
+    @Transactional
+    public List<PerformanceSourceDtos.SourceItem> clearSourceMap(Long adminId, Long id, Long sourceId, String reasonText) {
+        SourceMapService maps = requireSourceMaps();
+        String reason = requiredReason(reasonText);
+        Performance performance = lock(id);
+        Map<String, Object> before = maps.clearLocked(performance, sourceId);
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("sourceId", sourceId);
+        detail.put("mode", "CLEAR");
+        detail.put("before", before);
+        actionLogger.log(adminId, AdminActionLog.Action.PERFORMANCE_ZONES, AdminActionLog.TargetType.PERFORMANCE, id,
+                reason, json(detail));
+        return requireSources().list(performance);
+    }
+
     private static String imageMode(String raw) {
         if (raw == null || raw.isBlank()) {
             return "KEEP";
@@ -370,9 +420,10 @@ public class AdminPerformanceService {
                             + details.get("histories") + "). 숨김 상태로 두세요.",
                     Map.of("code", "PERFORMANCE_IN_USE", "inUse", details));
         }
+        // 구역(대표 지도와 추가 링크 지도 전부)을 링크 행보다 먼저 지운다: performance_zone.source_id 가 performance_source 를 가리킨다(V34)
+        int zones = jdbc.update("DELETE FROM performance_zone WHERE performance_id = ?", id);
         int sourceLinks = jdbc.update("DELETE FROM performance_source WHERE performance_id = ?", id);
         int proposals = jdbc.update("DELETE FROM performance_edit_proposal WHERE performance_id = ?", id);
-        int zones = jdbc.update("DELETE FROM performance_zone WHERE performance_id = ?", id);
         int sessions = jdbc.update("DELETE FROM performance_session WHERE performance_id = ?", id);
         Map<String, Object> detail = new LinkedHashMap<>();
         detail.put("title", performance.getTitle());

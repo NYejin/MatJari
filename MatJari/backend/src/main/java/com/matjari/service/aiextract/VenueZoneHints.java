@@ -40,14 +40,14 @@ public class VenueZoneHints {
                     SELECT p.id FROM performance p
                     WHERE p.hidden_at IS NULL
                       AND LOWER(REPLACE(REPLACE(p.venue_name, ' ', ''), '　', '')) = ?
-                      AND (SELECT COUNT(*) FROM performance_zone z WHERE z.performance_id = p.id) >= ?
+                      AND (SELECT COUNT(*) FROM performance_zone z WHERE z.performance_id = p.id AND z.source_id IS NULL) >= ?
                     ORDER BY p.created_at DESC, p.id DESC LIMIT 1
                     """, Long.class, key, properties.getVenueHintMinZones());
             if (ids.isEmpty()) {
                 return List.of();
             }
             return jdbc.queryForList(
-                    "SELECT name FROM performance_zone WHERE performance_id = ? ORDER BY sort_order, id LIMIT " + MAX_NAMES,
+                    "SELECT name FROM performance_zone WHERE performance_id = ? AND source_id IS NULL ORDER BY sort_order, id LIMIT " + MAX_NAMES,
                     String.class, ids.get(0));
         } catch (RuntimeException e) {
             log.info("같은 공연장 구역 참고 조회 실패: {}", e.getClass().getSimpleName());

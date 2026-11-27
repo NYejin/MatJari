@@ -1,8 +1,10 @@
 import { useState, type InputHTMLAttributes } from "react";
 import TextField from "./TextField";
-import ZoneMap, { hasShapedZone } from "./ZoneMap";
+import { hasShapedZone } from "./ZoneMap";
+import ZoneMapTabs from "./ZoneMapTabs";
 import { button, ui } from "./ui";
 import type { ZoneData } from "../hooks/useZones";
+import type { ZoneMapInfo } from "../types/performance";
 
 // 구역 입력. 공연에 구역 지도가 있으면 지도에서 구역을 눌러(클릭·터치) 고르고, 없으면 기존 텍스트 입력 그대로.
 // 지도에 없는 구역은 아래 입력 칸에 직접 쓸 수 있다. 값은 항상 구역 이름 문자열 하나라 저장 형식·검증은 그대로다.
@@ -22,7 +24,13 @@ interface ZonePickFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>,
 export default function ZonePickField({ id, label, value, onValueChange, zoneData, error, hint, ...inputProps }: ZonePickFieldProps) {
   const [open, setOpen] = useState(true);
   const mapId = `${id}-map`;
-  const showMap = !!zoneData && hasShapedZone(zoneData.zones);
+  // maps 가 없으면(등록 화면의 입력 중 구역 등) 대표 지도 하나로 본다
+  const maps: ZoneMapInfo[] = zoneData
+    ? (zoneData.maps ?? [
+        { sourceId: null, site: "", siteName: "", primary: true, status: "READY", aspect: zoneData.aspect, seatmapImage: zoneData.seatmapImage ?? null, zones: zoneData.zones },
+      ])
+    : [];
+  const showMap = !!zoneData && (hasShapedZone(zoneData.zones) || maps.some((m) => hasShapedZone(m.zones) || m.status === "PENDING"));
 
   return (
     <div className="flex flex-col gap-3">
@@ -46,10 +54,8 @@ export default function ZonePickField({ id, label, value, onValueChange, zoneDat
             지도 대신 아래 칸에 티켓에 적힌 구역 이름을 직접 입력해 주세요.
           </p>
           <div id={mapId} hidden={!open}>
-            <ZoneMap
-              zones={zoneData.zones}
-              aspect={zoneData.aspect}
-              seatmapImage={zoneData.seatmapImage}
+            <ZoneMapTabs
+              maps={maps}
               selected={value.trim() || null}
               onSelect={inputProps.disabled ? undefined : onValueChange}
             />

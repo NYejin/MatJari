@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { performancesApi } from "../api/performances";
-import type { PerformanceZone, SeatmapImage } from "../types/performance";
+import type { PerformanceZone, SeatmapImage, ZoneMapInfo } from "../types/performance";
 
 export interface ZoneData {
   zones: PerformanceZone[];
   aspect: number | null;
   seatmapImage?: SeatmapImage | null;
+  /** 예매처별 지도(대표 먼저). 구 응답이면 대표 지도 하나짜리 배열 */
+  maps?: ZoneMapInfo[];
 }
 
 /**
@@ -22,8 +24,23 @@ export function useZones(performanceId: number | null): ZoneData | null {
     performancesApi
       .zones(performanceId, controller.signal)
       .then((res) => {
-        const zones = (res.zones ?? []).filter((z) => typeof z.name === "string" && z.name.trim() !== "");
-        setData(zones.length > 0 ? { zones, aspect: res.seatmapAspect ?? null, seatmapImage: res.seatmapImage ?? null } : null);
+        const clean = (list: PerformanceZone[] | undefined) =>
+          (list ?? []).filter((z) => typeof z.name === "string" && z.name.trim() !== "");
+        const zones = clean(res.zones);
+        const primary: ZoneMapInfo = {
+          sourceId: null,
+          site: "",
+          siteName: "",
+          primary: true,
+          status: zones.length > 0 ? "READY" : "NONE",
+          aspect: res.seatmapAspect ?? null,
+          seatmapImage: res.seatmapImage ?? null,
+          zones,
+        };
+        const maps = res.maps && res.maps.length > 0 ? res.maps.map((m) => ({ ...m, zones: clean(m.zones) })) : [primary];
+        // 지도가 하나도 없고 읽는 중인 지도도 없으면 텍스트 입력 그대로
+        const useful = maps.some((m) => m.zones.length > 0 || m.status === "PENDING");
+        setData(useful ? { zones, aspect: res.seatmapAspect ?? null, seatmapImage: res.seatmapImage ?? null, maps } : null);
       })
       .catch(() => {
         // 실패는 조용히 텍스트 입력으로 되돌린다

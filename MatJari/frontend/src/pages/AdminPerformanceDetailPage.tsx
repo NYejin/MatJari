@@ -286,6 +286,14 @@ function InfoCard({ detail, onUpdated }: CardProps) {
 
 // ---- 예매처 링크 ----
 
+/** 예매처 지도 상태 배지: READY n구역 / 읽는 중 / 실패 / 없음 */
+function MapStatusBadge({ status, zoneCount }: { status?: "READY" | "PENDING" | "FAILED" | "NONE"; zoneCount?: number }) {
+  if (status === "READY") return <span className={tone.ok}>{`READY ${zoneCount ?? 0}구역`}</span>;
+  if (status === "PENDING") return <span className={tone.info}>읽는 중</span>;
+  if (status === "FAILED") return <span className={tone.danger}>실패</span>;
+  return <span className={tone.mute}>없음</span>;
+}
+
 /** 한 공연을 여러 예매처가 나눠 파는 경우 링크를 더 붙인다. 추가·삭제 모두 사유 필수, 대표 링크는 삭제 불가 */
 function SourcesCard({ detail, onUpdated }: CardProps) {
   const sources = detail.sources ?? [];
@@ -305,7 +313,38 @@ function SourcesCard({ detail, onUpdated }: CardProps) {
     onUpdated(await adminPerformancesApi.get(detail.id));
   };
 
-  const add = async (e: FormEvent) => {
+  // 예매처 지도 관리(구역 다시 인식·지도 지우기): 사유를 받은 뒤 실행
+  const [mapAct, setMapAct] = useState<{ id: number; kind: "extract" | "clear" } | null>(null);
+  const [mapReason, setMapReason] = useState("");
+  const [mapReasonError, setMapReasonError] = useState<string>();
+
+  const runMapAct = async () => {
+    if (busyRef.current || !mapAct) return;
+    if (!mapReason.trim()) {
+      setMapReasonError("사유를 입력해 주세요.");
+      return;
+    }
+    setMapReasonError(undefined);
+    setDone("");
+    setError(null);
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      if (mapAct.kind === "extract") await adminPerformancesApi.extractSourceZones(detail.id, mapAct.id, mapReason.trim());
+      else await adminPerformancesApi.clearSourceZones(detail.id, mapAct.id, mapReason.trim());
+      setDone(mapAct.kind === "extract" ? "이 예매처 좌석표를 다시 읽었어요." : "이 예매처 지도를 지웠어요.");
+      setMapAct(null);
+      setMapReason("");
+      await reload();
+    } catch (err) {
+      setError(errorText(err, mapAct.kind === "extract" ? "구역을 다시 인식하지 못했습니다." : "지도를 지우지 못했습니다."));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  };
+
+  const add =async (e: FormEvent) => {
     e.preventDefault();
     if (busyRef.current) return;
     setDone("");
@@ -370,6 +409,7 @@ function SourcesCard({ detail, onUpdated }: CardProps) {
                 <th className={tbl.th}>예매처</th>
                 <th className={tbl.th}>주소</th>
                 <th className={tbl.th}>대표</th>
+                <th className={tbl.th}>지도</th>
                 <th className={tbl.th}>삭제</th>
               </tr>
             </thead>
@@ -379,6 +419,41 @@ function SourcesCard({ detail, onUpdated }: CardProps) {
                   <td className={tbl.td}>{s.siteName}</td>
                   <td className={`${tbl.td} break-all`}>{s.url}</td>
                   <td className={tbl.td}>{s.primary ? <span className={tone.ok}>대표</span> : "-"}</td>
+                  <td className={tbl.td}>
+                    <div className="flex flex-col items-start gap-1">
+                      <MapStatusBadge status={s.mapStatus} zoneCount={s.zoneCount} />
+                      {s.primary ? (
+                        <span className={ui.hint}>대표 지도는 아래 구역 카드에서 관리</span>
+                      ) : (
+                        <span className="flex flex-wrap gap-1">
+                          <button
+                            type="button"
+                            className={button.outline}
+                            disabled={busy}
+                            onClick={() => {
+                              setMapAct({ id: s.id, kind: "extract" });
+                              setMapReason("");
+                              setMapReasonError(undefined);
+                            }}
+                          >
+                            구역 다시 인식
+                          </button>
+                          <button
+                            type="button"
+                            className={button.outline}
+                            disabled={busy}
+                            onClick={() => {
+                              setMapAct({ id: s.id, kind: "clear" });
+                              setMapReason("");
+                              setMapReasonError(undefined);
+                            }}
+                          >
+                            지도 지우기
+                          </button>
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className={tbl.td}>
                     {s.primary ? (
                       <span className={ui.hint}>삭제 불가</span>
@@ -401,6 +476,24 @@ function SourcesCard({ detail, onUpdated }: CardProps) {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+      {mapAct !== null && (
+        <div className="flex flex-col gap-2 rounded-md border border-gray-300 bg-gray-50 p-2">
+          <p className={ui.warning}>
+            {mapAct.kind === "extract"
+              ? "이 예매처 좌석표를 새로 읽어 지도를 바꿔요. 읽는 동안 잠시 걸려요."
+              : "이 예매처 지도를 지워요. 링크와 티켓은 그대로예요."}
+          </p>
+          <ReasonField id="admin-perf-source-map-reason" value={mapReason} onChange={setMapReason} disabled={busy} error={mapReasonError} />
+          <div className="flex gap-2">
+            <button type="button" className={button.solid} disabled={busy} aria-busy={busy} onClick={() => void runMapAct()}>
+              {busy ? "처리 중..." : mapAct.kind === "extract" ? "다시 인식 실행" : "지우기 실행"}
+            </button>
+            <button type="button" className={button.outline} disabled={busy} onClick={() => setMapAct(null)}>
+              취소
+            </button>
+          </div>
         </div>
       )}
       {removing !== null && (

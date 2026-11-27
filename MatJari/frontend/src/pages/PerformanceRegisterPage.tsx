@@ -370,7 +370,10 @@ export default function PerformanceRegisterPage() {
 
   const linkedTo = (performanceId: number) => {
     // 관리자는 티켓 없이 등록하므로 관리자 공연 상세로, 일반 사용자는 기존 '이 공연에 티켓 등록하기' 경로로
-    navigate(isAdmin ? `/admin/performances/${performanceId}` : `/tickets/new?performanceId=${performanceId}`, { replace: true });
+    navigate(isAdmin ? `/admin/performances/${performanceId}` : `/tickets/new?performanceId=${performanceId}`, {
+      replace: true,
+      state: { sourceMapNotice: true },
+    });
   };
 
   const submitUrl = async (e: FormEvent<HTMLFormElement>) => {

@@ -8,6 +8,8 @@ import { button, input, linkButton, liveRegionClass, ui } from "../components/ui
 import TextField from "../components/TextField";
 import PosterImage from "../components/PosterImage";
 import ZoneMap, { hasShapedZone } from "../components/ZoneMap";
+import ZoneMapTabs from "../components/ZoneMapTabs";
+import { useZones } from "../hooks/useZones";
 import {
   EDIT_ERROR_MESSAGES,
   EDIT_REASON_MAX,
@@ -240,13 +242,20 @@ function InfoSection({ detail }: { detail: PerformanceDetail }) {
 
 function ZoneMapSection({ detail }: { detail: PerformanceDetail }) {
   const zones = detail.zones ?? [];
-  if (!hasShapedZone(zones)) return null;
+  const zoneData = useZones(detail.id);
+  // 예매처별 지도가 2개 이상이면 탭으로, 아니면 지금처럼 대표 지도 하나
+  const multi = zoneData?.maps && zoneData.maps.length >= 2 ? zoneData.maps : null;
+  if (!multi && !hasShapedZone(zones)) return null;
   return (
     <section className={`${ui.card} flex flex-col gap-4`} aria-labelledby="perf-zonemap-title">
       <h2 id="perf-zonemap-title" className={ui.sectionTitle}>
         구역 지도
       </h2>
-      <ZoneMap zones={zones} aspect={detail.seatmapAspect} seatmapImage={detail.seatmapImage} />
+      {multi ? (
+        <ZoneMapTabs maps={multi} />
+      ) : (
+        <ZoneMap zones={zones} aspect={detail.seatmapAspect} seatmapImage={detail.seatmapImage} />
+      )}
       <p className={ui.hint}>AI가 상세 이미지에서 읽은 구역 모양이라 실제와 다를 수 있어요. 지도는 +/− 버튼이나 두 손가락으로 확대하고 드래그로 옮길 수 있어요.</p>
     </section>
   );
